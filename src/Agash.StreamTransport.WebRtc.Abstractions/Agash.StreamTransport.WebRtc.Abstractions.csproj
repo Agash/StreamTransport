@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>Agash.StreamTransport.WebRtc.Abstractions</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.WebRtc</RootNamespace>
+    <PackageId>Agash.StreamTransport.WebRtc.Abstractions</PackageId>
+    <Description>Contracts and options for the Agash.StreamTransport first-party WebRTC stack: ICE/DTLS/SRTP/RTP transport seams, peer-connection abstractions, and diagnostics. Only dependency beyond the BCL is Microsoft.Extensions.Logging.Abstractions.</Description>
+    <PackageTags>webrtc;ice;dtls;srtp;rtp;abstractions;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

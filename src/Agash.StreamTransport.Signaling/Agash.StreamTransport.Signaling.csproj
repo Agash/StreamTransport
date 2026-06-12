@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Transport-agnostic: depends only on the abstractions, no WebRTC/codec/ASP.NET. The standalone
+         relay and StreamWeaver's SignalR hub both drive this same router. -->
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>Agash.StreamTransport.Signaling</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.Signaling</RootNamespace>
+    <PackageId>Agash.StreamTransport.Signaling</PackageId>
+    <Description>Transport-agnostic WebRTC signaling room router for Agash.StreamTransport: room registry, peer routing, and ICE-server provisioning. Bind it to a WebSocket endpoint or a SignalR hub.</Description>
+    <PackageTags>webrtc;signaling;sfu;mesh;rooms;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

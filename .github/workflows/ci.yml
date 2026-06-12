@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build+test (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+          dotnet-quality: preview
+
+      # The macOS head (VideoToolbox / IOSurface) needs the macos workload.
+      - name: Install macOS workload
+        if: runner.os == 'macOS'
+        run: dotnet workload install macos
+
+      # Hardware codec libraries. Desktop RIDs use BtbN LGPL builds; macOS uses Homebrew's ffmpeg.
+      - name: Fetch FFmpeg (Windows/Linux)
+        if: runner.os != 'macOS'
+        shell: pwsh
+        run: ./eng/fetch-ffmpeg.ps1 -Rids ${{ matrix.rid }}
+
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Restore
+        run: dotnet restore StreamTransport.slnx
+
+      - name: Build
+        run: dotnet build StreamTransport.slnx -c Release --no-restore
+
+      # Integration tests bind real loopback sockets + negotiate full WebRTC (flaky/slow on CI, esp. arm64);
+      # the unit + in-process E2E suite runs everywhere. MSTest exposes the category as `TestCategory`.
+      - name: Test
+        run: dotnet test StreamTransport.slnx -c Release --no-build --filter "TestCategory!=Integration"

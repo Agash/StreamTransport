@@ -1,0 +1,23 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- .NET 11 Runtime Async V2: the runtime manages async suspension/resumption instead of
+         compiler-generated state machines (cleaner stack traces, lower allocation). Opt out per project
+         with <UseRuntimeAsync>false</UseRuntimeAsync>. -->
+    <Features>runtime-async=on</Features>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Authors>Agash</Authors>
+    <Company>Agash</Company>
+    <Copyright>Copyright (c) Agash 2026</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/Agash/StreamTransport</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Agash/StreamTransport</PackageProjectUrl>
+  </PropertyGroup>
+</Project>

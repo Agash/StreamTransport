@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The cross-platform agent. The base TFM runs everywhere on the CPU media path (synthetic + camera
+         via FFmpeg libavdevice) and carries the macOS (Syphon/IOSurface) and Linux (PipeWire/DMA-BUF) GPU
+         zero-copy capture as runtime P/Invoke, gated by OperatingSystem checks. Only Windows needs a head,
+         for Spout (D3D11). The capture libraries come from NuGet (Spout2.NET / Syphon.NET / PipeWire.NET). -->
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net11.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+    <RootNamespace>StreamTransport.Agent</RootNamespace>
+    <AssemblyName>streamtransport-agent</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="DevTunnels.Client" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Agash.StreamTransport\Agash.StreamTransport.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Stun\Agash.StreamTransport.Stun.csproj" />
+  </ItemGroup>
+
+  <!-- Windows head: Spout zero-copy capture (D3D11). -->
+  <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <DefineConstants>$(DefineConstants);WINDOWS_HEAD</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="Spout2.NET" />
+    <PackageReference Include="Vortice.Direct3D11" />
+    <PackageReference Include="Vortice.D3DCompiler" />
+  </ItemGroup>
+
+  <!-- Windows D3D11 (Spout) HLSL shaders, compiled at runtime via D3DCompiler. Editable .hlsl files
+       embedded so they ship in the assembly with no file dependency. -->
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <EmbeddedResource Include="Shaders/alpha_pack.hlsl" LogicalName="alpha_pack.hlsl" />
+    <EmbeddedResource Include="Shaders/alpha_unpack.hlsl" LogicalName="alpha_unpack.hlsl" />
+    <EmbeddedResource Include="Shaders/nv12_to_bgra.hlsl" LogicalName="nv12_to_bgra.hlsl" />
+  </ItemGroup>
+
+  <!-- Base (non-Windows-head) TFM: macOS Syphon (IOSurface) and Linux PipeWire (DMA-BUF) zero-copy
+       capture, both runtime-gated by OperatingSystem checks. The native dylib/so for each ships in its
+       NuGet package under runtimes/<rid>, so a given RID's publish carries only its own. -->
+  <PropertyGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <DefineConstants>$(DefineConstants);HAS_SYPHON;HAS_PIPEWIRE;HAS_VULKAN</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="Syphon.NET" />
+    <PackageReference Include="PipeWire.NET" />
+    <!-- Linux GPU alpha pack/unpack: Vulkan compute over the PipeWire dmabuf, runtime GLSL->SPIR-V via
+         shaderc. Managed/cross-platform, so it compiles on every base-TFM CI job; only invoked on Linux. -->
+    <PackageReference Include="Vortice.Vulkan" />
+    <PackageReference Include="Vortice.ShaderCompiler" />
+  </ItemGroup>
+
+  <!-- macOS GPU alpha pack/unpack shaders, run at runtime through Syphon.NET's SurfaceEffect.
+       Kept as editable .metal files and embedded so they load without a file dependency. -->
+  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <EmbeddedResource Include="Shaders/alpha_pack.metal" LogicalName="alpha_pack.metal" />
+    <EmbeddedResource Include="Shaders/alpha_unpack_nv12.metal" LogicalName="alpha_unpack_nv12.metal" />
+    <EmbeddedResource Include="Shaders/alpha_unpack_bgra.metal" LogicalName="alpha_unpack_bgra.metal" />
+    <EmbeddedResource Include="Shaders/nv12_to_bgra.metal" LogicalName="nv12_to_bgra.metal" />
+  </ItemGroup>
+
+  <!-- Linux GPU alpha pack/unpack compute shaders (GLSL), compiled to SPIR-V at runtime via shaderc.
+       Editable .comp files embedded so they ship in the assembly with no file dependency. -->
+  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <EmbeddedResource Include="Shaders/alpha_pack.comp" LogicalName="alpha_pack.comp" />
+    <EmbeddedResource Include="Shaders/alpha_unpack_nv12.comp" LogicalName="alpha_unpack_nv12.comp" />
+    <EmbeddedResource Include="Shaders/alpha_unpack_bgra.comp" LogicalName="alpha_unpack_bgra.comp" />
+  </ItemGroup>
+</Project>

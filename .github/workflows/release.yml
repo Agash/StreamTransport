@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write # upload release assets
+
+jobs:
+  # ---- NuGet packages via OIDC trusted publishing (no stored API key) ----
+  nuget:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+          dotnet-quality: preview
+
+      - name: Pack
+        run: |
+          dotnet pack src/Agash.StreamTransport.Abstractions/Agash.StreamTransport.Abstractions.csproj -c Release -o artifacts
+          dotnet pack src/Agash.StreamTransport/Agash.StreamTransport.csproj -c Release -o artifacts
+          dotnet pack src/Agash.StreamTransport.Signaling/Agash.StreamTransport.Signaling.csproj -c Release -o artifacts
+          dotnet pack src/Agash.StreamTransport.Stun/Agash.StreamTransport.Stun.csproj -c Release -o artifacts
+
+      # Trusted publishing: exchange the GitHub OIDC token for a short-lived NuGet.org key.
+      - name: NuGet login (OIDC)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: Agash
+
+      - name: Push
+        run: dotnet nuget push "artifacts/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --skip-duplicate
+
+  # ---- Cross-platform single-file agent binaries ----
+  agent:
+    name: agent (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+          dotnet-quality: preview
+
+      - name: Fetch FFmpeg
+        if: runner.os != 'macOS'
+        shell: pwsh
+        run: ./eng/fetch-ffmpeg.ps1 -Rids ${{ matrix.rid }}
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      # Base TFM: the GPU-capture heads need the (unpublished) Spout/Syphon/PipeWire clones, absent in CI.
+      - name: Publish single-file agent
+        run: >
+          dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
+          -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish/${{ matrix.rid }}
+
+      # Ship the FFmpeg shared libraries next to the executable.
+      - name: Bundle FFmpeg natives
+        if: runner.os != 'macOS'
+        shell: pwsh
+        run: Copy-Item native/ffmpeg/${{ matrix.rid }}/* publish/${{ matrix.rid }}/ -Force
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path publish/${{ matrix.rid }}/* -DestinationPath streamtransport-agent-${{ matrix.rid }}.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: streamtransport-agent-${{ matrix.rid }}
+          path: streamtransport-agent-${{ matrix.rid }}.zip
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        run: gh release upload "${{ github.event.release.tag_name }}" streamtransport-agent-${{ matrix.rid }}.zip --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # ---- Relay + coturn Docker image to Docker Hub ----
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: agash/streamtransport-relay
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

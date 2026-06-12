@@ -1,0 +1,34 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Agash.StreamTransport.Abstractions/Agash.StreamTransport.Abstractions.csproj" />
+    <Project Path="src/Agash.StreamTransport/Agash.StreamTransport.csproj" />
+    <Project Path="src/Agash.StreamTransport.Signaling/Agash.StreamTransport.Signaling.csproj" />
+    <Project Path="src/Agash.StreamTransport.Stun/Agash.StreamTransport.Stun.csproj" />
+    <Project Path="src/Agash.StreamTransport.WebRtc.Abstractions/Agash.StreamTransport.WebRtc.Abstractions.csproj" />
+    <Project Path="src/Agash.StreamTransport.WebRtc/Agash.StreamTransport.WebRtc.csproj" />
+    <Project Path="src/Agash.StreamTransport.WebRtc.Dtls/Agash.StreamTransport.WebRtc.Dtls.csproj" />
+    <Project Path="src/Agash.StreamTransport.WebRtc.CongestionControl/Agash.StreamTransport.WebRtc.CongestionControl.csproj" />
+    <Project Path="src/Agash.StreamTransport.WebRtc.DependencyInjection/Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/StreamTransport.Agent/StreamTransport.Agent.csproj" />
+    <Project Path="samples/StreamTransport.Relay/StreamTransport.Relay.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Agash.StreamTransport.Tests/Agash.StreamTransport.Tests.csproj" />
+    <Project Path="tests/Agash.StreamTransport.WebRtc.Tests/Agash.StreamTransport.WebRtc.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/NativeAotSmoke/NativeAotSmoke.csproj" />
+  </Folder>
+</Solution>

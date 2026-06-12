@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>NativeAotSmoke</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <!-- Proves the first-party WebRTC stack publishes and runs as a NativeAOT single file (no JIT). -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc.Dtls\Agash.StreamTransport.WebRtc.Dtls.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc.CongestionControl\Agash.StreamTransport.WebRtc.CongestionControl.csproj" />
+  </ItemGroup>
+</Project>

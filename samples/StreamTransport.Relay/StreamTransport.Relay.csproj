@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <!-- Cross-platform, self-hostable relay: WebSocket signaling (room router) + embedded STUN. No media
+         flows through it, so it deliberately depends only on the signaling + STUN packages, not the
+         WebRTC/codec media library. Native TURN is a future add.
+         ships); today it can advertise an external coturn. -->
+    <TargetFramework>net11.0</TargetFramework>
+    <RootNamespace>StreamTransport.Relay</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Stun\Agash.StreamTransport.Stun.csproj" />
+  </ItemGroup>
+</Project>

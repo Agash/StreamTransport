@@ -1,0 +1,11 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- This is the shipped library surface: every publicly visible type and member must be documented.
+       Generating the XML doc file turns CS1591 (missing doc) and CS1573 (missing param tag) into warnings,
+       which the repo-wide TreatWarningsAsErrors promotes to build errors. Scoped to src/ so tests, samples,
+       apps, and tools are not required to carry public-API docs. -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+artifacts/
+
+## NuGet
+*.nupkg
+*.snupkg
+
+# VS/Rider per-user launch profiles
+**/Properties/launchSettings.json
+
+## Bundled native assets (FFmpeg builds), fetched per platform - not committed
+native/ffmpeg/
+
+# Local clones of sibling libs for development (never committed)
+external/
+
+# Reference material (RFC texts, libwebrtc source) used while building the WebRTC stack - never committed
+.refs/
+*.log

@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Base TFMs run everywhere. Only Windows needs a platform head, for the D3D11/Vortice zero-copy path
+         (genuine WinRT/COM interop). macOS and Linux carry their GPU interop on the base TFM as runtime
+         P/Invoke (VideoToolbox/CoreVideo on macOS, VAAPI/PipeWire on Linux), gated by OperatingSystem
+         checks - so neither needs a platform TFM, the Mono macOS app model, or its code-signing/JIT
+         constraints. The same NativeAOT single-file publish then covers every non-Windows RID. -->
+    <TargetFrameworks>net11.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+    <AssemblyName>Agash.StreamTransport</AssemblyName>
+    <RootNamespace>Agash.StreamTransport</RootNamespace>
+    <PackageId>Agash.StreamTransport</PackageId>
+    <Description>Local-first peer-to-peer WebRTC media transport on a first-party WebRTC stack: hardware H.265 video, Opus audio, SCReAM congestion control, FlexFEC loss recovery, and ICE mobility. Capture-agnostic and NativeAOT-ready, with an abstracted signaling channel.</Description>
+    <PackageTags>webrtc;streaming;transport;h265;hevc;av1;opus;dotnet;nativeaot</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- Windows-head compilation switch for the D3D11/Vortice path. macOS (VideoToolbox/CoreVideo) compiles
+       unconditionally on the base TFM - the same as the VAAPI path - and is selected at runtime. -->
+  <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <DefineConstants>$(DefineConstants);WINDOWS_HEAD</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <PackageReference Include="Concentus" />
+    <PackageReference Include="FFmpeg.AutoGen" />
+  </ItemGroup>
+
+  <!-- Windows head only: typed D3D11 interop for the Spout zero-copy path, plus the runtime HLSL compiler
+       for the GPU BGRA->NV12 colour conversion (so BGRA-incapable encoders stay on the GPU). -->
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <PackageReference Include="Vortice.Direct3D11" />
+    <PackageReference Include="Vortice.D3DCompiler" />
+  </ItemGroup>
+
+  <!-- D3D11 GPU colour-conversion HLSL, compiled at runtime via D3DCompiler. Editable .hlsl file
+       embedded so it ships in the assembly with no file dependency. -->
+  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
+    <EmbeddedResource Include="Codecs/Shaders/bgra_to_nv12.hlsl" LogicalName="bgra_to_nv12.hlsl" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />
+    <!-- First-party WebRTC stack. -->
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Dtls\Agash.StreamTransport.WebRtc.Dtls.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.DependencyInjection\Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agash.StreamTransport.Tests" />
+    <InternalsVisibleTo Include="streamtransport-agent" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <!--
+    Pinned FFmpeg shared libraries, fetched per RID into native/ffmpeg/<rid>/ by eng/fetch-ffmpeg.ps1
+    (gitignored). Each RID's libraries are packed into runtimes/<rid>/native so a consumer restoring
+    for a given RID gets only that platform's natives. %(RecursiveDir) is the "<rid>/" segment.
+  -->
+  <ItemGroup>
+    <_FFmpegNative Include="..\..\native\ffmpeg\**\*.dll;..\..\native\ffmpeg\**\*.so*;..\..\native\ffmpeg\**\*.dylib" />
+    <None Include="@(_FFmpegNative)" Pack="true" PackagePath="runtimes\%(RecursiveDir)native\%(Filename)%(Extension)" Visible="false" />
+  </ItemGroup>
+</Project>

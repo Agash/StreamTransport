@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>Agash.StreamTransport.WebRtc.DependencyInjection</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.WebRtc.DependencyInjection</RootNamespace>
+    <PackageId>Agash.StreamTransport.WebRtc.DependencyInjection</PackageId>
+    <Description>Dependency-injection wiring for the Agash.StreamTransport WebRTC stack: registers the DTLS-SRTP factory, the congestion controller, and a peer-connection factory via Microsoft.Extensions.DependencyInjection.</Description>
+    <PackageTags>webrtc;dependencyinjection;hosting;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Dtls\Agash.StreamTransport.WebRtc.Dtls.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.CongestionControl\Agash.StreamTransport.WebRtc.CongestionControl.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.Extensions.DependencyInjection.Abstractions and .Options are provided by the net11.0
+         framework (NU1510-pruned), so they are not referenced explicitly. -->
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

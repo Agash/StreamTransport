@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>Agash.StreamTransport.WebRtc</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.WebRtc</RootNamespace>
+    <PackageId>Agash.StreamTransport.WebRtc</PackageId>
+    <Description>A small, modern, libwebrtc-aligned WebRTC stack for .NET: ICE/STUN, SRTP, RTP/RTCP, SDP/JSEP and a peer connection. BCL crypto only; DTLS-SRTP plugs in via Agash.StreamTransport.WebRtc.Dtls. The first-party transport for Agash.StreamTransport.</Description>
+    <PackageTags>webrtc;ice;stun;srtp;rtp;rtcp;sdp;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Abstractions\Agash.StreamTransport.WebRtc.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agash.StreamTransport.WebRtc.Tests" />
+  </ItemGroup>
+</Project>

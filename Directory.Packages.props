@@ -1,0 +1,42 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-preview.5.26302.115" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.5.26302.115" />
+    <!-- DTLS 1.2 + use_srtp (RFC 5764) handshake engine - the ONLY third-party crypto dependency,
+         confined to Agash.StreamTransport.WebRtc.Dtls. The BCL has no managed DTLS. -->
+    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.2" />
+    <PackageVersion Include="MinVer" Version="7.0.0" />
+    <PackageVersion Include="MSTest.TestFramework" Version="4.2.3" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="4.2.3" />
+    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.2.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Pure-managed Opus, driven directly for stereo. -->
+    <PackageVersion Include="Concentus" Version="2.2.2" />
+    <PackageVersion Include="FFmpeg.AutoGen" Version="8.1.0" />
+    <!-- Robust typed D3D11 interop for the Windows zero-copy texture path (Windows runtime only). -->
+    <PackageVersion Include="Vortice.Direct3D11" Version="3.8.3" />
+    <!-- Runtime HLSL compilation for the NV12<->BGRA GPU colour-conversion shaders (publish path). -->
+    <PackageVersion Include="Vortice.D3DCompiler" Version="3.8.3" />
+    <!-- Linux GPU alpha pack/unpack: Vulkan compute over a dmabuf VkImage (zero-copy), with runtime
+         GLSL->SPIR-V via shaderc - the cross-platform parallel to Vortice.Direct3D11 + Vortice.D3DCompiler. -->
+    <PackageVersion Include="Vortice.Vulkan" Version="3.2.3" />
+    <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
+    <!-- Friendly console UX for the sample agent. -->
+    <PackageVersion Include="Spectre.Console" Version="0.56.0" />
+    <!-- Our DevTunnels CLI wrapper, for the agent's sender-hosted tunnel mode. -->
+    <PackageVersion Include="DevTunnels.Client" Version="1.1.0-dev1" />
+    <!-- Platform GPU capture/share libraries (the agent's zero-copy sources/sinks). -->
+    <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha" />
+    <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.3" />
+    <PackageVersion Include="PipeWire.NET" Version="0.1.0-alpha" />
+  </ItemGroup>
+</Project>

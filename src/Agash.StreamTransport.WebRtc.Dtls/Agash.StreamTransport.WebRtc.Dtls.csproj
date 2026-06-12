@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>Agash.StreamTransport.WebRtc.Dtls</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.WebRtc.Dtls</RootNamespace>
+    <PackageId>Agash.StreamTransport.WebRtc.Dtls</PackageId>
+    <Description>DTLS 1.2 + use_srtp (RFC 5764) handshake for the Agash.StreamTransport WebRTC stack, implementing IDtlsTransportFactory. This is the only package that depends on BouncyCastle — the WebRTC core stays free of third-party crypto.</Description>
+    <PackageTags>webrtc;dtls;dtls-srtp;bouncycastle;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Abstractions\Agash.StreamTransport.WebRtc.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" />
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agash.StreamTransport.WebRtc.Tests" />
+  </ItemGroup>
+</Project>

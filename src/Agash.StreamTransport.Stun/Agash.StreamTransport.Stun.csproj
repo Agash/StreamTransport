@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- STUN binding server + ICE-server providers. Cross-platform (BCL UDP + first-party STUN codec);
+         no platform heads. Native TURN relay is a separate, later package; this package already covers
+         advertising an EXTERNAL TURN (e.g. self-hosted coturn) with ephemeral credentials. -->
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>Agash.StreamTransport.Stun</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.Stun</RootNamespace>
+    <PackageId>Agash.StreamTransport.Stun</PackageId>
+    <Description>Embeddable STUN binding server and ICE-server providers for Agash.StreamTransport, including bring-your-own coturn TURN with ephemeral credentials.</Description>
+    <PackageTags>webrtc;stun;turn;ice;coturn;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
+    <!-- First-party STUN codec. -->
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
