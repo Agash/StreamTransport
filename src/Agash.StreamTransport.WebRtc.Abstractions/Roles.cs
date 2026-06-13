@@ -6,10 +6,10 @@ namespace Agash.StreamTransport.WebRtc;
 /// </summary>
 public enum IceRole
 {
-    /// <summary>Controlled agent — follows the controlling agent's nomination.</summary>
+    /// <summary>Controlled agent - follows the controlling agent's nomination.</summary>
     Controlled = 0,
 
-    /// <summary>Controlling agent — nominates the selected candidate pair.</summary>
+    /// <summary>Controlling agent - nominates the selected candidate pair.</summary>
     Controlling = 1,
 }
 
@@ -19,10 +19,10 @@ public enum IceRole
 /// </summary>
 public enum DtlsRole
 {
-    /// <summary>DTLS client — sends <c>ClientHello</c> and initiates the handshake (<c>a=setup:active</c>).</summary>
+    /// <summary>DTLS client - sends <c>ClientHello</c> and initiates the handshake (<c>a=setup:active</c>).</summary>
     Client = 0,
 
-    /// <summary>DTLS server — listens for <c>ClientHello</c> (<c>a=setup:passive</c>).</summary>
+    /// <summary>DTLS server - listens for <c>ClientHello</c> (<c>a=setup:passive</c>).</summary>
     Server = 1,
 }
 

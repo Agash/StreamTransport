@@ -195,7 +195,7 @@ public interface IVideoCodecDescriptor
     /// <summary>The RTP clock rate (90000 for video).</summary>
     int ClockRate { get; }
 
-    /// <summary>The SDP <c>a=fmtp</c> parameter string (profile-level-id, packetization-mode, …), or null.</summary>
+    /// <summary>The SDP <c>a=fmtp</c> parameter string (profile-level-id, packetization-mode, ...), or null.</summary>
     string? FormatParameters { get; }
 
     /// <summary>The SDP <c>a=rtcp-fb</c> values advertised (e.g. <c>nack</c>, <c>nack pli</c>).</summary>

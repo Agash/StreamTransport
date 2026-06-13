@@ -4,7 +4,7 @@ namespace Agash.StreamTransport.WebRtc.Rtp;
 
 /// <summary>A source RTP packet a FEC repair packet protects: the recovery-relevant header fields + the bytes after the fixed 12-byte header.</summary>
 /// <param name="SequenceNumber">RTP sequence number.</param>
-/// <param name="HeaderBits">The low byte-0 bits of the RTP header (P, X, CC, M) — bit layout <c>P X CC[4] M</c> in bits 5..0.</param>
+/// <param name="HeaderBits">The low byte-0 bits of the RTP header (P, X, CC, M) - bit layout <c>P X CC[4] M</c> in bits 5..0.</param>
 /// <param name="PayloadType">The 7-bit payload type.</param>
 /// <param name="Timestamp">RTP timestamp.</param>
 /// <param name="BodyAfterHeader">Everything after the fixed 12-byte RTP header (CSRC/extensions/payload).</param>
@@ -57,6 +57,11 @@ public static class FlexFec
         foreach (FecSourcePacket s in sources)
         {
             int offset = (ushort)(s.SequenceNumber - snBase);
+            if (offset >= MaxProtected)
+            {
+                throw new ArgumentException($"FlexFEC packet sequence span must be < {MaxProtected}; got offset {offset}.", nameof(sources));
+            }
+
             mask |= (ushort)(1 << (14 - offset)); // j=0 is the most significant of the 15-bit mask.
             headerBitsXor ^= s.HeaderBits;
             ptXor ^= s.PayloadType;
@@ -128,7 +133,7 @@ public static class FlexFec
             }
             else
             {
-                return null; // more than one lost — cannot recover with a single repair packet.
+                return null; // more than one lost - cannot recover with a single repair packet.
             }
         }
 

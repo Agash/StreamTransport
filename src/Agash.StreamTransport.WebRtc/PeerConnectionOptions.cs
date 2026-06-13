@@ -40,7 +40,16 @@ public sealed class PeerConnectionOptions
     /// <summary>Include loopback candidates (for same-host tests). Off by default.</summary>
     public bool IncludeLoopback { get; init; }
 
-    /// <summary>The one-byte header-extension id used for abs-capture-time (1–14), or 0 to disable.</summary>
+    /// <summary>
+    /// Restricts ICE host-candidate gathering to local addresses matching at least one of these selectors. Each
+    /// selector is a NIC name, a literal IP address, or the keyword <c>ipv4</c>/<c>ipv6</c> (case-insensitive).
+    /// Empty (the default) gathers every usable address. Pinning a family on both peers forces that family for
+    /// the link; pinning NIC names (e.g. the two cellular modems on an IRL field uplink) keeps gathering off
+    /// unwanted interfaces such as Wi-Fi.
+    /// </summary>
+    public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
+
+    /// <summary>The one-byte header-extension id used for abs-capture-time (1-14), or 0 to disable.</summary>
     public int AbsCaptureTimeExtensionId { get; init; } = 1;
 
     /// <summary>
@@ -59,7 +68,7 @@ public sealed class PeerConnectionOptions
     /// <summary>The media SSRC FlexFEC protects (the video stream).</summary>
     public uint FecProtectedSsrc { get; init; }
 
-    /// <summary>Media packets protected by one repair packet (1–15).</summary>
+    /// <summary>Media packets protected by one repair packet (1-15).</summary>
     public int FecGroupSize { get; init; } = 10;
 }
 

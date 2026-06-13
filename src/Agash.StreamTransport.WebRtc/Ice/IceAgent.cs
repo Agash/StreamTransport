@@ -13,7 +13,7 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>
 /// A full-ICE agent (RFC 8445) over UDP with trickle (RFC 8838): it gathers host candidates (one socket
-/// per local address, so the source address is pinned — the durable fix for IPv6 source rotation), runs
+/// per local address, so the source address is pinned - the durable fix for IPv6 source rotation), runs
 /// STUN connectivity checks against trickled remote candidates, performs regular nomination, and maintains
 /// consent freshness (RFC 7675) on the selected pair. Non-STUN datagrams on the agent's sockets (DTLS,
 /// SRTP) are surfaced via <see cref="DataReceived"/>; outbound media goes through <see cref="SendAsync"/>.
@@ -76,12 +76,13 @@ public sealed partial class IceAgent : IAsyncDisposable
     public event Action<IceConnectionState>? StateChanged;
 
     /// <summary>
-    /// Raised for every non-STUN datagram received (DTLS / SRTP), with the source endpoint. The buffer is
-    /// the agent's <b>reused</b> receive buffer, borrowed only for the synchronous duration of the handler:
-    /// the handler may read and mutate it in place (e.g. SRTP decrypts into it) but <b>must copy anything it
-    /// retains</b> beyond the call, because the next datagram overwrites it. This is zero-copy by design.
+    /// Raised for every non-STUN datagram received (DTLS / SRTP), with the source endpoint and the packet's
+    /// 2-bit ECN mark (0 when the platform does not surface it). The buffer is the agent's <b>reused</b> receive
+    /// buffer, borrowed only for the synchronous duration of the handler: the handler may read and mutate it in
+    /// place (e.g. SRTP decrypts into it) but <b>must copy anything it retains</b> beyond the call, because the
+    /// next datagram overwrites it. This is zero-copy by design.
     /// </summary>
-    public event Action<Memory<byte>, IPEndPoint>? DataReceived;
+    public event Action<Memory<byte>, IPEndPoint, byte>? DataReceived;
 
     /// <summary>The current connection state.</summary>
     public IceConnectionState State => (IceConnectionState)Volatile.Read(ref _state);
@@ -104,7 +105,7 @@ public sealed partial class IceAgent : IAsyncDisposable
 
     /// <summary>
     /// Binds a UDP socket per local address and raises <see cref="LocalCandidateGathered"/> for each host
-    /// candidate, then starts the connectivity-check loop. Idempotent gathering is not supported — call once.
+    /// candidate, then starts the connectivity-check loop. Idempotent gathering is not supported - call once.
     /// </summary>
     public void Start()
     {
@@ -231,8 +232,13 @@ public sealed partial class IceAgent : IAsyncDisposable
             _selected = null;
             _inFlight.Clear();
             _pairs.Clear();
-        }
 
+            foreach (LocalEndpoint ep in _localEndpoints)
+            {
+                ep.Socket.Dispose();
+            }
+            _localEndpoints.Clear();
+        }
         // Re-gather fresh host candidates under the new credentials and re-trickle them.
         GatherHostCandidates();
 
@@ -261,7 +267,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         {
             if (!_socketFactory.TryBind(address, out IIceSocket socket))
             {
-                continue; // family unavailable / address not bindable — skip.
+                continue; // family unavailable / address not bindable - skip.
             }
 
             IPEndPoint bound = socket.LocalEndPoint;
@@ -313,6 +319,10 @@ public sealed partial class IceAgent : IAsyncDisposable
             {
                 return;
             }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
             catch (SocketException)
             {
                 continue; // transient ICMP port-unreachable etc.
@@ -327,10 +337,10 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
             else
             {
-                // DTLS / SRTP — hand the reused receive buffer directly (zero copy). The handler runs
+                // DTLS / SRTP - hand the reused receive buffer directly (zero copy). The handler runs
                 // synchronously before the next receive, so it may decrypt in place and read it freely; it
                 // must copy anything it keeps beyond the call (see DataReceived's contract).
-                DataReceived?.Invoke(buffer.AsMemory(0, result.Length), source);
+                DataReceived?.Invoke(buffer.AsMemory(0, result.Length), source, result.Ecn);
             }
         }
     }

@@ -47,7 +47,7 @@ public sealed class FlexFecTests
         FecSourcePacket[] run = SampleRun();
         byte[] fec = FlexFec.BuildRepair(run);
 
-        const ushort lost = 101; // the 1100-byte one — exercises the length-recovery path.
+        const ushort lost = 101; // the 1100-byte one - exercises the length-recovery path.
         FecRecoveredPacket? recovered = FlexFec.TryRecover(fec, seq => seq == lost ? null : Find(run, seq));
 
         Assert.IsNotNull(recovered);

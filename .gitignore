@@ -21,3 +21,6 @@ external/
 # Reference material (RFC texts, libwebrtc source) used while building the WebRTC stack - never committed
 .refs/
 *.log
+
+# Local-only rescued design docs (ADRs, handoff) — never tracked
+_ref/

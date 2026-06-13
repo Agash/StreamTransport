@@ -12,7 +12,7 @@ public readonly record struct CcfbMetric(bool Received, byte Ecn, ushort Arrival
 public readonly record struct CcfbStreamReport(uint Ssrc, ushort BeginSequence, IReadOnlyList<CcfbMetric> Metrics);
 
 /// <summary>
-/// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11) — the modern,
+/// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11) - the modern,
 /// standardized transport feedback this stack uses instead of the legacy transport-wide-cc (TWCC). The
 /// receiver reports per-packet arrival times + ECN keyed on the media RTP sequence number; the sender's
 /// congestion controller consumes them.

@@ -6,6 +6,7 @@ using Vortice.Direct3D11;
 namespace Agash.StreamTransport.Tests;
 
 [TestClass]
+[DoNotParallelize] // Creates a D3D11/NVENC hardware device; isolate GPU work from the parallel pool.
 public sealed class D3D11DiagnosticTests
 {
     [TestMethod]

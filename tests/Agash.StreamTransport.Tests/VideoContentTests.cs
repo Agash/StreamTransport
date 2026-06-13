@@ -12,6 +12,7 @@ namespace Agash.StreamTransport.Tests;
 /// check (the M-1 / W-4 class). Parametrized per encoder; self-skips where the encoder/GPU is absent.
 /// </summary>
 [TestClass]
+[DoNotParallelize] // Drives a hardware HEVC encoder; one GPU encode session at a time.
 public sealed class VideoContentTests
 {
     /// <summary>Auto-selected encoder (VideoToolbox on macOS, NVENC on Win/Linux, ...).</summary>

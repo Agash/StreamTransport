@@ -109,7 +109,8 @@ internal sealed record AgentConfig(
     bool Synced = false,
     int Seconds = 15,
     int BFrames = 0,
-    MediaProfile Profile = MediaProfile.InteractiveP2P)
+    MediaProfile Profile = MediaProfile.InteractiveP2P,
+    IReadOnlyList<string>? Interfaces = null)
 {
     public static AgentConfig? FromArgs(string[] args)
     {
@@ -128,6 +129,7 @@ internal sealed record AgentConfig(
         int seconds = 15;
         int bFrames = 0;
         var profile = MediaProfile.InteractiveP2P;
+        var interfaces = new List<string>();
 
         for (int i = 1; i < args.Length; i++)
         {
@@ -153,6 +155,7 @@ internal sealed record AgentConfig(
                 case "--seconds": seconds = int.Parse(args[++i]); break;
                 case "--bframes": bFrames = int.Parse(args[++i]); break;
                 case "--profile": profile = ParseProfile(args[++i]); break;
+                case "--interface": interfaces.Add(args[++i]); break;
                 case "--verbose": break; // handled before host build; ignore here.
                 default: throw new ArgumentException($"unknown option '{args[i]}'.");
             }
@@ -174,7 +177,7 @@ internal sealed record AgentConfig(
 
         room ??= role == PeerRole.Publisher ? RandomRoom() : throw new ArgumentException("--room <code> is required for receive.");
         return new AgentConfig(
-            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, syphonServer, alpha, verify, synced, seconds, bFrames, profile);
+            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces);
     }
 
     private static MediaProfile ParseProfile(string value) => value.ToLowerInvariant() switch

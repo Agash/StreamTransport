@@ -5,7 +5,7 @@ using Agash.StreamTransport.WebRtc.Stun;
 namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
-/// Exercises the STUN message reader/writer against the published RFC 5769 test vectors — the canonical
+/// Exercises the STUN message reader/writer against the published RFC 5769 test vectors - the canonical
 /// oracle for STUN encoding, XOR-MAPPED-ADDRESS, MESSAGE-INTEGRITY (HMAC-SHA1) and FINGERPRINT (CRC-32).
 /// </summary>
 [TestClass]

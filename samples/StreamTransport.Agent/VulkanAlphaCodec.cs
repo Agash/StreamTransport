@@ -86,6 +86,7 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
         Dispatch(_pack, set, width, height, GroupCount((uint)(width * 2)), GroupCount((uint)height));
 
         DestroyImported(src);
+        _api.vkFreeDescriptorSets(_descriptorPool, 1, &set).CheckResult();
         // Keep dst's image/memory alive behind the exported fd; the caller owns the fd, we free GPU handles
         // once the encoder has imported it. HW-VERIFY: lifetime handshake with the encoder's dmabuf import.
         return new DmaBufImage(dst, width * 2, height);

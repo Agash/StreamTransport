@@ -196,6 +196,14 @@ public sealed record MediaTransportOptions
     public IReadOnlyList<IceServer> IceServers { get; init; } = [];
 
     /// <summary>
+    /// Restricts ICE host-candidate gathering to local addresses matching at least one selector: a NIC name, a
+    /// literal IP address, or the keyword <c>ipv4</c>/<c>ipv6</c> (case-insensitive). Empty (the default) gathers
+    /// every usable address. Pin a family on both peers to force it for the link; pin NIC names to confine an IRL
+    /// field uplink to its cellular modems instead of also offering Wi-Fi.
+    /// </summary>
+    public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
+
+    /// <summary>
     /// When true the receiver decodes video directly into GPU textures (Windows D3D11) for a zero-copy
     /// publish, emitting GPU-surface <see cref="VideoFrame"/>s. When false it decodes to CPU frames.
     /// </summary>

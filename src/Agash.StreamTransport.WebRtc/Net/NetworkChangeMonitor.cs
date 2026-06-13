@@ -81,6 +81,8 @@ public sealed class NetworkChangeMonitor : INetworkMonitor
             operational.Add(new NetworkPathInfo(ni.Id, ni.Name, Classify(ni.NetworkInterfaceType), IsUp: true));
         }
 
+
+        operational.Sort(static (a, b) => StringComparer.Ordinal.Compare(a.Id, b.Id));
         return [.. operational];
     }
 

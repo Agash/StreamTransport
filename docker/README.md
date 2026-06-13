@@ -1,7 +1,7 @@
 # StreamTransport relay (Docker)
 
 A single container running the **StreamTransport signaling relay** and **coturn** (STUN + TURN)
-together — drop-in self-hosted infrastructure for rooms that need a stable signaling server and/or TURN
+together - drop-in self-hosted infrastructure for rooms that need a stable signaling server and/or TURN
 relay for symmetric-NAT peers. One image, no compose file.
 
 coturn owns UDP/TCP `3478` and provides STUN **and** TURN; the relay serves WebSocket signaling on
@@ -32,7 +32,7 @@ Agents then connect with `--relay ws://relay.example.com:8080/ws`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `STREAMTRANSPORT_ADVERTISED_HOST` | `localhost` | Host peers use to reach STUN/TURN (put your public hostname here). |
-| `TURN_EXTERNAL_IP` | — | coturn's public IP (set behind NAT so relayed candidates are correct). |
+| `TURN_EXTERNAL_IP` | - | coturn's public IP (set behind NAT so relayed candidates are correct). |
 | `STREAMTRANSPORT_TURN_SECRET` | random per start | coturn `static-auth-secret`; the relay mints ephemeral credentials from it. |
 | `TURN_REALM` | `streamtransport` | TURN realm. |
 | `TURN_MIN_PORT` / `TURN_MAX_PORT` | `49160` / `49200` | UDP relay port range (open these in the firewall). |
@@ -41,7 +41,7 @@ Agents then connect with `--relay ws://relay.example.com:8080/ws`.
 ## Notes on Cloudflare / proxies
 
 The signaling endpoint (`8080`, HTTP/WebSocket) proxies cleanly behind Cloudflare. **TURN media relay is
-UDP and does not traverse an HTTP proxy** — for symmetric-NAT fallback the `3478` UDP port and the relay
+UDP and does not traverse an HTTP proxy** - for symmetric-NAT fallback the `3478` UDP port and the relay
 range must be directly reachable (or run coturn with `turns`/TCP on a TLS port). Many deployments only
 need the signaling endpoint public and rely on STUN + direct P2P; TURN matters only when both peers are
 behind symmetric NAT with no IPv6.

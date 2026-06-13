@@ -9,7 +9,7 @@ namespace Agash.StreamTransport;
 /// subscriber leaving tears it down.
 /// </summary>
 /// <remarks>
-/// Each subscriber currently gets its own sender, which encodes independently — correct for one subscriber.
+/// Each subscriber currently gets its own sender, which encodes independently - correct for one subscriber.
 /// Fanning a single shared encode out to N subscribers (encode once, packetize once, send to N peer
 /// connections) is a planned follow-up; until then a single
 /// <see cref="IVideoFrameSource"/> cannot be safely consumed by multiple senders at once.
@@ -67,7 +67,7 @@ public sealed partial class MediaPublisher : IAsyncDisposable
         _room.PeerJoined += OnPeerJoined;
         _room.PeerLeft += OnPeerLeft;
 
-        // The live roster, not the stale join-time snapshot — a subscriber may have joined and fired
+        // The live roster, not the stale join-time snapshot - a subscriber may have joined and fired
         // PeerJoined before this handler was attached.
         foreach (PeerInfo peer in _room.Peers)
         {

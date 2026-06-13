@@ -9,6 +9,7 @@ namespace Agash.StreamTransport.Tests;
 /// Rockchip). Skips where no hardware encoder is available.
 /// </summary>
 [TestClass]
+[DoNotParallelize] // Drives a hardware HEVC encoder/decoder; one GPU session at a time.
 public sealed class HevcRoundTripTests
 {
     [TestMethod]

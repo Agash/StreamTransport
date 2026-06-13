@@ -78,6 +78,95 @@ public sealed class CongestionControlTests
     }
 
     [TestMethod]
+    public void Scream_EcnCe_ReducesTarget_GentlerThanLoss()
+    {
+        // RFC 9331 / SCReAM v2: an ECN-CE mark signals congestion before loss, and the reaction (cwnd *= 1 -
+        // alpha/2) is deliberately gentler than the loss multiplicative back-off. Two identically-ramped
+        // controllers each take a single congestion feedback - one all-CE, one with a loss - and the CE one must
+        // end up higher.
+        var ceController = new ScreamCongestionController(Options);
+        var lossController = new ScreamCongestionController(Options);
+        (long ceNow, ushort ceSeq) = RampClean(ceController, 50);
+        (long lossNow, ushort lossSeq) = RampClean(lossController, 50);
+
+        long before = ceController.CurrentEstimate.TargetBitrateBps;
+        Assert.AreEqual(before, lossController.CurrentEstimate.TargetBitrateBps, "identical ramps should match");
+
+        ceNow += 20_000;
+        var ce = new PacketResult[10];
+        for (int i = 0; i < ce.Length; i++)
+        {
+            long sendTime = ceNow - 20_000;
+            ce[i] = new PacketResult(ceSeq++, 1200, sendTime, sendTime + 10_000, Ecn: 0x03);
+        }
+        ceController.OnFeedback(ce, ceNow);
+
+        lossNow += 20_000;
+        var loss = new PacketResult[10];
+        for (int i = 0; i < loss.Length; i++)
+        {
+            long sendTime = lossNow - 20_000;
+            loss[i] = new PacketResult(lossSeq++, 1200, sendTime, i == 0 ? -1 : sendTime + 10_000);
+        }
+        lossController.OnFeedback(loss, lossNow);
+
+        long afterCe = ceController.CurrentEstimate.TargetBitrateBps;
+        long afterLoss = lossController.CurrentEstimate.TargetBitrateBps;
+
+        Assert.IsTrue(afterCe < before, "ECN-CE must reduce the target");
+        Assert.IsTrue(afterLoss < before, "loss must reduce the target");
+        Assert.IsTrue(afterCe > afterLoss, "a single ECN-CE batch must back off gentler than loss (RFC 9331 L4S)");
+    }
+
+    [TestMethod]
+    public void Scream_SustainedEcnCe_DrivesProgressiveBackoff()
+    {
+        // The L4S alpha is a fast-attack EWMA of the CE-marked fraction; under sustained full marking it ramps
+        // toward 1, so the per-feedback back-off grows toward ~50% and the rate collapses to the floor (but never
+        // below it).
+        var controller = new ScreamCongestionController(Options);
+        (long now, ushort seq) = RampClean(controller, 80);
+        long before = controller.CurrentEstimate.TargetBitrateBps;
+
+        for (int batch = 0; batch < 40; batch++)
+        {
+            now += 20_000;
+            var ce = new PacketResult[10];
+            for (int i = 0; i < ce.Length; i++)
+            {
+                long sendTime = now - 20_000;
+                ce[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000, Ecn: 0x03);
+            }
+
+            controller.OnFeedback(ce, now);
+        }
+
+        long after = controller.CurrentEstimate.TargetBitrateBps;
+        Assert.IsTrue(after < before / 2, "sustained ECN-CE must drive the rate well below half");
+        Assert.IsTrue(after >= Options.MinBitrateBps, "but never below the configured floor");
+    }
+
+    private static (long Now, ushort Seq) RampClean(ScreamCongestionController controller, int batches)
+    {
+        long now = 0;
+        ushort seq = 0;
+        for (int batch = 0; batch < batches; batch++)
+        {
+            now += 20_000;
+            var ok = new PacketResult[10];
+            for (int i = 0; i < ok.Length; i++)
+            {
+                long sendTime = now - 20_000;
+                ok[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000);
+            }
+
+            controller.OnFeedback(ok, now);
+        }
+
+        return (now, seq);
+    }
+
+    [TestMethod]
     public void Scream_StandingQueueDelay_StopsGrowth()
     {
         var controller = new ScreamCongestionController(Options);
@@ -92,7 +181,7 @@ public sealed class CongestionControlTests
         long high = controller.CurrentEstimate.TargetBitrateBps;
         for (int batch = 0; batch < 20; batch++)
         {
-            now += 300_000; // 300 ms RTT — far above the 60 ms target
+            now += 300_000; // 300 ms RTT - far above the 60 ms target
             controller.OnFeedback([new PacketResult(seq++, 1200, now - 300_000, now - 150_000)], now);
         }
 

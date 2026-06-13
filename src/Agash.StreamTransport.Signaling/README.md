@@ -4,7 +4,7 @@ Transport-agnostic WebRTC **signaling room router** for
 [Agash.StreamTransport](https://github.com/Agash/StreamTransport).
 
 The router owns the room registry, mints peer ids, routes SDP/ICE between peers
-in a room, and announces joins and leaves. It carries **no media** — peers
+in a room, and announces joins and leaves. It carries **no media** - peers
 negotiate WebRTC peer-to-peer and the encoded media never touches this process.
 It depends only on `Agash.StreamTransport.Abstractions` (no WebRTC, codec, or
 ASP.NET dependency), so the same router backs both:

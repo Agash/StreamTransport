@@ -19,17 +19,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: |
-            10.0.x
-            11.0.x
+          dotnet-version: 11.0.x
           dotnet-quality: preview
 
+      # Packs every IsPackable project in the solution (all nine library packages; tests/samples/tools opt out).
       - name: Pack
-        run: |
-          dotnet pack src/Agash.StreamTransport.Abstractions/Agash.StreamTransport.Abstractions.csproj -c Release -o artifacts
-          dotnet pack src/Agash.StreamTransport/Agash.StreamTransport.csproj -c Release -o artifacts
-          dotnet pack src/Agash.StreamTransport.Signaling/Agash.StreamTransport.Signaling.csproj -c Release -o artifacts
-          dotnet pack src/Agash.StreamTransport.Stun/Agash.StreamTransport.Stun.csproj -c Release -o artifacts
+        run: dotnet pack StreamTransport.slnx -c Release -o artifacts
 
       # Trusted publishing: exchange the GitHub OIDC token for a short-lived NuGet.org key.
       - name: NuGet login (OIDC)
@@ -57,9 +52,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: |
-            10.0.x
-            11.0.x
+          dotnet-version: 11.0.x
           dotnet-quality: preview
 
       - name: Fetch FFmpeg
@@ -74,7 +67,7 @@ jobs:
       - name: Publish single-file agent
         run: >
           dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
-          -c Release -f net10.0 -r ${{ matrix.rid }} --self-contained
+          -c Release -f net11.0 -r ${{ matrix.rid }} --self-contained
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o publish/${{ matrix.rid }}
 

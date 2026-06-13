@@ -35,7 +35,7 @@ public sealed class IceAgentLoopbackTests
         answerer.StateChanged += s => { if (s == IceConnectionState.Connected) { answererConnected.TrySetResult(); } };
 
         var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-        answerer.DataReceived += (data, _) => received.TrySetResult(data.ToArray());
+        answerer.DataReceived += (data, _, _) => received.TrySetResult(data.ToArray());
 
         offerer.Start();
         answerer.Start();

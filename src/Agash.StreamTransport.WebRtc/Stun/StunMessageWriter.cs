@@ -5,7 +5,7 @@ using System.Net.Sockets;
 namespace Agash.StreamTransport.WebRtc.Stun;
 
 /// <summary>
-/// Builds a STUN message in place into a caller-supplied buffer (RFC 8489 §5–6), allocation-free. Write
+/// Builds a STUN message in place into a caller-supplied buffer (RFC 8489 §5-6), allocation-free. Write
 /// the header via the constructor, append attributes in order, then call MESSAGE-INTEGRITY and/or
 /// FINGERPRINT last (they cover everything before them, so order matters), and read <see cref="Length"/>.
 /// </summary>

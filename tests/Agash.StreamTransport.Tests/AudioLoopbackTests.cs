@@ -3,6 +3,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Agash.StreamTransport.Tests;
 
+// Real loopback sockets + a full WebRTC handshake. The DTLS handshake runs on a dedicated (non-pool) thread,
+// so it no longer starves the pool that delivers its records - these run fine in the parallel pool.
 [TestClass]
 public sealed class AudioLoopbackTests
 {

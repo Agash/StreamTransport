@@ -30,7 +30,15 @@ internal sealed class BouncyCastleDtlsTransport : IDtlsTransport
     public void ReceiveRecord(ReadOnlyMemory<byte> record) => _bridge.Enqueue(record);
 
     public Task<SrtpKeyingMaterial> HandshakeAsync(CancellationToken cancellationToken) =>
-        Task.Run(() => Role == DtlsRole.Client ? Connect() : Accept(), cancellationToken);
+        // The BouncyCastle handshake blocks its thread for the whole exchange (it waits on inbound records fed
+        // from the ICE receive path). Run it on a dedicated thread, NOT a thread-pool thread: a pooled handshake
+        // would hold a worker for seconds while the very records that unblock it also need pooled threads to be
+        // delivered - that mutual dependency is what starves the pool and stalls handshakes under concurrent load.
+        Task.Factory.StartNew(
+            () => Role == DtlsRole.Client ? Connect() : Accept(),
+            cancellationToken,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
     private SrtpKeyingMaterial Connect()
     {

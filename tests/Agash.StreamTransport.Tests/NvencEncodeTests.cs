@@ -3,7 +3,10 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Agash.StreamTransport.Tests;
 
 /// <summary>Verifies HEVC encoding through each vendor's hardware encoder via system-memory NV12 input.</summary>
+// Isolate from the parallel pool: a hardware encode session (e.g. VideoToolbox on a real macOS runner) can
+// fail to initialise under heavy concurrent load, so give it the sequential scope.
 [TestClass]
+[DoNotParallelize]
 public sealed class HardwareEncoderTests
 {
     [TestMethod]

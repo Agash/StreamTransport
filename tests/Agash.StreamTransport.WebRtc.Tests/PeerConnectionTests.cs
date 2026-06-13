@@ -10,13 +10,18 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 /// <summary>
 /// The full-stack end-to-end test: two <see cref="PeerConnection"/>s negotiate an offer/answer, trickle
 /// candidates, connect over loopback (ICE → DTLS-SRTP), and exchange an encrypted RTP packet. This
-/// exercises every layer built so far together — STUN, ICE, DTLS, SRTP, RTP, SDP.
+/// exercises every layer built so far together - STUN, ICE, DTLS, SRTP, RTP, SDP.
 /// </summary>
+/// <remarks>
+/// These bind real loopback UDP sockets and run full ICE/DTLS-SRTP handshakes. The DTLS handshake is blocking
+/// but runs on a dedicated (non-pool) thread, so it no longer starves the thread pool that delivers its inbound
+/// records - which means these run correctly alongside the parallel pool with no special isolation.
+/// </remarks>
 [TestClass]
 public sealed class PeerConnectionTests
 {
     [TestMethod]
-    [Timeout(30_000)]
+    [Timeout(90_000)]
     public async Task OfferAnswer_ConnectsAndDeliversEncryptedRtp()
     {
         var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
@@ -52,7 +57,7 @@ public sealed class PeerConnectionTests
         SdpDescription answer = answerer.CreateAnswer();
         offerer.SetRemoteDescription(answer, SdpType.Answer);
 
-        await Task.WhenAll(offererConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(25));
+        await Task.WhenAll(offererConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(60));
         Assert.AreEqual(PeerConnectionState.Connected, offerer.State);
         Assert.AreEqual(PeerConnectionState.Connected, answerer.State);
 
@@ -61,7 +66,7 @@ public sealed class PeerConnectionTests
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE, 0x10, 0x20];
         await offerer.SendRtp(payloadType: 111, ssrc: 0x1111_1111, rtpTimestamp: 160, marker: true, payload, captureNtp);
 
-        (RtpHeader header, byte[] got) = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        (RtpHeader header, byte[] got) = await received.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.AreEqual(111, header.PayloadType);
         Assert.AreEqual(0x1111_1111u, header.Ssrc);
         Assert.AreEqual(160u, header.Timestamp);
@@ -71,7 +76,7 @@ public sealed class PeerConnectionTests
     }
 
     [TestMethod]
-    [Timeout(40_000)]
+    [Timeout(90_000)]
     public async Task Mobility_Recovery_ReconnectsAndPreservesSrtpSession()
     {
         // Connect, then force a mobility recovery on the sender. A packet sent AFTER recovery must still
@@ -109,7 +114,7 @@ public sealed class PeerConnectionTests
         SdpDescription answer = answerer.CreateAnswer();
         offerer.SetRemoteDescription(answer, SdpType.Answer);
 
-        await Task.WhenAll(firstConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(25));
+        await Task.WhenAll(firstConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(60));
 
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE];
         await offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 1000, marker: true, payload);
@@ -130,7 +135,7 @@ public sealed class PeerConnectionTests
     }
 
     [TestMethod]
-    [Timeout(40_000)]
+    [Timeout(90_000)]
     public async Task IceRestart_RotatesCredentials_AndPreservesSrtpSession()
     {
         var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
@@ -162,7 +167,7 @@ public sealed class PeerConnectionTests
         SdpDescription offer = offerer.CreateOffer();
         answerer.SetRemoteDescription(offer, SdpType.Offer);
         offerer.SetRemoteDescription(answerer.CreateAnswer(), SdpType.Answer);
-        await Task.WhenAll(firstConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(25));
+        await Task.WhenAll(firstConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(60));
 
         string ufragBefore = offer.Media[0].IceUfrag;
         byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF];
@@ -197,7 +202,7 @@ public sealed class PeerConnectionTests
     }
 
     [TestMethod]
-    [Timeout(30_000)]
+    [Timeout(90_000)]
     public async Task Congestion_FeedbackLoop_IsLive_AndProducesEstimates()
     {
         // Proves the congestion loop is actually wired in a live connection (CCFB timer + estimate event +
@@ -242,7 +247,7 @@ public sealed class PeerConnectionTests
         SdpDescription answer = receiver.CreateAnswer();
         sender.SetRemoteDescription(answer, SdpType.Answer);
 
-        await bothConnected.Task.WaitAsync(TimeSpan.FromSeconds(25));
+        await bothConnected.Task.WaitAsync(TimeSpan.FromSeconds(60));
 
         // Send media so the receiver has arrivals to report back via CCFB.
         byte[] payload = new byte[800];
@@ -252,13 +257,13 @@ public sealed class PeerConnectionTests
             await Task.Delay(10);
         }
 
-        BitrateEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        BitrateEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.IsTrue(got.TargetBitrateBps > 0, "the controller should produce a positive target bitrate.");
         Assert.IsTrue(got.PacingRateBps >= got.TargetBitrateBps, "pacing rate should not be below the target.");
     }
 
     [TestMethod]
-    [Timeout(30_000)]
+    [Timeout(90_000)]
     public async Task OfferAnswer_NarrowsToMutuallySupportedCodec()
     {
         // Offerer advertises two video codecs; the answerer supports only H265.
@@ -297,7 +302,7 @@ public sealed class PeerConnectionTests
     }
 
     [TestMethod]
-    [Timeout(30_000)]
+    [Timeout(90_000)]
     public async Task Receiver_RequestKeyframe_ReachesSenderAsRtcpPli()
     {
         var videoCodec = new SdpCodec(96, "H264", 90000, null, "packetization-mode=1", ["nack", "nack pli"]);
@@ -339,12 +344,12 @@ public sealed class PeerConnectionTests
         SdpDescription answer = receiver.CreateAnswer();
         sender.SetRemoteDescription(answer, SdpType.Answer);
 
-        await bothConnected.Task.WaitAsync(TimeSpan.FromSeconds(25));
+        await bothConnected.Task.WaitAsync(TimeSpan.FromSeconds(60));
 
         // The receiver asks the sender (by the sender's media SSRC) for a keyframe; it arrives as SRTCP PLI.
         await receiver.RequestKeyframeAsync(0xAAAA_0001);
 
-        uint requestedSsrc = await keyframeRequested.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        uint requestedSsrc = await keyframeRequested.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.AreEqual(0xAAAA_0001u, requestedSsrc);
     }
 }

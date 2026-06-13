@@ -37,7 +37,7 @@ public enum StunAttributeType : ushort
     /// <summary>USERNAME (RFC 8489 §14.3).</summary>
     Username = 0x0006,
 
-    /// <summary>MESSAGE-INTEGRITY — HMAC-SHA1 of the message (RFC 8489 §14.5).</summary>
+    /// <summary>MESSAGE-INTEGRITY - HMAC-SHA1 of the message (RFC 8489 §14.5).</summary>
     MessageIntegrity = 0x0008,
 
     /// <summary>ERROR-CODE (RFC 8489 §14.8).</summary>
@@ -52,10 +52,10 @@ public enum StunAttributeType : ushort
     /// <summary>XOR-MAPPED-ADDRESS (RFC 8489 §14.2).</summary>
     XorMappedAddress = 0x0020,
 
-    /// <summary>PRIORITY — ICE connectivity check (RFC 8445 §7.1.1).</summary>
+    /// <summary>PRIORITY - ICE connectivity check (RFC 8445 §7.1.1).</summary>
     Priority = 0x0024,
 
-    /// <summary>USE-CANDIDATE — ICE nomination (RFC 8445 §7.1.2).</summary>
+    /// <summary>USE-CANDIDATE - ICE nomination (RFC 8445 §7.1.2).</summary>
     UseCandidate = 0x0025,
 
     /// <summary>SOFTWARE (RFC 8489 §14.14).</summary>
@@ -64,12 +64,12 @@ public enum StunAttributeType : ushort
     /// <summary>ALTERNATE-SERVER (RFC 8489 §14.15).</summary>
     AlternateServer = 0x8023,
 
-    /// <summary>FINGERPRINT — CRC-32 of the message (RFC 8489 §14.7).</summary>
+    /// <summary>FINGERPRINT - CRC-32 of the message (RFC 8489 §14.7).</summary>
     Fingerprint = 0x8028,
 
-    /// <summary>ICE-CONTROLLED — tie-breaker for the controlled role (RFC 8445 §7.1.3).</summary>
+    /// <summary>ICE-CONTROLLED - tie-breaker for the controlled role (RFC 8445 §7.1.3).</summary>
     IceControlled = 0x8029,
 
-    /// <summary>ICE-CONTROLLING — tie-breaker for the controlling role (RFC 8445 §7.1.3).</summary>
+    /// <summary>ICE-CONTROLLING - tie-breaker for the controlling role (RFC 8445 §7.1.3).</summary>
     IceControlling = 0x802A,
 }

@@ -15,15 +15,15 @@ public enum SrtpProtectionProfile : ushort
     /// <summary>No profile selected / negotiation has not completed.</summary>
     None = 0x0000,
 
-    /// <summary><c>SRTP_AES128_CM_HMAC_SHA1_80</c> — AES-128 counter mode, 80-bit HMAC-SHA1 auth tag.</summary>
+    /// <summary><c>SRTP_AES128_CM_HMAC_SHA1_80</c> - AES-128 counter mode, 80-bit HMAC-SHA1 auth tag.</summary>
     Aes128CmHmacSha1_80 = 0x0001,
 
-    /// <summary><c>SRTP_AES128_CM_HMAC_SHA1_32</c> — AES-128 counter mode, 32-bit HMAC-SHA1 auth tag.</summary>
+    /// <summary><c>SRTP_AES128_CM_HMAC_SHA1_32</c> - AES-128 counter mode, 32-bit HMAC-SHA1 auth tag.</summary>
     Aes128CmHmacSha1_32 = 0x0002,
 
-    /// <summary><c>SRTP_AEAD_AES_128_GCM</c> — AES-128 in Galois/Counter Mode (RFC 7714).</summary>
+    /// <summary><c>SRTP_AEAD_AES_128_GCM</c> - AES-128 in Galois/Counter Mode (RFC 7714).</summary>
     AeadAes128Gcm = 0x0007,
 
-    /// <summary><c>SRTP_AEAD_AES_256_GCM</c> — AES-256 in Galois/Counter Mode (RFC 7714).</summary>
+    /// <summary><c>SRTP_AEAD_AES_256_GCM</c> - AES-256 in Galois/Counter Mode (RFC 7714).</summary>
     AeadAes256Gcm = 0x0008,
 }

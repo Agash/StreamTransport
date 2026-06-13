@@ -49,7 +49,7 @@ public sealed class MobilityEngine : IDisposable
     {
         foreach (Registration registration in _recoverers.Keys)
         {
-            registration.Invoke();
+            registration.InvokeSafely();
         }
     }
 
@@ -70,7 +70,17 @@ public sealed class MobilityEngine : IDisposable
 
     private sealed class Registration(MobilityEngine owner, Action callback) : IDisposable
     {
-        public void Invoke() => callback();
+        public void InvokeSafely()
+        {
+            try
+            {
+                callback();
+            }
+            catch
+            {
+                // One connection's recovery failure must not kill the monitor dispatch or starve other peers.
+            }
+        }
 
         public void Dispose() => owner._recoverers.TryRemove(this, out _);
     }

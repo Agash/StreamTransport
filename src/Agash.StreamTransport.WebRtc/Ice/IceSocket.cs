@@ -5,7 +5,7 @@ using System.Net.Sockets;
 namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>The outcome of an <see cref="IIceSocket"/> receive: the bytes read and who sent them.</summary>
-public readonly record struct IceReceiveResult(int Length, IPEndPoint RemoteEndPoint);
+public readonly record struct IceReceiveResult(int Length, IPEndPoint RemoteEndPoint, byte Ecn = 0);
 
 /// <summary>
 /// ICE check/consent timing (RFC 8445 Appendix B.1 pacing + RFC 7675 consent). <see cref="Default"/> is the
@@ -53,6 +53,18 @@ public interface IIceSocketFactory
 /// <summary>The production <see cref="IIceSocketFactory"/>: real UDP sockets over the host's interfaces.</summary>
 public sealed class UdpIceSocketFactory : IIceSocketFactory
 {
+    private readonly IReadOnlyList<string> _preferences;
+
+    /// <summary>Gather on every usable local address.</summary>
+    public UdpIceSocketFactory() : this([])
+    {
+    }
+
+    /// <summary>Gather only on local addresses matching <paramref name="localAddressPreferences"/> (see
+    /// <see cref="LocalAddressFilter"/>). An empty list gathers everything.</summary>
+    public UdpIceSocketFactory(IReadOnlyList<string> localAddressPreferences) =>
+        _preferences = localAddressPreferences ?? [];
+
     /// <inheritdoc/>
     public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback)
     {
@@ -72,7 +84,17 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
             foreach (UnicastIPAddressInformation info in nic.GetIPProperties().UnicastAddresses)
             {
                 IPAddress a = info.Address;
-                if (a.AddressFamily is (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6) && seen.Add(a))
+                if (a.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
+                {
+                    continue;
+                }
+
+                if (!LocalAddressFilter.Includes(_preferences, nic.Name, nic.Id, nic.Description, a))
+                {
+                    continue;
+                }
+
+                if (seen.Add(a))
                 {
                     yield return a;
                 }
@@ -87,7 +109,9 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         {
             var raw = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
             raw.Bind(new IPEndPoint(address, 0));
-            socket = new UdpIceSocket(raw);
+            // Prefer the native ECN-reading socket on POSIX; Windows has no reliable per-datagram ECN path (see
+            // EcnInterop), so it uses the managed socket there - matching libwebrtc, which gates ECN on WEBRTC_POSIX.
+            socket = EcnInterop.NativeReceiveSupported ? new EcnUdpSocket(raw) : new UdpIceSocket(raw);
             return true;
         }
         catch (SocketException)
@@ -115,6 +139,10 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         public async ValueTask SendAsync(ReadOnlyMemory<byte> data, IPEndPoint destination, CancellationToken cancellationToken = default) =>
             await _socket.SendToAsync(data, SocketFlags.None, destination, cancellationToken).ConfigureAwait(false);
 
+        // The managed Socket API does not surface the received IP TOS/Traffic-Class byte (ReceiveMessageFrom
+        // exposes only IPPacketInformation, never the cmsg control buffer where ECN lives), so a real socket
+        // reports Ecn=0. Reading L4S ECN-CE on hardware needs per-platform recvmsg/cmsg P/Invoke; the rest of
+        // the congestion loop already consumes IceReceiveResult.Ecn, so an ECN-capable source drops straight in.
         public async ValueTask<IceReceiveResult> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken)
         {
             SocketReceiveFromResult result = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, _receiveFrom, cancellationToken).ConfigureAwait(false);
@@ -122,5 +150,61 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         }
 
         public void Dispose() => _socket.Dispose();
+    }
+}
+
+/// <summary>
+/// Matches a local address against the user's ICE gathering preferences. A selector is a NIC name/id/description,
+/// a literal IP address, or the family keyword <c>ipv4</c>/<c>ipv6</c> (all case-insensitive). An address is
+/// included if the preference list is empty (no restriction) or it matches at least one selector.
+/// </summary>
+public static class LocalAddressFilter
+{
+    /// <summary>True if <paramref name="address"/> on the given NIC should be gathered under <paramref name="selectors"/>
+    /// (empty selectors include everything; otherwise a match on family keyword, literal IP, or NIC name/id/description).</summary>
+    public static bool Includes(
+        IReadOnlyList<string> selectors, string nicName, string nicId, string nicDescription, IPAddress address)
+    {
+        if (selectors.Count == 0)
+        {
+            return true;
+        }
+
+        foreach (string selector in selectors)
+        {
+            if (selector.Equals("ipv4", StringComparison.OrdinalIgnoreCase))
+            {
+                if (address.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (selector.Equals("ipv6", StringComparison.OrdinalIgnoreCase))
+            {
+                if (address.AddressFamily == AddressFamily.InterNetworkV6)
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (IPAddress.TryParse(selector, out IPAddress? ip) && ip.Equals(address))
+            {
+                return true;
+            }
+
+            if (nicName.Equals(selector, StringComparison.OrdinalIgnoreCase)
+                || nicId.Equals(selector, StringComparison.OrdinalIgnoreCase)
+                || nicDescription.Equals(selector, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

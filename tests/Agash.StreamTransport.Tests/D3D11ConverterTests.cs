@@ -14,6 +14,7 @@ namespace Agash.StreamTransport.Tests;
 /// sample black; the fix binds the output RTV before the source SRV.
 /// </summary>
 [TestClass]
+[DoNotParallelize] // Creates a D3D11 hardware device; isolate GPU work from the parallel pool.
 public sealed class D3D11ConverterTests
 {
     // Known colour B=50, G=100, R=200 -> BT.709 limited luma Y = (47*200 + 157*100 + 16*50)/256 + 16 ~= 117.

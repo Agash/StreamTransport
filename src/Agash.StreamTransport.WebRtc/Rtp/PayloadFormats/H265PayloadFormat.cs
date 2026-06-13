@@ -100,7 +100,7 @@ public static class H265Packetizer
 
 /// <summary>
 /// Reassembles HEVC access units from received RTP payloads (RFC 7798): single-NAL packets, Aggregation
-/// Packets (type 48), and Fragmentation Units (type 49). Stateful — feed payloads in order and it emits a
+/// Packets (type 48), and Fragmentation Units (type 49). Stateful - feed payloads in order and it emits a
 /// complete Annex-B access unit when a payload carrying the RTP marker bit is pushed. The completed access
 /// unit is returned in a buffer rented from <see cref="ArrayPool{T}.Shared"/> whose ownership passes to the
 /// caller, so the frame can cross to a decode worker with no per-frame allocation.

@@ -11,13 +11,13 @@ namespace Agash.StreamTransport.Tests;
 /// connect a <see cref="RoomClient"/> to the relay, the publisher fans audio out via
 /// <see cref="MediaPublisher"/>, and the subscriber decodes it via <see cref="MediaSubscriber"/>. This
 /// exercises the whole signaling + media stack (room router, peer routing, ICE, SRTP, Opus) over loopback
-/// WebRTC, not just an in-memory channel.
+/// WebRTC, not just an in-memory channel. The relay is in-process (no external dependency), so this runs in
+/// CI. The DTLS handshake runs on a dedicated (non-pool) thread, so these no longer need to be serialized.
 /// </summary>
 [TestClass]
 public sealed class RelayIntegrationTests
 {
     [TestMethod]
-    [TestCategory("Integration")]
     [Timeout(60_000)]
     public async Task PublisherAndSubscriber_OverRealRelay_DeliverDecodedAudio()
     {
@@ -42,10 +42,7 @@ public sealed class RelayIntegrationTests
     }
 
     [TestMethod]
-    [TestCategory("Integration")]
     [Timeout(90_000)]
-    [DoNotParallelize] // Two subscribers + a publisher over a real relay is CPU-heavy; running it alongside
-                       // the parallel pool starves its ICE/SRTP handshake and it flakes. Isolate just this one.
     public async Task Publisher_FansOutToTwoSubscribers_OverRealRelay()
     {
         await using var relay = InProcessRelay.Start();
@@ -55,22 +52,23 @@ public sealed class RelayIntegrationTests
         await using RoomClient sub1Room = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Subscriber);
         await using RoomClient sub2Room = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Subscriber);
 
+        IMediaTransport transport = TestMedia.CreateCapturing(out CapturingLoggerFactory log);
         var sink1 = new CollectingAudioSink(target: 10);
         var sink2 = new CollectingAudioSink(target: 10);
-        await using var sub1 = new MediaSubscriber(new MediaTransportOptions(), TestMedia.Transport, TestMedia.Loggers, sub1Room, audio: sink1);
-        await using var sub2 = new MediaSubscriber(new MediaTransportOptions(), TestMedia.Transport, TestMedia.Loggers, sub2Room, audio: sink2);
+        await using var sub1 = new MediaSubscriber(new MediaTransportOptions(), transport, log, sub1Room, audio: sink1);
+        await using var sub2 = new MediaSubscriber(new MediaTransportOptions(), transport, log, sub2Room, audio: sink2);
         await sub1.StartAsync();
         await sub2.StartAsync();
 
-        // One encode pipeline fans out to both subscribers.
-        await using var publisher = new MediaPublisher(new MediaTransportOptions(), TestMedia.Transport, TestMedia.Loggers, publisherRoom, audio: new ToneAudioSource());
+        // One publisher fans out to both subscribers.
+        await using var publisher = new MediaPublisher(new MediaTransportOptions(), transport, log, publisherRoom, audio: new ToneAudioSource());
         publisher.Start();
 
-        _ = await Task.WhenAny(Task.WhenAll(sink1.Reached, sink2.Reached), Task.Delay(80_000));
+        _ = await Task.WhenAny(Task.WhenAll(sink1.Reached, sink2.Reached), Task.Delay(20_000));
 
         Assert.IsTrue(
             sink1.Count >= 10 && sink2.Count >= 10,
-            $"Expected >=10 decoded audio frames at each subscriber, got {sink1.Count} and {sink2.Count}.");
+            $"Expected >=10 decoded audio frames at each subscriber, got {sink1.Count} and {sink2.Count}.\n=== handshake log ===\n{log.Dump()}");
     }
 
     /// <summary>A minimal WebSocket signaling relay over <see cref="HttpListener"/>, backed by the room router.</summary>

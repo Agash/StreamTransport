@@ -10,7 +10,7 @@ namespace Agash.StreamTransport.WebRtc.Srtp;
 /// tracking live in the SRTP session that drives this transform.
 /// </summary>
 /// <remarks>
-/// AEAD (GCM) only — the legacy AES-CTR + HMAC-SHA1 suite (RFC 3711) is not implemented, because both
+/// AEAD (GCM) only - the legacy AES-CTR + HMAC-SHA1 suite (RFC 3711) is not implemented, because both
 /// peers are our own first-party stack and negotiate a GCM profile. The tag is always 16 octets
 /// (<c>AEAD_AES_128_GCM</c> / <c>AEAD_AES_256_GCM</c>).
 /// </remarks>

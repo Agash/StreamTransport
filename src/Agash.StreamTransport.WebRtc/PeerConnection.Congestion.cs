@@ -17,7 +17,7 @@ public sealed partial class PeerConnection
     private readonly INetworkController? _controller;
     private readonly Lock _ccGate = new();
     private readonly Dictionary<long, SentPacketInfo> _sentPackets = [];      // key = (ssrc << 16) | seq
-    private readonly Dictionary<uint, Dictionary<ushort, long>> _arrivals = []; // ssrc -> (seq -> arrival µs)
+    private readonly Dictionary<uint, Dictionary<ushort, ArrivalInfo>> _arrivals = []; // ssrc -> (seq -> arrival µs + ECN)
     private readonly List<PacketResult> _feedbackScratch = [];
     private readonly List<CcfbStreamReport> _ccfbScratch = [];
     private Timer? _ccfbTimer;
@@ -76,18 +76,25 @@ public sealed partial class PeerConnection
         _controller?.OnPacketSent(info);
     }
 
-    // Receive side: stamp the arrival of a media RTP packet for the next CCFB report.
-    private void RecordArrival(uint ssrc, ushort seq, long nowMicros)
+    // Receive side: stamp the arrival (time + ECN mark) of a media RTP packet for the next CCFB report. When a
+    // sequence number recurs, the CE mark is sticky - once the network marked a packet congested we report it.
+    private void RecordArrival(uint ssrc, ushort seq, long nowMicros, byte ecn)
     {
         lock (_ccGate)
         {
-            if (!_arrivals.TryGetValue(ssrc, out Dictionary<ushort, long>? perSsrc))
+            if (!_arrivals.TryGetValue(ssrc, out Dictionary<ushort, ArrivalInfo>? perSsrc))
             {
                 perSsrc = [];
                 _arrivals[ssrc] = perSsrc;
             }
 
-            perSsrc[seq] = nowMicros;
+            byte mark = ecn;
+            if (perSsrc.TryGetValue(seq, out ArrivalInfo existing) && existing.Ecn == 0x03)
+            {
+                mark = 0x03;
+            }
+
+            perSsrc[seq] = new ArrivalInfo(nowMicros, mark);
         }
     }
 
@@ -125,7 +132,7 @@ public sealed partial class PeerConnection
         _ccfbScratch.Clear();
         lock (_ccGate)
         {
-            foreach ((uint ssrc, Dictionary<ushort, long> perSsrc) in _arrivals)
+            foreach ((uint ssrc, Dictionary<ushort, ArrivalInfo> perSsrc) in _arrivals)
             {
                 if (perSsrc.Count == 0)
                 {
@@ -142,11 +149,11 @@ public sealed partial class PeerConnection
                 for (int i = 0; i < run; i++)
                 {
                     ushort seq = (ushort)(begin + i);
-                    if (perSsrc.TryGetValue(seq, out long arrival))
+                    if (perSsrc.TryGetValue(seq, out ArrivalInfo arrival))
                     {
-                        long offset1024 = (now - arrival) * 1024 / 1_000_000;
+                        long offset1024 = (now - arrival.Micros) * 1024 / 1_000_000;
                         ushort ato = offset1024 is >= 0 and < Ccfb.ArrivalTimeUnknown ? (ushort)offset1024 : Ccfb.ArrivalTimeUnknown;
-                        metrics[i] = new CcfbMetric(true, 0, ato);
+                        metrics[i] = new CcfbMetric(true, arrival.Ecn, ato);
                     }
                     else
                     {
@@ -219,7 +226,7 @@ public sealed partial class PeerConnection
                         recvMicros = reportMicros - ((long)metric.ArrivalTimeOffset * 1_000_000 / 1024);
                     }
 
-                    _feedbackScratch.Add(new PacketResult(seq, sent.SizeBytes, sent.SendTimeMicros, recvMicros));
+                    _feedbackScratch.Add(new PacketResult(seq, sent.SizeBytes, sent.SendTimeMicros, recvMicros, metric.Ecn));
                 }
             }
         }
@@ -247,15 +254,15 @@ public sealed partial class PeerConnection
     }
 
     // The sequence with the smallest 16-bit distance ahead of the earliest-arriving packet, i.e. the window start.
-    private static ushort EarliestSequence(Dictionary<ushort, long> perSsrc)
+    private static ushort EarliestSequence(Dictionary<ushort, ArrivalInfo> perSsrc)
     {
         ushort earliest = 0;
         long best = long.MaxValue;
-        foreach ((ushort seq, long micros) in perSsrc)
+        foreach ((ushort seq, ArrivalInfo info) in perSsrc)
         {
-            if (micros < best)
+            if (info.Micros < best)
             {
-                best = micros;
+                best = info.Micros;
                 earliest = seq;
             }
         }
@@ -263,7 +270,7 @@ public sealed partial class PeerConnection
         return earliest;
     }
 
-    private static ushort HighestSequence(Dictionary<ushort, long> perSsrc, ushort begin)
+    private static ushort HighestSequence(Dictionary<ushort, ArrivalInfo> perSsrc, ushort begin)
     {
         ushort highestDistance = 0;
         foreach (ushort seq in perSsrc.Keys)
@@ -277,6 +284,9 @@ public sealed partial class PeerConnection
 
         return (ushort)(begin + highestDistance);
     }
+
+    /// <summary>A media packet's recorded arrival: monotonic µs and the 2-bit ECN mark read off the wire.</summary>
+    private readonly record struct ArrivalInfo(long Micros, byte Ecn);
 
     private void DisposeCongestion()
     {

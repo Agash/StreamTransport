@@ -2,7 +2,7 @@ namespace Agash.StreamTransport.WebRtc.CongestionControl;
 
 /// <summary>
 /// A leaky-bucket pacing budget: it refills at the target rate and caps the burst, so an encoder's bursty
-/// output (a large intra frame) is smoothed onto the link instead of being dumped at once — the key to
+/// output (a large intra frame) is smoothed onto the link instead of being dumped at once - the key to
 /// avoiding self-inflicted bufferbloat and loss on a cellular uplink. The async drain loop that pulls
 /// queued packets lives in the integration layer; this is the allocation-free budget math it drives.
 /// </summary>

@@ -2,7 +2,7 @@ namespace Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 
 /// <summary>
 /// The Opus RTP payload format (RFC 7587): one Opus packet per RTP packet, the payload carried verbatim
-/// with no aggregation or fragmentation. Packetization and depacketization are therefore the identity —
+/// with no aggregation or fragmentation. Packetization and depacketization are therefore the identity -
 /// this type exists to make the audio path symmetric with the H.265 one and to document the contract.
 /// </summary>
 public static class OpusPayloadFormat

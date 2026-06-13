@@ -42,13 +42,13 @@ public enum SdpDirection
 /// <summary>The DTLS role advertised by <c>a=setup</c> (RFC 8842).</summary>
 public enum SdpSetup
 {
-    /// <summary>actpass — offer the choice (offers).</summary>
+    /// <summary>actpass - offer the choice (offers).</summary>
     ActPass,
 
-    /// <summary>active — be the DTLS client.</summary>
+    /// <summary>active - be the DTLS client.</summary>
     Active,
 
-    /// <summary>passive — be the DTLS server.</summary>
+    /// <summary>passive - be the DTLS server.</summary>
     Passive,
 }
 
@@ -103,7 +103,7 @@ public sealed record SdpMediaDescription
     /// <summary>The local SSRC for this section, if announced (<c>a=ssrc</c>).</summary>
     public uint? Ssrc { get; init; }
 
-    /// <summary>The RTCP canonical name (<c>a=ssrc … cname:</c>).</summary>
+    /// <summary>The RTCP canonical name (<c>a=ssrc ... cname:</c>).</summary>
     public string? Cname { get; init; }
 }
 

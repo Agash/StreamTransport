@@ -28,7 +28,7 @@ public sealed class IceMobilityTests
         await using (b)
         {
             var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-            b.DataReceived += (data, _) => received.TrySetResult(data.ToArray());
+            b.DataReceived += (data, _, _) => received.TrySetResult(data.ToArray());
 
             byte[] payload = [0x10, 0x20, 0x30, 0x40]; // non-STUN -> surfaced as data.
             await a.SendAsync(payload);
@@ -51,7 +51,7 @@ public sealed class IceMobilityTests
         await using (b)
         {
             var received = new ConcurrentQueue<byte[]>();
-            b.DataReceived += (data, _) => received.Enqueue(data.ToArray());
+            b.DataReceived += (data, _, _) => received.Enqueue(data.ToArray());
 
             IPAddress original = a.SelectedLocalEndpoint!.Address;
 
@@ -97,7 +97,7 @@ public sealed class IceMobilityTests
         await using (b)
         {
             int delivered = 0;
-            b.DataReceived += (_, _) => Interlocked.Increment(ref delivered);
+            b.DataReceived += (_, _, _) => Interlocked.Increment(ref delivered);
 
             // Degrade the single path to 30% loss (a weak signal) without cutting it. There is no alternate
             // interface, so the agent cannot switch away - it must ride out the loss on the one path.

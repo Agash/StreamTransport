@@ -11,7 +11,7 @@ namespace Agash.StreamTransport;
 /// and an <see cref="IAudioFrameSource"/> with the <b>negotiated</b> codec, packetizes the access units with
 /// that codec's RTP payload format, and sends them through <see cref="PeerConnection.SendRtp"/>. The codec,
 /// payload type, and SSRC are resolved from <see cref="PeerConnection.NegotiatedMedia"/> once the offer/answer
-/// completes — nothing here is hardwired to HEVC/Opus. Both tracks ride one peer connection so they stay in sync.
+/// completes - nothing here is hardwired to HEVC/Opus. Both tracks ride one peer connection so they stay in sync.
 /// </summary>
 public sealed partial class WebRtcMediaSender : IMediaSender
 {

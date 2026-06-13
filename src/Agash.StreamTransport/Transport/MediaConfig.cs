@@ -71,6 +71,7 @@ internal static class MediaConfig
             IncludeLoopback = true,
             EnableFec = options.EnableFec && video,
             FecProtectedSsrc = VideoSsrc,
+            LocalAddressPreferences = options.LocalAddressPreferences,
         };
     }
 
@@ -132,7 +133,7 @@ internal static class MediaConfig
             }
             catch (Exception ex) when (ex is System.Net.Sockets.SocketException or ArgumentException)
             {
-                // Unresolvable STUN host — skip it; host candidates still allow LAN/direct connectivity.
+                // Unresolvable STUN host - skip it; host candidates still allow LAN/direct connectivity.
             }
         }
 

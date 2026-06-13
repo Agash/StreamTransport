@@ -16,5 +16,5 @@ services.AddStreamTransportWebRtc(scream =>
 PeerConnection pc = factory.Create(new PeerConnectionOptions { /* media lines */ });
 ```
 
-The core transport never depends on a particular DTLS implementation or congestion-control algorithm —
+The core transport never depends on a particular DTLS implementation or congestion-control algorithm -
 both are resolved here, so they can be swapped without touching the transport. See ADR-0003.

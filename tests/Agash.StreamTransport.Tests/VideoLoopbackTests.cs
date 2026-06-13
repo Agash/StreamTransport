@@ -4,7 +4,10 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Agash.StreamTransport.Tests;
 
+// Hardware encode + real loopback sockets + full WebRTC handshake: the heaviest test; isolate it from the
+// parallel pool so neither the encoder session nor the handshake is starved.
 [TestClass]
+[DoNotParallelize]
 public sealed class VideoLoopbackTests
 {
     /// <summary>Auto-selected encoder (NVENC on Windows/Linux, VideoToolbox on macOS): source -> encode -> WebRTC -> decode -> sink.</summary>

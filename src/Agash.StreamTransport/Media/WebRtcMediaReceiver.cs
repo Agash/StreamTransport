@@ -14,7 +14,7 @@ namespace Agash.StreamTransport;
 /// the transport's receive thread; this depacketizes there (cheap) with the <b>negotiated</b> codec's payload
 /// format and hands the assembled access unit / audio packet to a decode worker over a channel, so decoding
 /// never stalls the receive loop. The codec, payload type, and decoder are resolved from
-/// <see cref="PeerConnection.NegotiatedMedia"/> once connected — nothing is hardwired to HEVC/Opus.
+/// <see cref="PeerConnection.NegotiatedMedia"/> once connected - nothing is hardwired to HEVC/Opus.
 /// </summary>
 /// <remarks>
 /// In <see cref="PlayoutMode.Synced"/> (both streams, CPU decode) it lip-syncs audio and video through a

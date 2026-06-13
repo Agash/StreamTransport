@@ -9,7 +9,7 @@ public delegate void DtlsRecordSender(ReadOnlyMemory<byte> record);
 /// <summary>
 /// A DTLS-SRTP transport (RFC 5764): it runs the DTLS 1.2 handshake over a caller-supplied datagram path,
 /// authenticates the peer by certificate fingerprint, and exports the SRTP keying material. This is the
-/// seam that quarantines the DTLS implementation (and its third-party crypto) from the WebRTC core — the
+/// seam that quarantines the DTLS implementation (and its third-party crypto) from the WebRTC core - the
 /// core depends only on this interface.
 /// </summary>
 public interface IDtlsTransport : IAsyncDisposable

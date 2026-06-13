@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 namespace Agash.StreamTransport.WebRtc.Stun;
 
 /// <summary>
-/// A zero-allocation, parse-in-place reader over a received STUN datagram (RFC 8489 §5–6). The reader
+/// A zero-allocation, parse-in-place reader over a received STUN datagram (RFC 8489 §5-6). The reader
 /// borrows the caller's buffer; it copies nothing. Construct it with <see cref="TryParse"/>, then read the
 /// header fields and walk attributes with <see cref="TryFindAttribute"/> / <see cref="TryGetXorMappedAddress"/>.
 /// </summary>
@@ -33,8 +33,8 @@ public readonly ref struct StunMessageReader
     public ReadOnlySpan<byte> Raw { get; }
 
     /// <summary>
-    /// Validates that the buffer is a structurally well-formed STUN message — magic cookie present, the
-    /// header length consistent with the buffer, and every attribute fitting inside the message — and, if
+    /// Validates that the buffer is a structurally well-formed STUN message - magic cookie present, the
+    /// header length consistent with the buffer, and every attribute fitting inside the message - and, if
     /// so, constructs a reader over it. Returns <see langword="false"/> for anything that is not STUN
     /// (for example a multiplexed DTLS or RTP packet) without throwing.
     /// </summary>

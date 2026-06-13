@@ -18,7 +18,7 @@ public enum NetworkAdapterType
     /// <summary>Loopback.</summary>
     Loopback,
 
-    /// <summary>Some other interface (tunnel, virtual, …).</summary>
+    /// <summary>Some other interface (tunnel, virtual, ...).</summary>
     Other,
 }
 

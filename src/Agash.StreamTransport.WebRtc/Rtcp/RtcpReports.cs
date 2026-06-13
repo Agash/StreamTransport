@@ -17,15 +17,15 @@ public enum RtcpPacketType : byte
     /// <summary>Goodbye.</summary>
     Goodbye = 203,
 
-    /// <summary>Transport-layer feedback (RFC 4585) — NACK, and RFC 8888 congestion control feedback.</summary>
+    /// <summary>Transport-layer feedback (RFC 4585) - NACK, and RFC 8888 congestion control feedback.</summary>
     TransportFeedback = 205,
 
-    /// <summary>Payload-specific feedback (RFC 4585) — PLI, FIR.</summary>
+    /// <summary>Payload-specific feedback (RFC 4585) - PLI, FIR.</summary>
     PayloadFeedback = 206,
 }
 
 /// <summary>
-/// One RTCP reception report block (RFC 3550 §6.4.1): the receiver's view of a source — loss, the extended
+/// One RTCP reception report block (RFC 3550 §6.4.1): the receiver's view of a source - loss, the extended
 /// highest sequence number received, jitter, and the timestamps used to compute round-trip time.
 /// </summary>
 public readonly record struct RtcpReportBlock(

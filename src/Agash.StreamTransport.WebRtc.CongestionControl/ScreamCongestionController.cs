@@ -3,12 +3,12 @@ namespace Agash.StreamTransport.WebRtc.CongestionControl;
 /// <summary>
 /// A SCReAM-style send-side congestion controller (RFC 8298): a congestion window in bytes is grown while
 /// the queuing delay stays under target and shrunk multiplicatively on loss or excess delay; the target
-/// bitrate is the window divided by the smoothed round-trip time. Tuned for cellular links — it reacts to
+/// bitrate is the window divided by the smoothed round-trip time. Tuned for cellular links - it reacts to
 /// standing queue build-up (bufferbloat) before loss, which is the dominant failure mode on mobile uplinks.
 /// </summary>
 /// <remarks>
 /// Queue delay is estimated as <c>sRTT − baseRTT</c> (RTT-based, no clock-sync needed). On a feedback
-/// stall — a likely radio outage — the window decays so the encoder does not blast a recovering link.
+/// stall - a likely radio outage - the window decays so the encoder does not blast a recovering link.
 /// </remarks>
 public sealed class ScreamCongestionController : INetworkController
 {
@@ -18,6 +18,7 @@ public sealed class ScreamCongestionController : INetworkController
     private double _cwndBytes;
     private double _srttMicros;
     private double _baseRttMicros = double.MaxValue;
+    private double _l4sAlpha; // smoothed L4S/ECN-CE marking fraction (RFC 9331 / DCTCP alpha).
     private long _lastFeedbackMicros;
     private long _targetBitrate;
 
@@ -54,6 +55,8 @@ public sealed class ScreamCongestionController : INetworkController
         long ackedBytes = 0;
         long latestSendMicros = long.MinValue;
         bool anyReceived = false;
+        int receivedCount = 0;
+        int ceCount = 0;
         foreach (PacketResult result in results)
         {
             if (!result.Received)
@@ -63,6 +66,12 @@ public sealed class ScreamCongestionController : INetworkController
             }
 
             anyReceived = true;
+            receivedCount++;
+            if (result.CongestionExperienced)
+            {
+                ceCount++;
+            }
+
             ackedBytes += result.SizeBytes;
             latestSendMicros = Math.Max(latestSendMicros, result.SendTimeMicros);
         }
@@ -77,14 +86,33 @@ public sealed class ScreamCongestionController : INetworkController
         double queueDelayMicros = _srttMicros - _baseRttMicros;
         double targetMicros = _options.QueueDelayTargetMs * 1000.0;
 
+        // Update the L4S marking fraction estimate every feedback that carried receptions, with a fast-attack /
+        // slow-decay EWMA (SCReAM v2 §4.2.1.3, RFC 9331 / DCTCP): it rises quickly when marks appear and decays
+        // slowly when they stop, so the ECN back-off tracks sustained congestion rather than per-feedback noise.
+        if (receivedCount > 0)
+        {
+            double fractionMarked = (double)ceCount / receivedCount;
+            _l4sAlpha = fractionMarked > _l4sAlpha
+                ? Math.Min(1.0, (_options.L4sAlphaGainUp * fractionMarked) + ((1.0 - _options.L4sAlphaGainUp) * _l4sAlpha))
+                : (1.0 - _options.L4sAlphaGainDown) * _l4sAlpha;
+        }
+
         if (loss || queueDelayMicros > targetMicros)
         {
             _cwndBytes = Math.Max(_minCwnd, _cwndBytes * _options.BackoffFactor);
         }
+        else if (ceCount > 0)
+        {
+            // L4S/ECN-CE: the network marked congestion before any loss or standing queue. Back off by half the
+            // smoothed marking fraction (DCTCP's cwnd *= 1 - alpha/2, RFC 9331 / SCReAM v2 UpdateRefWindow). At
+            // saturating marks this approaches a 50% cut; at light marking it barely dips - always gentler than
+            // the loss back-off, letting the controller hold a higher, smoother rate on an L4S-capable bottleneck.
+            _cwndBytes = Math.Max(_minCwnd, _cwndBytes * (1.0 - (_l4sAlpha / 2.0)));
+        }
         else if (ackedBytes > 0)
         {
             // Cap growth at the bandwidth-delay product at the ceiling rate, so the window cannot wind up
-            // past what the max rate needs — otherwise a later multiplicative back-off is hidden by the
+            // past what the max rate needs - otherwise a later multiplicative back-off is hidden by the
             // rate clamp and the controller can't actually react to loss.
             double offTarget = (targetMicros - queueDelayMicros) / targetMicros; // (0, 1]
             _cwndBytes = Math.Min(MaxCwnd(), _cwndBytes + (offTarget * ackedBytes));

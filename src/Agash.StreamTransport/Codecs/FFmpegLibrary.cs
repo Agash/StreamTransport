@@ -29,12 +29,28 @@ public static class FFmpegLibrary
             return;
         }
 
-        string? directory = ResolveNativeDirectory()
-            ?? throw new DllNotFoundException(
-                "Could not locate the bundled FFmpeg shared libraries. Expected them under " +
-                $"runtimes/{Rid}/native, the application directory, or native/ffmpeg/{Rid}.");
+        // Prefer the bundled, ABI-pinned per-RID build. If none is found, fall back to the OS default library
+        // search path so a system-installed FFmpeg is used too - Windows resolves by name off PATH / the app
+        // directory, Linux off ldconfig / LD_LIBRARY_PATH, macOS off the dyld path - as long as it is a
+        // compatible 8.x build (avcodec-62). An empty RootPath tells the bindings to load by bare name.
+        string? directory = ResolveNativeDirectory();
+        if (directory is not null)
+        {
+            EnsureLoaded(directory);
+            return;
+        }
 
-        EnsureLoaded(directory);
+        try
+        {
+            EnsureLoaded(string.Empty);
+        }
+        catch (DllNotFoundException ex)
+        {
+            throw new DllNotFoundException(
+                $"Could not locate FFmpeg. Expected the bundled 8.1 build under runtimes/{Rid}/native, the " +
+                $"application directory, or native/ffmpeg/{Rid}, and no compatible system FFmpeg (avcodec-62) " +
+                "was found on the OS default library search path.", ex);
+        }
     }
 
     private static string Rid => RuntimeInformation.RuntimeIdentifier;

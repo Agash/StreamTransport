@@ -82,7 +82,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     /// <summary>
     /// Raised for each received, decrypted RTP packet (header + payload). The payload is a borrowed slice of
-    /// the transport's reused receive buffer, valid only for the synchronous duration of the handler — copy
+    /// the transport's reused receive buffer, valid only for the synchronous duration of the handler - copy
     /// it if you keep it (a depacketizer that assembles a frame already does). Zero-copy by design.
     /// </summary>
     public event Action<RtpHeader, ReadOnlyMemory<byte>>? RtpReceived;
@@ -125,7 +125,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         SdpDescription offer = _remoteDescription ?? throw new InvalidOperationException("No remote offer set.");
 
-        // We answer as DTLS client (a=setup:active) — the common WebRTC arrangement.
+        // We answer as DTLS client (a=setup:active) - the common WebRTC arrangement.
         _dtlsRole = DtlsRole.Client;
         var media = new List<SdpMediaDescription>(offer.Media.Count);
         var negotiated = new List<NegotiatedMediaInfo>(offer.Media.Count);
@@ -331,7 +331,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     private void StartIce(IceRole role)
     {
-        var agent = new IceAgent(_localIceCredentials, role, _options.IncludeLoopback, _loggerFactory.CreateLogger<IceAgent>());
+        var agent = new IceAgent(
+            _localIceCredentials,
+            role,
+            _options.IncludeLoopback,
+            _loggerFactory.CreateLogger<IceAgent>(),
+            socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences));
         foreach (IPEndPoint stun in _options.StunServers)
         {
             agent.AddStunServer(stun);
@@ -406,7 +411,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
-    private void OnTransportData(Memory<byte> data, IPEndPoint source)
+    private void OnTransportData(Memory<byte> data, IPEndPoint source, byte ecn)
     {
         Span<byte> span = data.Span;
         if (span.IsEmpty)
@@ -430,7 +435,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
             else
             {
-                ReceiveRtp(data);
+                ReceiveRtp(data, ecn);
             }
         }
     }
@@ -442,7 +447,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        // Decrypt in place into the owned buffer — no copy.
+        // Decrypt in place into the owned buffer - no copy.
         Span<byte> span = data.Span;
         if (!srtp.UnprotectRtcp(span, span.Length, out int length))
         {
@@ -462,7 +467,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _ = RetransmitAsync(nackSsrc, lost);
         }
 
-        // RFC 8888 congestion-control feedback (PT 205, FMT 11) — drives the send-side controller, if any.
+        // RFC 8888 congestion-control feedback (PT 205, FMT 11) - drives the send-side controller, if any.
         OnCongestionFeedback(rtcp);
     }
 
@@ -500,14 +505,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
-    private void ReceiveRtp(Memory<byte> data)
+    private void ReceiveRtp(Memory<byte> data, byte ecn)
     {
         if (_srtp is not { } srtp)
         {
             return;
         }
 
-        // Decrypt in place into the borrowed buffer — no copy.
+        // Decrypt in place into the borrowed buffer - no copy.
         Span<byte> span = data.Span;
         if (!srtp.UnprotectRtp(span, span.Length, out int plaintextLength)
             || !RtpPacket.TryParse(span[..plaintextLength], out RtpHeader header, out ReadOnlySpan<byte> payload))
@@ -516,8 +521,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         // Hand the payload up as a slice of the same buffer (the payload is the tail of the packet). Zero
-        // copy — the subscriber copies only if it retains it past the synchronous callback.
-        RecordArrival(header.Ssrc, header.SequenceNumber, NowMicros());
+        // copy - the subscriber copies only if it retains it past the synchronous callback.
+        RecordArrival(header.Ssrc, header.SequenceNumber, NowMicros(), ecn);
 
         // FlexFEC: a repair packet recovers a lost media packet; a protected media packet is cached for recovery.
         if (FecEnabled)
@@ -628,7 +633,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Information, Message = "PeerConnection established (SRTP {Profile})")]
     private static partial void LogConnected(ILogger logger, SrtpProtectionProfile profile);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "PeerConnection DTLS fingerprint mismatch — aborting")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "PeerConnection DTLS fingerprint mismatch - aborting")]
     private static partial void LogFingerprintMismatch(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "PeerConnection DTLS handshake failed")]

@@ -122,6 +122,7 @@ internal static class Publish
                 VideoEncoderName = encoderName,
                 PreserveAlpha = config.Alpha,
                 MaxVideoBFrames = config.BFrames > 0 ? config.BFrames : baseline.MaxVideoBFrames,
+                LocalAddressPreferences = config.Interfaces ?? [],
             };
             AnsiConsole.MarkupLineInterpolated($"connecting to [teal]{connectUri}[/] as publisher...");
             await using RoomClient room = await RoomClient.ConnectAsync(
@@ -273,6 +274,7 @@ internal static class Subscribe
             PreferGpuVideoOutput = preferGpu,
             PreserveAlpha = config.Alpha,
             PlayoutMode = config.Synced ? PlayoutMode.Synced : baseline.PlayoutMode,
+            LocalAddressPreferences = config.Interfaces ?? [],
         };
         AnsiConsole.MarkupLineInterpolated($"connecting to [teal]{config.Relay}[/] as subscriber of room [teal]{config.Room}[/]...");
         await using RoomClient room = await RoomClient.ConnectAsync(

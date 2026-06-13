@@ -12,7 +12,7 @@ namespace Agash.StreamTransport.Stun;
 /// <remarks>
 /// This is what the light agent "ships with": run one on a reachable UDP port (or co-host it with the
 /// relay) so peers can discover their public address without depending on a third-party STUN service.
-/// For media relaying through symmetric NAT you still need TURN — point an
+/// For media relaying through symmetric NAT you still need TURN - point an
 /// <see cref="IIceServerProvider"/> at an external coturn for that.
 /// </remarks>
 public sealed class StunBindingServer : IAsyncDisposable

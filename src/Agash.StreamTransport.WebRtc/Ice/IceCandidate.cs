@@ -5,7 +5,7 @@ using System.Net.Sockets;
 namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>
-/// An ICE candidate (RFC 8445 §5.1) — a transport address an agent offers as a possible source or
+/// An ICE candidate (RFC 8445 §5.1) - a transport address an agent offers as a possible source or
 /// destination for media, with its type, priority, and (for reflexive/relayed candidates) the base
 /// address it derives from. Serializes to / parses from the SDP <c>a=candidate:</c> form (RFC 8839).
 /// </summary>

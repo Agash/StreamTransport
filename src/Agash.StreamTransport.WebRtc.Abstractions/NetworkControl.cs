@@ -14,10 +14,14 @@ public readonly record struct SentPacketInfo(ushort SequenceNumber, int SizeByte
 /// <param name="SizeBytes">The packet size in bytes.</param>
 /// <param name="SendTimeMicros">When the sender sent it (monotonic µs).</param>
 /// <param name="ReceiveTimeMicros">When the receiver got it (monotonic µs in the sender's frame), or -1 if lost.</param>
-public readonly record struct PacketResult(ushort SequenceNumber, int SizeBytes, long SendTimeMicros, long ReceiveTimeMicros)
+/// <param name="Ecn">The 2-bit ECN mark the receiver echoed for this packet: 0 = Not-ECT, 1 = ECT(1), 2 = ECT(0), 3 = CE (Congestion Experienced).</param>
+public readonly record struct PacketResult(ushort SequenceNumber, int SizeBytes, long SendTimeMicros, long ReceiveTimeMicros, byte Ecn = 0)
 {
     /// <summary>Whether the packet was received.</summary>
     public bool Received => ReceiveTimeMicros >= 0;
+
+    /// <summary>Whether the network marked this packet Congestion Experienced (L4S/ECN-CE, codepoint 0b11).</summary>
+    public bool CongestionExperienced => Ecn == 0x03;
 }
 
 /// <summary>
