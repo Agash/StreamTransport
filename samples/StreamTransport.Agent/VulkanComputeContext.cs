@@ -1,6 +1,5 @@
 #if HAS_VULKAN
 using System.Runtime.Versioning;
-using Vortice.ShaderCompiler;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
@@ -39,7 +38,6 @@ internal sealed unsafe class VulkanComputeContext : IDisposable
     private readonly VkQueue _computeQueue;
     private readonly uint _computeQueueFamily;
     private readonly VkCommandPool _commandPool;
-    private readonly Compiler _shaderCompiler = new();
     private bool _disposed;
 
     public VulkanComputeContext()
@@ -160,17 +158,20 @@ internal sealed unsafe class VulkanComputeContext : IDisposable
         return false;
     }
 
-    /// <summary>Compile an embedded GLSL compute shader to SPIR-V and create a shader module.</summary>
+    /// <summary>
+    /// Create a shader module from an embedded precompiled SPIR-V blob. The GLSL <c>.comp</c> sources are
+    /// compiled to <c>.spv</c> at build time (glslc), not at runtime - loading a runtime GLSL-&gt;SPIR-V
+    /// compiler (shaderc) into the same process as the Mesa VAAPI driver crashes, because both export
+    /// SPIRV-Tools symbols that the dynamic linker interposes (see the build target in the csproj).
+    /// </summary>
     public VkShaderModule CreateShaderModule(string logicalName)
     {
-        string source = EmbeddedShader.Load(logicalName);
-        CompileResult result = _shaderCompiler.Compile(source, logicalName);
-        if (result.Status != CompilationStatus.Success)
+        byte[] spirv = EmbeddedShader.LoadBytes(logicalName);
+        if (spirv.Length < 20 || spirv.Length % 4 != 0)
         {
-            throw new InvalidOperationException($"Failed to compile {logicalName}: {result.ErrorMessage}");
+            throw new InvalidOperationException($"Embedded SPIR-V '{logicalName}' is not a valid module ({spirv.Length} bytes).");
         }
 
-        byte[] spirv = result.Bytecode;
         fixed (byte* code = spirv)
         {
             VkShaderModuleCreateInfo info = new()
@@ -228,7 +229,6 @@ internal sealed unsafe class VulkanComputeContext : IDisposable
         }
 
         _disposed = true;
-        _shaderCompiler.Dispose();
         if (Device.IsNotNull)
         {
             Api.vkDeviceWaitIdle().CheckResult();

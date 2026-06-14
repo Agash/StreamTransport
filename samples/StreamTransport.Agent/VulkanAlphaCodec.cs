@@ -61,10 +61,11 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
         };
         _api.vkCreateDescriptorPool(&poolInfo, null, out _descriptorPool).CheckResult();
 
-        // pack: binding 0 sampled colour+alpha, binding 1 storage packed output.
-        _pack = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_pack.comp"), sampledInputs: 1);
+        // pack: binding 0 sampled colour+alpha, binding 1 storage packed output. Precompiled SPIR-V (see
+        // VulkanComputeContext.CreateShaderModule for why it is built ahead of time, not via runtime shaderc).
+        _pack = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_pack.spv"), sampledInputs: 1);
         // unpack_bgra: binding 0 sampled packed BGRA, binding 1 storage BGRA output.
-        _unpackBgra = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_unpack_bgra.comp"), sampledInputs: 1);
+        _unpackBgra = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_unpack_bgra.spv"), sampledInputs: 1);
         // unpack_nv12 (binding 0 Y, 1 UV, 2 storage) is built on demand once the decoder hwframe import lands.
     }
 

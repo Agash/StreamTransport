@@ -16,13 +16,14 @@
     <PackageReference Include="Vortice.Direct3D11" />
   </ItemGroup>
 
-  <!-- Validate the Linux alpha compute shaders compile to SPIR-V via shaderc on every platform (the
-       dmabuf/Vulkan dispatch needs real Linux hardware; the shader source is verifiable everywhere). -->
+  <!-- Validate the Linux alpha compute shaders are valid SPIR-V. The .comp -> .spv compilation happens at
+       build time via glslc (see the agent csproj), so this checks the embedded precompiled .spv rather than
+       running a GLSL compiler at test time - loading shaderc into the test process crashes when the Mesa
+       VAAPI driver is also loaded (both export SPIRV-Tools symbols that the linker interposes). -->
   <ItemGroup>
-    <PackageReference Include="Vortice.ShaderCompiler" />
-    <EmbeddedResource Include="..\..\samples\StreamTransport.Agent\Shaders\alpha_pack.comp" LogicalName="alpha_pack.comp" />
-    <EmbeddedResource Include="..\..\samples\StreamTransport.Agent\Shaders\alpha_unpack_nv12.comp" LogicalName="alpha_unpack_nv12.comp" />
-    <EmbeddedResource Include="..\..\samples\StreamTransport.Agent\Shaders\alpha_unpack_bgra.comp" LogicalName="alpha_unpack_bgra.comp" />
+    <EmbeddedResource Include="..\..\samples\StreamTransport.Agent\Shaders\alpha_pack.spv" LogicalName="alpha_pack.spv" />
+    <EmbeddedResource Include="..\..\samples\StreamTransport.Agent\Shaders\alpha_unpack_nv12.spv" LogicalName="alpha_unpack_nv12.spv" />
+    <EmbeddedResource Include="..\..\samples\StreamTransport.Agent\Shaders\alpha_unpack_bgra.spv" LogicalName="alpha_unpack_bgra.spv" />
   </ItemGroup>
 
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">

@@ -52,10 +52,11 @@
   <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
     <PackageReference Include="Syphon.NET" />
     <PackageReference Include="PipeWire.NET" />
-    <!-- Linux GPU alpha pack/unpack: Vulkan compute over the PipeWire dmabuf, runtime GLSL->SPIR-V via
-         shaderc. Managed/cross-platform, so it compiles on every base-TFM CI job; only invoked on Linux. -->
+    <!-- Linux GPU alpha pack/unpack: Vulkan compute over the PipeWire dmabuf. The GLSL .comp shaders are
+         compiled to SPIR-V at build time (see the CompileComputeShadersToSpirV target) and loaded as
+         precompiled .spv at runtime - NOT via a runtime GLSL->SPIR-V compiler (shaderc), whose bundled
+         SPIRV-Tools collides with the Mesa VAAPI driver's SPIRV-Tools when both load in one process. -->
     <PackageReference Include="Vortice.Vulkan" />
-    <PackageReference Include="Vortice.ShaderCompiler" />
   </ItemGroup>
 
   <!-- macOS GPU alpha pack/unpack shaders, run at runtime through Syphon.NET's SurfaceEffect.
@@ -67,11 +68,36 @@
     <EmbeddedResource Include="Shaders/nv12_to_bgra.metal" LogicalName="nv12_to_bgra.metal" />
   </ItemGroup>
 
-  <!-- Linux GPU alpha pack/unpack compute shaders (GLSL), compiled to SPIR-V at runtime via shaderc.
-       Editable .comp files embedded so they ship in the assembly with no file dependency. -->
+  <!-- Linux GPU alpha pack/unpack compute shaders. The .comp GLSL is the editable source; it is compiled to
+       SPIR-V at build time (CompileComputeShadersToSpirV, below) and the resulting .spv is embedded and loaded
+       at runtime. The .spv are committed so a build machine without glslc still builds; glslc, when present,
+       regenerates them from the .comp. Runtime never loads a GLSL compiler (shaderc) - see the note above. -->
   <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <EmbeddedResource Include="Shaders/alpha_pack.comp" LogicalName="alpha_pack.comp" />
-    <EmbeddedResource Include="Shaders/alpha_unpack_nv12.comp" LogicalName="alpha_unpack_nv12.comp" />
-    <EmbeddedResource Include="Shaders/alpha_unpack_bgra.comp" LogicalName="alpha_unpack_bgra.comp" />
+    <ComputeShaderSource Include="Shaders/alpha_pack.comp" />
+    <ComputeShaderSource Include="Shaders/alpha_unpack_nv12.comp" />
+    <ComputeShaderSource Include="Shaders/alpha_unpack_bgra.comp" />
+    <None Include="@(ComputeShaderSource)" />
+    <EmbeddedResource Include="Shaders/alpha_pack.spv" LogicalName="alpha_pack.spv" />
+    <EmbeddedResource Include="Shaders/alpha_unpack_nv12.spv" LogicalName="alpha_unpack_nv12.spv" />
+    <EmbeddedResource Include="Shaders/alpha_unpack_bgra.spv" LogicalName="alpha_unpack_bgra.spv" />
   </ItemGroup>
+
+  <!-- Compile each .comp to .spv with glslc when it is available (Vulkan SDK / shaderc tools), keeping the
+       committed .spv fresh. When glslc is absent (e.g. a CI image without it, or a Windows build of this base
+       TFM) the committed .spv is used as-is. Output is written next to the source so the EmbeddedResource
+       above embeds the fresh bytecode. The same pattern generalises to the macOS (.metal -> .metallib via
+       'xcrun metal') and Windows (.hlsl -> DXIL via dxc) shaders as analogous targets on their own build OS -
+       those toolchains are platform-locked, and unlike shaderc they do not collide with any driver. -->
+  <Target Name="CompileComputeShadersToSpirV" BeforeTargets="PrepareForBuild"
+          Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
+          Inputs="@(ComputeShaderSource)"
+          Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')">
+    <Exec Command="command -v glslc" ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low" StandardOutputImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_GlslcExit" />
+    </Exec>
+    <Message Condition="'$(_GlslcExit)' != '0'" Importance="high"
+             Text="glslc not found; using the committed SPIR-V (.spv) for the Vulkan compute shaders." />
+    <Exec Condition="'$(_GlslcExit)' == '0'"
+          Command="glslc -O &quot;%(ComputeShaderSource.FullPath)&quot; -o &quot;%(ComputeShaderSource.RootDir)%(ComputeShaderSource.Directory)%(ComputeShaderSource.Filename).spv&quot;" />
+  </Target>
 </Project>

@@ -11,11 +11,25 @@ internal static class EmbeddedShader
 {
     public static string Load(string logicalName)
     {
-        Assembly assembly = typeof(EmbeddedShader).Assembly;
-        using Stream stream = assembly.GetManifestResourceStream(logicalName)
-            ?? throw new InvalidOperationException(
-                $"Embedded shader '{logicalName}' was not found in {assembly.GetName().Name}.");
+        using Stream stream = Open(logicalName);
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
+    }
+
+    /// <summary>Loads a shader's raw bytes (e.g. precompiled SPIR-V) from an embedded resource.</summary>
+    public static byte[] LoadBytes(string logicalName)
+    {
+        using Stream stream = Open(logicalName);
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
+
+    private static Stream Open(string logicalName)
+    {
+        Assembly assembly = typeof(EmbeddedShader).Assembly;
+        return assembly.GetManifestResourceStream(logicalName)
+            ?? throw new InvalidOperationException(
+                $"Embedded shader '{logicalName}' was not found in {assembly.GetName().Name}.");
     }
 }
