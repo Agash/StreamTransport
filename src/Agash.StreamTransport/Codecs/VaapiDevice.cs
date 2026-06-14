@@ -1,4 +1,5 @@
-using System.Runtime.InteropServices;
+using System.IO;
+using System.Linq;
 using FFmpeg.AutoGen;
 
 namespace Agash.StreamTransport.Codecs;
@@ -58,10 +59,12 @@ internal static unsafe class VaapiDevice
 
         s_attempted = true;
 
-        // FFmpeg loads libva via dlopen the first time a VAAPI device is created; on a host without it (a
-        // GPU-less CI runner, or any non-VAAPI machine) that emits a fatal loader error to stderr. Probe for
-        // the libs first so VAAPI is simply reported unavailable, instead of triggering FFmpeg's loader.
-        if (!LibVaPresent())
+        // No DRM render node means no GPU here (e.g. a headless CI runner). Creating a VAAPI device in that
+        // case makes FFmpeg call into its bundled libva implib stub, which assert()/aborts the whole process
+        // when the real libva-drm is absent - so gate on a render node existing before any VAAPI codepath.
+        // (Loading the library by name is not enough to tell: the implib stub loads fine and only aborts on
+        // first use.) A machine with a render node has a real VAAPI driver + libva, as verified on hardware.
+        if (!HasDrmRenderNode())
         {
             return;
         }
@@ -80,22 +83,18 @@ internal static unsafe class VaapiDevice
         }
     }
 
-    private static readonly string[] s_vaLibraries = ["libva.so.2", "libva-drm.so.2"];
-
-    // VAAPI needs libva and its DRM backend present; probe with the loader so a missing library is a clean
-    // "unavailable" rather than FFmpeg's dlopen path printing a fatal error.
-    private static bool LibVaPresent()
+    // True when a DRM render node exists (a GPU is present). A headless CI runner has none, so VAAPI - and
+    // FFmpeg's abort-on-missing-libva implib stub - is never touched there.
+    private static bool HasDrmRenderNode()
     {
-        foreach (string lib in s_vaLibraries)
+        try
         {
-            if (!NativeLibrary.TryLoad(lib, out nint handle))
-            {
-                return false;
-            }
-
-            NativeLibrary.Free(handle);
+            return Directory.Exists("/dev/dri")
+                && Directory.EnumerateFileSystemEntries("/dev/dri", "renderD*").Any();
         }
-
-        return true;
+        catch (Exception)
+        {
+            return false;
+        }
     }
 }
