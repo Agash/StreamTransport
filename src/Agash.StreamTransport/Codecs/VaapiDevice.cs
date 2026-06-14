@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
 namespace Agash.StreamTransport.Codecs;
@@ -56,6 +57,15 @@ internal static unsafe class VaapiDevice
         }
 
         s_attempted = true;
+
+        // FFmpeg loads libva via dlopen the first time a VAAPI device is created; on a host without it (a
+        // GPU-less CI runner, or any non-VAAPI machine) that emits a fatal loader error to stderr. Probe for
+        // the libs first so VAAPI is simply reported unavailable, instead of triggering FFmpeg's loader.
+        if (!LibVaPresent())
+        {
+            return;
+        }
+
         AVBufferRef* device = null;
         // Default to the first render node; a multi-GPU box can pass e.g. /dev/dri/renderD129. The node is
         // fixed by the first caller for the process (single shared device).
@@ -68,5 +78,24 @@ internal static unsafe class VaapiDevice
         {
             ffmpeg.av_buffer_unref(&device);
         }
+    }
+
+    private static readonly string[] s_vaLibraries = ["libva.so.2", "libva-drm.so.2"];
+
+    // VAAPI needs libva and its DRM backend present; probe with the loader so a missing library is a clean
+    // "unavailable" rather than FFmpeg's dlopen path printing a fatal error.
+    private static bool LibVaPresent()
+    {
+        foreach (string lib in s_vaLibraries)
+        {
+            if (!NativeLibrary.TryLoad(lib, out nint handle))
+            {
+                return false;
+            }
+
+            NativeLibrary.Free(handle);
+        }
+
+        return true;
     }
 }
