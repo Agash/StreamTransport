@@ -51,7 +51,12 @@
   </PropertyGroup>
   <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
     <PackageReference Include="Syphon.NET" />
-    <PackageReference Include="PipeWire.NET" />
+    <!-- PipeWire.NET: reference the local .refs working copy during active development so lib fixes are
+         picked up without a NuGet round-trip; CI (and any tree without .refs) falls back to the package. -->
+    <ProjectReference Include="..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj"
+                      Condition="Exists('..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj')" />
+    <PackageReference Include="PipeWire.NET"
+                      Condition="!Exists('..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj')" />
     <!-- Linux GPU alpha pack/unpack: Vulkan compute over the PipeWire dmabuf. The GLSL .comp shaders are
          compiled to SPIR-V at build time (see the CompileComputeShadersToSpirV target) and loaded as
          precompiled .spv at runtime - NOT via a runtime GLSL->SPIR-V compiler (shaderc), whose bundled

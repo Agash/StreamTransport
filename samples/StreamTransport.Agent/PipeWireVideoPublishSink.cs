@@ -37,6 +37,11 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     private bool _hasFrame;
     private bool _disposed;
 
+    private static readonly bool s_debug = Environment.GetEnvironmentVariable("STX_PW_DEBUG") is { Length: > 0 };
+    private long _submits;
+    private long _fills;
+    private long _served;
+
     private PipeWireVideoPublishSink(PipeWireContext context, string nodeName, bool alpha, int frameRate)
     {
         _context = context;
@@ -100,6 +105,10 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             _width = width;
             _height = height;
             _hasFrame = true;
+            if (s_debug && ++_submits <= 3)
+            {
+                Console.Error.WriteLine($"[pw-sink] submit#{_submits} {width}x{height} {frame.PixelFormat} bytes={bgra.Length}");
+            }
 
             // Create the output lazily on the first frame, when the decoded dimensions are known. Construction
             // and Connect are synchronous (only the context start was async), so this needs no blocking wait.
@@ -119,9 +128,19 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     {
         lock (_gate)
         {
+            if (s_debug && ++_fills <= 3)
+            {
+                Console.Error.WriteLine($"[pw-sink] fill#{_fills} want {width}x{height} stride={stride} have {_width}x{_height} hasFrame={_hasFrame}");
+            }
+
             if (!_hasFrame || _bgra is null || width != _width || height != _height)
             {
                 return false;
+            }
+
+            if (s_debug && ++_served <= 3)
+            {
+                Console.Error.WriteLine($"[pw-sink] served#{_served}");
             }
 
             int srcStride = _width * 4;
