@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
 namespace Agash.StreamTransport.Codecs;
@@ -59,12 +60,15 @@ internal static unsafe class VaapiDevice
 
         s_attempted = true;
 
-        // Only touch VAAPI when a real GPU (DRM render node) AND the real libva-drm library are both present.
-        // FFmpeg's bundled libva *implib stub* loads by name even when the real library is absent and then
-        // assert()/aborts the whole process on first use - so loading by name cannot tell them apart; we must
-        // confirm the actual libva-drm.so.2 file exists at a system path before letting FFmpeg create a VAAPI
-        // device. A headless CI runner has the render node but no libva-drm file, which previously aborted.
-        if (!HasDrmRenderNode() || !RealLibVaDrmPresent())
+        // Only touch VAAPI when a real GPU (DRM render node) is present AND libva actually loads. FFmpeg's
+        // libva is an *implib stub* compiled into libavutil: the first VAAPI call dlopen()s libva-drm.so.2 by
+        // bare soname and, if the dynamic linker cannot load it, assert()/aborts the whole process - so once
+        // av_hwdevice_ctx_create reaches that path there is no recovering. We therefore replicate FFmpeg's
+        // exact load ourselves with NativeLibrary.TryLoad first: same bare soname, same OS loader, but it
+        // returns false instead of aborting. A file-existence check is not equivalent - a distro can ship a
+        // libva-drm.so.2 file that the linker still refuses to load (wrong path, missing deps), which is what
+        // aborted a headless CI runner that has both a render node and the package but no loadable library.
+        if (!HasDrmRenderNode() || !LibVaLoads())
         {
             return;
         }
@@ -97,17 +101,24 @@ internal static unsafe class VaapiDevice
         }
     }
 
-    // Standard install locations of the real libva DRM backend across the distros we target (Arch, Debian/
-    // Ubuntu multiarch, Fedora, arm64). We check the file directly rather than loading by name so FFmpeg's
-    // bundled implib stub (which loads by name regardless) is never mistaken for the real library.
-    private static readonly string[] s_libVaDrmPaths =
-    [
-        "/usr/lib/libva-drm.so.2",
-        "/usr/lib64/libva-drm.so.2",
-        "/usr/lib/x86_64-linux-gnu/libva-drm.so.2",
-        "/lib/x86_64-linux-gnu/libva-drm.so.2",
-        "/usr/lib/aarch64-linux-gnu/libva-drm.so.2",
-    ];
+    // The libraries FFmpeg's VAAPI path dlopen()s. We load (and immediately free) them through the OS loader
+    // by the same bare soname FFmpeg uses, so this answers exactly "will FFmpeg's lazy load succeed?" without
+    // its abort()-on-failure stub. The simple TryLoad overload uses the default OS search - not any
+    // per-assembly DllImportResolver - so a phantom file next to the FFmpeg natives cannot mask a real miss.
+    private static readonly string[] s_vaLibraries = ["libva.so.2", "libva-drm.so.2"];
 
-    private static bool RealLibVaDrmPresent() => s_libVaDrmPaths.Any(File.Exists);
+    private static bool LibVaLoads()
+    {
+        foreach (string lib in s_vaLibraries)
+        {
+            if (!NativeLibrary.TryLoad(lib, out nint handle))
+            {
+                return false;
+            }
+
+            NativeLibrary.Free(handle);
+        }
+
+        return true;
+    }
 }
