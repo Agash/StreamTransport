@@ -32,6 +32,12 @@ public sealed class VulkanDeviceTests
         Assert.AreNotEqual(nint.Zero, VulkanDevice.Instance, "VkInstance must be non-null");
         Assert.AreNotEqual(nint.Zero, VulkanDevice.PhysicalDevice, "VkPhysicalDevice must be non-null");
         Assert.AreNotEqual(nint.Zero, VulkanDevice.Device, "VkDevice must be non-null");
+
+        // Validates the full AVVulkanDeviceContext ABI read (past the embedded VkPhysicalDeviceFeatures2): a
+        // sane compute queue family index means the qf[] offset and nb_qf were read correctly.
+        int computeFamily = VulkanDevice.ComputeQueueFamily;
+        Assert.IsTrue(computeFamily >= 0, "FFmpeg's Vulkan device must expose a compute queue family");
+        Assert.IsTrue(computeFamily < 64, $"compute queue family index {computeFamily} is implausible (bad ABI read)");
     }
 
     [TestMethod]
