@@ -1,0 +1,39 @@
+#version 450
+//
+// alpha_pack.comp
+//
+// Side-by-side alpha pack (Linux Vulkan compute). Output is 2W x H BGRA: the left half is the opaque
+// colour, the right half replicates the source alpha to grey. A hardware HEVC encoder's in-ASIC RGB->YUV
+// then maps that grey (a,a,a) to luma Y = 16 + 219/255*a, so alpha rides the full-resolution luma plane
+// and survives 4:2:0. Byte-identical to the Windows D3D11 (alpha_pack.hlsl), macOS Metal
+// (alpha_pack.metal) and CPU reference (AlphaPacking) packers - the wire format must interchange across
+// all three. BGRA channel order is carried by the image-view formats the codec binds, not the shader
+// (GLSL always addresses .rgba; the B8G8R8A8 views map it).
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform sampler2D src;                 // W x H source colour+alpha
+layout(binding = 1, rgba8) uniform writeonly image2D dst;  // 2W x H packed output
+layout(push_constant) uniform Push { int width; int height; } pc;
+
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= pc.width * 2 || gid.y >= pc.height)
+    {
+        return;
+    }
+
+    if (gid.x < pc.width)
+    {
+        // Left half: opaque colour.
+        vec4 c = texelFetch(src, gid, 0);
+        imageStore(dst, gid, vec4(c.rgb, 1.0));
+    }
+    else
+    {
+        // Right half: source alpha replicated to grey (the encoder turns this into limited-range luma).
+        vec4 c = texelFetch(src, ivec2(gid.x - pc.width, gid.y), 0);
+        imageStore(dst, gid, vec4(c.a, c.a, c.a, 1.0));
+    }
+}

@@ -1,0 +1,41 @@
+#version 450
+//
+// alpha_unpack_nv12.comp
+//
+// Inverse of alpha_pack for the common receive case: a hardware HEVC decoder (VAAPI / NVDEC) emits the
+// decoded 2W x H frame as NV12 - a full-resolution R8 luma plane (binding 0) and a half-resolution RG8
+// CbCr plane (binding 1). Reconstruct W x H BGRA with alpha: colour from the left half via the BT.709
+// limited->full matrix; alpha from the right-half luma expanded out of the 16..235 limited range.
+// Constants match the Windows D3D11 unpacker (alpha_unpack.hlsl) and macOS Metal (alpha_unpack_nv12.metal)
+// so GPU receivers agree across platforms.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform sampler2D yPlane;              // 2W x H, R8 luma
+layout(binding = 1) uniform sampler2D uvPlane;             // W x (H/2), RG8 interleaved CbCr
+layout(binding = 2, rgba8) uniform writeonly image2D dst;  // W x H BGRA + alpha
+layout(push_constant) uniform Push { int width; int height; } pc;
+
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= pc.width || gid.y >= pc.height)
+    {
+        return;
+    }
+
+    // Colour from the left half. Chroma is shared by each 2x2 luma block (NV12 4:2:0).
+    float y = texelFetch(yPlane, gid, 0).r;
+    vec2 c = texelFetch(uvPlane, gid / 2, 0).rg;
+    float Y = (y - 0.0625) * 1.164;
+    float U = c.x - 0.5;
+    float V = c.y - 0.5;
+    float r = clamp(Y + 1.793 * V, 0.0, 1.0);
+    float g = clamp(Y - 0.213 * U - 0.533 * V, 0.0, 1.0);
+    float b = clamp(Y + 2.112 * U, 0.0, 1.0);
+
+    // Alpha from the right-half luma, expanded from the 16..235 limited range.
+    float ya = texelFetch(yPlane, ivec2(gid.x + pc.width, gid.y), 0).r;
+    float a = clamp((ya - 0.0625) * 1.164, 0.0, 1.0);
+    imageStore(dst, gid, vec4(r, g, b, a));
+}

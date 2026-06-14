@@ -123,7 +123,32 @@ internal sealed unsafe class VulkanVideoDecoder : IDisposable
             }
 
             var vkf = (AVVkFrameHead*)_frame->data[0];
-            return vkf->img0;
+            return vkf->img[0];
+        }
+    }
+
+    /// <summary>
+    /// Number of non-null <c>VkImage</c>s in the most recent frame. For NV12 this is 1 (a single multiplane
+    /// image, planes via PLANE_0/PLANE_1 aspects) or 2 (separate Y + UV images) - which determines how the
+    /// unpack compute binds the planes.
+    /// </summary>
+    public int ImageCount
+    {
+        get
+        {
+            if (_frame is null || _frame->data[0] is null)
+            {
+                return 0;
+            }
+
+            var vkf = (AVVkFrameHead*)_frame->data[0];
+            int n = 0;
+            while (n < 8 && vkf->img[n] != 0)
+            {
+                n++;
+            }
+
+            return n;
         }
     }
 
@@ -141,12 +166,18 @@ internal sealed unsafe class VulkanVideoDecoder : IDisposable
         fixed (AVBufferRef** device = &_hwDevice) ffmpeg.av_buffer_unref(device);
     }
 
-    // Leading field of libavutil's AVVkFrame (hwcontext_vulkan.h): VkImage img[AV_NUM_DATA_POINTERS]. img[0]
-    // is the first 8 bytes, which is all we need to reach the primary plane image; the rest of the struct
-    // (tiling, mem[], layouts, semaphores, ...) is not read here.
+    // Leading field of libavutil's AVVkFrame (hwcontext_vulkan.h): VkImage img[AV_NUM_DATA_POINTERS=8]. That
+    // array is the first member, which is all we read here (the rest - tiling, mem[], layouts, semaphores -
+    // is used by the compute path via the full ABI).
+    [System.Runtime.CompilerServices.InlineArray(8)]
+    private struct ImageArray
+    {
+        private nint _e0;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct AVVkFrameHead
     {
-        public nint img0; // VkImage img[0]
+        public ImageArray img; // VkImage img[8]
     }
 }

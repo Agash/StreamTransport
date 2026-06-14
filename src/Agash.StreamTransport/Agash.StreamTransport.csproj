@@ -49,6 +49,32 @@
     <EmbeddedResource Include="Codecs/Shaders/bgra_to_nv12.hlsl" LogicalName="bgra_to_nv12.hlsl" />
   </ItemGroup>
 
+  <!-- Linux Vulkan alpha pack/unpack compute (base TFM, run on Linux). The .comp GLSL is the editable source;
+       it is compiled to SPIR-V at build time (CompileComputeShadersToSpirV) and the committed .spv is embedded
+       and loaded at runtime - never a runtime GLSL compiler (shaderc collides with Mesa's SPIRV-Tools). -->
+  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+    <ComputeShaderSource Include="Codecs/Shaders/alpha_pack.comp" />
+    <ComputeShaderSource Include="Codecs/Shaders/alpha_unpack_nv12.comp" />
+    <ComputeShaderSource Include="Codecs/Shaders/alpha_unpack_bgra.comp" />
+    <None Include="@(ComputeShaderSource)" />
+    <EmbeddedResource Include="Codecs/Shaders/alpha_pack.spv" LogicalName="alpha_pack.spv" />
+    <EmbeddedResource Include="Codecs/Shaders/alpha_unpack_nv12.spv" LogicalName="alpha_unpack_nv12.spv" />
+    <EmbeddedResource Include="Codecs/Shaders/alpha_unpack_bgra.spv" LogicalName="alpha_unpack_bgra.spv" />
+  </ItemGroup>
+
+  <Target Name="CompileComputeShadersToSpirV" BeforeTargets="PrepareForBuild"
+          Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
+          Inputs="@(ComputeShaderSource)"
+          Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')">
+    <Exec Command="command -v glslc" ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low" StandardOutputImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_GlslcExit" />
+    </Exec>
+    <Message Condition="'$(_GlslcExit)' != '0'" Importance="high"
+             Text="glslc not found; using the committed SPIR-V (.spv) for the Vulkan compute shaders." />
+    <Exec Condition="'$(_GlslcExit)' == '0'"
+          Command="glslc -O &quot;%(ComputeShaderSource.FullPath)&quot; -o &quot;%(ComputeShaderSource.RootDir)%(ComputeShaderSource.Directory)%(ComputeShaderSource.Filename).spv&quot;" />
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />

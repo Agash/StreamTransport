@@ -1,0 +1,28 @@
+#version 450
+//
+// alpha_unpack_bgra.comp
+//
+// Inverse of alpha_pack when the decoded 2W x H frame arrives as BGRA (a colour-converted decode rather
+// than NV12). Colour comes straight from the left half; alpha from the right-half grey, expanded out of
+// the same 16..235 limited range used on pack so it matches the NV12 path and stays interchange-compatible
+// with the Windows (alpha_unpack.hlsl) and macOS (alpha_unpack_bgra.metal) unpackers.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform sampler2D packed;              // 2W x H decoded BGRA
+layout(binding = 1, rgba8) uniform writeonly image2D dst;  // W x H BGRA + alpha
+layout(push_constant) uniform Push { int width; int height; } pc;
+
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= pc.width || gid.y >= pc.height)
+    {
+        return;
+    }
+
+    vec3 rgb = texelFetch(packed, gid, 0).rgb;                            // left half: colour
+    float ya = texelFetch(packed, ivec2(gid.x + pc.width, gid.y), 0).r;   // right half: alpha-as-grey
+    float a = clamp((ya - 0.0625) * 1.164, 0.0, 1.0);                     // 16..235 limited -> full
+    imageStore(dst, gid, vec4(rgb, a));
+}

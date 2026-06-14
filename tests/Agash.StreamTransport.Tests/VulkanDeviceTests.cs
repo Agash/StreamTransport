@@ -83,6 +83,11 @@ public sealed class VulkanDeviceTests
                     Assert.AreEqual(1280, w);
                     Assert.AreEqual(720, h);
                     Assert.AreNotEqual(nint.Zero, decoder.Image0, "decoded Vulkan frame must expose a VkImage");
+                    if (Environment.GetEnvironmentVariable("STX_DMABUF_DEBUG") is { Length: > 0 } dbg2)
+                    {
+                        File.AppendAllText(dbg2, $"[vk-decode] ImageCount={decoder.ImageCount}\n");
+                    }
+
                     decoded = true;
                 }
             }
