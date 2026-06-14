@@ -383,6 +383,14 @@ public sealed partial class IceAgent : IAsyncDisposable
         // The remote reached us → this pair is usable from their side. Trigger a check back (triggered
         // check), and on the controlled side honour USE-CANDIDATE nomination.
         pair.RemoteRequestSeen = true;
+
+        // An authenticated inbound binding request proves this path is alive in the receive direction right
+        // now, independent of whether our own outbound consent check happened to be lost. Consent is
+        // bidirectional in practice (both agents probe the selected pair), so refresh liveness on it too,
+        // mirroring libwebrtc's last-received tracking. Without this, a flaky link refreshes consent only on
+        // our check *responses* (round-trip survival) and discards the peer's checks (one-way survival),
+        // tripping false consent loss under loss that an alive path should ride out.
+        pair.LastResponseUtc = DateTime.UtcNow;
         if (useCandidate && _role == IceRole.Controlled && pair.State == PairState.Succeeded)
         {
             Nominate(pair);
