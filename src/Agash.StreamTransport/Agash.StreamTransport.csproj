@@ -31,6 +31,9 @@
     <PackageReference Include="MinVer" PrivateAssets="all" />
     <PackageReference Include="Concentus" />
     <PackageReference Include="FFmpeg.AutoGen" />
+    <!-- Vulkan compute for the Linux alpha pack/unpack path: runs shaders on the FFmpeg-owned Vulkan device's
+         images (see docs/notes/linux-gpu-zerocopy-plan.md). Managed wrapper; only exercised at runtime on Linux. -->
+    <PackageReference Include="Vortice.Vulkan" />
   </ItemGroup>
 
   <!-- Windows head only: typed D3D11 interop for the Spout zero-copy path, plus the runtime HLSL compiler

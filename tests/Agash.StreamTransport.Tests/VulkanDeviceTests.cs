@@ -32,12 +32,6 @@ public sealed class VulkanDeviceTests
         Assert.AreNotEqual(nint.Zero, VulkanDevice.Instance, "VkInstance must be non-null");
         Assert.AreNotEqual(nint.Zero, VulkanDevice.PhysicalDevice, "VkPhysicalDevice must be non-null");
         Assert.AreNotEqual(nint.Zero, VulkanDevice.Device, "VkDevice must be non-null");
-
-        // Validates the full AVVulkanDeviceContext ABI read (past the embedded VkPhysicalDeviceFeatures2): a
-        // sane compute queue family index means the qf[] offset and nb_qf were read correctly.
-        int computeFamily = VulkanDevice.ComputeQueueFamily;
-        Assert.IsTrue(computeFamily >= 0, "FFmpeg's Vulkan device must expose a compute queue family");
-        Assert.IsTrue(computeFamily < 64, $"compute queue family index {computeFamily} is implausible (bad ABI read)");
     }
 
     [TestMethod]
@@ -94,6 +88,35 @@ public sealed class VulkanDeviceTests
             }
 
             Assert.IsTrue(decoded, "decoder should have produced a Vulkan image from the HEVC stream");
+        }
+    }
+
+    [TestMethod]
+    public void ComputeContext_BorrowsFFmpegVulkanDevice()
+    {
+        string? nativeBin = TestNative.FindFFmpegBin();
+        if (nativeBin is null)
+        {
+            Assert.Inconclusive("No bundled FFmpeg native build found.");
+            return;
+        }
+
+        FFmpegLibrary.EnsureLoaded(nativeBin);
+
+        if (!VulkanDevice.IsAvailable())
+        {
+            Assert.Inconclusive("No Vulkan device available on this machine.");
+            return;
+        }
+
+        // The load-bearing check for the mpv-inverted model: Vortice can drive the VkDevice FFmpeg created,
+        // find a compute queue, and create a command pool on it.
+        Assert.IsTrue(VulkanComputeContext.TryCreate(out VulkanComputeContext? ctx),
+            "should build a compute context on FFmpeg's Vulkan device");
+        using (ctx)
+        {
+            Assert.IsNotNull(ctx);
+            Assert.IsTrue(ctx!.Device.IsNotNull, "borrowed VkDevice must be valid");
         }
     }
 }

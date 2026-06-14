@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
@@ -54,52 +53,6 @@ internal static unsafe class VulkanDevice
     /// <summary>The <c>VkDevice</c> FFmpeg created. Borrow it to run compute on the decoder's images.</summary>
     public static nint Device { get { lock (s_gate) { EnsureCreated(); return Head(out var h) ? h->act_dev : 0; } } }
 
-    /// <summary>
-    /// A queue family index FFmpeg created queues for that supports compute, or -1 if none. Reading FFmpeg's
-    /// own <c>qf[]</c> list (rather than guessing from the physical device) guarantees the family actually has
-    /// a queue we can fetch with <c>vkGetDeviceQueue</c>.
-    /// </summary>
-    public static int ComputeQueueFamily
-    {
-        get
-        {
-            lock (s_gate)
-            {
-                EnsureCreated();
-                if (!Head(out AVVulkanDeviceContextHead* h))
-                {
-                    return -1;
-                }
-
-                var ctx = (AVVulkanDeviceContext*)h;
-                string? dbg = Environment.GetEnvironmentVariable("STX_DMABUF_DEBUG");
-                if (!string.IsNullOrEmpty(dbg))
-                {
-                    var sb = new System.Text.StringBuilder($"[vk-qf] nb_qf={ctx->nb_qf} sizeof(ctx)={sizeof(AVVulkanDeviceContext)}\n");
-                    for (int i = 0; i < Math.Min(Math.Max(ctx->nb_qf, 0), 8); i++)
-                    {
-                        sb.AppendLine($"  qf[{i}] idx={ctx->qf[i].idx} num={ctx->qf[i].num} flags=0x{ctx->qf[i].flags:x}");
-                    }
-
-                    File.AppendAllText(dbg, sb.ToString());
-                }
-
-                int n = Math.Min(Math.Max(ctx->nb_qf, 0), 64);
-                for (int i = 0; i < n; i++)
-                {
-                    if ((ctx->qf[i].flags & VK_QUEUE_COMPUTE_BIT) != 0)
-                    {
-                        return ctx->qf[i].idx;
-                    }
-                }
-
-                return -1;
-            }
-        }
-    }
-
-    private const uint VK_QUEUE_COMPUTE_BIT = 0x2;
-
     private static void EnsureCreated()
     {
         if (s_attempted)
@@ -130,7 +83,9 @@ internal static unsafe class VulkanDevice
     }
 
     // Leading fields of libavutil's AVVulkanDeviceContext (hwcontext_vulkan.h). All pointer-sized on x64;
-    // reading only these avoids needing the full struct for the common handle accessors.
+    // reading only these avoids needing the full struct (which embeds a large VkPhysicalDeviceFeatures2 and,
+    // at libavutil 60, deprecated fixed-queue fields before qf[]). Queue discovery is done in
+    // VulkanComputeContext via the physical device, not by reading qf[].
     [StructLayout(LayoutKind.Sequential)]
     private struct AVVulkanDeviceContextHead
     {
@@ -139,49 +94,5 @@ internal static unsafe class VulkanDevice
         public nint inst;           // VkInstance
         public nint phys_dev;       // VkPhysicalDevice
         public nint act_dev;        // VkDevice
-    }
-
-    // One entry of AVVulkanDeviceContext.qf: { int idx; int num; VkQueueFlagBits flags; VkVideoCodecOperationFlagBitsKHR video_caps; }.
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AVVulkanDeviceQueueFamily
-    {
-        public int idx;
-        public int num;
-        public uint flags;
-        public uint video_caps;
-    }
-
-    [InlineArray(64)]
-    private struct QueueFamilyArray
-    {
-        private AVVulkanDeviceQueueFamily _e0;
-    }
-
-    // Opaque blob standing in for the embedded VkPhysicalDeviceFeatures2 we never read. Its size is fixed by
-    // the Vulkan core ABI: VkPhysicalDeviceFeatures2 = sType(4) + pad(4) + pNext(8) + VkPhysicalDeviceFeatures
-    // (55 x VkBool32 = 220), padded to an 8-byte boundary = 240 bytes. VkPhysicalDeviceFeatures has been a
-    // stable 55-field struct since Vulkan 1.0, so this offset is fixed across versions.
-    [InlineArray(240)]
-    private struct PhysicalDeviceFeatures2Blob
-    {
-        private byte _e0;
-    }
-
-    // Full AVVulkanDeviceContext, needed to reach the qf[] queue-family list past device_features.
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AVVulkanDeviceContext
-    {
-        public nint alloc;
-        public nint get_proc_addr;
-        public nint inst;
-        public nint phys_dev;
-        public nint act_dev;
-        public PhysicalDeviceFeatures2Blob device_features;
-        public nint enabled_inst_extensions;
-        public int nb_enabled_inst_extensions;
-        public nint enabled_dev_extensions;
-        public int nb_enabled_dev_extensions;
-        public QueueFamilyArray qf;
-        public int nb_qf;
     }
 }
