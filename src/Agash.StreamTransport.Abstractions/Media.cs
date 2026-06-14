@@ -93,8 +93,33 @@ public readonly record struct VideoFrame
             PresentationTimeNs = presentationTimeNs,
         };
 
-    /// <summary>The GPU surface handle, valid when <see cref="InteropKind"/> is not <see cref="StreamInteropKind.None"/>.</summary>
+    /// <summary>
+    /// Create a GPU-resident frame backed by a Linux DMA-BUF surface (<see cref="StreamInteropKind.PipeWire"/>).
+    /// The pixels stay on the GPU; the encoder imports the planes as a VAAPI surface (DRM-PRIME) and the
+    /// publish sink can hand them straight back to PipeWire - no CPU readback.
+    /// </summary>
+    public static VideoFrame FromDmaBuf(in DmaBufSurface surface, int width, int height, long presentationTimeNs) =>
+        new()
+        {
+            DmaBuf = surface,
+            InteropKind = StreamInteropKind.PipeWire,
+            Width = width,
+            Height = height,
+            PresentationTimeNs = presentationTimeNs,
+        };
+
+    /// <summary>
+    /// The GPU surface handle for a single-handle interop (Spout D3D11 texture, Syphon IOSurface), valid
+    /// when <see cref="InteropKind"/> is <see cref="StreamInteropKind.Spout"/> or
+    /// <see cref="StreamInteropKind.Syphon"/>. For <see cref="StreamInteropKind.PipeWire"/> use <see cref="DmaBuf"/>.
+    /// </summary>
     public nint Surface { get; init; }
+
+    /// <summary>
+    /// The DMA-BUF surface (per-plane fds + modifier) for a <see cref="StreamInteropKind.PipeWire"/> frame;
+    /// <see langword="null"/> otherwise. A value type, so this allocates nothing per frame.
+    /// </summary>
+    public DmaBufSurface? DmaBuf { get; init; }
 
     /// <summary>The platform interop kind, or <see cref="StreamInteropKind.None"/> for a CPU frame.</summary>
     public StreamInteropKind InteropKind { get; init; }

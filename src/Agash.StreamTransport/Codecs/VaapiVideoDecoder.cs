@@ -15,21 +15,33 @@ namespace Agash.StreamTransport.Codecs;
 /// <remarks>Compiles everywhere (FFmpeg.AutoGen); only functional on Linux with a VAAPI driver.</remarks>
 internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBackend
 {
-    /// <summary>VAAPI surfaces are transferred down to CPU NV12; no GPU surface is surfaced.</summary>
-    public StreamInteropKind OutputSurfaceKind => StreamInteropKind.None;
+    /// <summary>
+    /// In GPU-surface mode the decoded VAAPI surface is exported as a DMA-BUF (DRM-PRIME) and surfaced as a
+    /// <see cref="StreamInteropKind.PipeWire"/> frame for zero-copy downstream (Vulkan import / PipeWire
+    /// republish); otherwise it is read back to CPU NV12 (<see cref="StreamInteropKind.None"/>).
+    /// </summary>
+    public StreamInteropKind OutputSurfaceKind => _gpuSurface ? StreamInteropKind.PipeWire : StreamInteropKind.None;
 
-    /// <summary>CPU-output decode (the VAAPI surface is read back); no shared GPU device.</summary>
+    /// <summary>No shared GPU device handle is surfaced (dmabuf carries its own fds).</summary>
     public nint NativeDevice => 0;
 
+    private readonly bool _gpuSurface;
     private AVCodecContext* _context;
     private AVBufferRef* _hwDevice;
     private AVPacket* _packet;
     private AVFrame* _frame;
     private AVFrame* _swFrame;
+    private AVFrame* _drmFrame;
     private bool _disposed;
 
-    public VaapiVideoDecoder(string? renderNode = null)
+    /// <param name="renderNode">Optional DRM render node (e.g. <c>/dev/dri/renderD129</c>); first node by default.</param>
+    /// <param name="gpuSurface">
+    /// When <see langword="true"/>, export each decoded surface as a DMA-BUF instead of reading it back to
+    /// CPU memory - the zero-copy path. Requires a downstream that consumes <see cref="StreamInteropKind.PipeWire"/>.
+    /// </param>
+    public VaapiVideoDecoder(string? renderNode = null, bool gpuSurface = false)
     {
+        _gpuSurface = gpuSurface;
         if (!OperatingSystem.IsLinux())
         {
             throw new PlatformNotSupportedException("VAAPI decoding is only available on Linux.");
@@ -79,6 +91,7 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         _packet = ffmpeg.av_packet_alloc();
         _frame = ffmpeg.av_frame_alloc();
         _swFrame = ffmpeg.av_frame_alloc();
+        _drmFrame = ffmpeg.av_frame_alloc();
     }
 
     // get_format is called by FFmpeg with the list of formats the decoder can output for this stream; we pick
@@ -139,6 +152,15 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         int width = _frame->width;
         int height = _frame->height;
 
+        // Zero-copy path: export the decoded VAAPI surface as a DMA-BUF (DRM-PRIME) and surface its planes
+        // directly, no CPU readback. The map holds the surface alive until the next decode unrefs it, so the
+        // frame must be consumed before TryDecode is called again (single frame in flight - the pull pipeline).
+        if (_gpuSurface && (AVPixelFormat)_frame->format == AVPixelFormat.AV_PIX_FMT_VAAPI
+            && TryExportDmaBuf(width, height, presentationTimeNs, out frame))
+        {
+            return true;
+        }
+
         // The decoded frame is a VAAPI surface; transfer it down to a CPU frame (the hardware frames context's
         // sw_format, which for HEVC 8-bit is NV12). A driver that handed back a software frame directly (no
         // hwaccel) is read out as-is.
@@ -163,6 +185,55 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         return true;
     }
 
+    // Maps the current VAAPI surface (_frame) to a DRM-PRIME descriptor and flattens its objects+layers into
+    // a flat DmaBufSurface (one DmaBufPlane per layer-plane, resolving each plane's fd via its object). The
+    // modifier is taken from the first object (uniform across a surface in practice). Returns false (so the
+    // caller falls back to CPU readback) if the driver cannot map to DRM-PRIME.
+    private bool TryExportDmaBuf(int width, int height, long presentationTimeNs, out VideoFrame frame)
+    {
+        frame = default;
+
+        ffmpeg.av_frame_unref(_drmFrame);
+        _drmFrame->format = (int)AVPixelFormat.AV_PIX_FMT_DRM_PRIME;
+        if (ffmpeg.av_hwframe_map(_drmFrame, _frame, (int)DrmPrime.HwframeMapRead) < 0 || _drmFrame->data[0] is null)
+        {
+            return false;
+        }
+
+        ref readonly AVDRMFrameDescriptor desc = ref *(AVDRMFrameDescriptor*)_drmFrame->data[0];
+        if (desc.nb_layers <= 0 || desc.nb_objects <= 0)
+        {
+            return false;
+        }
+
+        ulong modifier = desc.objects[0].format_modifier;
+        Span<DmaBufPlane> planes = stackalloc DmaBufPlane[DmaBufSurfaceMaxPlanes];
+        int planeCount = 0;
+        for (int l = 0; l < desc.nb_layers && planeCount < planes.Length; l++)
+        {
+            ref readonly AVDRMLayerDescriptor layer = ref desc.layers[l];
+            for (int p = 0; p < layer.nb_planes && planeCount < planes.Length; p++)
+            {
+                ref readonly AVDRMPlaneDescriptor plane = ref layer.planes[p];
+                int fd = desc.objects[plane.object_index].fd;
+                planes[planeCount++] = new DmaBufPlane(fd, (uint)plane.offset, (uint)plane.pitch);
+            }
+        }
+
+        if (planeCount == 0)
+        {
+            return false;
+        }
+
+        // HEVC 8-bit decodes to NV12; that is the only sw_format the VAAPI frames context produces here.
+        var surface = new DmaBufSurface(modifier, VideoPixelFormat.Nv12, planes[..planeCount]);
+        frame = VideoFrame.FromDmaBuf(in surface, width, height, presentationTimeNs);
+        return true;
+    }
+
+    // Keep in step with DmaBufSurface's inline-array capacity (4); a flat NV12 export uses 2.
+    private const int DmaBufSurfaceMaxPlanes = 4;
+
     public void Dispose()
     {
         if (_disposed)
@@ -184,6 +255,11 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         fixed (AVFrame** swFrame = &_swFrame)
         {
             ffmpeg.av_frame_free(swFrame);
+        }
+
+        fixed (AVFrame** drmFrame = &_drmFrame)
+        {
+            ffmpeg.av_frame_free(drmFrame);
         }
 
         fixed (AVCodecContext** context = &_context)
