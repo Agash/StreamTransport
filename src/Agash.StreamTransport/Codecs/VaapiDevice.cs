@@ -51,6 +51,29 @@ internal static unsafe class VaapiDevice
         }
     }
 
+    /// <summary>
+    /// The shared device's native <c>VADisplay</c> (0 if no device). Read from the first field of the
+    /// device's <c>AVVAAPIDeviceContext</c> (<c>VADisplay display</c>), so a direct libva call (e.g.
+    /// <c>vaCopy</c>) operates on the very display FFmpeg's surfaces belong to.
+    /// </summary>
+    public static nint Display
+    {
+        get
+        {
+            lock (s_gate)
+            {
+                EnsureCreated(null);
+                if (s_device is null)
+                {
+                    return 0;
+                }
+
+                void* hwctx = ((AVHWDeviceContext*)s_device->data)->hwctx;
+                return hwctx is null ? 0 : *(nint*)hwctx; // AVVAAPIDeviceContext.display is the first member.
+            }
+        }
+    }
+
     private static void EnsureCreated(string? renderNode)
     {
         if (s_attempted)
