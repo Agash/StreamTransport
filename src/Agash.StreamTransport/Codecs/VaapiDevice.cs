@@ -59,6 +59,7 @@ internal static unsafe class VaapiDevice
         }
 
         s_attempted = true;
+        FfmpegLog.InstallIfRequested();
 
         // Only touch VAAPI when a real GPU (DRM render node) is present AND libva actually loads. FFmpeg's
         // libva is an *implib stub* compiled into libavutil: the first VAAPI call dlopen()s libva-drm.so.2 by

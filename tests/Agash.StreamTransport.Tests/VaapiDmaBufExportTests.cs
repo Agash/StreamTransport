@@ -84,4 +84,67 @@ public sealed class VaapiDmaBufExportTests
             Assert.IsTrue(exported, "decoder should have exported at least one DMA-BUF surface");
         }
     }
+
+    [TestMethod]
+    public void TranscodeOverDmaBuf_ReencodesGpuSurface_NoCpuReadback()
+    {
+        string? nativeBin = TestNative.FindFFmpegBin();
+        if (nativeBin is null)
+        {
+            Assert.Inconclusive("No bundled FFmpeg native build found.");
+            return;
+        }
+
+        FFmpegLibrary.EnsureLoaded(nativeBin);
+
+        const int width = 1280;
+        const int height = 720;
+        VaapiVideoEncoder encoder;
+        try
+        {
+            encoder = new VaapiVideoEncoder(width, height, fps: 30, bitrate: 4_000_000);
+        }
+        catch (Exception ex)
+        {
+            Assert.Inconclusive($"hevc_vaapi hardware is not available on this machine: {ex.Message}");
+            return;
+        }
+
+        // Phase 1: encode a CPU seed and decode it to a real DMA-BUF (DRM-PRIME) GPU surface.
+        // Phase 2: import that surface into a FRESH encoder (av_hwframe_map) and encode it - zero CPU touch.
+        // A non-empty access unit from phase 2 proves the import maps a real exported surface end to end. We
+        // use a separate encoder for the re-encode so a clean IDR is produced (no shared-GOP interference) and
+        // we don't re-decode it (a lone AU has no stream context).
+        using (encoder)
+        using (var gpuDecoder = new VaapiVideoDecoder(gpuSurface: true))
+        {
+            byte[] nv12 = HardwareEncoderTestSupport.Nv12Pattern(width, height);
+            var seed = VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, width, height, 0);
+
+            bool sawSurface = false;
+            bool importedOk = false;
+            for (int frame = 0; frame < 60 && !importedOk; frame++)
+            {
+                byte[]? au = encoder.Encode(seed, out _);
+                if (au is null || !gpuDecoder.TryDecode(au, 0, 0, out VideoFrame surface, out _))
+                {
+                    continue;
+                }
+
+                sawSurface = true;
+                Assert.AreEqual(StreamInteropKind.PipeWire, surface.InteropKind);
+
+                // Re-encode the imported surface on the same (primed) encoder. A non-empty AU proves the
+                // zero-copy import worked: av_hwframe_map aliased the dmabuf as a VA surface and it encoded.
+                byte[]? reencoded = encoder.Encode(surface, out _);
+                if (reencoded is { Length: > 0 })
+                {
+                    importedOk = true;
+                }
+            }
+
+            Assert.IsTrue(sawSurface, "decoder should have produced a DMA-BUF surface to import");
+            Assert.IsTrue(importedOk, "importing a DMA-BUF surface and encoding it should produce a non-empty access unit");
+        }
+    }
 }

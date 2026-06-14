@@ -19,6 +19,24 @@ internal static class DrmPrime
     internal const uint HwframeMapWrite = 2;
 }
 
+/// <summary>DRM <c>fourcc</c> pixel-format codes (drm_fourcc.h), as used in an AVDRMLayerDescriptor.</summary>
+internal static class Fourcc
+{
+    private static uint Code(char a, char b, char c, char d) => a | ((uint)b << 8) | ((uint)c << 16) | ((uint)d << 24);
+
+    /// <summary><c>DRM_FORMAT_NV12</c> - 4:2:0 Y plane + interleaved UV plane (as a single layer).</summary>
+    internal static readonly uint Nv12 = Code('N', 'V', '1', '2');
+
+    /// <summary><c>DRM_FORMAT_R8</c> - single 8-bit channel. VAAPI represents an NV12 Y plane as an R8 layer.</summary>
+    internal static readonly uint R8 = Code('R', '8', ' ', ' ');
+
+    /// <summary><c>DRM_FORMAT_GR88</c> - two 8-bit channels. VAAPI represents an NV12 UV plane as a GR88 layer.</summary>
+    internal static readonly uint Gr88 = Code('G', 'R', '8', '8');
+
+    /// <summary><c>DRM_FORMAT_ARGB8888</c> - matches BGRA8888 byte order in memory.</summary>
+    internal static readonly uint Argb8888 = Code('A', 'R', '2', '4');
+}
+
 [StructLayout(LayoutKind.Sequential)]
 internal struct AVDRMPlaneDescriptor
 {

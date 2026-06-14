@@ -3,13 +3,17 @@ using System.Runtime.CompilerServices;
 namespace Agash.StreamTransport;
 
 /// <summary>
-/// One plane of a Linux DMA-BUF surface: the backing file descriptor and where the plane sits within it.
-/// Several planes may share one <see cref="Fd"/> at different offsets (a common dmabuf layout).
+/// One plane of a Linux DMA-BUF surface: the backing file descriptor, where the plane sits within it, and
+/// the DRM <c>fourcc</c> the producer assigned to it. Several planes may share one <see cref="Fd"/> at
+/// different offsets (a common dmabuf layout). The <see cref="DrmFourcc"/> is carried verbatim so the
+/// consumer reconstructs the producer's exact layout - e.g. a driver that splits NV12 into an <c>R8</c> Y
+/// plane and a <c>GR88</c> UV plane is preserved as-is, with no per-driver guessing on import.
 /// </summary>
 /// <param name="Fd">DMA-BUF file descriptor backing this plane (owned by the producer; valid for the frame's lifetime).</param>
 /// <param name="Offset">Byte offset of the plane within <paramref name="Fd"/>.</param>
 /// <param name="Stride">Bytes per row of the plane.</param>
-public readonly record struct DmaBufPlane(int Fd, uint Offset, uint Stride);
+/// <param name="DrmFourcc">The DRM format <c>fourcc</c> (drm_fourcc.h) the producer assigned to this plane's layer.</param>
+public readonly record struct DmaBufPlane(int Fd, uint Offset, uint Stride, uint DrmFourcc);
 
 // Inline storage for up to four planes (4:4:4/aux is the practical maximum; NV12 uses 2, packed uses 1).
 // Keeps a DmaBufSurface a pure value type with no per-frame heap allocation - the pixels stay on the GPU

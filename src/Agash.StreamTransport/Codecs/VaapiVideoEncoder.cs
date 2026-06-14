@@ -17,8 +17,17 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
     public nint NativeDevice => 0;
 
     /// <inheritdoc/>
-    public byte[]? Encode(in VideoFrame frame, out long capturePtsNs) =>
-        EncodeNv12(frame.Pixels.ToArray(), frame.Width, frame.Height, frame.PresentationTimeNs, out capturePtsNs);
+    public byte[]? Encode(in VideoFrame frame, out long capturePtsNs)
+    {
+        // Zero-copy path: a DMA-BUF surface (from PipeWire capture or a Vulkan pack) is imported straight
+        // into a VAAPI surface and encoded - no CPU upload. Otherwise upload the CPU NV12 buffer.
+        if (frame.InteropKind == StreamInteropKind.PipeWire && frame.DmaBuf.HasValue)
+        {
+            return EncodeDmaBuf(frame.DmaBuf.Value, frame.Width, frame.Height, frame.PresentationTimeNs, out capturePtsNs);
+        }
+
+        return EncodeNv12(frame.Pixels.ToArray(), frame.Width, frame.Height, frame.PresentationTimeNs, out capturePtsNs);
+    }
 
     private AVCodecContext* _context;
     private AVBufferRef* _hwDevice;
@@ -117,11 +126,109 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
         }
     }
 
-    // TODO(linux-dmabuf-zerocopy): import a PipeWire DMA-BUF fd straight into a VAAPI surface
-    // (AV_PIX_FMT_DRM_PRIME -> av_hwframe_map, AV_HWFRAME_MAP_DIRECT) for a fully zero-copy encode.
-    // FFmpeg.AutoGen does not expose the AVDRM*Descriptor structs, so they must be hand-defined to the
-    // exact FFmpeg ABI and verified against a real VAAPI driver - a Linux-machine task. The CPU NV12
-    // upload path (EncodeNv12) is the working baseline until then.
+    // Import a DMA-BUF surface straight into a VAAPI surface and encode it - no CPU upload. The dmabuf is
+    // wrapped as an AV_PIX_FMT_DRM_PRIME frame (its hand-defined AVDRMFrameDescriptor in data[0]) carried by
+    // a DRM frames context derived from this encoder's VAAPI device, then av_hwframe_map'd (DIRECT) into a
+    // VAAPI surface that aliases the same memory. The caller owns the source fds (we never close them).
+    private byte[]? EncodeDmaBuf(in DmaBufSurface surface, int width, int height, long capturePtsNs, out long producedPtsNs)
+    {
+        producedPtsNs = 0;
+        FfmpegLog.InstallIfRequested();
+
+        // Rebuild the producer's exact DRM-PRIME descriptor: one layer per plane carrying the plane's own DRM
+        // fourcc (preserved verbatim from the producer - e.g. R8 for Y, GR88 for UV on this Mesa stack), with
+        // distinct fds collapsed into objects. No per-format guessing: whatever the producer emitted is fed
+        // back unchanged, so this works for any driver's plane representation, not just one.
+        AVDRMFrameDescriptor desc = default;
+        Span<int> objectFds = stackalloc int[DrmPrime.MaxPlanes];
+        int objectCount = 0;
+        int planeCount = Math.Min(surface.PlaneCount, DrmPrime.MaxPlanes);
+        for (int l = 0; l < planeCount; l++)
+        {
+            DmaBufPlane plane = surface[l];
+            int objectIndex = -1;
+            for (int o = 0; o < objectCount; o++)
+            {
+                if (objectFds[o] == plane.Fd) { objectIndex = o; break; }
+            }
+
+            if (objectIndex < 0)
+            {
+                objectIndex = objectCount;
+                objectFds[objectCount] = plane.Fd;
+                desc.objects[objectCount] = new AVDRMObjectDescriptor
+                {
+                    fd = plane.Fd,
+                    size = 0,
+                    format_modifier = surface.Modifier,
+                };
+                objectCount++;
+            }
+
+            var layer = new AVDRMLayerDescriptor { format = plane.DrmFourcc, nb_planes = 1 };
+            layer.planes[0] = new AVDRMPlaneDescriptor
+            {
+                object_index = objectIndex,
+                offset = (nint)plane.Offset,
+                pitch = (nint)plane.Stride,
+            };
+            desc.layers[l] = layer;
+        }
+
+        desc.nb_objects = objectCount;
+        desc.nb_layers = planeCount;
+
+        AVFrame* drm = ffmpeg.av_frame_alloc();
+        AVFrame* va = ffmpeg.av_frame_alloc();
+        // A DRM-PRIME frame carries its AVDRMFrameDescriptor in buf[0] (an AVBufferRef), with data[0]
+        // pointing at it - this is how FFmpeg's own DRM frame pool builds frames, and av_hwframe_map needs it
+        // there, not merely in data[0]. Allocated per call; av_frame_free releases it.
+        AVBufferRef* descBuf = ffmpeg.av_buffer_alloc((ulong)sizeof(AVDRMFrameDescriptor));
+        try
+        {
+            *(AVDRMFrameDescriptor*)descBuf->data = desc;
+
+            // No frames context on the source: av_hwframe_map tries the source's map_from first, and DRM's
+            // map_from only maps to software formats - for a VAAPI destination it returns EINVAL and the
+            // dispatch aborts. With no source frames context that branch is skipped and the destination VAAPI
+            // context's map_to runs (-> vaapi_map_from_drm), creating a VA surface aliasing the dmabuf. The
+            // destination uses the encoder's own VAAPI frames context, so the codec already accepts the surface.
+            drm->format = (int)AVPixelFormat.AV_PIX_FMT_DRM_PRIME;
+            drm->width = width;
+            drm->height = height;
+            drm->buf[0] = descBuf;
+            drm->data[0] = descBuf->data;
+
+            va->format = (int)AVPixelFormat.AV_PIX_FMT_VAAPI;
+            va->hw_frames_ctx = ffmpeg.av_buffer_ref(_hwFrames);
+            ffmpeg.av_hwframe_map(va, drm, (int)AV_HWFRAME_MAP_READ)
+                .ThrowOnError("map DMA-BUF into VAAPI surface");
+            va->pts = capturePtsNs;
+
+            ffmpeg.avcodec_send_frame(_context, va).ThrowOnError("send dmabuf surface to hevc_vaapi");
+            ffmpeg.av_packet_unref(_packet);
+            int receive = ffmpeg.avcodec_receive_packet(_context, _packet);
+            if (receive == ffmpeg.AVERROR(ffmpeg.EAGAIN) || receive == ffmpeg.AVERROR_EOF)
+            {
+                return null;
+            }
+
+            receive.ThrowOnError("receive encoded packet");
+            producedPtsNs = _packet->pts != ffmpeg.AV_NOPTS_VALUE ? _packet->pts : capturePtsNs;
+            byte[] output = new byte[_packet->size];
+            Marshal.Copy((nint)_packet->data, output, 0, _packet->size);
+            return output;
+        }
+        finally
+        {
+            ffmpeg.av_frame_free(&va);
+            ffmpeg.av_frame_free(&drm);
+        }
+    }
+
+    // av_hwframe_map(DRM_PRIME source -> VAAPI destination, READ) creates a VA surface aliasing the dmabuf
+    // (vaapi map_to), no copy. Read access: the encoder only reads the surface.
+    private const uint AV_HWFRAME_MAP_READ = 1;
 
     private void CopyNv12(byte[] nv12, int width, int height)
     {

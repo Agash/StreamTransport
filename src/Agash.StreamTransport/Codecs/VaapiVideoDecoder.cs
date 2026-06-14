@@ -206,6 +206,28 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
             return false;
         }
 
+        string? dbg = Environment.GetEnvironmentVariable("STX_DMABUF_DEBUG");
+        if (!string.IsNullOrEmpty(dbg))
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[dmabuf-export] nb_objects={desc.nb_objects} nb_layers={desc.nb_layers}");
+            for (int o = 0; o < desc.nb_objects && o < DrmPrime.MaxPlanes; o++)
+            {
+                sb.AppendLine($"  object[{o}] fd={desc.objects[o].fd} modifier=0x{desc.objects[o].format_modifier:x16} size={desc.objects[o].size}");
+            }
+            for (int l = 0; l < desc.nb_layers && l < DrmPrime.MaxPlanes; l++)
+            {
+                ref readonly AVDRMLayerDescriptor ly = ref desc.layers[l];
+                sb.AppendLine($"  layer[{l}] fourcc=0x{ly.format:x8} nb_planes={ly.nb_planes}");
+                for (int p = 0; p < ly.nb_planes && p < DrmPrime.MaxPlanes; p++)
+                {
+                    sb.AppendLine($"    plane[{p}] object={ly.planes[p].object_index} offset={ly.planes[p].offset} pitch={ly.planes[p].pitch}");
+                }
+            }
+
+            File.AppendAllText(dbg, sb.ToString());
+        }
+
         ulong modifier = desc.objects[0].format_modifier;
         Span<DmaBufPlane> planes = stackalloc DmaBufPlane[DmaBufSurfaceMaxPlanes];
         int planeCount = 0;
@@ -216,7 +238,9 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
             {
                 ref readonly AVDRMPlaneDescriptor plane = ref layer.planes[p];
                 int fd = desc.objects[plane.object_index].fd;
-                planes[planeCount++] = new DmaBufPlane(fd, (uint)plane.offset, (uint)plane.pitch);
+                // Carry the layer's DRM fourcc verbatim (e.g. R8 for the Y layer, GR88 for UV) so the
+                // consumer rebuilds the producer's exact descriptor without guessing the driver's convention.
+                planes[planeCount++] = new DmaBufPlane(fd, (uint)plane.offset, (uint)plane.pitch, layer.format);
             }
         }
 
