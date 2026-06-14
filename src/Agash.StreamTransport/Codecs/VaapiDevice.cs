@@ -59,12 +59,12 @@ internal static unsafe class VaapiDevice
 
         s_attempted = true;
 
-        // No DRM render node means no GPU here (e.g. a headless CI runner). Creating a VAAPI device in that
-        // case makes FFmpeg call into its bundled libva implib stub, which assert()/aborts the whole process
-        // when the real libva-drm is absent - so gate on a render node existing before any VAAPI codepath.
-        // (Loading the library by name is not enough to tell: the implib stub loads fine and only aborts on
-        // first use.) A machine with a render node has a real VAAPI driver + libva, as verified on hardware.
-        if (!HasDrmRenderNode())
+        // Only touch VAAPI when a real GPU (DRM render node) AND the real libva-drm library are both present.
+        // FFmpeg's bundled libva *implib stub* loads by name even when the real library is absent and then
+        // assert()/aborts the whole process on first use - so loading by name cannot tell them apart; we must
+        // confirm the actual libva-drm.so.2 file exists at a system path before letting FFmpeg create a VAAPI
+        // device. A headless CI runner has the render node but no libva-drm file, which previously aborted.
+        if (!HasDrmRenderNode() || !RealLibVaDrmPresent())
         {
             return;
         }
@@ -83,8 +83,7 @@ internal static unsafe class VaapiDevice
         }
     }
 
-    // True when a DRM render node exists (a GPU is present). A headless CI runner has none, so VAAPI - and
-    // FFmpeg's abort-on-missing-libva implib stub - is never touched there.
+    // True when a DRM render node exists (a GPU is present).
     private static bool HasDrmRenderNode()
     {
         try
@@ -97,4 +96,18 @@ internal static unsafe class VaapiDevice
             return false;
         }
     }
+
+    // Standard install locations of the real libva DRM backend across the distros we target (Arch, Debian/
+    // Ubuntu multiarch, Fedora, arm64). We check the file directly rather than loading by name so FFmpeg's
+    // bundled implib stub (which loads by name regardless) is never mistaken for the real library.
+    private static readonly string[] s_libVaDrmPaths =
+    [
+        "/usr/lib/libva-drm.so.2",
+        "/usr/lib64/libva-drm.so.2",
+        "/usr/lib/x86_64-linux-gnu/libva-drm.so.2",
+        "/lib/x86_64-linux-gnu/libva-drm.so.2",
+        "/usr/lib/aarch64-linux-gnu/libva-drm.so.2",
+    ];
+
+    private static bool RealLibVaDrmPresent() => s_libVaDrmPaths.Any(File.Exists);
 }
