@@ -40,11 +40,9 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
             throw new NotSupportedException("hevc_vaapi is not present in this FFmpeg build.");
         }
 
-        AVBufferRef* device = null;
-        // Default to the first render node; a multi-GPU box can pass e.g. /dev/dri/renderD129.
-        ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI, renderNode, null, 0)
-            .ThrowOnError("create VAAPI device");
-        _hwDevice = device;
+        // Share the one process-wide VAAPI device (see VaapiDevice) rather than opening a private VADisplay -
+        // opening/closing several in a process is unstable on the Mesa radeonsi VA driver.
+        _hwDevice = VaapiDevice.AcquireRef(renderNode);
 
         _hwFrames = ffmpeg.av_hwframe_ctx_alloc(_hwDevice);
         var frames = (AVHWFramesContext*)_hwFrames->data;

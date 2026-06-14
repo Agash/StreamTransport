@@ -20,4 +20,10 @@ public sealed class HardwareEncoderTests
 
     [TestMethod]
     public void Videotoolbox_EncodesHevc() => HardwareEncoderTestSupport.AssertEncodesHevc("hevc_videotoolbox");
+
+    // VAAPI (Linux Intel/AMD). Goes through VaapiVideoEncoder - which uploads NV12 into a VAAPI surface, since
+    // hevc_vaapi only encodes surfaces - and is Inconclusive where no VAAPI device exists (Windows, macOS, a
+    // GPU-less CI runner). Exercises the Mesa/AMD encode path that has no representation among the others.
+    [TestMethod]
+    public void Vaapi_EncodesHevc() => HardwareEncoderTestSupport.AssertEncodesHevc("hevc_vaapi");
 }

@@ -86,6 +86,21 @@ internal static class VideoDecoderBackendFactory
             }
         }
 
+        // Linux Intel/AMD: VAAPI hardware decode (read back to CPU NV12). The hardware-first list inside
+        // HevcDecoder is NVDEC/QSV/rkmpp only, so without this AMD Mesa falls to the software decoder. VAAPI
+        // decode is CPU-output, so it serves both the plain CPU path and the (not-yet-wired) Linux GPU path.
+        if (OperatingSystem.IsLinux())
+        {
+            try
+            {
+                return new VaapiVideoDecoder();
+            }
+            catch (Exception)
+            {
+                // No usable VAAPI device/driver; fall back to the hardware-first/software CPU decoder below.
+            }
+        }
+
         return new HevcDecoder();
     }
 

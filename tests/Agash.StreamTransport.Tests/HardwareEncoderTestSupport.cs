@@ -1,3 +1,4 @@
+using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -55,23 +56,35 @@ internal static class HardwareEncoderTestSupport
         const int height = 720;
         byte[] nv12 = Nv12Pattern(width, height);
 
-        HardwareHevcEncoder encoder;
+        IVideoEncoderBackend encoder;
         try
         {
-            encoder = new HardwareHevcEncoder(encoderName, width, height, fps: 30, bitrate: 4_000_000);
+            // hevc_vaapi only encodes VAAPI surfaces, so it has its own backend that owns the device + frames
+            // pool and uploads NV12; the other vendors take system-memory NV12 directly via HardwareHevcEncoder.
+            encoder = encoderName == "hevc_vaapi"
+                ? new VaapiVideoEncoder(width, height, fps: 30, bitrate: 4_000_000)
+                : new HardwareHevcEncoder(encoderName, width, height, fps: 30, bitrate: 4_000_000);
         }
         catch (HardwareEncoderUnavailableException ex)
         {
             Assert.Inconclusive($"{encoderName} hardware is not available on this machine: {ex.Message}");
             return;
         }
+        catch (Exception ex) when (encoderName == "hevc_vaapi")
+        {
+            // VaapiVideoEncoder surfaces a missing/unusable VAAPI driver as an FFmpeg error from device/context
+            // setup; treat that like any other absent hardware so the suite stays green where VAAPI is unavailable.
+            Assert.Inconclusive($"hevc_vaapi hardware is not available on this machine: {ex.Message}");
+            return;
+        }
 
         using (encoder)
         {
+            var frame = VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, width, height, 0);
             byte[]? accessUnit = null;
-            for (int frame = 0; frame < 10 && accessUnit is null; frame++)
+            for (int i = 0; i < 10 && accessUnit is null; i++)
             {
-                accessUnit = encoder.EncodeNv12(nv12);
+                accessUnit = encoder.Encode(frame, out _);
             }
 
             Assert.IsNotNull(accessUnit, $"Expected an HEVC access unit from {encoderName}.");

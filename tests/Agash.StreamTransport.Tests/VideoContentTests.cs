@@ -84,7 +84,7 @@ public sealed class VideoContentTests
 
         try
         {
-            using var preflight = new HardwareHevcEncoder(probe, width, height, fps: 30, bitrate: 4_000_000);
+            using var preflight = TestEncoders.Open(probe, width, height, fps: 30, bitrate: 4_000_000);
         }
         catch (HardwareEncoderUnavailableException ex)
         {

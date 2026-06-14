@@ -1,3 +1,4 @@
+using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -39,47 +40,62 @@ public sealed class HevcRoundTripTests
 
         const int width = 1280;
         const int height = 720;
-        HardwareHevcEncoder encoder;
+        IVideoEncoderBackend encoder;
         try
         {
-            encoder = new HardwareHevcEncoder(encoderName, width, height, fps: 30, bitrate: 4_000_000);
+            // hevc_vaapi encodes VAAPI surfaces through its own backend; the rest take system-memory NV12.
+            encoder = encoderName == "hevc_vaapi"
+                ? new VaapiVideoEncoder(width, height, fps: 30, bitrate: 4_000_000)
+                : new HardwareHevcEncoder(encoderName, width, height, fps: 30, bitrate: 4_000_000);
         }
         catch (HardwareEncoderUnavailableException ex)
         {
             Assert.Inconclusive($"{encoderName} hardware is not available on this machine: {ex.Message}");
             return;
         }
+        catch (Exception ex) when (encoderName == "hevc_vaapi")
+        {
+            Assert.Inconclusive($"hevc_vaapi hardware is not available on this machine: {ex.Message}");
+            return;
+        }
 
         using (encoder)
         {
-            using var decoder = new HevcDecoder();
+            // Decode with the matching hardware path: a VAAPI encode pairs with the VAAPI decoder (the Mesa
+            // round-trip on AMD/Intel Linux), every other encoder with the hardware-first/software HevcDecoder.
+            using IVideoDecoderBackend decoder = encoderName == "hevc_vaapi"
+                ? new VaapiVideoDecoder()
+                : new HevcDecoder();
 
             byte[] nv12 = HardwareEncoderTestSupport.Nv12Pattern(width, height);
+            var inputFrame = VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, width, height, 0);
 
             bool decodedAny = false;
             for (int frame = 0; frame < 30 && !decodedAny; frame++)
             {
-                byte[]? accessUnit = encoder.EncodeNv12(nv12);
+                byte[]? accessUnit = encoder.Encode(inputFrame, out _);
                 if (accessUnit is null)
                 {
                     continue;
                 }
 
-                if (decoder.Decode(accessUnit, 0, out int decW, out int decH, out byte[] pixels, out _, out _))
+                if (decoder.TryDecode(accessUnit, 0, 0, out VideoFrame decoded, out _))
                 {
-                    Assert.AreEqual(width, decW, "Decoded width should match the encoded frame.");
-                    Assert.AreEqual(height, decH, "Decoded height should match the encoded frame.");
-                    Assert.AreEqual(width * height * 3 / 2, pixels.Length, "Decoded buffer should be a full 4:2:0 frame.");
+                    Assert.AreEqual(width, decoded.Width, "Decoded width should match the encoded frame.");
+                    Assert.AreEqual(height, decoded.Height, "Decoded height should match the encoded frame.");
+                    Assert.AreEqual(width * height * 3 / 2, decoded.Pixels.Length, "Decoded buffer should be a full 4:2:0 frame.");
                     decodedAny = true;
                 }
             }
 
             Assert.IsTrue(decodedAny, "Expected at least one decoded frame from the HEVC round-trip.");
 
-            // Where a hardware HEVC decoder is in the build (NVDEC), it must be the one that engaged.
-            if (FFmpegLibrary.HasDecoder("hevc_cuvid"))
+            // On NVIDIA (where the selected encoder is nvenc) the NVDEC decoder must engage. Other vendors'
+            // multi-encoder desktop builds also contain hevc_cuvid, but it cannot open without an NVIDIA GPU,
+            // so gate the assertion on actually having encoded with nvenc rather than mere build presence.
+            if (encoderName == "hevc_nvenc" && decoder is HevcDecoder hevc && FFmpegLibrary.HasDecoder("hevc_cuvid"))
             {
-                Assert.AreEqual("hevc_cuvid", decoder.DecoderName, "Hardware NVDEC decoder should be selected when available.");
+                Assert.AreEqual("hevc_cuvid", hevc.DecoderName, "Hardware NVDEC decoder should be selected when available.");
             }
         }
     }

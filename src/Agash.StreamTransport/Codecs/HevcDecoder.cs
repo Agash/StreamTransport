@@ -135,6 +135,35 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
         ffmpeg.av_new_packet(_packet, accessUnit.Length).ThrowOnError("allocate packet");
         accessUnit.CopyTo(new Span<byte>(_packet->data, accessUnit.Length));
 
+        // A hardware decoder that opened cleanly can still fail hard on the first real access unit (e.g. QSV
+        // creating its MFX session against the wrong GPU, error -22). That surfaces as a thrown FFmpeg error
+        // rather than the EAGAIN starvation the loop below tolerates, so guard the hardware path and downgrade
+        // to software on any hard failure - a one-time performance cost, never a correctness one. Software
+        // decode never trips this (its failures are genuine), so it rethrows.
+        if (_isHardware)
+        {
+            try
+            {
+                return DecodeCore(rtpTimestamp, out width, out height, out pixels, out format, out frameRtpTimestamp);
+            }
+            catch (Exception) when (_isHardware)
+            {
+                FallBackToSoftware();
+                width = 0;
+                height = 0;
+                pixels = [];
+                format = VideoPixelFormat.Nv12;
+                return false;
+            }
+        }
+
+        return DecodeCore(rtpTimestamp, out width, out height, out pixels, out format, out frameRtpTimestamp);
+    }
+
+    private bool DecodeCore(uint rtpTimestamp, out int width, out int height, out byte[] pixels, out VideoPixelFormat format, out uint frameRtpTimestamp)
+    {
+        frameRtpTimestamp = rtpTimestamp;
+
         // Thread the 90 kHz RTP timestamp through as the packet PTS (the context's pkt_timebase is 1/90000, so
         // the value passes through unscaled). FFmpeg propagates PTS through the decoder pipeline - including a
         // hardware decoder's reorder/surface queue - so frame->pts on output is the RTP timestamp of the access
@@ -191,7 +220,7 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
         return true;
     }
 
-    private static byte[] ExtractNv12(AVFrame* frame, int width, int height)
+    internal static byte[] ExtractNv12(AVFrame* frame, int width, int height)
     {
         byte[] output = new byte[width * height * 3 / 2];
         int offset = 0;
@@ -200,7 +229,7 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
         return output;
     }
 
-    private static byte[] ExtractI420(AVFrame* frame, int width, int height)
+    internal static byte[] ExtractI420(AVFrame* frame, int width, int height)
     {
         byte[] output = new byte[width * height * 3 / 2];
         int offset = 0;

@@ -13,6 +13,7 @@ namespace Agash.StreamTransport.Tests;
 /// without a hardware encoder).
 /// </summary>
 [TestClass]
+[DoNotParallelize] // Drives a hardware HEVC encoder (incl. VAAPI); one GPU session at a time.
 public sealed class MediaTimingTests
 {
     private const int SampleRate = 48_000;
@@ -78,7 +79,7 @@ public sealed class MediaTimingTests
         const int height = 480;
         try
         {
-            using var preflight = new HardwareHevcEncoder(probe, width, height, fps: 30, bitrate: 4_000_000);
+            using var preflight = TestEncoders.Open(probe, width, height, fps: 30, bitrate: 4_000_000);
         }
         catch (HardwareEncoderUnavailableException ex)
         {

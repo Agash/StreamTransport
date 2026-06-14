@@ -1,14 +1,20 @@
 
+using FFmpeg.AutoGen;
+
 namespace Agash.StreamTransport.Codecs;
 
 /// <summary>Picks the first available hardware HEVC encoder for the current machine.</summary>
-internal static class HevcEncoderSelector
+internal static unsafe class HevcEncoderSelector
 {
-    // Priority, naturally routed by platform since each encoder is present only in its platform's build:
-    // Apple VideoToolbox (macOS), then Rockchip rkmpp (linux-arm64 IRL boards), then on Windows the
-    // discrete/integrated GPUs in order NVIDIA, Intel QSV, AMD.
+    // Priority order. Each encoder is generally present only in its platform's FFmpeg build, but the desktop
+    // Linux/Windows BtbN builds carry several (nvenc/amf/qsv/vaapi) regardless of which GPU is actually
+    // present - so selection also probes that the encoder's hardware can be initialised (see HardwareUsable),
+    // otherwise an AMD or Intel Linux box would pick hevc_nvenc (in the build) and fail to open it. The native
+    // vendor encoders come first (NVENC for NVIDIA, QSV for Intel) so VAAPI never preempts a better same-vendor
+    // path - a VAAPI driver can initialise on an NVIDIA box too, but NVENC is the right choice there. VAAPI sits
+    // after them as the broad Mesa fallback (AMD, and Intel where QSV is absent); AMF (proprietary runtime) last.
     private static readonly string[] s_candidates =
-        ["hevc_videotoolbox", "hevc_rkmpp", "hevc_nvenc", "hevc_qsv", "hevc_amf"];
+        ["hevc_videotoolbox", "hevc_rkmpp", "hevc_nvenc", "hevc_qsv", "hevc_vaapi", "hevc_amf"];
 
     public static string Select(string? preferred = null)
     {
@@ -21,14 +27,56 @@ internal static class HevcEncoderSelector
 
         foreach (string name in s_candidates)
         {
-            if (FFmpegLibrary.HasEncoder(name))
+            if (FFmpegLibrary.HasEncoder(name) && HardwareUsable(name))
             {
                 return name;
             }
         }
 
         throw new NotSupportedException(
-            "No hardware HEVC encoder (nvenc/amf/qsv/mf) is available in the FFmpeg build on this machine.");
+            "No usable hardware HEVC encoder (vaapi/nvenc/amf/qsv/rkmpp/videotoolbox) is available on this machine.");
+    }
+
+    // Probe results are cached for the process: creating a hardware device touches the GPU driver (libva, CUDA)
+    // and the answer cannot change at runtime, so repeating it per Select() call would only churn driver
+    // init/teardown - which on some VAAPI/Mesa stacks is itself unstable across many cycles.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> s_usable = new(StringComparer.Ordinal);
+
+    // Whether the GPU backing an encoder can actually be initialised, probed by creating (and immediately
+    // freeing) the matching FFmpeg hardware device. Encoders with no distinct hwdevice type - videotoolbox,
+    // rkmpp, amf - have no cheap probe and only ship in their own platform's build, so they are taken as usable
+    // when present. This is what stops a multi-encoder desktop build from selecting a vendor whose GPU is absent.
+    private static bool HardwareUsable(string encoderName) => s_usable.GetOrAdd(encoderName, ProbeHardware);
+
+    private static bool ProbeHardware(string encoderName)
+    {
+        // VAAPI goes through the shared process-wide device, so probing creates the one device that the
+        // encoder/decoder then reuse - no separate open/close (see VaapiDevice).
+        if (encoderName == "hevc_vaapi")
+        {
+            return VaapiDevice.IsAvailable();
+        }
+
+        AVHWDeviceType type = encoderName switch
+        {
+            "hevc_nvenc" => AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA,
+            "hevc_qsv" => AVHWDeviceType.AV_HWDEVICE_TYPE_QSV,
+            _ => AVHWDeviceType.AV_HWDEVICE_TYPE_NONE,
+        };
+
+        if (type == AVHWDeviceType.AV_HWDEVICE_TYPE_NONE)
+        {
+            return true;
+        }
+
+        AVBufferRef* device = null;
+        int created = ffmpeg.av_hwdevice_ctx_create(&device, type, null, null, 0);
+        if (device is not null)
+        {
+            ffmpeg.av_buffer_unref(&device);
+        }
+
+        return created >= 0;
     }
 }
 

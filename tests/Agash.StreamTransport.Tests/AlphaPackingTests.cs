@@ -1,3 +1,4 @@
+using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,6 +9,7 @@ namespace Agash.StreamTransport.Tests;
 /// alpha actually survives a real hardware HEVC encode/decode round-trip (NVENC/AMF/VideoToolbox/rkmpp).
 /// </summary>
 [TestClass]
+[DoNotParallelize] // Drives a hardware HEVC encoder/decoder (incl. VAAPI); one GPU session at a time.
 public sealed class AlphaPackingTests
 {
     [TestMethod]
@@ -81,11 +83,11 @@ public sealed class AlphaPackingTests
         byte[] packed = new byte[AlphaPacking.PackedNv12Length(width, height)];
         AlphaPacking.PackBgraToNv12(bgra, width * 4, width, height, packed);
 
-        HardwareHevcEncoder encoder;
+        IVideoEncoderBackend encoder;
         try
         {
             // Encoder runs at the packed 2W x H dimensions.
-            encoder = new HardwareHevcEncoder(selected, width * 2, height, fps: 30, bitrate: 8_000_000);
+            encoder = TestEncoders.Open(selected, width * 2, height, fps: 30, bitrate: 8_000_000);
         }
         catch (HardwareEncoderUnavailableException ex)
         {
@@ -95,21 +97,26 @@ public sealed class AlphaPackingTests
 
         using (encoder)
         {
-            using var decoder = new HevcDecoder();
+            // Decode with the backend that pairs with the encoder, mirroring production (the receive factory
+            // uses VAAPI decode on Mesa). Decoding VAAPI output with the hardware-first HevcDecoder instead would
+            // exercise its NVDEC/QSV-then-software fallback, which a non-NVIDIA box doesn't use for this stream.
+            using IVideoDecoderBackend decoder = selected == "hevc_vaapi"
+                ? new VaapiVideoDecoder()
+                : new HevcDecoder();
             byte[]? outBgra = null;
             for (int frame = 0; frame < 30 && outBgra is null; frame++)
             {
-                byte[]? accessUnit = encoder.EncodeNv12(packed);
+                byte[]? accessUnit = TestEncoders.EncodeNv12(encoder, packed, width * 2, height);
                 if (accessUnit is null)
                 {
                     continue;
                 }
 
-                if (decoder.Decode(accessUnit, 0, out int dw, out int dh, out byte[] decoded, out _, out _))
+                if (decoder.TryDecode(accessUnit, 0, 0, out VideoFrame decoded, out _))
                 {
-                    Assert.AreEqual(width * 2, dw, "Decoded width should be the packed 2W.");
+                    Assert.AreEqual(width * 2, decoded.Width, "Decoded width should be the packed 2W.");
                     byte[] tmp = new byte[width * height * 4];
-                    AlphaPacking.UnpackNv12ToBgra(decoded, dw, dh, tmp);
+                    AlphaPacking.UnpackNv12ToBgra(decoded.Pixels.ToArray(), decoded.Width, decoded.Height, tmp);
                     outBgra = tmp;
                 }
             }
