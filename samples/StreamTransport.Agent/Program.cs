@@ -103,6 +103,7 @@ internal sealed record AgentConfig(
     string? SpoutSender = null,
     string? PublishSpout = null,
     string? PublishSyphon = null,
+    string? PublishPipeWire = null,
     string? SyphonServer = null,
     bool Alpha = false,
     bool Verify = false,
@@ -123,7 +124,7 @@ internal sealed record AgentConfig(
             : args[0].Equals("receive", StringComparison.OrdinalIgnoreCase) ? PeerRole.Subscriber
             : throw new ArgumentException($"first argument must be 'send' or 'receive', got '{args[0]}'.");
 
-        string? relay = null, room = null, videoDevice = null, audioDevice = null, encoder = null, spoutSender = null, publishSpout = null, publishSyphon = null, syphonServer = null;
+        string? relay = null, room = null, videoDevice = null, audioDevice = null, encoder = null, spoutSender = null, publishSpout = null, publishSyphon = null, publishPipeWire = null, syphonServer = null;
         var source = VideoSourceKind.Synthetic;
         bool audio = true, video = true, host = false, devTunnel = false, alpha = false, verify = false, synced = false;
         int seconds = 15;
@@ -146,6 +147,7 @@ internal sealed record AgentConfig(
                 case "--syphon-server": syphonServer = args[++i]; source = VideoSourceKind.Syphon; break;
                 case "--publish-spout": publishSpout = args[++i]; break;
                 case "--publish-syphon": publishSyphon = args[++i]; break;
+                case "--publish-pipewire": publishPipeWire = args[++i]; break;
                 case "--encoder": encoder = args[++i]; break;
                 case "--audio-only": video = false; break;
                 case "--video-only": audio = false; break;
@@ -177,7 +179,7 @@ internal sealed record AgentConfig(
 
         room ??= role == PeerRole.Publisher ? RandomRoom() : throw new ArgumentException("--room <code> is required for receive.");
         return new AgentConfig(
-            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces);
+            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, publishPipeWire, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces);
     }
 
     private static MediaProfile ParseProfile(string value) => value.ToLowerInvariant() switch

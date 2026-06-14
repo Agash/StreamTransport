@@ -224,12 +224,34 @@ internal static class Subscribe
         }
 
         IDisposable? publishSink = null;
+        IAsyncDisposable? asyncPublishSink = null;
         IVideoFrameSink? videoSink;
         bool preferGpu = false;
         // A GPU publish sink does its own alpha unpack; it adopts the publisher's negotiated value here, so
         // the receiver never needs --alpha. The library's own receive pipeline auto-negotiates separately.
         Action<bool>? applyNegotiatedAlpha = null;
+#if HAS_PIPEWIRE
+        PipeWireAudioPublishSink? pipeWireAudio = null;
+#endif
 
+#if HAS_PIPEWIRE
+        if (config.PublishPipeWire is not null && OperatingSystem.IsLinux())
+        {
+            // Linux publish: a HW decoder (VAAPI) keeps frames on the GPU and the sink republishes them to
+            // PipeWire as zero-copy as possible; a software-decoded CPU frame is the fallback the sink converts
+            // to BGRA. Audio also goes to PipeWire (the Linux audio sink). preferGpu requests the GPU path.
+            var pw = await PipeWireVideoPublishSink.CreateAsync(config.PublishPipeWire, config.Alpha);
+            asyncPublishSink = pw;
+            videoSink = pw;
+            applyNegotiatedAlpha = pw.SetPreserveAlpha;
+            preferGpu = true;
+            if (config.Audio)
+            {
+                pipeWireAudio = await PipeWireAudioPublishSink.CreateAsync($"{config.PublishPipeWire} Audio");
+            }
+        }
+        else
+#endif
 #if WINDOWS_HEAD
         if (config.PublishSpout is not null)
         {
@@ -281,10 +303,17 @@ internal static class Subscribe
             config.Relay!, new RoomCode(config.Room), PeerRole.Subscriber, cancellationToken);
 
         IAudioFrameSink? audioSink = !config.Audio ? null
+#if HAS_PIPEWIRE
+            : pipeWireAudio is not null ? pipeWireAudio
+#endif
             : config.Verify ? new VerifyingAudioSink(report!)
             : new ReportingAudioSink(m => AnsiConsole.MarkupLineInterpolated($"[blue]{m}[/]"));
 
         using (publishSink)
+        await using (asyncPublishSink)
+#if HAS_PIPEWIRE
+        await using (pipeWireAudio)
+#endif
         await using (MediaSubscriber subscriber = transport.CreateSubscriber(options, room, videoSink, audioSink))
         {
             if (applyNegotiatedAlpha is not null)
