@@ -40,6 +40,13 @@ internal sealed class PlayoutTimeline
     private long _jitterNs;
     private long _lastUpdateLocalNs;
 
+    // Asymmetric GPU-sync arrival tracking: an EWMA of (localNow - senderWall) over video frames that present on
+    // arrival. Audio is released at senderWall + this, so it lands on video's *typical* arrival - video jitter
+    // then spreads symmetrically around the audio (centred at 0), rather than the min/max jitter-buffer model
+    // (which is for held streams and would park audio behind a deep buffer the on-arrival video never paid).
+    private long _arrivalOffsetNs;
+    private bool _arrivalAnchored;
+
     /// <summary>True once at least one frame has established the estimates.</summary>
     public bool IsAnchored { get; private set; }
 
@@ -95,4 +102,31 @@ internal sealed class PlayoutTimeline
 
         return senderWallNs + ClockOffsetNs + Math.Clamp(_jitterNs + _marginNs, _minDelayNs, _maxDelayNs);
     }
+
+    /// <summary>
+    /// Update the asymmetric arrival-offset EWMA from a video frame that presented on arrival at
+    /// <paramref name="localNowNs"/>. Video defines the timeline here (it can't be held); audio is then scheduled
+    /// onto it with <see cref="PeekReleaseLocalNs"/>.
+    /// </summary>
+    public void ObserveArrival(long senderWallNs, long localNowNs)
+    {
+        long raw = localNowNs - senderWallNs;
+        if (!_arrivalAnchored)
+        {
+            _arrivalOffsetNs = raw;
+            _arrivalAnchored = true;
+        }
+        else
+        {
+            _arrivalOffsetNs += (raw - _arrivalOffsetNs) >> 3; // EWMA, alpha = 1/8
+        }
+    }
+
+    /// <summary>
+    /// Local release time for audio at <paramref name="senderWallNs"/> on the video-defined arrival timeline (no
+    /// state change). Releases audio at video's typical arrival offset, so it lip-syncs with the on-arrival GPU
+    /// video. Returns <paramref name="senderWallNs"/> unchanged until a video frame has anchored the offset.
+    /// </summary>
+    public long PeekReleaseLocalNs(long senderWallNs)
+        => _arrivalAnchored ? senderWallNs + _arrivalOffsetNs : senderWallNs;
 }

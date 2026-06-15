@@ -48,6 +48,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
 
     private PlayoutScheduler? _scheduler;
     private bool _syncEnabled;
+    private bool _gpuAsymmetricSync;
     private bool _preserveAlpha;
     private Task? _videoDecodeLoop;
     private Task? _audioDecodeLoop;
@@ -148,11 +149,14 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             }
         }
 
-        // Synced playout engages only with both streams on the CPU decode path (a held frame must be an
-        // independent CPU copy, not the GPU decoder's single reused output texture). Until both streams are
-        // anchored by abs-capture-time, present on arrival.
+        // Synced playout engages with both streams once anchored by abs-capture-time. On the CPU decode path the
+        // scheduler holds both streams and releases them on one timeline. The GPU output texture is the decoder's
+        // single reused surface and cannot be held, so the GPU path syncs asymmetrically: video presents on
+        // arrival and defines the timeline (ObserveArrival), audio is delayed onto it (ScheduleOnTimeline). Until
+        // both streams are anchored, frames present on arrival.
         _syncEnabled = _options.PlayoutMode == PlayoutMode.Synced
-            && _audio is not null && _video is not null && !_video.IsGpuOutput;
+            && _audio is not null && _video is not null;
+        _gpuAsymmetricSync = _syncEnabled && _video!.IsGpuOutput;
         if (_syncEnabled)
         {
             _scheduler = new PlayoutScheduler(
@@ -228,7 +232,24 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         if (_syncEnabled && _scheduler is { } scheduler && _aligner.BothAligned
             && _aligner.TryToSenderWallNs(stream, rtpTimestamp, out long wallNs))
         {
-            scheduler.Schedule(wallNs, submit);
+            if (_gpuAsymmetricSync)
+            {
+                // GPU: video can't be held, so present it now and let its arrival define the timeline; audio is
+                // delayed onto that timeline so it lip-syncs with the on-arrival video.
+                if (stream == SyncStream.Video)
+                {
+                    scheduler.ObserveArrival(wallNs);
+                    submit();
+                }
+                else
+                {
+                    scheduler.ScheduleOnTimeline(wallNs, submit);
+                }
+            }
+            else
+            {
+                scheduler.Schedule(wallNs, submit);
+            }
         }
         else
         {

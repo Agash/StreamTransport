@@ -40,6 +40,31 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
     public void Schedule(long senderWallNs, Action submit)
     {
         long releaseNs = _timeline.ReleaseLocalNs(senderWallNs, _nowNs());
+        Enqueue(submit, releaseNs);
+    }
+
+    /// <summary>
+    /// Feed a presented-on-arrival frame's capture time into the timeline (updates the clock-offset/jitter
+    /// estimates) <i>without</i> queuing it. The asymmetric GPU-sync path calls this for each video frame - which
+    /// it presents immediately because the GPU output texture cannot be held - so the timeline tracks video's
+    /// slower arrival curve, and <see cref="ScheduleOnTimeline"/> lands audio on it.
+    /// </summary>
+    public void ObserveArrival(long senderWallNs) => _timeline.ObserveArrival(senderWallNs, _nowNs());
+
+    /// <summary>
+    /// Schedule <paramref name="submit"/> using the timeline's current estimates <i>without</i> updating them
+    /// (see <see cref="PlayoutTimeline.PeekReleaseLocalNs"/>) - so the scheduled stream (audio) aligns to the
+    /// arrival curve learned from <see cref="ObserveArrival"/> (video) and never pulls the offset to its own
+    /// faster path.
+    /// </summary>
+    public void ScheduleOnTimeline(long senderWallNs, Action submit)
+    {
+        long releaseNs = _timeline.PeekReleaseLocalNs(senderWallNs);
+        Enqueue(submit, releaseNs);
+    }
+
+    private void Enqueue(Action submit, long releaseNs)
+    {
         lock (_gate)
         {
             _queue.Enqueue(submit, releaseNs);
