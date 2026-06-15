@@ -49,4 +49,54 @@ internal static unsafe class VaapiInterop
     /// <summary>Blocks until all pending operations on <paramref name="surface"/> complete (<c>vaSyncSurface</c>).</summary>
     [DllImport(LibVa, EntryPoint = "vaSyncSurface")]
     public static extern int vaSyncSurface(nint display, uint surface);
+
+    // - VA-API VPP (video post-processing): a GPU surface->surface copy that lets us target a specific dst
+    //   surface (one we own and exported to PipeWire), unlike scale_vaapi which owns its output pool. radeonsi
+    //   does not implement vaCopy, but it implements the VideoProc entrypoint, so this is the GPU copy path. -
+
+    /// <summary>va.h <c>VAProfileNone</c> (no codec profile - for the VPP entrypoint).</summary>
+    public const int VAProfileNone = -1;
+
+    /// <summary>va.h <c>VAEntrypointVideoProc</c> (the video post-processing entrypoint).</summary>
+    public const int VAEntrypointVideoProc = 10;
+
+    /// <summary>va.h <c>VAProcPipelineParameterBufferType</c>.</summary>
+    public const int VAProcPipelineParameterBufferType = 41;
+
+    /// <summary>va.h <c>VA_PROGRESSIVE</c> picture-structure flag for the context.</summary>
+    public const int VA_PROGRESSIVE = 1;
+
+    /// <summary>
+    /// Total byte size of <c>VAProcPipelineParameterBuffer</c> (va_vpp.h, measured on the target ABI). For a
+    /// plain whole-surface copy only the leading <c>VASurfaceID surface</c> (the source, at offset 0) is set;
+    /// every other field is left zero/NULL, which the driver treats as "whole surface, default colour".
+    /// </summary>
+    public const int ProcPipelineParameterBufferSize = 224;
+
+    [DllImport(LibVa, EntryPoint = "vaCreateConfig")]
+    public static extern int vaCreateConfig(nint display, int profile, int entrypoint, void* attribs, int numAttribs, out uint configId);
+
+    [DllImport(LibVa, EntryPoint = "vaDestroyConfig")]
+    public static extern int vaDestroyConfig(nint display, uint configId);
+
+    [DllImport(LibVa, EntryPoint = "vaCreateContext")]
+    public static extern int vaCreateContext(nint display, uint configId, int pictureWidth, int pictureHeight, int flag, uint* renderTargets, int numRenderTargets, out uint contextId);
+
+    [DllImport(LibVa, EntryPoint = "vaDestroyContext")]
+    public static extern int vaDestroyContext(nint display, uint contextId);
+
+    [DllImport(LibVa, EntryPoint = "vaCreateBuffer")]
+    public static extern int vaCreateBuffer(nint display, uint contextId, int type, uint size, uint numElements, void* data, out uint bufferId);
+
+    [DllImport(LibVa, EntryPoint = "vaDestroyBuffer")]
+    public static extern int vaDestroyBuffer(nint display, uint bufferId);
+
+    [DllImport(LibVa, EntryPoint = "vaBeginPicture")]
+    public static extern int vaBeginPicture(nint display, uint contextId, uint renderTarget);
+
+    [DllImport(LibVa, EntryPoint = "vaRenderPicture")]
+    public static extern int vaRenderPicture(nint display, uint contextId, uint* buffers, int numBuffers);
+
+    [DllImport(LibVa, EntryPoint = "vaEndPicture")]
+    public static extern int vaEndPicture(nint display, uint contextId);
 }

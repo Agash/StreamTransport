@@ -77,4 +77,82 @@ public sealed unsafe class VaapiCopyTests
             ffmpeg.av_buffer_unref(&device);
         }
     }
+
+    [TestMethod]
+    public void VaVpp_CopyBetweenOwnedSurfaces_Succeeds()
+    {
+        string? nativeBin = TestNative.FindFFmpegBin();
+        if (nativeBin is null)
+        {
+            Assert.Inconclusive("No bundled FFmpeg native build found.");
+            return;
+        }
+
+        FFmpegLibrary.EnsureLoaded(nativeBin);
+
+        if (!VaapiDevice.IsAvailable())
+        {
+            Assert.Inconclusive("No VAAPI device available on this machine.");
+            return;
+        }
+
+        nint display = VaapiDevice.Display;
+        Assert.AreNotEqual(nint.Zero, display);
+
+        AVBufferRef* device = VaapiDevice.AcquireRef();
+        AVBufferRef* framesRef = ffmpeg.av_hwframe_ctx_alloc(device);
+        var framesCtx = (AVHWFramesContext*)framesRef->data;
+        framesCtx->format = AVPixelFormat.AV_PIX_FMT_VAAPI;
+        framesCtx->sw_format = AVPixelFormat.AV_PIX_FMT_NV12;
+        framesCtx->width = 64;
+        framesCtx->height = 64;
+        framesCtx->initial_pool_size = 2;
+        ffmpeg.av_hwframe_ctx_init(framesRef).ThrowOnError("init VAAPI frames context");
+
+        AVFrame* src = ffmpeg.av_frame_alloc();
+        AVFrame* dst = ffmpeg.av_frame_alloc();
+        uint config = 0, context = 0, paramBuf = 0;
+        try
+        {
+            ffmpeg.av_hwframe_get_buffer(framesRef, src, 0).ThrowOnError("get src surface");
+            ffmpeg.av_hwframe_get_buffer(framesRef, dst, 0).ThrowOnError("get dst surface");
+            uint srcId = (uint)(nuint)src->data[3];
+            uint dstId = (uint)(nuint)dst->data[3];
+
+            int cfg = VaapiInterop.vaCreateConfig(display, VaapiInterop.VAProfileNone, VaapiInterop.VAEntrypointVideoProc, null, 0, out config);
+            if (cfg != 0)
+            {
+                Assert.Inconclusive($"VAEntrypointVideoProc not supported on this driver (VAStatus={cfg}).");
+                return;
+            }
+
+            uint renderTarget = dstId;
+            VaapiInterop.vaCreateContext(display, config, 64, 64, VaapiInterop.VA_PROGRESSIVE, &renderTarget, 1, out context).ThrowOnError("vaCreateContext (VPP)");
+
+            // Whole-surface copy: zero the 224-byte pipeline param, set only the source surface (offset 0).
+            byte* param = stackalloc byte[VaapiInterop.ProcPipelineParameterBufferSize];
+            new Span<byte>(param, VaapiInterop.ProcPipelineParameterBufferSize).Clear();
+            *(uint*)param = srcId;
+            VaapiInterop.vaCreateBuffer(display, context, VaapiInterop.VAProcPipelineParameterBufferType,
+                VaapiInterop.ProcPipelineParameterBufferSize, 1, param, out paramBuf).ThrowOnError("vaCreateBuffer");
+
+            VaapiInterop.vaBeginPicture(display, context, dstId).ThrowOnError("vaBeginPicture");
+            uint b = paramBuf;
+            VaapiInterop.vaRenderPicture(display, context, &b, 1).ThrowOnError("vaRenderPicture");
+            VaapiInterop.vaEndPicture(display, context).ThrowOnError("vaEndPicture");
+
+            int sync = VaapiInterop.vaSyncSurface(display, dstId);
+            Assert.AreEqual(0, sync, "vaSyncSurface should succeed after a VPP copy.");
+        }
+        finally
+        {
+            if (paramBuf != 0) VaapiInterop.vaDestroyBuffer(display, paramBuf);
+            if (context != 0) VaapiInterop.vaDestroyContext(display, context);
+            if (config != 0) VaapiInterop.vaDestroyConfig(display, config);
+            ffmpeg.av_frame_free(&src);
+            ffmpeg.av_frame_free(&dst);
+            ffmpeg.av_buffer_unref(&framesRef);
+            ffmpeg.av_buffer_unref(&device);
+        }
+    }
 }
