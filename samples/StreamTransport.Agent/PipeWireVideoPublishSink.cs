@@ -174,6 +174,11 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 {
                     _pool = new VaapiPresentationPool(frame.Width, frame.Height, MaxDmaBufBuffers + 1);
                     _stagingIndex = MaxDmaBufBuffers; // the last surface is staging; 0..Max-1 are PipeWire buffers.
+                    if (s_debug)
+                    {
+                        DmaBufSurface s0 = _pool.Planes(0);
+                        Console.Error.WriteLine($"[pw-sink] pool modifier=0x{_pool.Modifier:x} planes={s0.PlaneCount} p0(fd={s0[0].Fd},off={s0[0].Offset},stride={s0[0].Stride},fourcc=0x{s0[0].DrmFourcc:x})");
+                    }
                     _width = frame.Width;
                     _height = frame.Height;
                     _mode = Mode.GpuDmaBuf;
@@ -181,6 +186,11 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                     var output = new PipeWireVideoOutput(_context, _nodeName, frame.Width, frame.Height, PwPixelFormat.Nv12, _frameRate);
                     output.AllocateDmaBuf += OnAllocateDmaBuf;
                     output.FillDmaBuf += OnFillDmaBuf;
+                    if (s_debug)
+                    {
+                        output.StateChanged += (_, oldS, newS) => Console.Error.WriteLine($"[pw-sink] gpu state {oldS}->{newS}");
+                    }
+
                     output.ConnectDmaBuf([(long)_pool.Modifier]);
                     _output = output;
                 }
@@ -230,6 +240,10 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
             DmaBufSurface surface = _pool.Planes(bufferIndex);
             int n = Math.Min(surface.PlaneCount, planes.Length);
+            if (s_debug)
+            {
+                Console.Error.WriteLine($"[pw-sink] allocDmaBuf buf={bufferIndex} planes={surface.PlaneCount} modifier=0x{modifier:x} stagingIdx={_stagingIndex}");
+            }
             for (int p = 0; p < n; p++)
             {
                 DmaBufPlane pl = surface[p];
