@@ -99,4 +99,69 @@ internal static unsafe class VaapiInterop
 
     [DllImport(LibVa, EntryPoint = "vaEndPicture")]
     public static extern int vaEndPicture(nint display, uint contextId);
+
+    // - CPU readback of a surface (for --verify content checks only; the hot path stays zero-copy). -
+
+    /// <summary>va.h <c>VAImageFormat</c> (fourcc + byte order + bit layout / channel masks).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct VAImageFormat
+    {
+        public uint FourCC;
+        public uint ByteOrder;
+        public uint BitsPerPixel;
+        public uint Depth;
+        public uint RedMask;
+        public uint GreenMask;
+        public uint BlueMask;
+        public uint AlphaMask;
+    }
+
+    /// <summary>va.h <c>VAImage</c>: a mappable view of a surface's pixels, with per-plane pitch/offset.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct VAImage
+    {
+        public uint ImageId;
+        public VAImageFormat Format;
+        public uint Buf;
+        public ushort Width;
+        public ushort Height;
+        public uint DataSize;
+        public uint NumPlanes;
+        public fixed uint Pitches[3];
+        public fixed uint Offsets[3];
+        public int NumPaletteEntries;
+        public int EntryBytes;
+        public fixed byte ComponentOrder[4];
+        public fixed uint Reserved[4];
+    }
+
+    /// <summary>VA_FOURCC_NV12 ('N''V''1''2').</summary>
+    public const uint VA_FOURCC_NV12 = 0x3231564E;
+
+    /// <summary>VA_LSB_FIRST byte order.</summary>
+    public const uint VA_LSB_FIRST = 1;
+
+    /// <summary>Create a mappable <see cref="VAImage"/> backed by the surface's own memory (<c>vaDeriveImage</c>).</summary>
+    [DllImport(LibVa, EntryPoint = "vaDeriveImage")]
+    public static extern int vaDeriveImage(nint display, uint surface, VAImage* image);
+
+    /// <summary>Allocate a standalone image in a chosen format (<c>vaCreateImage</c>) for <see cref="vaGetImage"/>.</summary>
+    [DllImport(LibVa, EntryPoint = "vaCreateImage")]
+    public static extern int vaCreateImage(nint display, VAImageFormat* format, int width, int height, VAImage* image);
+
+    /// <summary>Copy a surface's pixels into a linear image, detiling/converting as needed (<c>vaGetImage</c>).</summary>
+    [DllImport(LibVa, EntryPoint = "vaGetImage")]
+    public static extern int vaGetImage(nint display, uint surface, int x, int y, uint width, uint height, uint image);
+
+    /// <summary>Map an image's buffer to a CPU pointer (<c>vaMapBuffer</c>).</summary>
+    [DllImport(LibVa, EntryPoint = "vaMapBuffer")]
+    public static extern int vaMapBuffer(nint display, uint buf, out void* pbuf);
+
+    /// <summary>Unmap a previously mapped buffer (<c>vaUnmapBuffer</c>).</summary>
+    [DllImport(LibVa, EntryPoint = "vaUnmapBuffer")]
+    public static extern int vaUnmapBuffer(nint display, uint buf);
+
+    /// <summary>Destroy a derived image (<c>vaDestroyImage</c>).</summary>
+    [DllImport(LibVa, EntryPoint = "vaDestroyImage")]
+    public static extern int vaDestroyImage(nint display, uint image);
 }

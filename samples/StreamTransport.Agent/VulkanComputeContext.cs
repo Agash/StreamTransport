@@ -50,6 +50,7 @@ internal sealed unsafe class VulkanComputeContext : IDisposable
         _instanceApi = GetApi(_instance);
 
         VkPhysicalDevice physicalDevice = PickPhysicalDevice(out _computeQueueFamily);
+        PhysicalDevice = physicalDevice;
 
         float priority = 1.0f;
         VkDeviceQueueCreateInfo queueInfo = new()
@@ -83,6 +84,9 @@ internal sealed unsafe class VulkanComputeContext : IDisposable
 
     public VkDevice Device { get; }
     public VkDeviceApi Api { get; }
+
+    /// <summary>The physical device the compute device was created on (for memory-property queries).</summary>
+    public VkPhysicalDevice PhysicalDevice { get; }
 
     private VkPhysicalDevice PickPhysicalDevice(out uint computeQueueFamily)
     {
@@ -185,12 +189,59 @@ internal sealed unsafe class VulkanComputeContext : IDisposable
     }
 
     /// <summary>
+    /// The DRM format modifiers the device can export for <paramref name="format"/> as a single-plane image
+    /// usable as a storage image (the alpha unpack output). Non-LINEAR (tiled) modifiers come first: a GL
+    /// consumer's EGL import on radeonsi accepts the tiled AMD modifiers but not LINEAR, so we must publish a
+    /// tiled one. LINEAR (if present) is kept last as a fallback. Empty if the device exposes none.
+    /// </summary>
+    public unsafe ulong[] ExportableModifiers(VkFormat format)
+    {
+        VkDrmFormatModifierPropertiesListEXT list = new();
+        VkFormatProperties2 props = new() { pNext = &list };
+        _instanceApi.vkGetPhysicalDeviceFormatProperties2(PhysicalDevice, format, &props);
+        uint count = list.drmFormatModifierCount;
+        if (count == 0)
+        {
+            return [];
+        }
+
+        var mods = new VkDrmFormatModifierPropertiesEXT[count];
+        fixed (VkDrmFormatModifierPropertiesEXT* pm = mods)
+        {
+            list.pDrmFormatModifierProperties = pm;
+            props.pNext = &list;
+            _instanceApi.vkGetPhysicalDeviceFormatProperties2(PhysicalDevice, format, &props);
+        }
+
+        var tiled = new List<ulong>();
+        var linear = new List<ulong>();
+        foreach (VkDrmFormatModifierPropertiesEXT m in mods)
+        {
+            // Single-plane only (our BGRA output is one plane) and usable as a storage image (compute writes it).
+            if (m.drmFormatModifierPlaneCount != 1)
+            {
+                continue;
+            }
+
+            if ((m.drmFormatModifierTilingFeatures & VkFormatFeatureFlags.StorageImage) == 0)
+            {
+                continue;
+            }
+
+            (m.drmFormatModifier == DrmFormatModLinear ? linear : tiled).Add(m.drmFormatModifier);
+        }
+
+        tiled.AddRange(linear);
+        return [.. tiled];
+    }
+
+    /// <summary>
     /// Find a device-local memory type compatible with <paramref name="typeBits"/>. HW-VERIFY: for imported
     /// dmabuf the valid type bits come from <c>vkGetMemoryFdPropertiesKHR</c>; this picks the first match.
     /// </summary>
-    public uint FindMemoryType(VkPhysicalDevice physicalDevice, uint typeBits, VkMemoryPropertyFlags properties)
+    public uint FindMemoryType(uint typeBits, VkMemoryPropertyFlags properties)
     {
-        _instanceApi.vkGetPhysicalDeviceMemoryProperties(physicalDevice, out VkPhysicalDeviceMemoryProperties memProps);
+        _instanceApi.vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, out VkPhysicalDeviceMemoryProperties memProps);
         for (uint i = 0; i < memProps.memoryTypeCount; i++)
         {
             bool typeOk = (typeBits & (1u << (int)i)) != 0;

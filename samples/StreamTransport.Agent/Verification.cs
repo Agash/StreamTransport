@@ -221,7 +221,7 @@ internal sealed class VerificationReport
 /// recovers the <see cref="SyncMarkerCodec"/> marker payload (sequence id + sender capture ms) from the decoded
 /// luma plane. Pairs with <see cref="VerifyingAudioSink"/> via a shared <see cref="VerificationReport"/>.
 /// </summary>
-internal sealed class VerifyingVideoSink(VerificationReport report) : IVideoFrameSink
+internal sealed class VerifyingVideoSink(VerificationReport report, bool usePresentationTime = false) : IVideoFrameSink
 {
     public void Submit(VideoFrame frame)
     {
@@ -238,7 +238,11 @@ internal sealed class VerifyingVideoSink(VerificationReport report) : IVideoFram
         // The marker codec rides the NV12/I420 luma plane (the alpha path keeps the plain white marker).
         if (!isBgra && SyncMarkerCodec.TryReadVideoMarker(px, frame.Width, frame.Height, out int seqId, out long captureMs))
         {
-            report.RecordVideoMarker(seqId, captureMs, NowMs());
+            // GPU verify reads pixels back on a synchronous path that adds latency after the frame was delivered,
+            // so it stamps the delivery (playout) time on the frame and we use that - otherwise the readback cost
+            // would inflate the measured A/V skew. The CPU path has no such delay and times the marker on receipt.
+            double presentMs = usePresentationTime && frame.PresentationTimeNs > 0 ? frame.PresentationTimeNs / 1_000_000.0 : NowMs();
+            report.RecordVideoMarker(seqId, captureMs, presentMs);
         }
     }
 

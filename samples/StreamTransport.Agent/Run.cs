@@ -232,6 +232,7 @@ internal static class Subscribe
         Action<bool>? applyNegotiatedAlpha = null;
 #if HAS_PIPEWIRE
         PipeWireAudioPublishSink? pipeWireAudio = null;
+        PipeWireVideoPublishSink? pwVideoSink = null;
 #endif
 
 #if HAS_PIPEWIRE
@@ -242,10 +243,13 @@ internal static class Subscribe
             // to BGRA. Audio also goes to PipeWire (the Linux audio sink). preferGpu requests the GPU path.
             var pw = await PipeWireVideoPublishSink.CreateAsync(config.PublishPipeWire, config.Alpha);
             asyncPublishSink = pw;
+            pwVideoSink = pw;
             videoSink = pw;
             applyNegotiatedAlpha = pw.SetPreserveAlpha;
             preferGpu = true;
-            if (config.Audio)
+            // Audio is published normally, except under --verify where the audio goes to the verifying sink
+            // (so A/V sync is measured) rather than out to PipeWire.
+            if (config.Audio && !config.Verify)
             {
                 pipeWireAudio = await PipeWireAudioPublishSink.CreateAsync($"{config.PublishPipeWire} Audio");
             }
@@ -286,8 +290,22 @@ internal static class Subscribe
         if (config.Verify)
         {
             report = new VerificationReport();
-            videoSink = config.Video ? new VerifyingVideoSink(report) : null;
-            preferGpu = false;
+#if HAS_PIPEWIRE
+            if (pwVideoSink is not null && config.Video && OperatingSystem.IsLinux())
+            {
+                // GPU verify: keep publishing through the zero-copy GPU sink, but read each published surface
+                // back to CPU and feed it to a verifying sink - so the real GPU output is checked for
+                // content/alpha/sync identically to the CPU decode path. usePresentationTime so the readback
+                // cost doesn't inflate the A/V skew. videoSink + preferGpu stay as set.
+                var gpuVerify = new VerifyingVideoSink(report, usePresentationTime: true);
+                pwVideoSink.EnableVerification(gpuVerify.Submit);
+            }
+            else
+#endif
+            {
+                videoSink = config.Video ? new VerifyingVideoSink(report) : null;
+                preferGpu = false;
+            }
         }
 
         MediaTransportOptions baseline = MediaProfiles.Create(config.Profile);
@@ -303,10 +321,10 @@ internal static class Subscribe
             config.Relay!, new RoomCode(config.Room), PeerRole.Subscriber, cancellationToken);
 
         IAudioFrameSink? audioSink = !config.Audio ? null
+            : config.Verify ? new VerifyingAudioSink(report!)
 #if HAS_PIPEWIRE
             : pipeWireAudio is not null ? pipeWireAudio
 #endif
-            : config.Verify ? new VerifyingAudioSink(report!)
             : new ReportingAudioSink(m => AnsiConsole.MarkupLineInterpolated($"[blue]{m}[/]"));
 
         using (publishSink)

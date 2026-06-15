@@ -60,18 +60,25 @@ Per platform: **{GPU surface, codec interop, alpha pack/unpack compute}**.
   invent sync. Vortice provides the Vulkan API/types only; hand-define the FFmpeg `AVVk*` structs from
   `.refs/ffmpeg/libavutil/hwcontext_vulkan.h`.
 
-## Status
+## Status (updated 2026-06-15)
 - DONE+HW-verified: VAAPI decode→dmabuf export; dmabuf→VAAPI encode import; FFmpeg Vulkan device + decode
-  HEVC→`VkImage`; PipeWire.NET dmabuf/modifier (released 0.2.0-alpha).
-- See `~/.claude/.../memory/zero-copy-dmabuf-plan.md` for the live status + remaining-work checklist.
+  HEVC→`VkImage`; PipeWire.NET dmabuf/modifier (released **0.2.1-alpha** — the SPA Choice-Enum default-repeat
+  negotiation fix).
+- DONE+HW-verified: **opaque** GPU zero-copy republish — VAAPI decode → VA-API VPP into an owned dmabuf
+  surface pool → PipeWire dmabuf node, consumed by `gst pipewiresrc ! glupload ! glcolorconvert ! gldownload
+  ! fakesink` (EOS, exit 0). Audio out via `PipeWireAudioPublishSink` (gst loopback PASS). Issue #2.
+- See `~/.claude/.../memory/zero-copy-dmabuf-plan.md` for the live status.
 
 ## Remaining implementation (grounded in the above)
-1. **Agent Vulkan compute on `AVVkFrame`** (alpha unpack): rework `VulkanComputeContext` to borrow
-   `VulkanDevice.{Instance,PhysicalDevice,Device}` (Vortice `vkInitialize` + `GetApi`; query phys-dev for a
-   compute queue family; `vkGetDeviceQueue`). Hand-define full `AVVkFrame` + `AVVulkanFramesContext`. Run the
-   alpha `.spv` on `img[]` with `lock_frame`/`unlock_frame` + sem/layout transitions.
-2. **Capture→encode wiring**: `PipeWireVideoCaptureSource` build `DmaBufSurface` from PipeWire planes+modifier
-   (derive per-plane DRM fourcc from SPA format); push/synchronous (use fd within `FrameReady`).
-3. **Republish sink**: `PipeWireVideoOutput.ConnectDmaBuf` pool = owned exportable images, final stage writes in.
-4. Alpha pack (encode) over a captured dmabuf imported to Vulkan (FFmpeg map drm→vulkan).
-5. 3-way verify (Mac → handheld + Windows).
+1. **Linux alpha (transparency) zero-copy — issue #5.** `VulkanAlphaCodec` exists (pack implemented; unpack
+   built) but is compile-verified only and **not wired into `PipeWireVideoPublishSink`**. Wire the receive-side
+   unpack on `AVVkFrame` (borrow `VulkanDevice.{Instance,PhysicalDevice,Device}`; full `AVVkFrame` +
+   `AVVulkanFramesContext`; alpha `.spv` with `lock_frame`/`unlock_frame` + sem/layout per mpv
+   `hwdec_vulkan.c`); fix the dmabuf-import `memoryTypeBits` via `vkGetMemoryFdPropertiesKHR`; HW-verify on AMD.
+2. **Real audio I/O on Windows/macOS — issues #3 / #4.** Today only the Linux PipeWire audio sink is real;
+   Win (WASAPI/NAudio) and Mac (CoreAudio) capture + playout are missing. Linux is the audio reference shape.
+3. **Heterogeneous HW config robustness — issue #6 (het codec).** Vendor-aware encode/decode probe + fallback
+   (QSV/NVENC/AMF/VAAPI/VideoToolbox); cross-vendor decode.
+4. **3-way verify matrix — issue #6.** Relay + sender + 2 receivers, rotated; GPU-only / +audio / +synced;
+   gst-driven real producers/consumers on all three platforms.
+5. **linux-arm64 + rkmpp** field-agent lane — issue #8 (future, separate lane).

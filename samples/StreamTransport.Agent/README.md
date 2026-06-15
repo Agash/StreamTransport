@@ -137,14 +137,15 @@ is showing, have OBS publish a shared surface and point the agent at it.
 
    `--syphon-server <name>` implies `--source syphon`. Omit the name to take the first advertised server.
 
-### Linux: PipeWire (experimental)
+### Linux: PipeWire
 
 ```bash
 streamtransport-agent send --relay ws://<relay>/ws --room demo --source pipewire
 ```
 
-The PipeWire capture path and the VAAPI encoder are implemented but not yet hardware-verified; expect rough
-edges and prefer a camera or synthetic source on Linux for now.
+The PipeWire dmabuf capture path and the VAAPI HEVC encoder are hardware-verified on AMD (radeonsi). The
+opaque GPU zero-copy publish (`--publish-pipewire`, below) is gst-loopback verified end to end; the alpha
+(transparency) zero-copy path on Linux is still in progress (tracked as issue #5).
 
 ## Publishing back into OBS
 
@@ -163,6 +164,14 @@ appears as a normal source.
 
   ```bash
   streamtransport-agent receive --relay ws://<relay>/ws --room demo --publish-syphon StreamTransport
+  ```
+
+- **Linux:** `--publish-pipewire <name>` republishes as a PipeWire video node (GPU dmabuf zero-copy when the
+  decoder is VAAPI, CPU-converted fallback otherwise). Audio is published to a companion `<name> Audio` node.
+  Add a PipeWire/Screen-capture source in OBS targeting that node.
+
+  ```bash
+  streamtransport-agent receive --relay ws://<relay>/ws --room demo --publish-pipewire StreamTransport
   ```
 
 Without a `--publish-*` flag the receiver just decodes and reports frame stats (useful for a quick check).
@@ -221,6 +230,7 @@ VideoToolbox) and Windows (Spout), and `selftest alpha [encoder]` for the side-b
 | `--syphon-server <name>` | Syphon server to capture; implies `--source syphon`. |
 | `--publish-spout <name>` | Republish the received video as a Spout sender (Windows). |
 | `--publish-syphon <name>` | Republish the received video as a Syphon server (macOS). |
+| `--publish-pipewire <name>` | Republish the received video (+ audio) as a PipeWire node (Linux). |
 | `--encoder <name>` | Force a specific FFmpeg encoder (for example `hevc_vaapi`). |
 | `--audio-only` / `--video-only` | Send a single track. |
 | `--alpha` | Preserve transparency via side-by-side packing. |

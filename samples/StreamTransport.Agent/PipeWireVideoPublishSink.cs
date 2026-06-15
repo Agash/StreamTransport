@@ -1,4 +1,6 @@
 #if HAS_PIPEWIRE
+using System.Diagnostics;
+using System.Linq;
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
@@ -54,6 +56,26 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     private bool _hasGpuFrame;
     private bool _gpuUnavailable;
     private Mode _mode;
+
+    // Alpha GPU path: the decoded surface is the 2W x H side-by-side packed NV12; the staging surface holds it
+    // and a Vulkan compute shader unpacks colour|alpha into W x H BGRA pool images that PipeWire serves. The
+    // VAAPI pool is staging-only here (one surface); the Vulkan images are the PipeWire buffers. This is the
+    // zero-copy receive mirror of the send-side pack - peer of D3D11AlphaUnpacker / the macOS Metal unpacker.
+    private bool _alphaGpu;
+    private int _outWidth;
+    private int _outHeight;
+    private VulkanComputeContext? _vk;
+    private VulkanAlphaCodec? _alphaCodec;
+    private VulkanAlphaCodec.ExportedImage[]? _vkOut;
+
+    // --verify GPU mode: read the published surface back to CPU and hand it to the verification report, so the
+    // actual zero-copy output (content + alpha gradient + sync markers) is checked exactly like the CPU path.
+    private Action<VideoFrame>? _verifyTap;
+
+    /// <summary>Enable content verification of the published GPU frames (CPU readback -&gt; <paramref name="tap"/>).</summary>
+    public void EnableVerification(Action<VideoFrame> tap) => _verifyTap = tap;
+
+    private static long NowNs() => (long)(Stopwatch.GetTimestamp() * (1_000_000_000.0 / Stopwatch.Frequency));
 
     private enum Mode { Unset, HostMemory, GpuDmaBuf }
 
@@ -172,27 +194,80 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
                 try
                 {
-                    _pool = new VaapiPresentationPool(frame.Width, frame.Height, MaxDmaBufBuffers + 1);
-                    _stagingIndex = MaxDmaBufBuffers; // the last surface is staging; 0..Max-1 are PipeWire buffers.
-                    if (s_debug)
-                    {
-                        DmaBufSurface s0 = _pool.Planes(0);
-                        Console.Error.WriteLine($"[pw-sink] pool modifier=0x{_pool.Modifier:x} planes={s0.PlaneCount} p0(fd={s0[0].Fd},off={s0[0].Offset},stride={s0[0].Stride},fourcc=0x{s0[0].DrmFourcc:x})");
-                    }
-                    _width = frame.Width;
-                    _height = frame.Height;
+                    _alphaGpu = _alpha;
                     _mode = Mode.GpuDmaBuf;
+                    PipeWireVideoOutput output;
 
-                    var output = new PipeWireVideoOutput(_context, _nodeName, frame.Width, frame.Height, PwPixelFormat.Nv12, _frameRate);
-                    output.AllocateDmaBuf += OnAllocateDmaBuf;
-                    output.FillDmaBuf += OnFillDmaBuf;
-                    if (s_debug)
+                    if (_alphaGpu)
                     {
-                        output.StateChanged += (_, oldS, newS) => Console.Error.WriteLine($"[pw-sink] gpu state {oldS}->{newS}");
-                    }
+                        // Alpha: VAAPI pool is staging only (the decoded 2W x H NV12); Vulkan owns the W x H BGRA
+                        // PipeWire buffers. Output node is BGRA at half the decoded width (colour|alpha -> colour).
+                        _pool = new VaapiPresentationPool(frame.Width, frame.Height, 1);
+                        _stagingIndex = 0;
+                        _outWidth = frame.Width / 2;
+                        _outHeight = frame.Height;
+                        _vk = new VulkanComputeContext();
+                        _alphaCodec = new VulkanAlphaCodec(_vk);
+                        // Let the driver pick a tiled (gst-importable) BGRA modifier; advertise the one it chose.
+                        // radeonsi's GL/EGL import rejects LINEAR, so a LINEAR-only offer fails to negotiate.
+                        ulong[] candidates = _alphaCodec.OutputModifiers();
+                        _vkOut = new VulkanAlphaCodec.ExportedImage[MaxDmaBufBuffers];
+                        for (int i = 0; i < _vkOut.Length; i++)
+                        {
+                            _vkOut[i] = _alphaCodec.CreateOutputImage(_outWidth, _outHeight, candidates);
+                        }
 
-                    output.ConnectDmaBuf([(long)_pool.Modifier]);
-                    _output = output;
+                        ulong outModifier = _vkOut[0].Modifier;
+                        _width = _outWidth;
+                        _height = _outHeight;
+                        if (s_debug)
+                        {
+                            DmaBufSurface st = _pool.Planes(0);
+                            Console.Error.WriteLine($"[pw-sink] alpha staging modifier=0x{_pool.Modifier:x} planes={st.PlaneCount} out={_outWidth}x{_outHeight} bgra fd0={_vkOut[0].Fd} pitch={_vkOut[0].RowPitch} cand=[{string.Join(",", candidates.Select(m => "0x" + m.ToString("x")))}] chosen=0x{outModifier:x}");
+                        }
+
+                        output = new PipeWireVideoOutput(_context, _nodeName, _outWidth, _outHeight, PwPixelFormat.Bgra, _frameRate);
+                        output.AllocateDmaBuf += OnAllocateDmaBuf;
+                        output.FillDmaBuf += OnFillDmaBuf;
+                        if (s_debug)
+                        {
+                            output.StateChanged += (_, oldS, newS) => Console.Error.WriteLine($"[pw-sink] alpha-gpu state {oldS}->{newS}");
+                        }
+
+                        output.ConnectDmaBuf([(long)outModifier]);
+                        _output = output;
+                    }
+                    else
+                    {
+                        _pool = new VaapiPresentationPool(frame.Width, frame.Height, MaxDmaBufBuffers + 1);
+                        _stagingIndex = MaxDmaBufBuffers; // the last surface is staging; 0..Max-1 are PipeWire buffers.
+                        if (s_debug)
+                        {
+                            DmaBufSurface s0 = _pool.Planes(0);
+                            Console.Error.WriteLine($"[pw-sink] pool modifier=0x{_pool.Modifier:x} planes={s0.PlaneCount} p0(fd={s0[0].Fd},off={s0[0].Offset},stride={s0[0].Stride},fourcc=0x{s0[0].DrmFourcc:x})");
+                        }
+                        _width = frame.Width;
+                        _height = frame.Height;
+
+                        // --verify only: a Vulkan codec to read the NV12 staging surface back to CPU (libva's
+                        // vaGetImage/vaDeriveImage abort inside the radeonsi driver for these tiled surfaces).
+                        if (_verifyTap is not null)
+                        {
+                            _vk = new VulkanComputeContext();
+                            _alphaCodec = new VulkanAlphaCodec(_vk);
+                        }
+
+                        output = new PipeWireVideoOutput(_context, _nodeName, frame.Width, frame.Height, PwPixelFormat.Nv12, _frameRate);
+                        output.AllocateDmaBuf += OnAllocateDmaBuf;
+                        output.FillDmaBuf += OnFillDmaBuf;
+                        if (s_debug)
+                        {
+                            output.StateChanged += (_, oldS, newS) => Console.Error.WriteLine($"[pw-sink] gpu state {oldS}->{newS}");
+                        }
+
+                        output.ConnectDmaBuf([(long)_pool.Modifier]);
+                        _output = output;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -200,8 +275,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                     // rather than crashing the decode thread). The CPU fallback only applies if the decoder
                     // also emits CPU frames, which a GPU-surface decoder does not.
                     _gpuUnavailable = true;
-                    _pool?.Dispose();
-                    _pool = null;
+                    DisposeGpuResources();
                     if (s_debug)
                     {
                         Console.Error.WriteLine($"[pw-sink] GPU pool unavailable: {ex.Message}");
@@ -222,6 +296,15 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 {
                     Console.Error.WriteLine($"[pw-sink] gpu submit#{_submits} {frame.Width}x{frame.Height} srcSurf={decodedSurfaceId}");
                 }
+
+                // --verify: read the just-produced GPU surface back to CPU and feed the verification report.
+                // Done here (per decoded frame) rather than in FillDmaBuf so it runs even with no consumer
+                // pulling. Mirrors exactly what the zero-copy path publishes: opaque = the VPP'd NV12 staging;
+                // alpha = the Vulkan unpack of that staging into a BGRA pool image.
+                if (_verifyTap is not null)
+                {
+                    EmitVerifyFrame();
+                }
             }
             else if (s_debug)
             {
@@ -236,6 +319,25 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     {
         lock (_gate)
         {
+            if (_alphaGpu)
+            {
+                // Alpha: hand PipeWire the stable single-plane BGRA dmabuf of Vulkan output image `bufferIndex`.
+                if (_vkOut is null || bufferIndex >= _vkOut.Length || planes.IsEmpty)
+                {
+                    return 0;
+                }
+
+                VulkanAlphaCodec.ExportedImage img = _vkOut[bufferIndex];
+                uint size = (uint)(img.RowPitch * (ulong)_outHeight);
+                planes[0] = new VideoPlane(img.Fd, (uint)img.Offset, (int)img.RowPitch, size);
+                if (s_debug)
+                {
+                    Console.Error.WriteLine($"[pw-sink] alpha allocDmaBuf buf={bufferIndex} fd={img.Fd} off={img.Offset} pitch={img.RowPitch} size={size}");
+                }
+
+                return 1;
+            }
+
             if (_pool is null || bufferIndex >= _stagingIndex)
             {
                 return 0;
@@ -265,7 +367,54 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     {
         lock (_gate)
         {
-            if (_disposed || _pool is null || !_hasGpuFrame || bufferIndex >= _stagingIndex)
+            if (_disposed || _pool is null || !_hasGpuFrame)
+            {
+                return false;
+            }
+
+            if (_alphaGpu)
+            {
+                // Unpack the staged 2W x H NV12 (its dmabuf planes) into Vulkan output image `bufferIndex` (BGRA).
+                if (_alphaCodec is null || _vkOut is null || bufferIndex >= _vkOut.Length)
+                {
+                    return false;
+                }
+
+                DmaBufSurface st = _pool.Planes(_stagingIndex);
+                if (st.PlaneCount < 2)
+                {
+                    return false;
+                }
+
+                DmaBufPlane y = st[0];
+                DmaBufPlane uv = st[1];
+                try
+                {
+                    _alphaCodec.UnpackInto(
+                        new VulkanAlphaCodec.Nv12Plane(y.Fd, y.Offset, y.Stride),
+                        new VulkanAlphaCodec.Nv12Plane(uv.Fd, uv.Offset, uv.Stride),
+                        _outWidth, _outHeight, _pool.Modifier, _vkOut[bufferIndex]);
+                }
+                catch (Exception ex)
+                {
+                    if (s_debug && _served < 3)
+                    {
+                        Console.Error.WriteLine($"[pw-sink] alpha UnpackInto FAILED: {ex.GetType().Name}: {ex.Message}");
+                        _served++;
+                    }
+
+                    return false;
+                }
+
+                if (s_debug && ++_served <= 3)
+                {
+                    Console.Error.WriteLine($"[pw-sink] alpha served#{_served} -> buffer {bufferIndex} ({_outWidth}x{_outHeight})");
+                }
+
+                return true;
+            }
+
+            if (bufferIndex >= _stagingIndex)
             {
                 return false;
             }
@@ -368,10 +517,87 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
     private static byte Clamp(int v) => (byte)(v < 0 ? 0 : v > 255 ? 255 : v);
 
+    // Read the just-staged GPU surface back to CPU and hand it to the verification tap. Caller holds _gate.
+    // Opaque: the VPP'd NV12 staging surface. Alpha: unpack that staging into a BGRA pool image (no consumer
+    // contends in verify mode) and read that back. Exactly the pixels the zero-copy path would publish.
+    private void EmitVerifyFrame()
+    {
+        // Stamp the delivery (playout) time NOW, before the synchronous readback below - the readback adds
+        // latency, and timing the marker after it would inflate the measured A/V skew. VerifyingVideoSink reads
+        // this off the frame's PresentationTimeNs (usePresentationTime: true) instead of its own receipt clock.
+        long obsNs = NowNs();
+        try
+        {
+            if (_alphaGpu)
+            {
+                if (_alphaCodec is null || _vkOut is null || _pool is null)
+                {
+                    return;
+                }
+
+                DmaBufSurface st = _pool.Planes(_stagingIndex);
+                if (st.PlaneCount < 2)
+                {
+                    return;
+                }
+
+                DmaBufPlane y = st[0];
+                DmaBufPlane uv = st[1];
+                _alphaCodec.UnpackInto(
+                    new VulkanAlphaCodec.Nv12Plane(y.Fd, y.Offset, y.Stride),
+                    new VulkanAlphaCodec.Nv12Plane(uv.Fd, uv.Offset, uv.Stride),
+                    _outWidth, _outHeight, _pool.Modifier, _vkOut[0]);
+                byte[] bgra = _alphaCodec.ReadbackToBgra(_vkOut[0], _outWidth, _outHeight);
+                _verifyTap!(VideoFrame.FromPixels(bgra, VideoPixelFormat.Bgra, _outWidth, _outHeight, obsNs));
+            }
+            else if (_pool is not null && _alphaCodec is not null)
+            {
+                DmaBufSurface st = _pool.Planes(_stagingIndex);
+                if (st.PlaneCount >= 2)
+                {
+                    DmaBufPlane y = st[0];
+                    DmaBufPlane uv = st[1];
+                    byte[] nv12 = _alphaCodec.ReadbackNv12(
+                        new VulkanAlphaCodec.Nv12Plane(y.Fd, y.Offset, y.Stride),
+                        new VulkanAlphaCodec.Nv12Plane(uv.Fd, uv.Offset, uv.Stride),
+                        _width, _height, _pool.Modifier);
+                    _verifyTap!(VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, _width, _height, obsNs));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (s_debug)
+            {
+                Console.Error.WriteLine($"[pw-sink] verify readback failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
+    // Free the GPU republish resources (VAAPI pool + Vulkan codec/device + exported output images). Caller holds
+    // _gate. Used by the init-failure path; DisposeAsync does the same teardown after stopping the stream.
+    private void DisposeGpuResources()
+    {
+        if (_alphaCodec is not null && _vkOut is not null)
+        {
+            foreach (VulkanAlphaCodec.ExportedImage img in _vkOut)
+            {
+                _alphaCodec.DestroyExported(img);
+            }
+        }
+
+        _vkOut = null;
+        _alphaCodec?.Dispose();
+        _alphaCodec = null;
+        _vk?.Dispose();
+        _vk = null;
+        _pool?.Dispose();
+        _pool = null;
+    }
+
     public async ValueTask DisposeAsync()
     {
         PipeWireVideoOutput? output;
-        VaapiPresentationPool? pool;
         lock (_gate)
         {
             if (_disposed)
@@ -382,18 +608,20 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             _disposed = true;
             output = _output;
             _output = null;
-            pool = _pool;
-            _pool = null;
         }
 
-        // Stop the PipeWire stream first (it releases the dmabuf buffers it imported from the pool surfaces),
-        // then destroy the pool's VPP context + surfaces, so the daemon never references a freed surface.
+        // Stop the PipeWire stream first (it releases the dmabuf buffers it imported from the pool / Vulkan output
+        // images), then free the GPU resources, so the daemon never references a freed surface.
         if (output is not null)
         {
             await output.DisposeAsync().ConfigureAwait(false);
         }
 
-        pool?.Dispose();
+        lock (_gate)
+        {
+            DisposeGpuResources();
+        }
+
         await _context.DisposeAsync().ConfigureAwait(false);
     }
 }
