@@ -215,6 +215,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             if (rc == 0)
             {
                 _hasGpuFrame = true;
+                // Do not drive the graph from this decode thread: pw_stream_trigger_process must run on the
+                // PipeWire loop thread, and calling it here crashes inside libpipewire's loop. The consumer
+                // (gst/OBS) drives the cycle; FillDmaBuf then pulls the latest staged frame.
                 if (s_debug && ++_submits <= 3)
                 {
                     Console.Error.WriteLine($"[pw-sink] gpu submit#{_submits} {frame.Width}x{frame.Height} srcSurf={decodedSurfaceId}");

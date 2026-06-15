@@ -23,6 +23,14 @@ if (args.Length > 0 && args[0].Equals("selftest", StringComparison.OrdinalIgnore
     // unpack) through a real hardware encoder, with no Spout sender / OBS needed.
     bool alpha = args.Length > 1 && args[1].Equals("alpha", StringComparison.OrdinalIgnoreCase);
     string selfTestEncoder = args.Length > 2 ? args[2] : "hevc_nvenc";
+#if HAS_PIPEWIRE
+    // `selftest pwdmabuf` verifies the Linux GPU zero-copy publish (VAAPI presentation pool -> PipeWire dmabuf
+    // producer -> PipeWire consumer) in-process, independent of GStreamer's (stack-dependent) dmabuf support.
+    if (args.Length > 1 && args[1].Equals("pwdmabuf", StringComparison.OrdinalIgnoreCase) && OperatingSystem.IsLinux())
+    {
+        return await PwDmaBufSelfTest.RunAsync();
+    }
+#endif
 #if WINDOWS_HEAD
     return alpha ? SpoutSelfTest.RunAlpha(selfTestEncoder) : SpoutSelfTest.Run();
 #else

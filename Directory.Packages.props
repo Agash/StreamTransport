@@ -37,6 +37,6 @@
     <!-- Platform GPU capture/share libraries (the agent's zero-copy sources/sinks). -->
     <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha" />
     <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.3" />
-    <PackageVersion Include="PipeWire.NET" Version="0.2.0-alpha" />
+    <PackageVersion Include="PipeWire.NET" Version="0.2.1-alpha" />
   </ItemGroup>
 </Project>
