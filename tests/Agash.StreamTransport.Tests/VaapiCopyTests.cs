@@ -155,4 +155,44 @@ public sealed unsafe class VaapiCopyTests
             ffmpeg.av_buffer_unref(&device);
         }
     }
+
+    [TestMethod]
+    public void PresentationPool_ExportsDmaBuf_AndVppCopies()
+    {
+        string? nativeBin = TestNative.FindFFmpegBin();
+        if (nativeBin is null)
+        {
+            Assert.Inconclusive("No bundled FFmpeg native build found.");
+            return;
+        }
+
+        FFmpegLibrary.EnsureLoaded(nativeBin);
+
+        if (!VaapiDevice.IsAvailable())
+        {
+            Assert.Inconclusive("No VAAPI device available on this machine.");
+            return;
+        }
+
+        using var pool = new VaapiPresentationPool(1280, 720, count: 3);
+        Assert.AreEqual(3, pool.Count);
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            DmaBufSurface planes = pool.Planes(i);
+            Assert.IsTrue(planes.PlaneCount is 1 or 2, $"surface {i} should export 1-2 NV12 planes, got {planes.PlaneCount}.");
+            for (int p = 0; p < planes.PlaneCount; p++)
+            {
+                Assert.IsTrue(planes[p].Fd > 0, $"surface {i} plane {p} must have a valid dmabuf fd.");
+                Assert.IsTrue(planes[p].Stride > 0, $"surface {i} plane {p} must have a positive stride.");
+            }
+
+            Assert.AreNotEqual(0u, pool.SurfaceId(i));
+        }
+
+        // GPU-copy pool surface 0 into pool surface 1 and 2 - exercises the VPP path against pre-declared
+        // render targets (every pool surface is a target), the exact operation the republish runs per frame.
+        Assert.AreEqual(0, pool.CopyInto(pool.SurfaceId(0), 1), "VPP copy 0->1 should succeed.");
+        Assert.AreEqual(0, pool.CopyInto(pool.SurfaceId(0), 2), "VPP copy 0->2 should succeed.");
+    }
 }
