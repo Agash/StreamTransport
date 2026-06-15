@@ -251,7 +251,12 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
 
         // HEVC 8-bit decodes to NV12; that is the only sw_format the VAAPI frames context produces here.
         var surface = new DmaBufSurface(modifier, VideoPixelFormat.Nv12, planes[..planeCount]);
-        frame = VideoFrame.FromDmaBuf(in surface, width, height, presentationTimeNs);
+        // Also carry the decoded VA surface id (data[3]) so a republish sink can VPP-copy it into its own
+        // presentation surface (no CPU readback) - valid until the next TryDecode, like the dmabuf map.
+        frame = VideoFrame.FromDmaBuf(in surface, width, height, presentationTimeNs) with
+        {
+            Surface = (nint)(uint)(nuint)_frame->data[3],
+        };
         return true;
     }
 

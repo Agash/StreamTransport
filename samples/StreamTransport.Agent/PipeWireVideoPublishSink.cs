@@ -1,6 +1,7 @@
 #if HAS_PIPEWIRE
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
+using Agash.StreamTransport.Codecs;
 using PipeWire.NET;
 using PwPixelFormat = PipeWire.NET.PixelFormat;
 using VideoFrame = Agash.StreamTransport.VideoFrame;
@@ -42,6 +43,20 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     private long _fills;
     private long _served;
 
+    // GPU zero-copy path (dmabuf frames): a pool of owned VAAPI surfaces exported to stable dmabufs (the
+    // PipeWire buffers), plus one staging surface. Each decoded surface is VPP-copied into staging (Submit,
+    // decode thread), then staging is VPP-copied into the PipeWire buffer the daemon chose (FillDmaBuf, loop
+    // thread). Both copies are GPU blits guarded by _gate, so no CPU transfer and no tearing. See
+    // VaapiPresentationPool and the zero-copy plan note for why VPP (radeonsi lacks vaCopy).
+    private const int MaxDmaBufBuffers = 16;
+    private VaapiPresentationPool? _pool;
+    private int _stagingIndex;
+    private bool _hasGpuFrame;
+    private bool _gpuUnavailable;
+    private Mode _mode;
+
+    private enum Mode { Unset, HostMemory, GpuDmaBuf }
+
     private PipeWireVideoPublishSink(PipeWireContext context, string nodeName, bool alpha, int frameRate)
     {
         _context = context;
@@ -66,11 +81,18 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
     public void Submit(VideoFrame frame)
     {
+        // GPU zero-copy path: a VAAPI DMA-BUF surface frame (the HW decoder kept it on the GPU). VPP-copy the
+        // decoded surface into our staging surface now, while it is valid (the decoder recycles it on the next
+        // decode). The PipeWire publish happens later from the staging surface (FillDmaBuf).
+        if (frame.InteropKind == StreamInteropKind.PipeWire && frame.DmaBuf is not null && !_gpuUnavailable)
+        {
+            SubmitGpu(frame);
+            return;
+        }
+
         if (frame.Pixels.IsEmpty)
         {
-            // A GPU-surface frame carries no CPU pixels; the host-memory path only serves decoded CPU frames.
-            // The dmabuf zero-copy publish handles surface frames separately (see class remarks).
-            return;
+            return; // a GPU-surface frame with no usable dmabuf and no CPU pixels: nothing to publish.
         }
 
         ReadOnlySpan<byte> px = frame.Pixels.Span;
@@ -114,11 +136,130 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             // and Connect are synchronous (only the context start was async), so this needs no blocking wait.
             if (_output is null)
             {
+                _mode = Mode.HostMemory;
                 var output = new PipeWireVideoOutput(_context, _nodeName, width, height, PwPixelFormat.Bgra, _frameRate);
                 output.FillFrame += OnFillFrame;
                 output.Connect();
                 _output = output;
             }
+        }
+    }
+
+    // GPU path: VPP-copy the decoded VAAPI surface into our staging surface (decode thread, surface valid now).
+    // On the first frame, build the presentation pool + the dmabuf PipeWire output. Both VPP copies are guarded
+    // by _gate, which serialises this with the FillDmaBuf copy so the staging surface is never read mid-write.
+    private void SubmitGpu(VideoFrame frame)
+    {
+        uint decodedSurfaceId = (uint)frame.Surface;
+        if (decodedSurfaceId == 0)
+        {
+            return; // no VA surface id carried; cannot VPP-copy.
+        }
+
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_pool is null)
+            {
+                if (_mode == Mode.HostMemory)
+                {
+                    return; // already committed to the CPU path this session; ignore a stray surface frame.
+                }
+
+                try
+                {
+                    _pool = new VaapiPresentationPool(frame.Width, frame.Height, MaxDmaBufBuffers + 1);
+                    _stagingIndex = MaxDmaBufBuffers; // the last surface is staging; 0..Max-1 are PipeWire buffers.
+                    _width = frame.Width;
+                    _height = frame.Height;
+                    _mode = Mode.GpuDmaBuf;
+
+                    var output = new PipeWireVideoOutput(_context, _nodeName, frame.Width, frame.Height, PwPixelFormat.Nv12, _frameRate);
+                    output.AllocateDmaBuf += OnAllocateDmaBuf;
+                    output.FillDmaBuf += OnFillDmaBuf;
+                    output.ConnectDmaBuf([(long)_pool.Modifier]);
+                    _output = output;
+                }
+                catch (Exception ex)
+                {
+                    // No usable VAAPI presentation pool: stop attempting the GPU path (frames will be dropped
+                    // rather than crashing the decode thread). The CPU fallback only applies if the decoder
+                    // also emits CPU frames, which a GPU-surface decoder does not.
+                    _gpuUnavailable = true;
+                    _pool?.Dispose();
+                    _pool = null;
+                    if (s_debug)
+                    {
+                        Console.Error.WriteLine($"[pw-sink] GPU pool unavailable: {ex.Message}");
+                    }
+
+                    return;
+                }
+            }
+
+            int rc = _pool.CopyInto(decodedSurfaceId, _stagingIndex);
+            if (rc == 0)
+            {
+                _hasGpuFrame = true;
+                if (s_debug && ++_submits <= 3)
+                {
+                    Console.Error.WriteLine($"[pw-sink] gpu submit#{_submits} {frame.Width}x{frame.Height} srcSurf={decodedSurfaceId}");
+                }
+            }
+            else if (s_debug)
+            {
+                Console.Error.WriteLine($"[pw-sink] gpu VPP decoded->staging failed VAStatus={rc}");
+            }
+        }
+    }
+
+    // PipeWire negotiated dmabuf buffers and asks us to back buffer `bufferIndex`: hand it the stable planes of
+    // pool surface `bufferIndex`. The top pool surface is reserved for staging, so decline indices at/above it.
+    private int OnAllocateDmaBuf(PipeWireVideoOutput sender, int bufferIndex, int width, int height, ulong modifier, Span<VideoPlane> planes)
+    {
+        lock (_gate)
+        {
+            if (_pool is null || bufferIndex >= _stagingIndex)
+            {
+                return 0;
+            }
+
+            DmaBufSurface surface = _pool.Planes(bufferIndex);
+            int n = Math.Min(surface.PlaneCount, planes.Length);
+            for (int p = 0; p < n; p++)
+            {
+                DmaBufPlane pl = surface[p];
+                // NV12 plane byte extents: Y is stride*height, the interleaved UV plane is stride*(height/2).
+                uint size = (uint)((int)pl.Stride * (p == 0 ? _height : _height / 2));
+                planes[p] = new VideoPlane(pl.Fd, pl.Offset, (int)pl.Stride, size);
+            }
+
+            return n;
+        }
+    }
+
+    // PipeWire pulls a dmabuf frame into the buffer it chose (`bufferIndex`): VPP-copy the latest staged frame
+    // into that buffer's surface and publish it. Runs on the loop thread; _gate serialises with SubmitGpu.
+    private bool OnFillDmaBuf(PipeWireVideoOutput sender, int bufferIndex)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _pool is null || !_hasGpuFrame || bufferIndex >= _stagingIndex)
+            {
+                return false;
+            }
+
+            int rc = _pool.CopyInto(_pool.SurfaceId(_stagingIndex), bufferIndex);
+            if (s_debug && ++_served <= 3)
+            {
+                Console.Error.WriteLine($"[pw-sink] gpu served#{_served} -> buffer {bufferIndex} VAStatus={rc}");
+            }
+
+            return rc == 0;
         }
     }
 
@@ -213,6 +354,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     public async ValueTask DisposeAsync()
     {
         PipeWireVideoOutput? output;
+        VaapiPresentationPool? pool;
         lock (_gate)
         {
             if (_disposed)
@@ -223,13 +365,18 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             _disposed = true;
             output = _output;
             _output = null;
+            pool = _pool;
+            _pool = null;
         }
 
+        // Stop the PipeWire stream first (it releases the dmabuf buffers it imported from the pool surfaces),
+        // then destroy the pool's VPP context + surfaces, so the daemon never references a freed surface.
         if (output is not null)
         {
             await output.DisposeAsync().ConfigureAwait(false);
         }
 
+        pool?.Dispose();
         await _context.DisposeAsync().ConfigureAwait(false);
     }
 }

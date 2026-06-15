@@ -93,7 +93,9 @@ internal static class VideoDecoderBackendFactory
         {
             try
             {
-                return new VaapiVideoDecoder();
+                // GPU output (a PipeWire publish sink is attached) keeps frames on the GPU as DMA-BUF surfaces
+                // for a zero-copy republish; otherwise VAAPI decode reads back to CPU NV12. Both are VAAPI.
+                return new VaapiVideoDecoder(gpuSurface: preferGpuOutput);
             }
             catch (Exception)
             {
