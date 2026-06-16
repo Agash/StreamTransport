@@ -2,6 +2,7 @@
 using System.Runtime.Versioning;
 using CoreVideo;
 using Foundation;
+using IOSurface;
 using Metal;
 using ObjCRuntime;
 
@@ -90,7 +91,7 @@ internal sealed class MetalSurfaceCompute : IDisposable
             enc.SetTexture(inputTextures[i], (nuint)i);
         }
 
-        enc.SetTexture(_outputTexture, (nuint)inputTextures.Length);
+        enc.SetTexture(_outputTexture!, (nuint)inputTextures.Length);
 
         var threadgroup = new MTLSize(16, 16, 1);
         var groups = new MTLSize((outWidth + 15) / 16, (outHeight + 15) / 16, 1);
@@ -131,7 +132,7 @@ internal sealed class MetalSurfaceCompute : IDisposable
 
     private static IMTLTexture CreateTexture(nint surfaceHandle, MTLPixelFormat format, int plane, int width, int height, MTLTextureUsage usage)
     {
-        IOSurface.IOSurface surface = Runtime.GetINativeObject<IOSurface.IOSurface>(surfaceHandle, owns: false)
+        var surface = Runtime.GetINativeObject<IOSurface.IOSurface>(surfaceHandle, owns: false)
             ?? throw new InvalidOperationException("Could not wrap the IOSurface handle.");
         MTLTextureDescriptor desc = MTLTextureDescriptor.CreateTexture2DDescriptor(format, (nuint)width, (nuint)height, mipmapped: false);
         desc.Usage = usage;
