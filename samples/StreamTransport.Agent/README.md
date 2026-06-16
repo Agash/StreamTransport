@@ -214,6 +214,25 @@ A `VERIFY-PASS` line means video flowed, audio flowed, and (on a same-machine ru
 `selftest` command runs a self-contained GPU round-trip with no relay: `selftest` on macOS (Syphon +
 VideoToolbox) and Windows (Spout), and `selftest alpha [encoder]` for the side-by-side alpha path.
 
+### Cross-machine verify matrix
+
+`eng/verify-matrix.ps1` orchestrates a full cross-machine matrix from a Windows host: it starts the relay
+locally, then runs each cell as a sender on one machine and a verifying receiver on the other (over SSH for the
+Linux leg, via `eng/matrix-linux-agent.sh`), exercising CPU/GPU × video / video+audio / `--synced` / `--alpha`
+in both directions. Both sides use the synthetic source with `--verify --seconds N`, so each self-terminates and
+the receiver's `VERIFY-PASS`/`VERIFY-FAIL` is the per-cell gate (graded per cell: lip-sync is only required for
+`--synced` cells). Media is direct P2P (WebRTC ICE); only signaling crosses the relay.
+
+```powershell
+pwsh eng/verify-matrix.ps1 -Build           # build both sides, then run all cells
+pwsh eng/verify-matrix.ps1 -Cells C3,C5      # run specific cells
+```
+
+Note: the in-agent **GPU-readback** verify currently exists only on the Linux receiver (`--publish-pipewire`,
+which taps each decoded GPU surface); the Windows receiver's `--verify` is CPU-decode. Adding a GPU-output verify
+tap on Windows (D3D11/Spout) and macOS (Metal/Syphon), plus the macOS leg, is what turns this 2-way harness into
+the full 3-way matrix — see issues #6 and #7.
+
 ## Full option reference
 
 | Option | Meaning |

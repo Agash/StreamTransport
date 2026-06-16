@@ -70,15 +70,17 @@ Per platform: **{GPU surface, codec interop, alpha pack/unpack compute}**.
 - See `~/.claude/.../memory/zero-copy-dmabuf-plan.md` for the live status.
 
 ## Remaining implementation (grounded in the above)
-1. **Linux alpha (transparency) zero-copy — issue #5.** `VulkanAlphaCodec` exists (pack implemented; unpack
-   built) but is compile-verified only and **not wired into `PipeWireVideoPublishSink`**. Wire the receive-side
-   unpack on `AVVkFrame` (borrow `VulkanDevice.{Instance,PhysicalDevice,Device}`; full `AVVkFrame` +
-   `AVVulkanFramesContext`; alpha `.spv` with `lock_frame`/`unlock_frame` + sem/layout per mpv
-   `hwdec_vulkan.c`); fix the dmabuf-import `memoryTypeBits` via `vkGetMemoryFdPropertiesKHR`; HW-verify on AMD.
-2. **Real audio I/O on Windows/macOS — issues #3 / #4.** Today only the Linux PipeWire audio sink is real;
-   Win (WASAPI/NAudio) and Mac (CoreAudio) capture + playout are missing. Linux is the audio reference shape.
-3. **Heterogeneous HW config robustness — issue #6 (het codec).** Vendor-aware encode/decode probe + fallback
-   (QSV/NVENC/AMF/VAAPI/VideoToolbox); cross-vendor decode.
-4. **3-way verify matrix — issue #6.** Relay + sender + 2 receivers, rotated; GPU-only / +audio / +synced;
-   gst-driven real producers/consumers on all three platforms.
+1. ~~**Linux alpha (transparency) zero-copy — issue #5.**~~ **DONE + HW-verified.** `VulkanAlphaCodec` unpack is
+   wired into `PipeWireVideoPublishSink` (VAAPI decode → Vulkan compute alpha unpack → dmabuf → PipeWire), and
+   the GPU dmabuf publish loopback passes on the handheld (radeonsi, PipeWire 0.2.1-alpha). Known follow-up:
+   the GPU publish sink ignores **auto-negotiated** alpha (output-pool committed before `AlphaNegotiated`) —
+   issue #11; explicit `--alpha` works.
+2. **Real audio I/O — Windows DONE (#3, WASAPI/NAudio), macOS PENDING (#4, CoreAudio).** Linux PipeWire audio
+   is the reference shape; all three sinks share `PullAudioRingBuffer`. macOS is the last platform (see the
+   `-macos` TFM + Microsoft-bindings investigation).
+3. **Heterogeneous HW config robustness — issue #7.** Vendor-aware encode/decode probe + fallback
+   (QSV/NVENC/AMF/VAAPI/VideoToolbox) + `selftest caps`; cross-vendor decode. **Prereq for the proper matrix**,
+   which must also add a GPU-output verify tap on Windows (D3D11/Spout) and macOS (Metal/Syphon).
+4. **Verify matrix — issue #6.** 2-way Windows↔Linux DONE (`eng/verify-matrix.ps1`, CPU/GPU × video/audio/
+   synced/alpha, both directions, 8/9 green; C5 GPU-sync jitter flaky). 3-way needs the macOS leg + #7.
 5. **linux-arm64 + rkmpp** field-agent lane — issue #8 (future, separate lane).
