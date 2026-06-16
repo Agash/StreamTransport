@@ -75,10 +75,6 @@
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
     <ApplicationTitle>streamtransport-agent</ApplicationTitle>
-    <!-- We compile the .metal shaders at RUNTIME via MTLDevice.CreateLibrary(source) (proven AOT-clean), so
-         don't let the SDK auto-compile them to a .metallib at build time - that needs the Metal Toolchain
-         component (not installed) and we don't use the .metallib. They ride as embedded resources instead. -->
-    <EnableDefaultMetalItems>false</EnableDefaultMetalItems>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
     <ProjectReference Include="..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj"
@@ -87,16 +83,12 @@
                       Condition="!Exists('..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj')" />
   </ItemGroup>
 
-  <!-- macOS GPU alpha pack/unpack + colour-convert shaders (Metal). Editable .metal source, embedded so they
-       load without a file dependency; compiled at runtime via the MS Metal bindings (MTLDevice.CreateLibrary). -->
+  <!-- macOS GPU alpha pack/unpack + colour-convert shaders (Metal compute kernels). The SDK's default Metal
+       items compile each Shaders/*.metal into the bundle's default.metallib at build time (Metal Toolchain),
+       loaded at runtime via MTLDevice.CreateDefaultLibrary - the macOS parallel to the Vulkan .comp -> .spv
+       precompilation. The .hlsl/.comp/.spv globs below are scoped to their own heads, so only .metal applies. -->
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
-    <!-- Drop the SDK's default Metal items (it would build-compile these to a .metallib); we embed the source
-         and compile at runtime instead. The glob runs at SDK-props import, so a Remove here is what takes. -->
-    <Metal Remove="@(Metal)" />
-    <EmbeddedResource Include="Shaders/alpha_pack.metal" LogicalName="alpha_pack.metal" />
-    <EmbeddedResource Include="Shaders/alpha_unpack_nv12.metal" LogicalName="alpha_unpack_nv12.metal" />
-    <EmbeddedResource Include="Shaders/alpha_unpack_bgra.metal" LogicalName="alpha_unpack_bgra.metal" />
-    <EmbeddedResource Include="Shaders/nv12_to_bgra.metal" LogicalName="nv12_to_bgra.metal" />
+    <Metal Update="Shaders/*.metal" />
   </ItemGroup>
 
   <!-- Linux GPU alpha pack/unpack compute shaders. The .comp GLSL is the editable source; it is compiled to

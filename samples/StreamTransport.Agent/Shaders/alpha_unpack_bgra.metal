@@ -1,13 +1,23 @@
-// alpha_unpack_bgra.metal
-//
-// Inverse of alpha_pack when the decoded 2W x H frame arrives as BGRA rather than NV12 (e.g. a
-// colour-converted decode). Colour comes straight from the left half; alpha from the right-half
-// grey, expanded from the same 16..235 limited range used on pack so it matches the NV12 path and
-// stays interchange-compatible. Run as a Syphon.NET SurfaceEffect fragment (uses `VOut`/`sy_samp`).
+// alpha_unpack_bgra.metal - inverse of alpha_pack when the decoded 2W x H frame arrives as BGRA (a
+// colour-converted decode) rather than NV12, as a Metal COMPUTE kernel. Colour from the left half; alpha
+// from the right-half grey, expanded from the same 16..235 limited range used on pack so it matches the
+// NV12 path and stays interchange-compatible.
+#include <metal_stdlib>
+using namespace metal;
 
-fragment float4 alpha_unpack_bgra(VOut in [[stage_in]], texture2d<float> src [[texture(0)]]) {
-    float3 rgb = src.sample(sy_samp, float2(in.uv.x * 0.5, in.uv.y)).rgb;
-    float ya = src.sample(sy_samp, float2(0.5 + in.uv.x * 0.5, in.uv.y)).r;
+kernel void alpha_unpack_bgra(texture2d<float, access::sample> src [[texture(0)]],
+                              texture2d<float, access::write> dst [[texture(1)]],
+                              uint2 gid [[thread_position_in_grid]]) {
+    uint W = dst.get_width();
+    uint H = dst.get_height();
+    if (gid.x >= W || gid.y >= H) {
+        return;
+    }
+    constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
+    float ux = (float(gid.x) + 0.5) / float(W);
+    float uy = (float(gid.y) + 0.5) / float(H);
+    float3 rgb = src.sample(s, float2(ux * 0.5, uy)).rgb;
+    float ya = src.sample(s, float2(0.5 + ux * 0.5, uy)).r;
     float a = saturate((ya - 0.0625) * 1.164);
-    return float4(rgb, a);
+    dst.write(float4(rgb, a), gid);
 }

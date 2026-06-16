@@ -2,7 +2,7 @@
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
-using Syphon.NET;
+using Metal;
 
 // Disambiguate from the macOS framework bindings' `IOSurface` namespace.
 using SyphonSurface = Syphon.NET.IOSurface;
@@ -10,12 +10,12 @@ using SyphonSurface = Syphon.NET.IOSurface;
 namespace StreamTransport.Agent;
 
 /// <summary>
-/// macOS GPU side-by-side alpha pack/unpack for the Syphon zero-copy path, built on Syphon.NET's
-/// <see cref="SurfaceEffect"/> Metal helper. The transport-specific shaders (the 2W x H colour|alpha
-/// layout, BT.709 limited constants, 16..235 alpha) live here as embedded <c>.metal</c> files; the
-/// library only supplies the general "run a fragment shader over IOSurfaces" primitive. The result
-/// of each call is a surface owned by the underlying effect, valid until the next call of the same
-/// direction - encode/publish it before packing/unpacking the next frame. macOS-only.
+/// macOS GPU side-by-side alpha pack/unpack for the Syphon zero-copy path, run as Metal compute kernels driven
+/// directly through the Microsoft Metal bindings (<see cref="MetalSurfaceCompute"/>) - no native shim. The
+/// transport-specific shaders (the 2W x H colour|alpha layout, BT.709 limited constants, 16..235 alpha) are the
+/// embedded <c>.metal</c> kernels, precompiled into the app's default.metallib. Each call's result is a surface
+/// owned by the underlying compute (valid until the next call of the same direction) - encode/publish it before
+/// packing/unpacking the next frame. macOS-only.
 /// </summary>
 [SupportedOSPlatform("macos")]
 internal sealed class SyphonAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
@@ -25,13 +25,10 @@ internal sealed class SyphonAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpack
     private const uint Nv12VideoRange = 0x34323076; // '420v'
     private const uint Nv12FullRange = 0x34323066;  // '420f'
 
-    private readonly SurfaceEffect _pack;
-    private SurfaceEffect? _unpackNv12;
-    private SurfaceEffect? _unpackBgra;
+    private readonly MetalSurfaceCompute _pack = new("alpha_pack");
+    private MetalSurfaceCompute? _unpackNv12;
+    private MetalSurfaceCompute? _unpackBgra;
     private bool _disposed;
-
-    public SyphonAlphaCodec() =>
-        _pack = new SurfaceEffect(EmbeddedShader.Load("alpha_pack.metal"), "alpha_pack");
 
     /// <summary>Pack a W x H BGRA surface frame into a 2W x H colour|alpha surface frame (zero-copy, Metal).</summary>
     public VideoFrame PackAlpha(in VideoFrame colourBgra, long presentationTimeNs)
@@ -49,31 +46,43 @@ internal sealed class SyphonAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpack
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
 
-    // The SyphonSurface-typed Pack/Unpack below are the Syphon-native primitive (rich IOSurface in/out); the
-    // VideoFrame PackAlpha/UnpackAlpha above are the production IAlphaPacker/IAlphaUnpacker wrappers over them
-    // (same relationship as VideoToolboxVideoEncoder vs its backend). SyphonSelfTest drives the primitive
-    // directly because it works in SyphonSurfaces (layout verification, Handle, Width/Height).
+    // The SyphonSurface-typed Pack/Unpack below are the surface-native primitive (rich IOSurface in/out); the
+    // VideoFrame PackAlpha/UnpackAlpha above are the production IAlphaPacker/IAlphaUnpacker wrappers over them.
+    // SyphonSelfTest drives the primitive directly (layout verification, Handle, Width/Height).
 
     /// <summary>Pack a W x H BGRA surface into a 2W x H BGRA surface (left = colour, right = alpha-as-luma).</summary>
-    public SyphonSurface Pack(SyphonSurface bgra) =>
-        _pack.Render(bgra.Width * 2, bgra.Height, [new SurfaceInput(bgra, MetalPixelFormat.Bgra8Unorm)]);
+    public SyphonSurface Pack(SyphonSurface bgra)
+    {
+        nint output = _pack.Run(bgra.Width * 2, bgra.Height,
+        [
+            new MetalSurfaceCompute.Input(bgra.Handle, MTLPixelFormat.BGRA8Unorm, 0, bgra.Width, bgra.Height),
+        ]);
+        return new SyphonSurface(output);
+    }
 
     /// <summary>Unpack a decoded 2W x H surface (NV12 from the hardware decoder, or BGRA) into W x H BGRA with alpha.</summary>
     public SyphonSurface Unpack(SyphonSurface packed)
     {
+        int outW = packed.Width / 2;
+        int outH = packed.Height;
         uint fourcc = (uint)packed.PixelFormat;
         if (fourcc == Nv12VideoRange || fourcc == Nv12FullRange)
         {
-            _unpackNv12 ??= new SurfaceEffect(EmbeddedShader.Load("alpha_unpack_nv12.metal"), "alpha_unpack_nv12");
-            return _unpackNv12.Render(packed.Width / 2, packed.Height,
+            _unpackNv12 ??= new MetalSurfaceCompute("alpha_unpack_nv12");
+            nint output = _unpackNv12.Run(outW, outH,
             [
-                new SurfaceInput(packed, MetalPixelFormat.R8Unorm, 0),
-                new SurfaceInput(packed, MetalPixelFormat.Rg8Unorm, 1),
+                new MetalSurfaceCompute.Input(packed.Handle, MTLPixelFormat.R8Unorm, 0, packed.Width, packed.Height),
+                new MetalSurfaceCompute.Input(packed.Handle, MTLPixelFormat.RG8Unorm, 1, packed.Width / 2, packed.Height / 2),
             ]);
+            return new SyphonSurface(output);
         }
 
-        _unpackBgra ??= new SurfaceEffect(EmbeddedShader.Load("alpha_unpack_bgra.metal"), "alpha_unpack_bgra");
-        return _unpackBgra.Render(packed.Width / 2, packed.Height, [new SurfaceInput(packed, MetalPixelFormat.Bgra8Unorm)]);
+        _unpackBgra ??= new MetalSurfaceCompute("alpha_unpack_bgra");
+        nint bgraOut = _unpackBgra.Run(outW, outH,
+        [
+            new MetalSurfaceCompute.Input(packed.Handle, MTLPixelFormat.BGRA8Unorm, 0, packed.Width, packed.Height),
+        ]);
+        return new SyphonSurface(bgraOut);
     }
 
     public void Dispose()
