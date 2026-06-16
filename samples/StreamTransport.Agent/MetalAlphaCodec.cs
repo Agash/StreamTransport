@@ -18,7 +18,7 @@ namespace StreamTransport.Agent;
 /// packing/unpacking the next frame. macOS-only.
 /// </summary>
 [SupportedOSPlatform("macos")]
-internal sealed class SyphonAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
+internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
 {
     // NV12 biplanar pixel formats a hardware HEVC decoder emits (VideoToolbox); both have an R8
     // luma plane (0) and an RG8 CbCr plane (1).

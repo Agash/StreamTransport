@@ -103,7 +103,7 @@ internal static class SyphonSelfTest
     /// <summary>
     /// M-1 regression: the opaque (non-alpha) receive path. A hardware decoder yields NV12; publishing it
     /// as if BGRA is the wrong colour. This drives known solid colours through
-    /// BGRA -> VideoToolbox encode -> decode (NV12) -> <see cref="SyphonNv12ToBgraConverter"/> -> readback and
+    /// BGRA -> VideoToolbox encode -> decode (NV12) -> <see cref="MetalNv12ToBgraConverter"/> -> readback and
     /// asserts each colour survives, so a regression (NV12 republished raw, or a black/plane bug) is caught.
     /// </summary>
     private static bool RunOpaque()
@@ -121,7 +121,7 @@ internal static class SyphonSelfTest
 
         using var encoder = new VideoToolboxVideoEncoder(width, height, fps: 30, bitrate: 12_000_000);
         using var decoder = new VideoToolboxVideoDecoder();
-        using var converter = new SyphonNv12ToBgraConverter();
+        using var converter = new MetalNv12ToBgraConverter();
 
         bool decoded = false;
         nint decodedSurface = 0;
@@ -228,7 +228,7 @@ internal static class SyphonSelfTest
         SyphonSurface input = server.AcquireSurface(width, height, SyphonPixelFormat.Bgra);
         FillBandsBgra(input, width, height, bands);
 
-        using var codec = new SyphonAlphaCodec();
+        using var codec = new MetalAlphaCodec();
 
         // (A) Pack and read back the 2W x H surface; check the layout byte-exact (no codec involved).
         SyphonSurface packed = codec.Pack(input);

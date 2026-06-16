@@ -11,7 +11,7 @@ namespace StreamTransport.Agent;
 /// and the embedded <c>.comp</c> shaders. The transport-specific layout (2W x H colour|alpha, BT.709 limited
 /// constants, 16..235 alpha) lives in the shaders here; Vulkan is a generic compute binding (Vortice.Vulkan),
 /// exactly as the Windows path uses Vortice.Direct3D11. This is the Linux mirror of <c>D3D11AlphaPacker</c> /
-/// <c>SyphonAlphaCodec</c>.
+/// <c>MetalAlphaCodec</c>.
 ///
 /// <para><b>Hardware bring-up (compile-verified only).</b> The send-side <see cref="Pack"/> (import a BGRA dmabuf,
 /// pack on the GPU, export the 2W x H result as a dmabuf for the encoder) is implemented; the receive-side

@@ -43,7 +43,7 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     private SyphonVideoCaptureSource(string? serverName, bool alpha)
     {
         _serverName = serverName;
-        _alpha = alpha ? new SyphonAlphaCodec() : null;
+        _alpha = alpha ? new MetalAlphaCodec() : null;
         _thread = new Thread(Run) { IsBackground = true, Name = "syphon-capture" };
         _thread.Start();
     }
@@ -53,7 +53,7 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     /// <paramref name="serverName"/> is given, the first server whose server or app name contains it
     /// (case-insensitive) is chosen; otherwise the first advertised server is used. Blocks until a server
     /// is found or <paramref name="timeout"/> elapses. <paramref name="alpha"/> preserves transparency by
-    /// packing each captured IOSurface side-by-side (colour|alpha) on the GPU via <see cref="SyphonAlphaCodec"/>.
+    /// packing each captured IOSurface side-by-side (colour|alpha) on the GPU via <see cref="MetalAlphaCodec"/>.
     /// </summary>
     public static SyphonVideoCaptureSource Connect(string? serverName, bool alpha = false, TimeSpan? timeout = null)
     {
@@ -257,7 +257,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             SyphonSurface surface;
             if (_preserveAlpha)
             {
-                _alphaCodec ??= new SyphonAlphaCodec();
+                _alphaCodec ??= new MetalAlphaCodec();
                 surface = new SyphonSurface(_alphaCodec.UnpackAlpha(frame, frame.PresentationTimeNs).Surface);
             }
             else if (decoded.PixelFormat == SyphonPixelFormat.Bgra)
@@ -266,7 +266,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             }
             else
             {
-                _nv12Converter ??= new SyphonNv12ToBgraConverter();
+                _nv12Converter ??= new MetalNv12ToBgraConverter();
                 surface = new SyphonSurface(_nv12Converter.Nv12ToBgra(frame, frame.PresentationTimeNs).Surface);
             }
 

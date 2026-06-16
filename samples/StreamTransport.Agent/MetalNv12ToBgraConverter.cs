@@ -18,7 +18,7 @@ namespace StreamTransport.Agent;
 /// owned by the compute and valid until the next call. macOS-only.
 /// </summary>
 [SupportedOSPlatform("macos")]
-internal sealed class SyphonNv12ToBgraConverter : IDisposable, INv12ToBgra
+internal sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
 {
     private readonly MetalSurfaceCompute _compute = new("nv12_to_bgra");
     private bool _disposed;
