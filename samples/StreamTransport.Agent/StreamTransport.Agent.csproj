@@ -90,6 +90,9 @@
   <!-- macOS GPU alpha pack/unpack + colour-convert shaders (Metal). Editable .metal source, embedded so they
        load without a file dependency; compiled at runtime via the MS Metal bindings (MTLDevice.CreateLibrary). -->
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <!-- Drop the SDK's default Metal items (it would build-compile these to a .metallib); we embed the source
+         and compile at runtime instead. The glob runs at SDK-props import, so a Remove here is what takes. -->
+    <Metal Remove="@(Metal)" />
     <EmbeddedResource Include="Shaders/alpha_pack.metal" LogicalName="alpha_pack.metal" />
     <EmbeddedResource Include="Shaders/alpha_unpack_nv12.metal" LogicalName="alpha_unpack_nv12.metal" />
     <EmbeddedResource Include="Shaders/alpha_unpack_bgra.metal" LogicalName="alpha_unpack_bgra.metal" />
