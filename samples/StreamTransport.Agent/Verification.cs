@@ -48,13 +48,16 @@ internal sealed class VerificationReport
 
     public double ElapsedMs => _clock.Elapsed.TotalMilliseconds;
 
-    public void RecordVideoContent(double brightness, bool isBgra, bool alphaGradient)
+    public void RecordVideoContent(double brightness, bool isBgra, bool alphaGradient, bool opaque)
     {
         lock (_gate)
         {
             _videoFrames++;
             _lastVideoFormat = isBgra ? VideoPixelFormat.Bgra : _lastVideoFormat;
-            _sawAnyBgra |= isBgra;
+            // Only a BGRA frame whose alpha actually varies marks the transparency path (so the gradient becomes
+            // a pass requirement). An opaque decode that simply colour-converted to BGRA (e.g. the macOS GPU
+            // NV12->BGRA publish, or a white sync-marker frame) has uniform alpha and must NOT demand a gradient.
+            _sawAnyBgra |= isBgra && !opaque;
             _sawAlphaGradient |= alphaGradient;
             // The gradient test pattern averages to a near-constant ~127 every frame (so the gradient alone
             // reads as "frozen"); the once-a-second white marker frame (~255) is the real liveness signal, so
@@ -232,8 +235,10 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
 
         ReadOnlySpan<byte> px = frame.Pixels.Span;
         bool isBgra = frame.PixelFormat == VideoPixelFormat.Bgra;
-        (double brightness, bool alphaGradient) = isBgra ? SampleBgra(px, frame.Width, frame.Height) : (SampleLuma(px, frame.Width, frame.Height), false);
-        report.RecordVideoContent(brightness, isBgra, alphaGradient);
+        (double brightness, bool alphaGradient, bool opaque) = isBgra
+            ? SampleBgra(px, frame.Width, frame.Height)
+            : (SampleLuma(px, frame.Width, frame.Height), false, true);
+        report.RecordVideoContent(brightness, isBgra, alphaGradient, opaque);
 
         // The marker codec rides the NV12/I420 luma plane (the alpha path keeps the plain white marker).
         if (!isBgra && SyncMarkerCodec.TryReadVideoMarker(px, frame.Width, frame.Height, out int seqId, out long captureMs))
@@ -267,11 +272,12 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
         return n > 0 ? sum / (double)n : 0;
     }
 
-    private static (double Brightness, bool AlphaGradient) SampleBgra(ReadOnlySpan<byte> px, int width, int height)
+    private static (double Brightness, bool AlphaGradient, bool Opaque) SampleBgra(ReadOnlySpan<byte> px, int width, int height)
     {
         long sum = 0;
         int n = 0;
         int alphaLeft = 0, alphaRight = 0, leftN = 0, rightN = 0;
+        int alphaMin = 255;
         for (int y = 0; y < height; y += 8)
         {
             int row = y * width * 4;
@@ -280,6 +286,7 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
                 int p = row + (x * 4);
                 sum += (px[p] + px[p + 1] + px[p + 2]) / 3;
                 n++;
+                alphaMin = Math.Min(alphaMin, px[p + 3]);
                 if (x < width / 4) { alphaLeft += px[p + 3]; leftN++; }
                 else if (x > 3 * width / 4) { alphaRight += px[p + 3]; rightN++; }
             }
@@ -288,7 +295,9 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
         double brightness = n > 0 ? sum / (double)n : 0;
         bool gradient = leftN > 0 && rightN > 0 && brightness < 200
             && (alphaRight / (double)rightN) - (alphaLeft / (double)leftN) > 40;
-        return (brightness, gradient);
+        // Uniformly near-255 alpha = an opaque frame that merely colour-converted to BGRA (not the alpha path).
+        bool opaque = alphaMin > 250;
+        return (brightness, gradient, opaque);
     }
 }
 
