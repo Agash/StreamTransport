@@ -1,11 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- The cross-platform agent. The base TFM runs everywhere on the CPU media path (synthetic + camera
-         via FFmpeg libavdevice) and carries the macOS (Syphon/IOSurface) and Linux (PipeWire/DMA-BUF) GPU
-         zero-copy capture as runtime P/Invoke, gated by OperatingSystem checks. Only Windows needs a head,
-         for Spout (D3D11). The capture libraries come from NuGet (Spout2.NET / Syphon.NET / PipeWire.NET). -->
+    <!-- The cross-platform agent, one platform head per OS (each builds only on its own OS):
+           net11.0                 - Linux: PipeWire/DMA-BUF GPU path + Vulkan alpha compute (HAS_PIPEWIRE/HAS_VULKAN)
+           net11.0-windows...      - Windows: Spout (D3D11) + WASAPI audio (WINDOWS_HEAD)
+           net11.0-macos           - macOS: Syphon (IOSurface) + Metal alpha + CoreAudio, via Microsoft bindings (MACOS_HEAD)
+         The Linux/Windows GPU capture comes from NuGet (Spout2.NET / PipeWire.NET); macOS uses the -macos TFM's
+         Microsoft frameworks (Metal/CoreVideo/AudioUnit) plus Syphon.NET for the IOSurface sharing protocol. -->
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net11.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net11.0-macos</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
     <RootNamespace>StreamTransport.Agent</RootNamespace>
     <AssemblyName>streamtransport-agent</AssemblyName>
@@ -44,14 +47,12 @@
     <EmbeddedResource Include="Shaders/nv12_to_bgra.hlsl" LogicalName="nv12_to_bgra.hlsl" />
   </ItemGroup>
 
-  <!-- Base (non-Windows-head) TFM: macOS Syphon (IOSurface) and Linux PipeWire (DMA-BUF) zero-copy
-       capture, both runtime-gated by OperatingSystem checks. The native dylib/so for each ships in its
-       NuGet package under runtimes/<rid>, so a given RID's publish carries only its own. -->
-  <PropertyGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <DefineConstants>$(DefineConstants);HAS_SYPHON;HAS_PIPEWIRE;HAS_VULKAN</DefineConstants>
+  <!-- Linux head (plain net11.0): PipeWire (DMA-BUF) zero-copy capture + Vulkan alpha compute, runtime-gated
+       by OperatingSystem.IsLinux(). The native .so ships in the NuGet package under runtimes/<rid>. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <DefineConstants>$(DefineConstants);HAS_PIPEWIRE;HAS_VULKAN</DefineConstants>
   </PropertyGroup>
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <PackageReference Include="Syphon.NET" />
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
     <!-- PipeWire.NET: reference the local .refs working copy during active development so lib fixes are
          picked up without a NuGet round-trip; CI (and any tree without .refs) falls back to the package. -->
     <ProjectReference Include="..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj"
@@ -65,9 +66,26 @@
     <PackageReference Include="Vortice.Vulkan" />
   </ItemGroup>
 
-  <!-- macOS GPU alpha pack/unpack shaders, run at runtime through Syphon.NET's SurfaceEffect.
-       Kept as editable .metal files and embedded so they load without a file dependency. -->
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+  <!-- macOS head (net11.0-macos): Syphon (IOSurface) zero-copy + Metal alpha compute + CoreAudio, via the
+       Microsoft -macos framework bindings (Metal/CoreVideo/AudioUnit). Syphon.NET provides the IOSurface
+       sharing protocol; the Metal compute is done directly through the MS Metal bindings (no native shim).
+       Reference the local .refs working copy while we rework Syphon.NET; CI falls back to the package. -->
+  <PropertyGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <DefineConstants>$(DefineConstants);MACOS_HEAD;HAS_SYPHON</DefineConstants>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
+    <ApplicationTitle>streamtransport-agent</ApplicationTitle>
+  </PropertyGroup>
+  <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <ProjectReference Include="..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj"
+                      Condition="Exists('..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj')" />
+    <PackageReference Include="Syphon.NET"
+                      Condition="!Exists('..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj')" />
+  </ItemGroup>
+
+  <!-- macOS GPU alpha pack/unpack + colour-convert shaders (Metal). Editable .metal source, embedded so they
+       load without a file dependency; compiled at runtime via the MS Metal bindings (MTLDevice.CreateLibrary). -->
+  <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
     <EmbeddedResource Include="Shaders/alpha_pack.metal" LogicalName="alpha_pack.metal" />
     <EmbeddedResource Include="Shaders/alpha_unpack_nv12.metal" LogicalName="alpha_unpack_nv12.metal" />
     <EmbeddedResource Include="Shaders/alpha_unpack_bgra.metal" LogicalName="alpha_unpack_bgra.metal" />
@@ -78,7 +96,7 @@
        SPIR-V at build time (CompileComputeShadersToSpirV, below) and the resulting .spv is embedded and loaded
        at runtime. The .spv are committed so a build machine without glslc still builds; glslc, when present,
        regenerates them from the .comp. Runtime never loads a GLSL compiler (shaderc) - see the note above. -->
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
     <ComputeShaderSource Include="Shaders/alpha_pack.comp" />
     <ComputeShaderSource Include="Shaders/alpha_unpack_nv12.comp" />
     <ComputeShaderSource Include="Shaders/alpha_unpack_bgra.comp" />
@@ -95,7 +113,7 @@
        'xcrun metal') and Windows (.hlsl -> DXIL via dxc) shaders as analogous targets on their own build OS -
        those toolchains are platform-locked, and unlike shaderc they do not collide with any driver. -->
   <Target Name="CompileComputeShadersToSpirV" BeforeTargets="PrepareForBuild"
-          Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
+          Condition="'$(TargetFramework)' == 'net11.0' and '$(OS)' != 'Windows_NT'"
           Inputs="@(ComputeShaderSource)"
           Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')">
     <Exec Command="command -v glslc" ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low" StandardOutputImportance="low">
