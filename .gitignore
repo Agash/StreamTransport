@@ -24,3 +24,6 @@ external/
 
 # Local-only rescued design docs (ADRs, handoff) — never tracked
 _ref/
+
+# Cross-machine verify-matrix run logs
+.matrix-logs/

@@ -1,0 +1,150 @@
+#!/usr/bin/env pwsh
+# Cross-machine A/V verify matrix - Windows <-> Linux (handheld), orchestrated from Windows.
+#
+# Relay + STUN run on Windows (signaling only; media is direct P2P UDP - WebRTC ICE punches the handheld's
+# stateful WiFi path so unsolicited-inbound-UDP drops don't matter). Each cell runs a sender on one machine and
+# a verifying receiver on the other; both use the synthetic source with --verify (correlated A/V sync markers),
+# so each side self-terminates after --seconds and the receiver prints a VERIFY-PASS/FAIL report we parse.
+#
+# Verify-capability asymmetry (drives which side is the verifier): the in-agent GPU-readback verify exists only
+# on the Linux receiver (--publish-pipewire reads each decoded GPU surface back to CPU, even with no consumer);
+# Windows --verify is CPU-decode only. So GPU-path cells put Linux as the receiver. Windows GPU output (Spout)
+# and the macOS legs are display-attached / deferred and are not in this in-agent matrix.
+#
+# Usage:
+#   pwsh eng/verify-matrix.ps1 [-Build] [-Seconds 18] [-Cells C1,C5] [-WinIp 192.168.20.51]
+[CmdletBinding()]
+param(
+    [switch]$Build,
+    [int]$Seconds = 18,
+    [string[]]$Cells,
+    [string]$WinIp = '192.168.20.51',
+    [string]$LinuxHost = 'agash@192.168.20.102',
+    [string]$LinuxRepo = '~/stx',
+    [int]$Port = 8099
+)
+
+$ErrorActionPreference = 'Stop'
+$repo = Split-Path -Parent $PSScriptRoot
+$ws = "ws://${WinIp}:$Port/ws"
+$winAgent = Join-Path $repo 'samples/StreamTransport.Agent/bin/Release/net11.0-windows10.0.19041.0/streamtransport-agent.exe'
+$relayDll = Join-Path $repo 'samples/StreamTransport.Relay/bin/Release/net11.0/StreamTransport.Relay.dll'
+$logDir = Join-Path $repo '.matrix-logs'
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+function Strip-Ansi([string]$s) { return ($s -replace "`e\[[0-9;]*m", '') }
+
+# Launch one agent invocation. Returns the started Process (use -Wait for the blocking receiver). Local Windows
+# runs the exe; Linux runs over SSH through eng/matrix-linux-agent.sh (sets dotnet + Wayland env; quote-free).
+function Start-Agent {
+    param([ValidateSet('win', 'linux')]$On, [string[]]$AgentArgs, [string]$OutFile, [switch]$Wait)
+    if ($On -eq 'win') {
+        $file = $winAgent; $argList = $AgentArgs
+    }
+    else {
+        $file = 'ssh'
+        $argList = @($LinuxHost, 'bash', "$LinuxRepo/eng/matrix-linux-agent.sh") + $AgentArgs
+    }
+    $p = @{ FilePath = $file; ArgumentList = $argList; RedirectStandardOutput = $OutFile;
+        RedirectStandardError = "$OutFile.err"; NoNewWindow = $true; PassThru = $true }
+    if ($Wait) { return Start-Process @p -Wait } else { return Start-Process @p }
+}
+
+# --- matrix cells -------------------------------------------------------------------------------------------
+# Each cell: Sender machine, the receiver (verifier) is the other one. SendExtra/RecvExtra carry the mode flags.
+$matrix = @(
+    @{ Id = 'C1'; Name = 'win2lin-cpu-video';       Sender = 'win';   SendExtra = @('--video-only'); RecvExtra = @('--video-only') }
+    @{ Id = 'C2'; Name = 'win2lin-cpu-av';          Sender = 'win';   SendExtra = @();               RecvExtra = @() }
+    @{ Id = 'C3'; Name = 'win2lin-cpu-av-synced';   Sender = 'win';   SendExtra = @();               RecvExtra = @('--synced') }
+    @{ Id = 'C4'; Name = 'win2lin-gpu-video';       Sender = 'win';   SendExtra = @('--video-only'); RecvExtra = @('--video-only', '--publish-pipewire', 'MxV') }
+    @{ Id = 'C5'; Name = 'win2lin-gpu-av-synced';   Sender = 'win';   SendExtra = @();               RecvExtra = @('--synced', '--publish-pipewire', 'MxAV') }
+    @{ Id = 'C6'; Name = 'win2lin-gpu-alpha-synced';Sender = 'win';   SendExtra = @('--alpha');      RecvExtra = @('--synced', '--alpha', '--publish-pipewire', 'MxAL') }
+    @{ Id = 'C7'; Name = 'lin2win-cpu-video';       Sender = 'linux'; SendExtra = @('--video-only'); RecvExtra = @('--video-only') }
+    @{ Id = 'C8'; Name = 'lin2win-cpu-av-synced';   Sender = 'linux'; SendExtra = @();               RecvExtra = @('--synced') }
+    @{ Id = 'C9'; Name = 'lin2win-cpu-alpha-synced';Sender = 'linux'; SendExtra = @('--alpha');      RecvExtra = @('--synced') }
+)
+if ($Cells) {
+    # -File passes "-Cells C1,C7" as a single token, so split on commas/space to get the real list.
+    $want = $Cells | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ }
+    $matrix = $matrix | Where-Object { $want -contains $_.Id -or $want -contains $_.Name }
+}
+
+# --- build (optional) ---------------------------------------------------------------------------------------
+if ($Build) {
+    Write-Host '== building Windows agent + relay (Release) ==' -ForegroundColor Cyan
+    dotnet build (Join-Path $repo 'samples/StreamTransport.Agent/StreamTransport.Agent.csproj') -c Release -f net11.0-windows10.0.19041.0 | Out-Null
+    dotnet build (Join-Path $repo 'samples/StreamTransport.Relay/StreamTransport.Relay.csproj') -c Release | Out-Null
+    Write-Host '== updating + building handheld (git ff + Release) ==' -ForegroundColor Cyan
+    & ssh $LinuxHost "bash -lc 'cd $LinuxRepo && git fetch origin && git pull --ff-only && export DOTNET_ROOT=`$HOME/.dotnet PATH=`$HOME/.dotnet:`$PATH && dotnet build samples/StreamTransport.Agent/StreamTransport.Agent.csproj -c Release'"
+    if ($LASTEXITCODE -ne 0) { throw 'handheld build failed' }
+}
+# Ensure the Linux launcher is present/fresh on the handheld.
+& scp (Join-Path $repo 'eng/matrix-linux-agent.sh') "${LinuxHost}:$LinuxRepo/eng/matrix-linux-agent.sh" | Out-Null
+
+if (-not (Test-Path $winAgent)) { throw "Windows agent missing: $winAgent (run with -Build)" }
+
+# --- relay --------------------------------------------------------------------------------------------------
+Write-Host "== starting relay on http://0.0.0.0:$Port ==" -ForegroundColor Cyan
+$env:STREAMTRANSPORT_RELAY_URLS = "http://0.0.0.0:$Port"
+$relay = Start-Process dotnet -ArgumentList @($relayDll) -PassThru -NoNewWindow `
+    -RedirectStandardOutput (Join-Path $logDir 'relay.out') -RedirectStandardError (Join-Path $logDir 'relay.err')
+$ready = $false
+foreach ($i in 1..40) {
+    try { Invoke-WebRequest "http://localhost:$Port/health" -TimeoutSec 2 -UseBasicParsing | Out-Null; $ready = $true; break }
+    catch { Start-Sleep -Milliseconds 500 }
+}
+if (-not $ready) { $relay | Stop-Process -Force -ErrorAction SilentlyContinue; throw 'relay did not become healthy' }
+Write-Host 'relay ready' -ForegroundColor Green
+
+# --- run cells ----------------------------------------------------------------------------------------------
+$results = @()
+try {
+    foreach ($c in $matrix) {
+        $recvOn = if ($c.Sender -eq 'win') { 'linux' } else { 'win' }
+        $room = $c.Id.ToLower()
+        $base = @('--relay', $ws, '--room', $room, '--source', 'synthetic', '--verify')
+        $sendArgs = @('send') + $base + @('--seconds', ($Seconds + 6)) + $c.SendExtra
+        $recvArgs = @('receive') + $base + @('--seconds', $Seconds) + $c.RecvExtra
+        $sendLog = Join-Path $logDir "$($c.Id)-send.log"
+        $recvLog = Join-Path $logDir "$($c.Id)-recv.log"
+
+        Write-Host ("`n=== {0} {1}  ({2} send -> {3} verify) ===" -f $c.Id, $c.Name, $c.Sender, $recvOn) -ForegroundColor Yellow
+        $sender = Start-Agent -On $c.Sender -AgentArgs $sendArgs -OutFile $sendLog
+        Start-Sleep -Seconds 2
+        Start-Agent -On $recvOn -AgentArgs $recvArgs -OutFile $recvLog -Wait | Out-Null
+
+        if ($sender -and -not $sender.HasExited) { Start-Sleep -Seconds 1; $sender | Stop-Process -Force -ErrorAction SilentlyContinue }
+
+        $out = if (Test-Path $recvLog) { Strip-Ansi ((Get-Content $recvLog -Raw)) } else { '' }
+        $detail = ($out -split "`n" | Where-Object { $_ -match '^\s*(video|audio|alpha|sync)\s*:' } | ForEach-Object { $_.Trim() }) -join ' | '
+
+        # Per-cell verdict (the agent bundles sync into its own VERIFY-PASS, but a non-synced cell shouldn't be
+        # failed for an uncorrected offset, and an alpha cell's markers don't survive the BGRA path). So we grade
+        # against this cell's actual expectations: flow + content always; audio when expected; alpha gradient when
+        # alpha; and lip-sync ONLY for --synced cells (and only when markers matched - alpha => informational).
+        $synced = $c.RecvExtra -contains '--synced'
+        $wantAudio = -not ($c.RecvExtra -contains '--video-only')
+        $wantAlpha = $c.SendExtra -contains '--alpha'
+        $videoOk = $out -match 'video : flow OK, content live'
+        $audioOk = (-not $wantAudio) -or ($out -match 'audio : flow OK, signal present')
+        $alphaOk = (-not $wantAlpha) -or ($out -match 'alpha : gradient preserved')
+        $syncOk = (-not $synced) -or (-not ($out -match 'OUT OF SYNC'))   # IN SYNC or INCONCLUSIVE both pass
+        $pass = $videoOk -and $audioOk -and $alphaOk -and $syncOk -and ($out -match 'VERIFY-(PASS|FAIL)')
+        $verdict = if ($pass) { 'PASS' } elseif (-not ($out -match 'VERIFY-(PASS|FAIL)')) { 'NO-REPORT' } else { 'FAIL' }
+        $color = if ($pass) { 'Green' } else { 'Red' }
+        Write-Host ("  -> {0}" -f $verdict) -ForegroundColor $color
+        if ($detail) { Write-Host "     $detail" -ForegroundColor DarkGray }
+        $results += [pscustomobject]@{ Cell = $c.Id; Name = $c.Name; Verdict = $verdict; Detail = $detail }
+    }
+}
+finally {
+    $relay | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+# --- summary ------------------------------------------------------------------------------------------------
+Write-Host "`n================ MATRIX SUMMARY ================" -ForegroundColor Cyan
+$results | Format-Table Cell, Name, Verdict -AutoSize | Out-String | Write-Host
+$failed = @($results | Where-Object { $_.Verdict -ne 'PASS' })
+if ($failed.Count -eq 0) { Write-Host "ALL $($results.Count) CELLS PASS" -ForegroundColor Green; exit 0 }
+Write-Host "$($failed.Count)/$($results.Count) cells did not pass: $($failed.Cell -join ', ')" -ForegroundColor Red
+exit 1
