@@ -3,11 +3,10 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
+using CoreVideo;
+using IOSurface;
+using ObjCRuntime;
 using Syphon.NET;
-
-// The macOS framework bindings (net*-macos head) expose an `IOSurface` namespace that shadows
-// Syphon.NET's IOSurface type, so alias the one we mean.
-using SyphonSurface = Syphon.NET.IOSurface;
 
 namespace StreamTransport.Agent;
 
@@ -99,8 +98,8 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     {
         SyphonServerDirectory? directory = null;
         SyphonClient? client = null;
-        SyphonFrame? current = null;
-        SyphonFrame? previous = null;
+        IOSurface.IOSurface? current = null;
+        IOSurface.IOSurface? previous = null;
         try
         {
             directory = new SyphonServerDirectory();
@@ -132,23 +131,22 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
             while (!_disposed)
             {
                 directory.PumpEvents(TimeSpan.FromMilliseconds(8));
-                SyphonFrame? next = client.TryGetFrame();
-                if (next is not { } frame || !frame.Surface.IsValid)
+                if (client.TryGetFrame() is not { } surface)
                 {
                     continue;
                 }
 
-                // Keep the just-received frame (and the one before it) alive so its IOSurface stays valid
-                // while the encoder consumes the handle; release anything older.
+                // Keep the just-received surface (and the one before it) alive so it stays valid while the
+                // encoder consumes the handle; release (CFRelease via dispose) anything older.
                 previous?.Dispose();
                 previous = current;
-                current = frame;
+                current = surface;
 
                 lock (_gate)
                 {
-                    _surface = frame.Surface.Handle;
-                    _width = frame.Surface.Width;
-                    _height = frame.Surface.Height;
+                    _surface = surface.Handle.Handle;
+                    _width = (int)surface.Width;
+                    _height = (int)surface.Height;
                     _timeNs = NowNs();
                     _hasNew = true;
                 }
@@ -235,6 +233,9 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
         _preserveAlpha = alpha;
     }
 
+    private static IOSurface.IOSurface Wrap(nint handle) =>
+        Runtime.GetINativeObject<IOSurface.IOSurface>(handle, owns: false)!;
+
     /// <summary>
     /// Adopt the publisher's negotiated side-by-side-alpha setting. Safe to call before the first frame
     /// (the Metal unpack codec is created lazily on first use), so the receiver needs no flag.
@@ -257,21 +258,21 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             // packed 2W x H surface back to W x H BGRA; opaque NV12 is colour-converted to BGRA; an
             // already-BGRA surface is republished directly. Codecs are created on demand for the
             // negotiated mode (set before the first frame).
-            var decoded = new SyphonSurface(frame.Surface);
-            SyphonSurface surface;
+            IOSurface.IOSurface decoded = Wrap(frame.Surface);
+            IOSurface.IOSurface surface;
             if (_preserveAlpha)
             {
                 _alphaCodec ??= new MetalAlphaCodec();
-                surface = new SyphonSurface(_alphaCodec.UnpackAlpha(frame, frame.PresentationTimeNs).Surface);
+                surface = Wrap(_alphaCodec.UnpackAlpha(frame, frame.PresentationTimeNs).Surface);
             }
-            else if (decoded.PixelFormat == SyphonPixelFormat.Bgra)
+            else if (decoded.IsBgra())
             {
                 surface = decoded;
             }
             else
             {
                 _nv12Converter ??= new MetalNv12ToBgraConverter();
-                surface = new SyphonSurface(_nv12Converter.Nv12ToBgra(frame, frame.PresentationTimeNs).Surface);
+                surface = Wrap(_nv12Converter.Nv12ToBgra(frame, frame.PresentationTimeNs).Surface);
             }
 
             _server.Publish(surface);
@@ -282,19 +283,9 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             // readback reports content/alpha; A/V sync is the CPU path's job).
             if (_verifyTap is not null)
             {
-                int w = surface.Width;
-                int h = surface.Height;
+                (int w, int h) = surface.PixelSize();
                 byte[] buffer = new byte[w * h * 4];
-                using (SyphonSurface.Lock locked = surface.LockBytes(readOnly: true))
-                {
-                    int stride = surface.BytesPerRow;
-                    ReadOnlySpan<byte> src = locked.Bytes;
-                    for (int y = 0; y < h; y++)
-                    {
-                        src.Slice(y * stride, w * 4).CopyTo(buffer.AsSpan(y * w * 4));
-                    }
-                }
-
+                surface.CopyTightlyPacked(buffer);
                 _verifyTap(VideoFrame.FromPixels(buffer, VideoPixelFormat.Bgra, w, h, frame.PresentationTimeNs));
             }
         }
@@ -303,7 +294,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             && !frame.Pixels.IsEmpty)
         {
             // CPU fallback: copy decoded BGRA pixels into a server-owned surface and publish.
-            _server.PublishPixels(frame.Pixels.Span, frame.Width, frame.Height, SyphonPixelFormat.Bgra);
+            _server.PublishPixels(frame.Pixels.Span, frame.Width, frame.Height, CVPixelFormatType.CV32BGRA);
         }
         else
         {

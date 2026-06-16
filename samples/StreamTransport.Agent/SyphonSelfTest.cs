@@ -1,22 +1,36 @@
 #if HAS_SYPHON
 using System.Runtime.Versioning;
 using Agash.StreamTransport.Codecs;
+using CoreVideo;
+using IOSurface;
+using ObjCRuntime;
 using Syphon.NET;
-
-// Disambiguate from the macOS framework bindings' `IOSurface` namespace.
-using SyphonSurface = Syphon.NET.IOSurface;
 
 namespace StreamTransport.Agent;
 
 /// <summary>
 /// A standalone check (no external Syphon app needed) of the macOS zero-copy path: it builds a neutral-grey
-/// BGRA IOSurface, encodes it with VideoToolbox, decodes it back, confirms the decoder yields a BGRA
-/// IOSurface (so a Syphon publish needs no conversion), then publishes it and captures it through a Syphon
-/// loopback client to prove the publish/capture wiring. Run with <c>selftest</c>. macOS-only.
+/// BGRA IOSurface, encodes it with VideoToolbox, decodes it back, confirms the decoder yields an NV12
+/// IOSurface, then publishes it and captures it through a Syphon loopback client to prove the publish/capture
+/// wiring. It also exercises the Metal alpha pack/unpack and the opaque NV12->BGRA convert. Surfaces are the
+/// Microsoft <see cref="IOSurface"/> bindings directly. Run with <c>selftest</c>. macOS-only.
 /// </summary>
 [SupportedOSPlatform("macos")]
 internal static class SyphonSelfTest
 {
+    // Callback-shaped locked byte access for the selftest's fill/verify loops. The lock cycle and the
+    // base-address span come from Syphon.NET's IOSurfaceExtensions.LockBytes; this only adapts it to a
+    // delegate so the loops below can share one lock/unlock.
+    private delegate void SurfaceBytes(Span<byte> bytes, int stride);
+
+    private static void WithLockedBytes(IOSurface.IOSurface surface, bool readOnly, SurfaceBytes body)
+    {
+        using IOSurfaceExtensions.LockedSurface locked = surface.LockBytes(readOnly);
+        body(locked.Bytes, locked.BytesPerRow);
+    }
+
+    private static IOSurface.IOSurface Wrap(nint handle) => Runtime.GetINativeObject<IOSurface.IOSurface>(handle, owns: false)!;
+
     public static int Run()
     {
         FFmpegLibrary.EnsureLoaded();
@@ -27,11 +41,11 @@ internal static class SyphonSelfTest
         using var server = new SyphonServer("StreamTransport SelfTest");
 
         // 1) A neutral-grey BGRA source surface, owned by the Syphon server.
-        SyphonSurface source = server.AcquireSurface(width, height, SyphonPixelFormat.Bgra);
+        IOSurface.IOSurface source = server.AcquireSurface(width, height, CVPixelFormatType.CV32BGRA);
         FillGreyBgra(source);
-        Console.WriteLine($"source IOSurface {source.Width}x{source.Height}, format={source.PixelFormat}.");
+        Console.WriteLine($"source IOSurface {source.Width}x{source.Height}, format={(uint)source.PixelFormat:x}.");
 
-        // 2) Encode the IOSurface with VideoToolbox, then 3) decode it back, expecting a BGRA surface.
+        // 2) Encode the IOSurface with VideoToolbox, then 3) decode it back.
         using var encoder = new VideoToolboxVideoEncoder(width, height, fps: 30, bitrate: 4_000_000);
         using var decoder = new VideoToolboxVideoDecoder();
 
@@ -41,7 +55,7 @@ internal static class SyphonSelfTest
         int encodedBytes = 0;
         for (int i = 0; i < 30 && !decoded; i++)
         {
-            byte[]? accessUnit = encoder.EncodeIOSurface(source.Handle);
+            byte[]? accessUnit = encoder.EncodeIOSurface(source.Handle.Handle);
             if (accessUnit is null)
             {
                 continue;
@@ -61,10 +75,10 @@ internal static class SyphonSelfTest
             return 1;
         }
 
-        var decodedView = new SyphonSurface(decodedSurface);
+        IOSurface.IOSurface decodedView = Wrap(decodedSurface);
         Console.WriteLine(
             $"VT round-trip OK: {encodedBytes}-byte HEVC AU -> {decodedWidth}x{decodedHeight} IOSurface, " +
-            $"format={decodedView.PixelFormat} (NV12-family VideoToolbox surface; a colour-correct OBS " +
+            $"format={(uint)decodedView.PixelFormat:x} (NV12-family VideoToolbox surface; a colour-correct OBS " +
             "publish would need an NV12->BGRA Metal pass).");
 
         // 4) Publish the decoded surface and capture it back through a Syphon loopback client.
@@ -75,20 +89,19 @@ internal static class SyphonSelfTest
             {
                 server.Publish(decodedView);
                 SyphonServer.PumpEvents(TimeSpan.FromMilliseconds(5));
-                using SyphonFrame? frame = client.TryGetFrame();
-                if (frame is { } f && f.Surface.IsValid)
+                using IOSurface.IOSurface? frame = client.TryGetFrame();
+                if (frame is { } f)
                 {
                     looped = true;
-                    Console.WriteLine($"loopback frame received: {f.Surface.Width}x{f.Surface.Height}, format={f.Surface.PixelFormat}.");
+                    Console.WriteLine($"loopback frame received: {f.Width}x{f.Height}, format={(uint)f.PixelFormat:x}.");
                 }
             }
         }
 
         Console.WriteLine(looped ? "SYPHON-LOOPBACK-OK" : "SYPHON-LOOPBACK-FAIL");
 
-        // Exercise the GPU alpha path (Metal pack/unpack via Syphon.NET's SurfaceEffect) and the opaque
-        // NV12->BGRA publish path (the M-1 colour regression). Run both unconditionally so all diagnostics
-        // print, then combine.
+        // Exercise the GPU alpha path (Metal pack/unpack) and the opaque NV12->BGRA publish path (the M-1
+        // colour regression). Run both unconditionally so all diagnostics print, then combine.
         bool alphaOk = RunAlpha();
         bool opaqueOk = RunOpaque();
 
@@ -116,7 +129,7 @@ internal static class SyphonSelfTest
         (byte B, byte G, byte R)[] bands = [(40, 40, 200), (40, 200, 40), (200, 40, 40), (180, 180, 180)];
 
         using var server = new SyphonServer("StreamTransport Opaque SelfTest");
-        SyphonSurface input = server.AcquireSurface(width, height, SyphonPixelFormat.Bgra);
+        IOSurface.IOSurface input = server.AcquireSurface(width, height, CVPixelFormatType.CV32BGRA);
         FillColourBandsBgra(input, width, height, bands);
 
         using var encoder = new VideoToolboxVideoEncoder(width, height, fps: 30, bitrate: 12_000_000);
@@ -127,7 +140,7 @@ internal static class SyphonSelfTest
         nint decodedSurface = 0;
         for (int i = 0; i < 30 && !decoded; i++)
         {
-            byte[]? accessUnit = encoder.EncodeIOSurface(input.Handle);
+            byte[]? accessUnit = encoder.EncodeIOSurface(input.Handle.Handle);
             if (accessUnit is null)
             {
                 continue;
@@ -146,25 +159,23 @@ internal static class SyphonSelfTest
             return false;
         }
 
-        var decodedView = new SyphonSurface(decodedSurface);
-        if ((uint)decodedView.PixelFormat == (uint)SyphonPixelFormat.Bgra)
+        IOSurface.IOSurface decodedView = Wrap(decodedSurface);
+        if (decodedView.IsBgra())
         {
             Console.WriteLine("OPAQUE-FAIL: decoder yielded BGRA (expected NV12) - the conversion path is untested.");
             return false;
         }
 
-        SyphonSurface bgra = converter.Convert(decodedView);
-        if (bgra.Width != width || bgra.Height != height)
+        IOSurface.IOSurface bgra = converter.Convert(decodedView);
+        if ((int)bgra.Width != width || (int)bgra.Height != height)
         {
             Console.WriteLine($"OPAQUE-FAIL: converted {bgra.Width}x{bgra.Height}, expected {width}x{height}.");
             return false;
         }
 
         int maxColourError = 0;
-        using (SyphonSurface.Lock locked = bgra.LockBytes(readOnly: true))
+        WithLockedBytes(bgra, readOnly: true, (bytes, stride) =>
         {
-            int stride = bgra.BytesPerRow;
-            Span<byte> bytes = locked.Bytes;
             for (int b = 0; b < bands.Length; b++)
             {
                 int y = (b * height / bands.Length) + (height / bands.Length / 2);
@@ -173,7 +184,7 @@ internal static class SyphonSelfTest
                 maxColourError = Math.Max(maxColourError, Math.Abs(bytes[p + 1] - bands[b].G));
                 maxColourError = Math.Max(maxColourError, Math.Abs(bytes[p + 2] - bands[b].R));
             }
-        }
+        });
 
         const int tolerance = 24; // BT.709 limited round-trip + HEVC on flat colour is well within this.
         bool opaqueOk = maxColourError <= tolerance;
@@ -184,25 +195,23 @@ internal static class SyphonSelfTest
     }
 
     /// <summary>Fill a BGRA IOSurface with horizontal solid-colour bands (opaque).</summary>
-    private static void FillColourBandsBgra(SyphonSurface surface, int width, int height, (byte B, byte G, byte R)[] bands)
-    {
-        int stride = surface.BytesPerRow;
-        using SyphonSurface.Lock locked = surface.LockBytes(readOnly: false);
-        Span<byte> bytes = locked.Bytes;
-        for (int y = 0; y < height; y++)
+    private static void FillColourBandsBgra(IOSurface.IOSurface surface, int width, int height, (byte B, byte G, byte R)[] bands) =>
+        WithLockedBytes(surface, readOnly: false, (bytes, stride) =>
         {
-            (byte B, byte G, byte R) c = bands[Math.Min(y * bands.Length / height, bands.Length - 1)];
-            int row = y * stride;
-            for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
             {
-                int p = row + (x * 4);
-                bytes[p] = c.B;
-                bytes[p + 1] = c.G;
-                bytes[p + 2] = c.R;
-                bytes[p + 3] = 255;
+                (byte B, byte G, byte R) c = bands[Math.Min(y * bands.Length / height, bands.Length - 1)];
+                int row = y * stride;
+                for (int x = 0; x < width; x++)
+                {
+                    int p = row + (x * 4);
+                    bytes[p] = c.B;
+                    bytes[p + 1] = c.G;
+                    bytes[p + 2] = c.R;
+                    bytes[p + 3] = 255;
+                }
             }
-        }
-    }
+        });
 
     /// <summary>
     /// Verifies the macOS GPU alpha path with no external app: (A) Metal pack of a known BGRA surface
@@ -225,14 +234,14 @@ internal static class SyphonSelfTest
         ];
 
         using var server = new SyphonServer("StreamTransport Alpha SelfTest");
-        SyphonSurface input = server.AcquireSurface(width, height, SyphonPixelFormat.Bgra);
+        IOSurface.IOSurface input = server.AcquireSurface(width, height, CVPixelFormatType.CV32BGRA);
         FillBandsBgra(input, width, height, bands);
 
         using var codec = new MetalAlphaCodec();
 
         // (A) Pack and read back the 2W x H surface; check the layout byte-exact (no codec involved).
-        SyphonSurface packed = codec.Pack(input);
-        if (packed.Width != width * 2 || packed.Height != height)
+        IOSurface.IOSurface packed = codec.Pack(input);
+        if ((int)packed.Width != width * 2 || (int)packed.Height != height)
         {
             Console.WriteLine($"ALPHA-PACK-FAIL: expected {width * 2}x{height}, got {packed.Width}x{packed.Height}.");
             return false;
@@ -253,7 +262,7 @@ internal static class SyphonSelfTest
         nint decodedSurface = 0;
         for (int i = 0; i < 30 && !decoded; i++)
         {
-            byte[]? accessUnit = encoder.EncodeIOSurface(packed.Handle);
+            byte[]? accessUnit = encoder.EncodeIOSurface(packed.Handle.Handle);
             if (accessUnit is null)
             {
                 continue;
@@ -272,8 +281,8 @@ internal static class SyphonSelfTest
             return false;
         }
 
-        SyphonSurface unpacked = codec.Unpack(new SyphonSurface(decodedSurface));
-        if (unpacked.Width != width || unpacked.Height != height)
+        IOSurface.IOSurface unpacked = codec.Unpack(Wrap(decodedSurface));
+        if ((int)unpacked.Width != width || (int)unpacked.Height != height)
         {
             Console.WriteLine($"ALPHA-ROUNDTRIP-FAIL: unpacked {unpacked.Width}x{unpacked.Height}, expected {width}x{height}.");
             return false;
@@ -283,10 +292,8 @@ internal static class SyphonSelfTest
         // (colour rides the left half through the same BT.709 round-trip as the opaque path).
         int maxAlphaError = 0;
         int maxColourError = 0;
-        using (SyphonSurface.Lock locked = unpacked.LockBytes(readOnly: true))
+        WithLockedBytes(unpacked, readOnly: true, (bytes, stride) =>
         {
-            int stride = unpacked.BytesPerRow;
-            Span<byte> bytes = locked.Bytes;
             for (int b = 0; b < bands.Length; b++)
             {
                 int y = (b * height / bands.Length) + (height / bands.Length / 2);
@@ -296,7 +303,7 @@ internal static class SyphonSelfTest
                 maxColourError = Math.Max(maxColourError, Math.Abs(bytes[p + 1] - bands[b].G));
                 maxColourError = Math.Max(maxColourError, Math.Abs(bytes[p + 2] - bands[b].R));
             }
-        }
+        });
 
         const int alphaTolerance = 20;
         const int colourTolerance = 24;
@@ -308,76 +315,76 @@ internal static class SyphonSelfTest
     }
 
     /// <summary>Read back the packed surface and assert left half = colour, right half = grey(alpha).</summary>
-    private static bool VerifyPackedLayout(SyphonSurface packed, int width, int height, (byte B, byte G, byte R, byte A)[] bands)
+    private static bool VerifyPackedLayout(IOSurface.IOSurface packed, int width, int height, (byte B, byte G, byte R, byte A)[] bands)
     {
-        using SyphonSurface.Lock locked = packed.LockBytes(readOnly: true);
-        int stride = packed.BytesPerRow;
-        Span<byte> bytes = locked.Bytes;
-        for (int b = 0; b < bands.Length; b++)
+        bool ok = true;
+        WithLockedBytes(packed, readOnly: true, (bytes, stride) =>
         {
-            int y = (b * height / bands.Length) + (height / bands.Length / 2);
-            int colour = (y * stride) + ((width / 2) * 4);          // mid of the left (colour) half
-            int alpha = (y * stride) + ((width + (width / 2)) * 4);  // mid of the right (alpha) half
-
-            if (bytes[colour] != bands[b].B || bytes[colour + 1] != bands[b].G || bytes[colour + 2] != bands[b].R)
+            for (int b = 0; b < bands.Length; b++)
             {
-                Console.WriteLine($"ALPHA-PACK-FAIL: band {b} colour mismatch.");
-                return false;
-            }
+                int y = (b * height / bands.Length) + (height / bands.Length / 2);
+                int colour = (y * stride) + ((width / 2) * 4);          // mid of the left (colour) half
+                int alpha = (y * stride) + ((width + (width / 2)) * 4);  // mid of the right (alpha) half
 
-            byte a = bands[b].A;
-            if (bytes[alpha] != a || bytes[alpha + 1] != a || bytes[alpha + 2] != a)
-            {
-                Console.WriteLine($"ALPHA-PACK-FAIL: band {b} alpha-as-grey mismatch (expected {a}, got {bytes[alpha]}).");
-                return false;
-            }
-        }
+                if (bytes[colour] != bands[b].B || bytes[colour + 1] != bands[b].G || bytes[colour + 2] != bands[b].R)
+                {
+                    Console.WriteLine($"ALPHA-PACK-FAIL: band {b} colour mismatch.");
+                    ok = false;
+                    return;
+                }
 
-        return true;
+                byte a = bands[b].A;
+                if (bytes[alpha] != a || bytes[alpha + 1] != a || bytes[alpha + 2] != a)
+                {
+                    Console.WriteLine($"ALPHA-PACK-FAIL: band {b} alpha-as-grey mismatch (expected {a}, got {bytes[alpha]}).");
+                    ok = false;
+                    return;
+                }
+            }
+        });
+
+        return ok;
     }
 
     /// <summary>Fill a BGRA IOSurface with horizontal colour+alpha bands (respecting row stride).</summary>
-    private static void FillBandsBgra(SyphonSurface surface, int width, int height, (byte B, byte G, byte R, byte A)[] bands)
-    {
-        int stride = surface.BytesPerRow;
-        using SyphonSurface.Lock locked = surface.LockBytes(readOnly: false);
-        Span<byte> bytes = locked.Bytes;
-        for (int y = 0; y < height; y++)
+    private static void FillBandsBgra(IOSurface.IOSurface surface, int width, int height, (byte B, byte G, byte R, byte A)[] bands) =>
+        WithLockedBytes(surface, readOnly: false, (bytes, stride) =>
         {
-            (byte B, byte G, byte R, byte A) c = bands[Math.Min(y * bands.Length / height, bands.Length - 1)];
-            int row = y * stride;
-            for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
             {
-                int p = row + (x * 4);
-                bytes[p] = c.B;
-                bytes[p + 1] = c.G;
-                bytes[p + 2] = c.R;
-                bytes[p + 3] = c.A;
+                (byte B, byte G, byte R, byte A) c = bands[Math.Min(y * bands.Length / height, bands.Length - 1)];
+                int row = y * stride;
+                for (int x = 0; x < width; x++)
+                {
+                    int p = row + (x * 4);
+                    bytes[p] = c.B;
+                    bytes[p + 1] = c.G;
+                    bytes[p + 2] = c.R;
+                    bytes[p + 3] = c.A;
+                }
             }
-        }
-    }
+        });
 
     /// <summary>Fill a BGRA IOSurface with neutral grey (respecting the surface's row stride).</summary>
-    private static void FillGreyBgra(SyphonSurface surface)
+    private static void FillGreyBgra(IOSurface.IOSurface surface)
     {
-        int width = surface.Width;
-        int height = surface.Height;
-        int stride = surface.BytesPerRow;
-
-        using SyphonSurface.Lock locked = surface.LockBytes(readOnly: false);
-        Span<byte> bytes = locked.Bytes;
-        for (int y = 0; y < height; y++)
+        int width = (int)surface.Width;
+        int height = (int)surface.Height;
+        WithLockedBytes(surface, readOnly: false, (bytes, stride) =>
         {
-            int row = y * stride;
-            for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
             {
-                int p = row + (x * 4);
-                bytes[p] = 130;     // B
-                bytes[p + 1] = 130; // G
-                bytes[p + 2] = 130; // R
-                bytes[p + 3] = 255; // A
+                int row = y * stride;
+                for (int x = 0; x < width; x++)
+                {
+                    int p = row + (x * 4);
+                    bytes[p] = 130;     // B
+                    bytes[p + 1] = 130; // G
+                    bytes[p + 2] = 130; // R
+                    bytes[p + 3] = 255; // A
+                }
             }
-        }
+        });
     }
 }
 #endif
