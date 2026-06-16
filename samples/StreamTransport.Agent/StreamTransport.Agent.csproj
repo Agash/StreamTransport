@@ -75,6 +75,10 @@
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
     <ApplicationTitle>streamtransport-agent</ApplicationTitle>
+    <!-- We compile the .metal shaders at RUNTIME via MTLDevice.CreateLibrary(source) (proven AOT-clean), so
+         don't let the SDK auto-compile them to a .metallib at build time - that needs the Metal Toolchain
+         component (not installed) and we don't use the .metallib. They ride as embedded resources instead. -->
+    <EnableDefaultMetalItems>false</EnableDefaultMetalItems>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
     <ProjectReference Include="..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj"
