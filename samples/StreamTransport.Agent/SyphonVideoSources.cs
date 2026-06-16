@@ -226,6 +226,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     private volatile bool _preserveAlpha;
     private IAlphaUnpacker? _alphaCodec;
     private INv12ToBgra? _nv12Converter;
+    private Action<VideoFrame>? _verifyTap;
     private bool _disposed;
 
     public SyphonVideoPublishSink(string serverName, bool alpha = false)
@@ -239,6 +240,9 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     /// (the Metal unpack codec is created lazily on first use), so the receiver needs no flag.
     /// </summary>
     public void SetPreserveAlpha(bool value) => _preserveAlpha = value;
+
+    /// <summary>Enable content verification of the published GPU frames (CPU readback of the BGRA surface -&gt; <paramref name="tap"/>).</summary>
+    public void EnableVerification(Action<VideoFrame> tap) => _verifyTap = tap;
 
     public void Submit(VideoFrame frame)
     {
@@ -271,6 +275,28 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             }
 
             _server.Publish(surface);
+
+            // GPU verify: read the published BGRA surface back to CPU and feed the verifying sink, so the real
+            // GPU output (VideoToolbox decode -> Metal convert/unpack) is content-checked. Stamp the playout
+            // time so the readback cost doesn't inflate the measured skew (markers ride NV12 luma, so the BGRA
+            // readback reports content/alpha; A/V sync is the CPU path's job).
+            if (_verifyTap is not null)
+            {
+                int w = surface.Width;
+                int h = surface.Height;
+                byte[] buffer = new byte[w * h * 4];
+                using (SyphonSurface.Lock locked = surface.LockBytes(readOnly: true))
+                {
+                    int stride = surface.BytesPerRow;
+                    ReadOnlySpan<byte> src = locked.Bytes;
+                    for (int y = 0; y < h; y++)
+                    {
+                        src.Slice(y * stride, w * 4).CopyTo(buffer.AsSpan(y * w * 4));
+                    }
+                }
+
+                _verifyTap(VideoFrame.FromPixels(buffer, VideoPixelFormat.Bgra, w, h, frame.PresentationTimeNs));
+            }
         }
         else if (frame.InteropKind == StreamInteropKind.None
             && frame.PixelFormat == VideoPixelFormat.Bgra

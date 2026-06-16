@@ -256,6 +256,9 @@ internal static class Subscribe
 #if MACOS_HEAD
         CoreAudioPublishSink? coreAudio = null;
 #endif
+#if HAS_SYPHON
+        SyphonVideoPublishSink? syphonVideoSink = null;
+#endif
 
 #if HAS_PIPEWIRE
         if (config.PublishPipeWire is not null && OperatingSystem.IsLinux())
@@ -295,6 +298,7 @@ internal static class Subscribe
             var syphon = new SyphonVideoPublishSink(config.PublishSyphon, config.Alpha);
             publishSink = syphon;
             videoSink = syphon;
+            syphonVideoSink = syphon;
             applyNegotiatedAlpha = syphon.SetPreserveAlpha;
             // VideoToolbox decodes straight into a GPU surface for a zero-copy Syphon publish. For alpha
             // the surface is the packed 2W x H frame, which the sink GPU-unpacks via Metal before publish.
@@ -321,6 +325,18 @@ internal static class Subscribe
                 // cost doesn't inflate the A/V skew. videoSink + preferGpu stay as set.
                 var gpuVerify = new VerifyingVideoSink(report, usePresentationTime: true);
                 pwVideoSink.EnableVerification(gpuVerify.Submit);
+            }
+            else
+#endif
+#if HAS_SYPHON
+            if (syphonVideoSink is not null && config.Video && OperatingSystem.IsMacOS())
+            {
+                // GPU verify (macOS): keep publishing through the Syphon GPU sink (VideoToolbox decode -> Metal
+                // convert/unpack), but read each published BGRA surface back to CPU for content/alpha checks.
+                // Sync markers ride the NV12 luma so the BGRA readback leaves sync inconclusive (the CPU path
+                // is the A/V-sync proof); video flow + content + alpha are verified on the real GPU output.
+                var gpuVerify = new VerifyingVideoSink(report, usePresentationTime: true);
+                syphonVideoSink.EnableVerification(gpuVerify.Submit);
             }
             else
 #endif
