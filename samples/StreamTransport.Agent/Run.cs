@@ -253,6 +253,9 @@ internal static class Subscribe
 #if WINDOWS_HEAD
         WasapiAudioPublishSink? wasapiAudio = null;
 #endif
+#if MACOS_HEAD
+        CoreAudioPublishSink? coreAudio = null;
+#endif
 
 #if HAS_PIPEWIRE
         if (config.PublishPipeWire is not null && OperatingSystem.IsLinux())
@@ -335,6 +338,14 @@ internal static class Subscribe
             wasapiAudio = new WasapiAudioPublishSink();
         }
 #endif
+#if MACOS_HEAD
+        // macOS receiver: play decoded audio to the default output device (CoreAudio), unless --verify routes
+        // audio to the verifying sink to measure A/V sync.
+        if (config.Audio && !config.Verify && OperatingSystem.IsMacOS())
+        {
+            coreAudio = new CoreAudioPublishSink();
+        }
+#endif
 
         MediaTransportOptions baseline = MediaProfiles.Create(config.Profile);
         var options = baseline with
@@ -356,11 +367,17 @@ internal static class Subscribe
 #if WINDOWS_HEAD
             : wasapiAudio is not null ? wasapiAudio
 #endif
+#if MACOS_HEAD
+            : coreAudio is not null ? coreAudio
+#endif
             : new ReportingAudioSink(m => AnsiConsole.MarkupLineInterpolated($"[blue]{m}[/]"));
 
         using (publishSink)
 #if WINDOWS_HEAD
         using (wasapiAudio)
+#endif
+#if MACOS_HEAD
+        using (coreAudio)
 #endif
         await using (asyncPublishSink)
 #if HAS_PIPEWIRE
