@@ -27,11 +27,9 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
     private readonly PipeWireContext _context;
     private readonly string _nodeName;
     private readonly Lock _gate = new();
-    private readonly Queue<byte[]> _chunks = new();
+    private readonly PullAudioRingBuffer _ring = new(MaxQueuedBytes);
 
     private PipeWireAudioOutput? _output;
-    private int _headOffset;     // bytes already consumed from the chunk at the head of the queue
-    private int _queuedBytes;
     private bool _disposed;
 
     private PipeWireAudioPublishSink(PipeWireContext context, string nodeName)
@@ -56,8 +54,6 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
             return;
         }
 
-        byte[] chunk = samples.ToArray();
-
         lock (_gate)
         {
             if (_disposed)
@@ -74,50 +70,15 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
                 output.Connect();
                 _output = output;
             }
-
-            _chunks.Enqueue(chunk);
-            _queuedBytes += chunk.Length;
-
-            // Overflow: drop the oldest whole chunks (and any partial head) until back under the cap. Dropping
-            // old audio rather than new keeps the playout close to live when the consumer falls behind.
-            while (_queuedBytes - _headOffset > MaxQueuedBytes && _chunks.Count > 1)
-            {
-                byte[] dropped = _chunks.Dequeue();
-                _queuedBytes -= dropped.Length;
-                _headOffset = 0;
-            }
         }
+
+        _ring.Write(samples);
     }
 
-    // PipeWire pulls PCM: fill as much of its buffer as we have queued, return the byte count written (0 = let
-    // it emit silence). Runs on the PipeWire loop thread. Drains across chunk boundaries.
+    // PipeWire pulls PCM: fill as much of its buffer as the ring holds, return the byte count written (0 = let
+    // it emit silence). Runs on the PipeWire loop thread.
     private int OnFillSamples(PipeWireAudioOutput sender, Span<byte> dst, int sampleRate, int channels, PwAudioSampleFormat format)
-    {
-        lock (_gate)
-        {
-            int written = 0;
-            while (written < dst.Length && _chunks.Count > 0)
-            {
-                byte[] head = _chunks.Peek();
-                int available = head.Length - _headOffset;
-                int take = Math.Min(available, dst.Length - written);
-                head.AsSpan(_headOffset, take).CopyTo(dst.Slice(written, take));
-                written += take;
-                _headOffset += take;
-                _queuedBytes -= take;
-
-                if (_headOffset >= head.Length)
-                {
-                    _chunks.Dequeue();
-                    _headOffset = 0;
-                }
-            }
-
-            // _queuedBytes tracks remaining (un-consumed) bytes: it was decremented by `take` above, but the
-            // head chunk's already-consumed prefix is still counted until the chunk is dequeued. Re-normalise.
-            return written;
-        }
-    }
+        => _ring.Read(dst);
 
     private static PwAudioSampleFormat MapFormat(Agash.StreamTransport.AudioSampleFormat format) => format switch
     {
@@ -139,9 +100,7 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
             _disposed = true;
             output = _output;
             _output = null;
-            _chunks.Clear();
-            _queuedBytes = 0;
-            _headOffset = 0;
+            _ring.Clear();
         }
 
         if (output is not null)

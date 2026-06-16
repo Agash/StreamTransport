@@ -33,6 +33,7 @@
     <PackageReference Include="Spout2.NET" />
     <PackageReference Include="Vortice.Direct3D11" />
     <PackageReference Include="Vortice.D3DCompiler" />
+    <PackageReference Include="NAudio" />
   </ItemGroup>
 
   <!-- Windows D3D11 (Spout) HLSL shaders, compiled at runtime via D3DCompiler. Editable .hlsl files

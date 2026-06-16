@@ -32,6 +32,10 @@
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
     <!-- Friendly console UX for the sample agent. -->
     <PackageVersion Include="Spectre.Console" Version="0.56.0" />
+    <!-- Windows real audio I/O for the agent: WASAPI render (playout) + capture (mic / loopback). Windows-only;
+         referenced only from the agent's Windows head. The cross-platform analogue is PipeWire (Linux) and the
+         macOS AudioUnit bindings (-macos TFM). -->
+    <PackageVersion Include="NAudio" Version="2.2.1" />
     <!-- Our DevTunnels CLI wrapper, for the agent's sender-hosted tunnel mode. -->
     <PackageVersion Include="DevTunnels.Client" Version="1.1.0-dev1" />
     <!-- Platform GPU capture/share libraries (the agent's zero-copy sources/sinks). -->

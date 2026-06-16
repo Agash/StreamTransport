@@ -22,6 +22,7 @@ internal static class Publish
         IAsyncDisposable? asyncSource = null;
         IVideoFrameSource? videoSource = null;
         IAudioFrameSource? audioSource = null;
+        IDisposable? audioCapture = null;
         nint gpuDevice = 0;
         string? encoderName = config.EncoderName;
         EmbeddedRelay? embedded = null;
@@ -48,7 +49,21 @@ internal static class Publish
                 gpuSource = spout;
                 videoSource = spout;
                 gpuDevice = spout.DeviceHandle;
-                audioSource = config.Audio ? new SineToneAudioSource() : null;
+                // Real desktop audio via WASAPI loopback ("what you hear") to accompany the captured surface;
+                // --verify uses the synthetic tone so its A/V sync markers ride the stream.
+                if (config.Audio)
+                {
+                    if (config.Verify)
+                    {
+                        audioSource = new SineToneAudioSource(config.Verify);
+                    }
+                    else
+                    {
+                        var cap = new WasapiAudioCaptureSource(loopback: true);
+                        audioSource = cap;
+                        audioCapture = cap;
+                    }
+                }
             }
 #endif
 #if HAS_PIPEWIRE
@@ -153,6 +168,7 @@ internal static class Publish
         finally
         {
             gpuSource?.Dispose();
+            audioCapture?.Dispose();
             if (asyncSource is not null)
             {
                 await asyncSource.DisposeAsync();
@@ -234,6 +250,9 @@ internal static class Subscribe
         PipeWireAudioPublishSink? pipeWireAudio = null;
         PipeWireVideoPublishSink? pwVideoSink = null;
 #endif
+#if WINDOWS_HEAD
+        WasapiAudioPublishSink? wasapiAudio = null;
+#endif
 
 #if HAS_PIPEWIRE
         if (config.PublishPipeWire is not null && OperatingSystem.IsLinux())
@@ -308,6 +327,15 @@ internal static class Subscribe
             }
         }
 
+#if WINDOWS_HEAD
+        // Windows receiver: play decoded audio to the default WASAPI render device (OBS "Desktop Audio" / app
+        // capture + the system hear it), unless --verify routes audio to the verifying sink to measure A/V sync.
+        if (config.Audio && !config.Verify && OperatingSystem.IsWindows())
+        {
+            wasapiAudio = new WasapiAudioPublishSink();
+        }
+#endif
+
         MediaTransportOptions baseline = MediaProfiles.Create(config.Profile);
         var options = baseline with
         {
@@ -325,9 +353,15 @@ internal static class Subscribe
 #if HAS_PIPEWIRE
             : pipeWireAudio is not null ? pipeWireAudio
 #endif
+#if WINDOWS_HEAD
+            : wasapiAudio is not null ? wasapiAudio
+#endif
             : new ReportingAudioSink(m => AnsiConsole.MarkupLineInterpolated($"[blue]{m}[/]"));
 
         using (publishSink)
+#if WINDOWS_HEAD
+        using (wasapiAudio)
+#endif
         await using (asyncPublishSink)
 #if HAS_PIPEWIRE
         await using (pipeWireAudio)
