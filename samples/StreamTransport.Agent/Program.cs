@@ -91,7 +91,16 @@ catch (OperationCanceledException)
 catch (Exception ex)
 {
     AnsiConsole.MarkupLineInterpolated($"[red]error:[/] {ex.Message}");
-    AnsiConsole.WriteException(ex, ExceptionFormats.ShortenEverything);
+    // Rich exception formatter uses dynamic code (not NativeAOT-safe); plain dump when AOT-compiled.
+    if (System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+    {
+        AnsiConsole.WriteException(ex, ExceptionFormats.ShortenEverything);
+    }
+    else
+    {
+        AnsiConsole.WriteLine(ex.ToString());
+    }
+
     return 1;
 }
 
