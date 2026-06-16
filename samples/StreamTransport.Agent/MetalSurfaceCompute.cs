@@ -134,7 +134,7 @@ internal sealed class MetalSurfaceCompute : IDisposable
     {
         var surface = Runtime.GetINativeObject<IOSurface.IOSurface>(surfaceHandle, owns: false)
             ?? throw new InvalidOperationException("Could not wrap the IOSurface handle.");
-        MTLTextureDescriptor desc = MTLTextureDescriptor.CreateTexture2DDescriptor(format, (nuint)width, (nuint)height, mipmapped: false);
+        var desc = MTLTextureDescriptor.CreateTexture2DDescriptor(format, (nuint)width, (nuint)height, mipmapped: false);
         desc.Usage = usage;
         return MetalContext.Device.CreateTexture(desc, surface, (nuint)plane)
             ?? throw new InvalidOperationException("CreateTexture from IOSurface returned null.");
