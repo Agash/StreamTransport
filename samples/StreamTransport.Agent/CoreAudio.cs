@@ -1,5 +1,6 @@
 #if MACOS_HEAD
 using System.Runtime.Versioning;
+using Agash.StreamTransport;
 using AudioToolbox;
 using AudioUnit;
 using AudioFrame = Agash.StreamTransport.AudioFrame;
