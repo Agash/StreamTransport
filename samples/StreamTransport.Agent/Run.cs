@@ -428,6 +428,15 @@ internal static class Subscribe
                 }
 
                 report.Print(m => AnsiConsole.MarkupLineInterpolated($"[teal]{m}[/]"), config.Video, config.Audio);
+
+                // The measurement window is done and the verdict is printed. Flush it and hard-exit instead of
+                // unwinding through sink disposal: native teardown (Syphon / CoreAudio / PipeWire) can block on
+                // some platforms, which would hold the process - and an orchestrator's SSH pipe - open long past
+                // the window and strand the just-printed verdict in an unflushed buffer (the cause of macOS
+                // loopback NO-REPORTs in the verify matrix). The OS reclaims the native handles on exit.
+                Console.Out.Flush();
+                Console.Error.Flush();
+                Environment.Exit(0);
             }
             else
             {
