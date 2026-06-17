@@ -290,6 +290,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
             int protectedLength = srtp.ProtectRtp(buffer, rtpLength);
             RecordSent(ssrc, sequence, protectedLength, NowMicros());
+            Interlocked.Increment(ref _mediaPacketsSent);
             await agent.SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -321,6 +322,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             int length = RtcpFeedback.BuildPli(buffer, _rtcpSenderSsrc, mediaSsrc);
             int protectedLength = srtp.ProtectRtcp(buffer, length);
+            Interlocked.Increment(ref _keyframeRequestsSent);
             await agent.SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -496,6 +498,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 }
 
                 int protectedLength = srtp.ProtectRtp(buffer, rtxLength);
+                Interlocked.Increment(ref _rtxPacketsSent);
                 await agent.SendAsync(buffer.AsMemory(0, protectedLength)).ConfigureAwait(false);
             }
             finally
@@ -531,6 +534,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 if (RtxStream.TryUnwrap(span[..plaintextLength], recovered, originalPayloadType, mediaSsrc, out int recoveredLength)
                     && RtpPacket.TryParse(recovered.AsSpan(0, recoveredLength), out RtpHeader rtxHeader, out ReadOnlySpan<byte> rtxPayload))
                 {
+                    Interlocked.Increment(ref _rtxPacketsRecovered);
                     DeliverMedia(rtxHeader, recovered.AsMemory(0, recoveredLength), recoveredLength, rtxPayload, ecn);
                 }
             }

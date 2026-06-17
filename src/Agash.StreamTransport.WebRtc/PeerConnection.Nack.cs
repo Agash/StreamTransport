@@ -125,6 +125,7 @@ public sealed partial class PeerConnection
             int length = RtcpFeedback.BuildNack(buffer, _rtcpSenderSsrc, mediaSsrc,
                 System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences));
             int protectedLength = srtp.ProtectRtcp(buffer, length);
+            Interlocked.Add(ref _nackSequencesRequested, sequences.Count);
             _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
         }
         catch (Exception)

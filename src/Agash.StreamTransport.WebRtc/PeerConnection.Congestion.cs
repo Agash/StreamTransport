@@ -37,6 +37,27 @@ public sealed partial class PeerConnection
     /// <summary>The controller's latest estimate, or a zero estimate when no controller is attached.</summary>
     public BitrateEstimate CurrentBitrateEstimate => _controller?.CurrentEstimate ?? default;
 
+    // Lifetime loss-recovery counters (monotonic; cross-thread, so read/written via Interlocked). The media
+    // layer logs per-second deltas of these to trace where packets/frames are lost and how much recovery helps.
+    private long _mediaPacketsSent;
+    private long _rtxPacketsSent;
+    private long _nackSequencesRequested;
+    private long _rtxPacketsRecovered;
+    private long _keyframeRequestsSent;
+
+    /// <summary>
+    /// A snapshot of the transport's loss-recovery counters (lifetime totals): primary RTP packets sent, RTX
+    /// retransmissions sent, NACK'd sequences requested, RTX packets recovered on receive, and keyframe (PLI)
+    /// requests sent. The send-side counters are meaningful on a sender, the recover/request counters on a
+    /// receiver. Logged as per-second deltas by the media layer to localise loss in the pipeline.
+    /// </summary>
+    public TransportLossStats CurrentLossStats => new(
+        Volatile.Read(ref _mediaPacketsSent),
+        Volatile.Read(ref _rtxPacketsSent),
+        Volatile.Read(ref _nackSequencesRequested),
+        Volatile.Read(ref _rtxPacketsRecovered),
+        Volatile.Read(ref _keyframeRequestsSent));
+
     /// <summary>
     /// The aggregated transport health (loss + RTT + rate). Meaningful on the sending side once feedback has
     /// arrived; a zeroed snapshot otherwise.

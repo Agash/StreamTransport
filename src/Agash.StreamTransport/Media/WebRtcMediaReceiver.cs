@@ -65,6 +65,16 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private int _rxLastSeq = -1;
     private double _rxJitterMs;
     private double _rxLastTransitMs;
+    private WebRtc.TransportLossStats _lastRxStats;
+
+    // Decode-pipeline telemetry (single decode thread, no locking), flushed ~once a second at Debug alongside the
+    // network view: how many access units the depacketizer assembled, how many the decoder accepted, and how many
+    // it rejected (a corrupt/merged AU - the signature of a packet lost inside a frame that RTX did not recover in
+    // time). assembled >> decoded localises loss to frame assembly rather than the link.
+    private int _auAssembled;
+    private int _framesDecoded;
+    private int _framesDecodeFailed;
+    private long _pipeWindowStartMs;
 
     /// <summary>
     /// Create a receiver. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
@@ -216,9 +226,13 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             // Depacketize on the receive thread (cheap) into a pool-rented buffer whose ownership passes through
             // the queue to the decode worker, which returns it after decode. If the queue rejects it, return it.
             PooledBuffer? accessUnit = _videoDepacketizer.Push(payload.Span, header.Marker);
-            if (accessUnit is { } videoUnit && !_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
+            if (accessUnit is { } videoUnit)
             {
-                videoUnit.Dispose();
+                _auAssembled++;
+                if (!_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
+                {
+                    videoUnit.Dispose();
+                }
             }
         }
         else if (_audio is not null && header.PayloadType == _audioPayloadType)
@@ -266,13 +280,38 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             int pps = (int)(_rxPackets * 1000L / elapsed);
             double lossPct = (_rxPackets + _rxLost) > 0 ? 100.0 * _rxLost / (_rxPackets + _rxLost) : 0;
             long playoutMs = (_scheduler?.CurrentDelayNs ?? 0) / 1_000_000;
-            LogNetworkRx(kbps, pps, lossPct, _rxJitterMs, playoutMs);
-            _rxBytes = 0; _rxPackets = 0; _rxLost = 0; _rxWindowStartMs = nowMs;
+
+            // Per-second deltas of the transport's recovery counters: NACKs we asked for, packets RTX actually
+            // recovered, and PLIs we sent. recovered vs lost shows how much of the raw loss the link recovered.
+            WebRtc.TransportLossStats s = _session?.Pc.CurrentLossStats ?? default;
+            long nacks = s.NackSequencesRequested - _lastRxStats.NackSequencesRequested;
+            long recovered = s.RtxPacketsRecovered - _lastRxStats.RtxPacketsRecovered;
+            long keyframeReqs = s.KeyframeRequestsSent - _lastRxStats.KeyframeRequestsSent;
+            LogNetworkRx(kbps, pps, lossPct, _rxJitterMs, playoutMs, nacks, recovered, keyframeReqs);
+
+            _rxBytes = 0; _rxPackets = 0; _rxLost = 0; _rxWindowStartMs = nowMs; _lastRxStats = s;
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Network rx: {Kbps} kbps, {Pps} pps, loss {LossPct:F1}%, jitter {JitterMs:F1} ms, playout {PlayoutMs} ms.")]
-    private partial void LogNetworkRx(long kbps, int pps, double lossPct, double jitterMs, long playoutMs);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Network rx: {Kbps} kbps, {Pps} pps, loss {LossPct:F1}%, jitter {JitterMs:F1} ms, playout {PlayoutMs} ms; nack {Nacks}, recovered {Recovered}, kf-req {KeyframeReqs} (last 1s).")]
+    private partial void LogNetworkRx(long kbps, int pps, double lossPct, double jitterMs, long playoutMs, long nacks, long recovered, long keyframeReqs);
+
+    // Flush the decode-pipeline counters once a second (called on the decode thread per access unit).
+    private void LogPipelineStats()
+    {
+        long nowMs = _rxSw.ElapsedMilliseconds;
+        long elapsed = nowMs - _pipeWindowStartMs;
+        if (elapsed < 1000)
+        {
+            return;
+        }
+
+        LogPipelineRx(_auAssembled, _framesDecoded, _framesDecodeFailed);
+        _auAssembled = 0; _framesDecoded = 0; _framesDecodeFailed = 0; _pipeWindowStartMs = nowMs;
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Pipeline rx: assembled {Assembled} AU, decoded {Decoded} ok, {Failed} decode-fail (last 1s).")]
+    private partial void LogPipelineRx(int assembled, int decoded, int failed);
 
     // Present on arrival, or - when synced and both stream clocks are anchored - schedule by capture time so
     // audio and video lip-sync.
@@ -318,10 +357,20 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                     // submitted: the decoder holds a pipeline (and B-frame reorder), so the content emerging now
                     // belongs to an earlier timestamp. The decoded frame owns its own pixels, so the access-unit
                     // buffer is returned to the pool here, before any scheduled submit.
-                    if (VideoSink is { } sink && _video!.Decode(accessUnit.Memory.Span, timestamp, NowNs(), out uint frameRtp) is { } frame)
+                    if (_video!.Decode(accessUnit.Memory.Span, timestamp, NowNs(), out uint frameRtp) is { } frame)
                     {
-                        Present(SyncStream.Video, frameRtp, () => sink.Submit(frame));
+                        _framesDecoded++;
+                        if (VideoSink is { } sink)
+                        {
+                            Present(SyncStream.Video, frameRtp, () => sink.Submit(frame));
+                        }
                     }
+                    else
+                    {
+                        _framesDecodeFailed++;
+                    }
+
+                    LogPipelineStats();
                 }
             }
         }

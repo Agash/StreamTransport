@@ -49,6 +49,16 @@ public sealed partial class WebRtcMediaSender : IMediaSender
     // forces an IDR, so a receiver that lost the reference chain recovers without waiting for the GOP keyframe.
     private int _keyframeRequested;
 
+    // Send-side pipeline telemetry, flushed ~once a second at Debug: the encode rate and access-unit size feeding
+    // the transport, plus the per-second packet/retransmission deltas from the peer connection - so the sent side
+    // of the loss picture lines up with the receiver's "Network rx" counts.
+    private readonly Stopwatch _txSw = Stopwatch.StartNew();
+    private long _txWindowStartMs;
+    private int _framesEncoded;
+    private int _keyframesForced;
+    private long _auBytes;
+    private TransportLossStats _lastTxStats;
+
     /// <summary>
     /// Create a sender. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
     /// The codec set (<paramref name="registry"/>), DTLS-SRTP engine (<paramref name="dtlsFactory"/>), and
@@ -190,6 +200,30 @@ public sealed partial class WebRtcMediaSender : IMediaSender
     [LoggerMessage(Level = LogLevel.Debug, Message = "Congestion: target {TargetKbps} kbps, pacing {PacingKbps} kbps, rtt {RttMs:F1} ms (base {BaseRttMs:F1}, queue {QueueMs:F1}), loss {LossPercent:F1}%.")]
     private partial void LogHealth(long targetKbps, long pacingKbps, double rttMs, double baseRttMs, double queueMs, double lossPercent);
 
+    // Flush the send-side pipeline telemetry once a second: encode rate + access-unit size, and the per-second
+    // delta of the transport's packets-sent / RTX-served counters. Called per encoded video frame (cheap).
+    private void LogTxStats(PeerConnection pc)
+    {
+        long nowMs = _txSw.ElapsedMilliseconds;
+        long elapsed = nowMs - _txWindowStartMs;
+        if (elapsed < 1000)
+        {
+            return;
+        }
+
+        TransportLossStats s = pc.CurrentLossStats;
+        int fps = (int)(_framesEncoded * 1000L / elapsed);
+        long auKb = _framesEncoded > 0 ? _auBytes / _framesEncoded / 1024 : 0;
+        long pktsSent = s.MediaPacketsSent - _lastTxStats.MediaPacketsSent;
+        long rtxSent = s.RtxPacketsSent - _lastTxStats.RtxPacketsSent;
+        LogTx(fps, _keyframesForced, auKb, pktsSent, rtxSent);
+
+        _framesEncoded = 0; _keyframesForced = 0; _auBytes = 0; _txWindowStartMs = nowMs; _lastTxStats = s;
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Network tx: {Fps} fps encoded, {ForcedKf} forced-kf, {AuKb} KB/frame; sent {PktsSent} pkts, {RtxSent} rtx (last 1s).")]
+    private partial void LogTx(int fps, int forcedKf, long auKb, long pktsSent, long rtxSent);
+
     // Pace one packet onto the link: block briefly while the budget is short, so a bursty intra frame is
     // smoothed instead of dumped (the cellular bufferbloat guard). No-op without a controller/pacer.
     private async Task PaceAsync(int bytes, CancellationToken cancellationToken)
@@ -248,13 +282,18 @@ public sealed partial class WebRtcMediaSender : IMediaSender
             if (VideoSource!.TryGetFrame(out VideoFrame frame))
             {
                 // Honour a pending peer keyframe request: force an IDR on this frame (consumed once).
-                if (Interlocked.Exchange(ref _keyframeRequested, 0) == 1)
+                bool forced = Interlocked.Exchange(ref _keyframeRequested, 0) == 1;
+                if (forced)
                 {
                     frame = frame with { ForceKeyframe = true };
                 }
 
                 if (_videoEncoder!.Encode(frame) is { } encoded)
                 {
+                    _framesEncoded++;
+                    _auBytes += encoded.AccessUnit.Length;
+                    if (forced) { _keyframesForced++; }
+                    LogTxStats(pc);
                     // The RTP timestamp is each frame's absolute sampling instant mapped to the 90 kHz clock -
                     // NOT an accumulated delta. With B-frames the encoder emits access units in decode order
                     // with non-monotonic capture times; accumulating deltas would corrupt them, so the receiver

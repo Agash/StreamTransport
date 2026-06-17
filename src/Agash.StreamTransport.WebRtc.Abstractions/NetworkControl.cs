@@ -53,6 +53,21 @@ public readonly record struct TransportHealthMetrics(
 }
 
 /// <summary>
+/// Lifetime loss-recovery counters for one peer connection, for pipeline debug telemetry. The media layer
+/// snapshots these and logs per-second deltas so loss can be localised: how many primary packets were sent,
+/// how many retransmissions (RTX) the sender served, how many sequences a receiver NACK'd, how many packets
+/// RTX actually recovered on the receiver, and how many keyframe (PLI) requests were sent.
+/// </summary>
+/// <param name="MediaPacketsSent">Primary RTP packets transmitted (all media).</param>
+/// <param name="RtxPacketsSent">RTX retransmission packets transmitted in response to NACKs.</param>
+/// <param name="NackSequencesRequested">Sequence numbers requested across all NACKs sent.</param>
+/// <param name="RtxPacketsRecovered">Inbound RTX packets successfully unwrapped to their original packet.</param>
+/// <param name="KeyframeRequestsSent">Keyframe (PLI) requests sent to the peer.</param>
+public readonly record struct TransportLossStats(
+    long MediaPacketsSent, long RtxPacketsSent, long NackSequencesRequested,
+    long RtxPacketsRecovered, long KeyframeRequestsSent);
+
+/// <summary>
 /// A send-side congestion controller (modelled on libwebrtc's <c>NetworkControllerInterface</c>): it is fed
 /// sent packets and per-packet feedback, and produces a target bitrate + pacing rate. Implementations are
 /// pluggable (Google Congestion Control, SCReAM for cellular) so the transport core never depends on a
