@@ -95,7 +95,7 @@ try {
         $pub = if ($recvOn -eq 'mac') { @('--publish-syphon', 'MxV') } else { @('--publish-pipewire', 'MxV') }
         foreach ($secs in $Durations) {
             $room = ("sw{0}{1}" -f $r.Id, $secs) -replace '[^a-z0-9]', ''
-            $base = @('--relay', $ws, '--room', $room, '--source', 'synthetic', '--verify', '--synced',
+            $base = @('--relay', $ws, '--room', $room, '--source', 'synthetic', '--verify', '--synced', '--verbose',
                 '--resolution', $r.Res, '--fps', $r.Fps, '--profile', $r.Profile)
             if ($r.Alpha) { $base += '--alpha' }
             $sendArgs = @('send') + $base + @('--seconds', ($secs + 8))

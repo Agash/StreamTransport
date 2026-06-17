@@ -20,7 +20,11 @@ param(
     [switch]$Build,
     [int]$Seconds = 18,
     [string[]]$Cells,
-    [string]$WinIp = '192.168.20.51',
+    [ValidateSet('all', 'loopback', 'cross')][string]$Group = 'all',
+    [string[]]$Profiles = @('interactive'),
+    [string]$Resolution,
+    [int]$Fps,
+    [string]$WinIp,
     [string]$LinuxHost = 'agash@192.168.20.102',
     [string]$LinuxRepo = '~/stx',
     [string]$MacHost = 'agash@mac-mini.local',
@@ -30,6 +34,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+# Profiles arrives as one token under -File ("a,b"); split it. Auto-detect the Windows LAN IP (DHCP moves it).
+$Profiles = $Profiles | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ }
+if (-not $WinIp) {
+    $WinIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like '192.168.*' } | Select-Object -First 1).IPAddress
+    if (-not $WinIp) { throw 'could not auto-detect a 192.168.* Windows IP; pass -WinIp.' }
+}
 $ws = "ws://${WinIp}:$Port/ws"
 $winAgent = Join-Path $repo 'samples/StreamTransport.Agent/bin/Release/net11.0-windows10.0.19041.0/streamtransport-agent.exe'
 $relayDll = Join-Path $repo 'samples/StreamTransport.Relay/bin/Release/net11.0/StreamTransport.Relay.dll'
@@ -95,6 +105,39 @@ $matrix = @(
     @{ Id = 'CM5'; Name = 'mac2lin-gpu-av-synced';  Sender = 'mac';   Receiver = 'linux'; SendExtra = @();               RecvExtra = @('--synced', '--publish-pipewire', 'MxAV') }
     @{ Id = 'CM6'; Name = 'lin2mac-gpu-av-synced';  Sender = 'linux'; Receiver = 'mac';   SendExtra = @();               RecvExtra = @('--synced', '--publish-syphon', 'MxAV') }
 )
+foreach ($c in $matrix) { $c.Group = 'cross' }
+
+# --- loopback cells -----------------------------------------------------------------------------------------
+# Sender == Receiver on one machine: signaling still goes through the Windows relay, but media is P2P-local on
+# that host, so this isolates the platform's full pipeline (encode -> WebRTC -> decode -> GPU publish) from the
+# cross-machine network. Generated across -Profiles x {cpu video-only, cpu A/V synced, GPU A/V synced}. Windows
+# has no in-agent GPU-output verify (its --verify is CPU-decode), so it gets CPU rows only; mac/linux add the
+# GPU-publish row (Syphon/PipeWire readback verify). These answer "what can each box actually do, network aside".
+$loopPlatforms = @(
+    @{ Plat = 'win';   Pub = $null }
+    @{ Plat = 'mac';   Pub = @('--publish-syphon', 'LB') }
+    @{ Plat = 'linux'; Pub = @('--publish-pipewire', 'LB') }
+)
+$loopKinds = @(
+    @{ K = 'cpu-video';     Gpu = $false; Send = @('--video-only'); Recv = @('--video-only') }
+    @{ K = 'cpu-av-synced'; Gpu = $false; Send = @();               Recv = @('--synced') }
+    @{ K = 'gpu-av-synced'; Gpu = $true;  Send = @();               Recv = @('--synced') }
+)
+foreach ($p in $loopPlatforms) {
+    foreach ($prof in $Profiles) {
+        foreach ($k in $loopKinds) {
+            if ($k.Gpu -and -not $p.Pub) { continue }
+            $recv = @($k.Recv); if ($k.Gpu) { $recv += $p.Pub }
+            $matrix += @{
+                Id = "LB-$($p.Plat)-$($k.K)-$prof"; Name = "loopback $($p.Plat) $($k.K) $prof";
+                Sender = $p.Plat; Receiver = $p.Plat; Group = 'loopback'; Profile = $prof;
+                SendExtra = $k.Send; RecvExtra = $recv
+            }
+        }
+    }
+}
+
+if ($Group -ne 'all') { $matrix = $matrix | Where-Object { $_.Group -eq $Group } }
 if ($Cells) {
     # -File passes "-Cells C1,C7" as a single token, so split on commas/space to get the real list.
     $want = $Cells | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ }
@@ -139,8 +182,14 @@ $results = @()
 try {
     foreach ($c in $matrix) {
         $recvOn = $c.Receiver
-        $room = $c.Id.ToLower()
-        $base = @('--relay', $ws, '--room', $room, '--source', 'synthetic', '--verify')
+        $room = ($c.Id -replace '[^a-zA-Z0-9]', '').ToLower()
+        # --verbose always on: every cell's per-cell log then carries the SCReAM congestion estimate
+        # (target/pacing/rtt/loss) and other debug, which is what makes a failed/odd cell investigable after
+        # the fact without re-running. The logs are per-cell files, so the volume is contained.
+        $base = @('--relay', $ws, '--room', $room, '--source', 'synthetic', '--verify', '--verbose')
+        if ($c.Profile) { $base += @('--profile', $c.Profile) }
+        if ($Resolution) { $base += @('--resolution', $Resolution) }
+        if ($Fps) { $base += @('--fps', $Fps) }
         $sendArgs = @('send') + $base + @('--seconds', ($Seconds + 6)) + $c.SendExtra
         $recvArgs = @('receive') + $base + @('--seconds', $Seconds) + $c.RecvExtra
         $sendLog = Join-Path $logDir "$($c.Id)-send.log"
