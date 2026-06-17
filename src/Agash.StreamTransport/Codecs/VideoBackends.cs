@@ -59,6 +59,14 @@ internal interface IVideoDecoderBackend : IDisposable
 /// <summary>Selects the decode backend for the requested output mode, falling back to CPU when a GPU backend can't open.</summary>
 internal static class VideoDecoderBackendFactory
 {
+    /// <summary>
+    /// Optional macOS GPU decoder override, set by the agent (net11.0-macos head) at startup. The raw
+    /// VTDecompressionSession decoder lives in the agent because it uses the Microsoft VideoToolbox/CoreMedia
+    /// bindings, which are unavailable in this net11.0 core library; this hook lets the core receive pipeline
+    /// use it without a project reference back to the agent.
+    /// </summary>
+    public static Func<IVideoDecoderBackend>? MacOsGpuDecoderFactory { get; set; }
+
     public static IVideoDecoderBackend Create(bool preferGpuOutput)
     {
 #if WINDOWS_HEAD
@@ -78,7 +86,9 @@ internal static class VideoDecoderBackendFactory
         {
             try
             {
-                return CreateVideoToolboxDecoder();
+                // Prefer the agent's raw VTDecompressionSession decoder (zero-copy BGRA IOSurface output) when
+                // it registered one; otherwise the FFmpeg VideoToolbox hwaccel decoder.
+                return MacOsGpuDecoderFactory?.Invoke() ?? CreateVideoToolboxDecoder();
             }
             catch (Exception)
             {

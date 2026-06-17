@@ -96,7 +96,7 @@ internal static class Publish
                 }
 
                 // --verify makes the synthetic source emit correlated A/V sync markers for the receiver.
-                videoSource = video ? new TestPatternVideoSource(1280, 720, 30, config.Alpha, config.Verify) : null;
+                videoSource = video ? new TestPatternVideoSource(config.Width, config.Height, config.Fps, config.Alpha, config.Verify) : null;
                 audioSource = config.Audio ? new SineToneAudioSource(config.Verify) : null;
             }
 
@@ -135,6 +135,7 @@ internal static class Publish
             var options = baseline with
             {
                 VideoEncoderName = encoderName,
+                VideoFps = config.Fps,
                 PreserveAlpha = config.Alpha,
                 MaxVideoBFrames = config.BFrames > 0 ? config.BFrames : baseline.MaxVideoBFrames,
                 LocalAddressPreferences = config.Interfaces ?? [],
@@ -300,8 +301,11 @@ internal static class Subscribe
             videoSink = syphon;
             syphonVideoSink = syphon;
             applyNegotiatedAlpha = syphon.SetPreserveAlpha;
-            // VideoToolbox decodes straight into a GPU surface for a zero-copy Syphon publish. For alpha
-            // the surface is the packed 2W x H frame, which the sink GPU-unpacks via Metal before publish.
+            // Use the raw VTDecompressionSession decoder: it decodes straight to BGRA IOSurfaces (Syphon's
+            // native format), so an opaque frame is announced zero-copy with no Metal convert on the receive
+            // thread. For alpha the packed 2W x H BGRA surface is GPU-unpacked by the sink before publish.
+            Agash.StreamTransport.Codecs.VideoDecoderBackendFactory.MacOsGpuDecoderFactory =
+                static () => new VtSessionVideoDecoder();
             preferGpu = true;
         }
         else

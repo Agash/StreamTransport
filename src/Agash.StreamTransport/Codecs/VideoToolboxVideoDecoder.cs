@@ -35,6 +35,7 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
     private AVBufferRef* _hwDevice;
     private AVPacket* _packet;
     private AVFrame* _frame;
+    private AVFrame* _drainFrame;
     private bool _disposed;
 
     public VideoToolboxVideoDecoder()
@@ -59,10 +60,16 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
         {
             Pointer = (nint)(delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)&GetVideoToolboxFormat,
         };
+        // Low-delay decode: our stream is zero-latency-encoded (no B-frames/reordering). Without this the
+        // VideoToolbox decoder holds frames in a reorder buffer and, since we pull one frame per access unit,
+        // output falls progressively behind - the cause of the collapsed publish frame rate. The CPU
+        // HevcDecoder sets the same flag for the same reason; matches FFmpeg's hw_decode.c expectations.
+        _context->flags |= ffmpeg.AV_CODEC_FLAG_LOW_DELAY;
 
         ffmpeg.avcodec_open2(_context, codec, null).ThrowOnError("open VideoToolbox HEVC decoder");
         _packet = ffmpeg.av_packet_alloc();
         _frame = ffmpeg.av_frame_alloc();
+        _drainFrame = ffmpeg.av_frame_alloc();
     }
 
     /// <summary>The IOSurface backing the most recently decoded frame, or 0 if none. Valid until the next decode.</summary>
@@ -98,8 +105,8 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
         _packet->pts = rtpTimestamp;
         _packet->dts = rtpTimestamp;
 
-        // With B-frames the decoder buffers output for reorder; send_packet then returns EAGAIN ("drain first")
-        // rather than an error. Tolerate it: drain a frame to free a slot, then re-send the packet.
+        // send_packet returns EAGAIN ("drain first") when the decoder's input queue is full; tolerate it and
+        // re-send after draining. Any other negative is a real send error.
         int sent = ffmpeg.avcodec_send_packet(_context, _packet);
         bool resend = sent == ffmpeg.AVERROR(ffmpeg.EAGAIN);
         if (!resend)
@@ -107,17 +114,34 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
             sent.ThrowOnError("send packet to decoder");
         }
 
-        int receive = ffmpeg.avcodec_receive_frame(_context, _frame);
-        if (receive == ffmpeg.AVERROR(ffmpeg.EAGAIN) || receive == ffmpeg.AVERROR_EOF)
+        // Canonical hwaccel loop (FFmpeg doc/examples/hw_decode.c): drain receive_frame until EAGAIN. The
+        // VideoToolbox backend can hold output internally, so a single receive leaves frames stuck and the
+        // effective frame rate collapses. We keep only the freshest frame (live publish drops stale frames):
+        // move_ref each received frame into _frame so the terminating EAGAIN call - which unrefs its argument -
+        // cannot release the CVPixelBuffer we are about to expose.
+        bool got = false;
+        while (true)
         {
-            return false;
-        }
+            int receive = ffmpeg.avcodec_receive_frame(_context, _drainFrame);
+            if (receive == ffmpeg.AVERROR(ffmpeg.EAGAIN) || receive == ffmpeg.AVERROR_EOF)
+            {
+                break;
+            }
 
-        receive.ThrowOnError("receive decoded frame");
+            receive.ThrowOnError("receive decoded frame");
+            ffmpeg.av_frame_unref(_frame);
+            ffmpeg.av_frame_move_ref(_frame, _drainFrame);
+            got = true;
+        }
 
         if (resend)
         {
             ffmpeg.avcodec_send_packet(_context, _packet).ThrowOnError("re-send packet to decoder");
+        }
+
+        if (!got)
+        {
+            return false;
         }
 
         if ((AVPixelFormat)_frame->format != AVPixelFormat.AV_PIX_FMT_VIDEOTOOLBOX)
@@ -153,6 +177,11 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
         fixed (AVFrame** frame = &_frame)
         {
             ffmpeg.av_frame_free(frame);
+        }
+
+        fixed (AVFrame** drainFrame = &_drainFrame)
+        {
+            ffmpeg.av_frame_free(drainFrame);
         }
 
         fixed (AVCodecContext** context = &_context)

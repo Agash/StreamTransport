@@ -207,6 +207,13 @@ public sealed record MediaTransportOptions
     /// </summary>
     public string? VideoEncoderName { get; init; }
 
+    /// <summary>
+    /// Nominal video frame rate, used for encoder rate-control/keyframe-interval tuning. The actual send rate
+    /// follows the source's real capture cadence (RTP timestamps advance by the measured interval), so this is
+    /// a hint, not a throttle. Defaults to 30.
+    /// </summary>
+    public int VideoFps { get; init; } = 30;
+
     /// <summary>The audio codec. Opus is the only WebRTC audio codec.</summary>
     public AudioCodec AudioCodec { get; init; } = AudioCodec.Opus;
 

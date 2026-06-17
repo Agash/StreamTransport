@@ -128,7 +128,10 @@ internal sealed record AgentConfig(
     int Seconds = 15,
     int BFrames = 0,
     MediaProfile Profile = MediaProfile.InteractiveP2P,
-    IReadOnlyList<string>? Interfaces = null)
+    IReadOnlyList<string>? Interfaces = null,
+    int Fps = 30,
+    int Width = 1280,
+    int Height = 720)
 {
     public static AgentConfig? FromArgs(string[] args)
     {
@@ -146,6 +149,9 @@ internal sealed record AgentConfig(
         bool audio = true, video = true, host = false, devTunnel = false, alpha = false, verify = false, synced = false;
         int seconds = 15;
         int bFrames = 0;
+        int fps = 30;
+        int width = 1280;
+        int height = 720;
         var profile = MediaProfile.InteractiveP2P;
         var interfaces = new List<string>();
 
@@ -172,6 +178,14 @@ internal sealed record AgentConfig(
                 case "--verify": verify = true; break;
                 case "--synced": synced = true; break;
                 case "--seconds": seconds = int.Parse(args[++i]); break;
+                case "--fps": fps = int.Parse(args[++i]); break;
+                case "--resolution":
+                {
+                    string[] wh = args[++i].Split('x', 'X');
+                    if (wh.Length != 2 || !int.TryParse(wh[0], out width) || !int.TryParse(wh[1], out height))
+                        throw new ArgumentException("--resolution expects WxH, e.g. 1920x1080.");
+                    break;
+                }
                 case "--bframes": bFrames = int.Parse(args[++i]); break;
                 case "--profile": profile = ParseProfile(args[++i]); break;
                 case "--interface": interfaces.Add(args[++i]); break;
@@ -196,7 +210,7 @@ internal sealed record AgentConfig(
 
         room ??= role == PeerRole.Publisher ? RandomRoom() : throw new ArgumentException("--room <code> is required for receive.");
         return new AgentConfig(
-            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, publishPipeWire, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces);
+            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, publishPipeWire, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces, fps, width, height);
     }
 
     private static MediaProfile ParseProfile(string value) => value.ToLowerInvariant() switch

@@ -15,7 +15,6 @@ namespace Agash.StreamTransport;
 /// </summary>
 public sealed partial class WebRtcMediaSender : IMediaSender
 {
-    private const int VideoFps = 30;
     private const long VideoBitrate = 6_000_000;
 
     private readonly MediaTransportOptions _options;
@@ -147,7 +146,7 @@ public sealed partial class WebRtcMediaSender : IMediaSender
                 // the first frame and ramp together); fall back to the fixed default with no controller.
                 long startBitrate = _controller?.CurrentEstimate.TargetBitrateBps ?? VideoBitrate;
                 _videoEncoder = videoCodec.CreateEncoder(
-                    new VideoEncoderSettings(VideoFps, startBitrate, _options.VideoEncoderName, _gpuDeviceHandle, _options.PreserveAlpha, _options.MaxVideoBFrames));
+                    new VideoEncoderSettings(_options.VideoFps, startBitrate, _options.VideoEncoderName, _gpuDeviceHandle, _options.PreserveAlpha, _options.MaxVideoBFrames));
                 _videoPacketizer = videoCodec.CreatePacketizer();
                 _videoPayloadType = (byte)codec.PayloadType;
                 _videoSsrc = media.LocalSsrc;

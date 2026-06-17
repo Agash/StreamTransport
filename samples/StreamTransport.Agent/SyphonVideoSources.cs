@@ -225,6 +225,8 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     private IAlphaUnpacker? _alphaCodec;
     private INv12ToBgra? _nv12Converter;
     private Action<VideoFrame>? _verifyTap;
+    private long _published;
+    private long _firstPublishTicks;
     private bool _disposed;
 
     public SyphonVideoPublishSink(string serverName, bool alpha = false)
@@ -267,6 +269,8 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             }
             else if (decoded.IsBgra())
             {
+                // The VTDecompressionSession decoder yields BGRA directly (Syphon's native format), so an
+                // opaque frame is announced as-is with no Metal convert.
                 surface = decoded;
             }
             else
@@ -276,11 +280,13 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             }
 
             _server.Publish(surface);
+            if (_firstPublishTicks == 0) { _firstPublishTicks = Stopwatch.GetTimestamp(); }
+            _published++;
 
             // GPU verify: read the published BGRA surface back to CPU and feed the verifying sink, so the real
-            // GPU output (VideoToolbox decode -> Metal convert/unpack) is content-checked. Stamp the playout
-            // time so the readback cost doesn't inflate the measured skew (markers ride NV12 luma, so the BGRA
-            // readback reports content/alpha; A/V sync is the CPU path's job).
+            // GPU output is content-checked. Stamp the playout time so the readback cost doesn't inflate the
+            // measured skew (markers ride luma, so the BGRA readback reports content/alpha; A/V sync is the CPU
+            // path's job).
             if (_verifyTap is not null)
             {
                 (int w, int h) = surface.PixelSize();
@@ -288,6 +294,11 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
                 surface.CopyTightlyPacked(buffer);
                 _verifyTap(VideoFrame.FromPixels(buffer, VideoPixelFormat.Bgra, w, h, frame.PresentationTimeNs));
             }
+
+            // A console host has no Cocoa run loop; drain pending events (non-blocking) so the server stays
+            // discoverable without stalling the publish loop.
+            SyphonServer.PumpOnce();
+            return;
         }
         else if (frame.InteropKind == StreamInteropKind.None
             && frame.PixelFormat == VideoPixelFormat.Bgra
@@ -301,8 +312,9 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             return;
         }
 
-        // A console host has no Cocoa run loop; pump so the server stays discoverable and announces frames.
-        SyphonServer.PumpEvents(TimeSpan.FromMilliseconds(1));
+        // A console host has no Cocoa run loop; drain pending events so the server stays discoverable.
+        // Non-blocking (PumpOnce, not a timed PumpEvents) so it never stalls the publish loop when idle.
+        SyphonServer.PumpOnce();
     }
 
     public void Dispose()
@@ -313,6 +325,13 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
         }
 
         _disposed = true;
+        if (_published > 0 && _firstPublishTicks != 0)
+        {
+            double seconds = (Stopwatch.GetTimestamp() - _firstPublishTicks) / (double)Stopwatch.Frequency;
+            double fps = seconds > 0 ? _published / seconds : 0;
+            Console.WriteLine($"syphon publish: {_published} frames in {seconds:F1}s ({fps:F1} fps).");
+        }
+
         (_alphaCodec as IDisposable)?.Dispose();
         (_nv12Converter as IDisposable)?.Dispose();
         _server.Dispose();
