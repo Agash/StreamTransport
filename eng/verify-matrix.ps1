@@ -41,7 +41,10 @@ if (-not $WinIp) {
     if (-not $WinIp) { throw 'could not auto-detect a 192.168.* Windows IP; pass -WinIp.' }
 }
 $ws = "ws://${WinIp}:$Port/ws"
-$winAgent = Join-Path $repo 'samples/StreamTransport.Agent/bin/Release/net11.0-windows10.0.19041.0/streamtransport-agent.exe'
+# Prefer the Windows NativeAOT publish (the deployment artifact); fall back to the framework-dependent build.
+$winAgentAot = Join-Path $repo 'samples/StreamTransport.Agent/bin/Release/net11.0-windows10.0.19041.0/win-x64/publish/streamtransport-agent.exe'
+$winAgentFdd = Join-Path $repo 'samples/StreamTransport.Agent/bin/Release/net11.0-windows10.0.19041.0/streamtransport-agent.exe'
+$winAgent = if (Test-Path $winAgentAot) { $winAgentAot } else { $winAgentFdd }
 $relayDll = Join-Path $repo 'samples/StreamTransport.Relay/bin/Release/net11.0/StreamTransport.Relay.dll'
 $logDir = Join-Path $repo '.matrix-logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
