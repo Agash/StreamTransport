@@ -10,17 +10,21 @@ host application owns where frames come from and how peers find each other.
 capture (Spout / Syphon / PipeWire / camera) -> HW H.265 encode -> WebRTC P2P -> HW H.265 decode -> publish
 ```
 
-Targets `net11.0` (a Windows head adds the D3D11 zero-copy path). The transport itself never touches a disk, a
+Targets `net11.0`, with per-OS agent heads — Windows (`net11.0-windows`, D3D11/Spout), macOS (`net11.0-macos`,
+Metal/IOSurface/Syphon + VideoToolbox + CoreAudio), and Linux (`net11.0`, VAAPI/PipeWire/Vulkan). All three
+publish as **self-contained, trimmed CoreCLR NativeAOT** binaries. The transport itself never touches a disk, a
 tunnel, or a capture API; those live behind two seams the host fills in.
 
 > ### Status: v0.1.0-alpha1
 >
-> The core stack (signaling, ICE, DTLS-SRTP, RTP/RTCP, SDP, congestion control, FlexFEC, mobility) is
-> implemented and covered by unit, in-process E2E, and loopback tests on Windows, macOS, and Linux CI.
-> Hardware encode/decode is verified on **NVENC (Windows/Linux)**, **AMF (Windows)**, and **VideoToolbox
-> (macOS)**. The **Linux VAAPI encoder and the PipeWire capture path are implemented but not yet fully wired
-> or hardware-verified** (no `/dev/dri` on CI); treat the Linux GPU path as experimental. AV1 is registered as
-> a codec but has no real-time hardware encoder on current GPUs, so it is decode/software only for now.
+> The core stack (signaling, ICE, DTLS-SRTP, RTP/RTCP, SDP, congestion control, loss recovery, mobility) is
+> implemented and covered by unit, in-process E2E, and loopback tests on Windows, macOS, and Linux CI, plus a
+> 3-machine cross-platform verify matrix (`eng/verify-matrix.ps1`) that drives the NativeAOT binaries.
+> Hardware encode/decode is verified on **NVENC (Windows/Linux)**, **AMF (Windows)**, **VideoToolbox (macOS,
+> via a raw `VTDecompressionSession` decode path)**, and **VAAPI + PipeWire DMA-BUF (Linux)** — the Linux GPU
+> path is now hardware-verified on a real handheld, not just CI. Cross-machine 1080p60 sustains full frame rate
+> over a lossy Wi-Fi link (sequence-aware H.265 reassembly + NACK/RTX recovery). AV1 is registered as a codec
+> but has no real-time hardware encoder on current GPUs, so it is decode/software only for now.
 
 ## The two seams
 
@@ -37,8 +41,10 @@ Built for lossy, mobile uplinks as well as clean LANs, selected by a single medi
 
 - **Congestion control** - a SCReAM controller (RFC 8298) driven by RTCP Congestion Control Feedback
   (RFC 8888); the encoder is retuned and the sender paced to the estimate.
-- **Loss recovery** - NACK + RTX (RFC 4588) on low-RTT links; FlexFEC (RFC 8627) on the high-RTT IRL profile,
-  where a retransmit round trip is too slow.
+- **Loss recovery** - a sequence-aware H.265 packet buffer reorders RTP into complete frames (so a lost packet
+  never feeds the decoder a corrupt/merged access unit), NACK + RTX (RFC 4588) retransmit holes in order on
+  low-RTT links, with a throttled keyframe request on unrecoverable gaps; FlexFEC (RFC 8627) on the high-RTT
+  IRL profile, where a retransmit round trip is too slow.
 - **Mobility** - full credential-rollover ICE restart and pre-warmed hot-standby candidate switching, with the
   DTLS-SRTP session (keys + rollover counter) preserved across a path change.
 
