@@ -14,10 +14,14 @@
     <AssemblyName>streamtransport-agent</AssemblyName>
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- NativeAOT + self-contained is the deployment model for the Linux and Windows heads: enable it whenever
-         publishing with a RID (a plain `dotnet build` stays fast and non-AOT). The -macos head can't use ILC
-         NativeAOT - it ships as a Mono-AOT .app bundle via the -macos workload instead - so it is excluded. -->
-    <PublishAot Condition="'$(RuntimeIdentifier)' != '' and !$(TargetFramework.Contains('-macos'))">true</PublishAot>
+    <!-- NativeAOT (ILC) + self-contained + trimmed is the deployment model for every head: enable it whenever
+         publishing with a RID (a plain `dotnet build` stays fast and non-AOT). NativeAOT is the CoreCLR-lineage
+         AOT - it statically links the CoreCLR NativeAOT runtime, not MonoVM - so this gives a uniform
+         CoreCLR/NativeAOT artifact on Windows, Linux, and macOS (the -macos workload's ILC path; verified the
+         output is a single self-contained Mach-O with the Apple Metal/VideoToolbox/CoreAudio bindings + Syphon
+         working under AOT). The -macos dev/JIT runtime can separately be switched off Mono via
+         UseMonoRuntime=false (experimental CoreCLR-on-macOS), but that does not affect this published binary. -->
+    <PublishAot Condition="'$(RuntimeIdentifier)' != ''">true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>
