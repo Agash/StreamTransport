@@ -28,6 +28,15 @@ internal sealed class TestPatternVideoSource(int width, int height, int fps, boo
         }
 
         _nextTick += _ticksPerFrame;
+        // Re-anchor if the pump fell more than a frame behind (likelier at high fps, where the 1/fps budget is
+        // tight): otherwise the next calls emit a catch-up BURST with clustered capture timestamps, which the
+        // receiver presents at its steady decode cadence - making the arrival offset (localNow - senderWall)
+        // drift and breaking A/V sync at high fps. Drop the backlog and keep capture times evenly 1/fps apart,
+        // like a real paced capture source.
+        if (now - _nextTick > _ticksPerFrame)
+        {
+            _nextTick = now;
+        }
 
         // Emit the marker on exactly ONE frame per wall second (the first frame of each new second), not for a
         // window of frames. A window would tag several frames with the same seqId, and the receiver could pair a
@@ -163,6 +172,15 @@ internal sealed class SineToneAudioSource(bool verify = false) : IAudioFrameSour
         }
 
         _nextTick += _ticksPerFrame;
+        // Re-anchor if the pump fell more than a frame behind (likelier at high fps, where the 1/fps budget is
+        // tight): otherwise the next calls emit a catch-up BURST with clustered capture timestamps, which the
+        // receiver presents at its steady decode cadence - making the arrival offset (localNow - senderWall)
+        // drift and breaking A/V sync at high fps. Drop the backlog and keep capture times evenly 1/fps apart,
+        // like a real paced capture source.
+        if (now - _nextTick > _ticksPerFrame)
+        {
+            _nextTick = now;
+        }
         long captureNs = NowNs();
         // One marker burst per wall second (first audio frame of each new second), matching the video source -
         // see the note there; this keeps the A/V marker pairing unambiguous.
