@@ -88,6 +88,10 @@
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
     <ApplicationTitle>streamtransport-agent</ApplicationTitle>
+    <!-- Run the -macos head on CoreCLR instead of MonoVM (experimental CoreCLR-on-Apple support). This affects
+         the JIT/dev inner loop (`dotnet build`/`run`); the published artifact is NativeAOT (ILC) regardless, so
+         the whole macOS story is CoreCLR-lineage - no Mono - matching Windows and Linux. -->
+    <UseMonoRuntime>false</UseMonoRuntime>
     <!-- The .NET-for-macOS workload pins an exact recommended Xcode (e.g. net11.0_26.4 wants Xcode 26.4) and
          hard-errors when the installed Xcode is even a point release newer (26.5). The codegen difference
          between adjacent Xcode point releases is benign for this agent, so relax the check rather than pin every
