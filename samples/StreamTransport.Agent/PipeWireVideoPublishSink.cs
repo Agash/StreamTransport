@@ -303,7 +303,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 // alpha = the Vulkan unpack of that staging into a BGRA pool image.
                 if (_verifyTap is not null)
                 {
-                    EmitVerifyFrame();
+                    EmitVerifyFrame(frame.PresentationTimeNs);
                 }
             }
             else if (s_debug)
@@ -520,12 +520,15 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     // Read the just-staged GPU surface back to CPU and hand it to the verification tap. Caller holds _gate.
     // Opaque: the VPP'd NV12 staging surface. Alpha: unpack that staging into a BGRA pool image (no consumer
     // contends in verify mode) and read that back. Exactly the pixels the zero-copy path would publish.
-    private void EmitVerifyFrame()
+    private void EmitVerifyFrame(long presentationTimeNs)
     {
-        // Stamp the delivery (playout) time NOW, before the synchronous readback below - the readback adds
-        // latency, and timing the marker after it would inflate the measured A/V skew. VerifyingVideoSink reads
-        // this off the frame's PresentationTimeNs (usePresentationTime: true) instead of its own receipt clock.
-        long obsNs = NowNs();
+        // Stamp the marker with the decoded frame's delivery time (its PresentationTimeNs, set to the local
+        // decode clock), NOT a fresh NowNs() taken here - this method runs after the VAAPI VPP/staging copy, so a
+        // local clock read here would include the publish-staging latency and inflate the measured A/V skew
+        // against the audio marker (timed at scheduler release) and the macOS Syphon path (which also stamps the
+        // frame's PresentationTimeNs). The readback below adds further latency that this correctly excludes.
+        // VerifyingVideoSink reads this off PresentationTimeNs (usePresentationTime: true).
+        long obsNs = presentationTimeNs;
         try
         {
             if (_alphaGpu)
