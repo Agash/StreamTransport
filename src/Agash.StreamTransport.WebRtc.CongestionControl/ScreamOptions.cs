@@ -36,4 +36,23 @@ public sealed class ScreamOptions
 
     /// <summary>The maximum segment size assumed for the congestion window (bytes).</summary>
     public int MaxSegmentSize { get; set; } = 1200;
+
+    /// <summary>
+    /// The nominal RTT (ms) the loss estimator clamps to when the measured RTT is smaller (SCReAM v2 VirtualRtt),
+    /// so the per-RTT loss filter steps at a stable cadence on very low-RTT LAN links.
+    /// </summary>
+    public int VirtualRttMs { get; set; } = 25;
+
+    /// <summary>
+    /// Consecutive loss-bearing RTTs required before a loss-driven back-off fires (SCReAM v2
+    /// RttsWithLossBeforeBackoff). The loss filter steps up by 1/this each such RTT; the default of 3 ignores
+    /// spurious wireless loss while still reacting to sustained congestion within a few RTTs.
+    /// </summary>
+    public int RttsWithLossBeforeBackoff { get; set; } = 3;
+
+    /// <summary>
+    /// Lossless RTTs to fully clear the congestion level (SCReAM v2 LosslessRttsBeforeClear). The filter steps
+    /// down by 1/this each lossless RTT; the default of 2 keeps brief memory of a real congestion episode.
+    /// </summary>
+    public int LosslessRttsBeforeClear { get; set; } = 2;
 }

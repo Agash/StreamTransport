@@ -14,6 +14,7 @@ public sealed class ScreamCongestionController : INetworkController
 {
     private readonly ScreamOptions _options;
     private readonly double _minCwnd;
+    private readonly LossEstimator _lossEstimator;
 
     private double _cwndBytes;
     private double _srttMicros;
@@ -26,6 +27,8 @@ public sealed class ScreamCongestionController : INetworkController
     public ScreamCongestionController(ScreamOptions? options = null)
     {
         _options = options ?? new ScreamOptions();
+        _lossEstimator = new LossEstimator(
+            _options.VirtualRttMs * 1000L, _options.RttsWithLossBeforeBackoff, _options.LosslessRttsBeforeClear);
         _minCwnd = (_options.MinBitrateBps / 8.0) * 0.05;   // ~50 ms at the floor rate
         _cwndBytes = Math.Max(_minCwnd, (_options.StartBitrateBps / 8.0) * 0.1);
         _targetBitrate = _options.StartBitrateBps;
@@ -51,7 +54,7 @@ public sealed class ScreamCongestionController : INetworkController
 
         _lastFeedbackMicros = nowMicros;
 
-        bool loss = false;
+        int lostCount = 0;
         long ackedBytes = 0;
         long latestSendMicros = long.MinValue;
         bool anyReceived = false;
@@ -61,7 +64,7 @@ public sealed class ScreamCongestionController : INetworkController
         {
             if (!result.Received)
             {
-                loss = true;
+                lostCount++;
                 continue;
             }
 
@@ -86,6 +89,13 @@ public sealed class ScreamCongestionController : INetworkController
         double queueDelayMicros = _srttMicros - _baseRttMicros;
         double targetMicros = _options.QueueDelayTargetMs * 1000.0;
 
+        // Run loss through the SCReAM v2 asymmetric filter rather than reacting to each lost packet. The filter
+        // only reports congestion after sustained loss, so spurious wireless loss (now also masked by NACK/RTX
+        // recovery) holds the rate steady instead of collapsing it. Recovered-packet accounting is a follow-up;
+        // for now lost packets that NACK/RTX recovers simply stop arriving as "not received" in later reports.
+        _lossEstimator.Update(lostCount, numRecovered: 0, nowMicros, _srttMicros);
+        bool delayCongested = queueDelayMicros > targetMicros;
+
         // Update the L4S marking fraction estimate every feedback that carried receptions, with a fast-attack /
         // slow-decay EWMA (SCReAM v2 §4.2.1.3, RFC 9331 / DCTCP): it rises quickly when marks appear and decays
         // slowly when they stop, so the ECN back-off tracks sustained congestion rather than per-feedback noise.
@@ -97,7 +107,7 @@ public sealed class ScreamCongestionController : INetworkController
                 : (1.0 - _options.L4sAlphaGainDown) * _l4sAlpha;
         }
 
-        if (loss || queueDelayMicros > targetMicros)
+        if (delayCongested || _lossEstimator.Congested)
         {
             _cwndBytes = Math.Max(_minCwnd, _cwndBytes * _options.BackoffFactor);
         }
@@ -109,11 +119,12 @@ public sealed class ScreamCongestionController : INetworkController
             // the loss back-off, letting the controller hold a higher, smoother rate on an L4S-capable bottleneck.
             _cwndBytes = Math.Max(_minCwnd, _cwndBytes * (1.0 - (_l4sAlpha / 2.0)));
         }
-        else if (ackedBytes > 0)
+        else if (ackedBytes > 0 && !_lossEstimator.IncreaseBlocked)
         {
-            // Cap growth at the bandwidth-delay product at the ceiling rate, so the window cannot wind up
-            // past what the max rate needs - otherwise a later multiplicative back-off is hidden by the
-            // rate clamp and the controller can't actually react to loss.
+            // Grow only when no congestion memory remains (SCReAM v2 blocks the increase while the loss filter is
+            // non-zero, so the window does not re-expand the instant an episode ends). Cap growth at the
+            // bandwidth-delay product at the ceiling rate, so the window cannot wind up past what the max rate
+            // needs - otherwise a later multiplicative back-off is hidden by the rate clamp.
             double offTarget = (targetMicros - queueDelayMicros) / targetMicros; // (0, 1]
             _cwndBytes = Math.Min(MaxCwnd(), _cwndBytes + (offTarget * ackedBytes));
         }

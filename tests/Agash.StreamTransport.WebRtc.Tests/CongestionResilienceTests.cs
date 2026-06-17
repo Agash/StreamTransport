@@ -48,18 +48,22 @@ public sealed class CongestionResilienceTests
 
         long peak = controller.CurrentEstimate.TargetBitrateBps;
 
-        // A loss spike (3 of 4 lost) forces a multiplicative back-off.
-        now += IntervalMicros;
-        controller.OnFeedback(
-            [
-                new PacketResult(seq++, 1200, now - IntervalMicros, now - 10_000),
-                new PacketResult(seq++, 1200, now - IntervalMicros, -1),
-                new PacketResult(seq++, 1200, now - IntervalMicros, -1),
-                new PacketResult(seq++, 1200, now - IntervalMicros, -1),
-            ],
-            now);
+        // A sustained loss spike (3 of 4 lost across several RTTs) drives the SCReAM v2 loss filter past its
+        // threshold and forces a multiplicative back-off. Spaced > VirtualRtt (25 ms) so each report steps it.
+        for (int batch = 0; batch < 5; batch++)
+        {
+            now += 30_000;
+            controller.OnFeedback(
+                [
+                    new PacketResult(seq++, 1200, now - 30_000, now - 15_000),
+                    new PacketResult(seq++, 1200, now - 30_000, -1),
+                    new PacketResult(seq++, 1200, now - 30_000, -1),
+                    new PacketResult(seq++, 1200, now - 30_000, -1),
+                ],
+                now);
+        }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps < peak, "the loss spike must back the rate off.");
+        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps < peak, "the sustained loss spike must back the rate off.");
 
         // Clean delivery resumes; count feedback intervals until it climbs back to 90% of the pre-spike rate.
         int intervals = 0;
