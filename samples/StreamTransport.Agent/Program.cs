@@ -21,6 +21,14 @@ if (args.Length > 0 && args[0].Equals("selftest", StringComparison.OrdinalIgnore
 {
     // `selftest alpha [encoder]` runs the GPU side-by-side-alpha round-trip (pack -> encode -> decode ->
     // unpack) through a real hardware encoder, with no Spout sender / OBS needed.
+    // `selftest caps` probes and prints the host's usable HEVC hardware encode/decode capabilities. Works on
+    // every platform (no relay, no GPU surface), so it doubles as a quick "what will this machine do?" check.
+    if (args.Length > 1 && args[1].Equals("caps", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine(Agash.StreamTransport.Codecs.CodecCapabilities.Probe().Describe());
+        return 0;
+    }
+
     bool alpha = args.Length > 1 && args[1].Equals("alpha", StringComparison.OrdinalIgnoreCase);
     string selfTestEncoder = args.Length > 2 ? args[2] : "hevc_nvenc";
 #if HAS_PIPEWIRE
