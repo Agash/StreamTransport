@@ -44,6 +44,11 @@ public sealed partial class WebRtcMediaSender : IMediaSender
     private long _videoBaseCaptureNs = -1;
     private uint _audioRtpTimestamp;
 
+    // Set when the peer asks for a keyframe (RTCP PLI/FIR, raised as PeerConnection.KeyframeRequested - e.g. on
+    // join, or when the receiver's NACK retries are exhausted). The video pump consumes it on the next frame and
+    // forces an IDR, so a receiver that lost the reference chain recovers without waiting for the GOP keyframe.
+    private int _keyframeRequested;
+
     /// <summary>
     /// Create a sender. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
     /// The codec set (<paramref name="registry"/>), DTLS-SRTP engine (<paramref name="dtlsFactory"/>), and
@@ -95,6 +100,9 @@ public sealed partial class WebRtcMediaSender : IMediaSender
 
         // Congestion control: the controller's estimate retunes the encoder and the pacer live.
         pc.BitrateEstimateChanged += OnBitrateEstimate;
+
+        // Loss recovery: a peer keyframe request (PLI/FIR) forces an IDR on the next encoded frame.
+        pc.KeyframeRequested += _ => Volatile.Write(ref _keyframeRequested, 1);
 
         // Mobility: a network change re-probes this connection's path, preserving the SRTP session.
         _mobilityRegistration = _mobility?.Register(() => _session?.Pc.TriggerNetworkRecovery());
@@ -239,6 +247,12 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         {
             if (VideoSource!.TryGetFrame(out VideoFrame frame))
             {
+                // Honour a pending peer keyframe request: force an IDR on this frame (consumed once).
+                if (Interlocked.Exchange(ref _keyframeRequested, 0) == 1)
+                {
+                    frame = frame with { ForceKeyframe = true };
+                }
+
                 if (_videoEncoder!.Encode(frame) is { } encoded)
                 {
                     // The RTP timestamp is each frame's absolute sampling instant mapped to the 90 kHz clock -

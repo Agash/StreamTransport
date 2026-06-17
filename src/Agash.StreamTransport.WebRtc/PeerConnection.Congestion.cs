@@ -102,7 +102,16 @@ public sealed partial class PeerConnection
     {
         // The feedback timer runs on both peers (whoever receives media sends CCFB). The process timer only
         // matters where a controller consumes feedback, but starting it unconditionally is harmless.
-        _ccfbTimer ??= new Timer(static s => ((PeerConnection)s!).SendCongestionFeedback(), this, FeedbackIntervalMs, FeedbackIntervalMs);
+        _ccfbTimer ??= new Timer(
+            static s =>
+            {
+                var pc = (PeerConnection)s!;
+                pc.SendCongestionFeedback();
+                pc.ProcessNackResends();
+            },
+            this,
+            FeedbackIntervalMs,
+            FeedbackIntervalMs);
         if (_controller is not null)
         {
             _processTimer ??= new Timer(static s => ((PeerConnection)s!).RunProcessInterval(), this, ProcessIntervalMs, ProcessIntervalMs);

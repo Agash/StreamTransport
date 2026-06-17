@@ -520,9 +520,44 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        // Hand the payload up as a slice of the same buffer (the payload is the tail of the packet). Zero
-        // copy - the subscriber copies only if it retains it past the synchronous callback.
+        // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered
+        // packet reaches the depacketizer (and the loss tracker) as if it had never been lost. Done into a
+        // rented buffer because the recovered packet is larger than the borrowed receive slice can describe.
+        if (TryRecognizeRtx(header.Ssrc, header.PayloadType, out uint mediaSsrc, out byte originalPayloadType))
+        {
+            byte[] recovered = ArrayPool<byte>.Shared.Rent(plaintextLength);
+            try
+            {
+                if (RtxStream.TryUnwrap(span[..plaintextLength], recovered, originalPayloadType, mediaSsrc, out int recoveredLength)
+                    && RtpPacket.TryParse(recovered.AsSpan(0, recoveredLength), out RtpHeader rtxHeader, out ReadOnlySpan<byte> rtxPayload))
+                {
+                    DeliverMedia(rtxHeader, recovered.AsMemory(0, recoveredLength), recoveredLength, rtxPayload, ecn);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(recovered);
+            }
+
+            return;
+        }
+
+        DeliverMedia(header, data, plaintextLength, payload, ecn);
+    }
+
+    // Common delivery for an original or RTX-recovered media packet: record its arrival for congestion feedback
+    // and loss recovery, run FlexFEC, then hand the payload up as a zero-copy slice of its backing buffer.
+    private void DeliverMedia(RtpHeader header, Memory<byte> packet, int plaintextLength, ReadOnlySpan<byte> payload, byte ecn)
+    {
         RecordArrival(header.Ssrc, header.SequenceNumber, NowMicros(), ecn);
+
+        // Loss recovery (NACK): only for media the peer can retransmit (an RTX partner is configured for it).
+        // Remember its PT so an inbound RTX packet can be unwrapped back to the right payload type.
+        if (_rtx.ContainsKey(header.Ssrc))
+        {
+            RememberMediaPayloadType(header.Ssrc, header.PayloadType);
+            OnMediaSequence(header.Ssrc, header.SequenceNumber);
+        }
 
         // FlexFEC: a repair packet recovers a lost media packet; a protected media packet is cached for recovery.
         if (FecEnabled)
@@ -535,12 +570,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
             if (header.Ssrc == _options.FecProtectedSsrc)
             {
-                CacheProtectedPacket(span[..plaintextLength]);
+                CacheProtectedPacket(packet.Span[..plaintextLength]);
             }
         }
 
         int payloadOffset = plaintextLength - payload.Length;
-        RtpReceived?.Invoke(header, data.Slice(payloadOffset, payload.Length));
+        RtpReceived?.Invoke(header, packet.Slice(payloadOffset, payload.Length));
     }
 
     private SdpMediaDescription BuildMediaSection(string mid, SdpMediaKind kind, IReadOnlyList<SdpCodec> codecs, uint ssrc, SdpSetup setup) => new()
