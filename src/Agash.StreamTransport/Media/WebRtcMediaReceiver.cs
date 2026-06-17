@@ -53,6 +53,19 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private Task? _videoDecodeLoop;
     private Task? _audioDecodeLoop;
 
+    // Receiver-side network telemetry for the video stream, accumulated on the (single) receive thread and
+    // flushed ~once a second at Debug. Complements the sender's congestion log: this is the receiver's view of
+    // what actually arrived - rate, RTP loss from sequence gaps, RFC 3550 inter-arrival jitter, and the adaptive
+    // jitter-buffer/playout depth - which is exactly what reveals a jittery link starving high-fps delivery.
+    private readonly System.Diagnostics.Stopwatch _rxSw = System.Diagnostics.Stopwatch.StartNew();
+    private long _rxWindowStartMs;
+    private long _rxBytes;
+    private int _rxPackets;
+    private int _rxLost;
+    private int _rxLastSeq = -1;
+    private double _rxJitterMs;
+    private double _rxLastTransitMs;
+
     /// <summary>
     /// Create a receiver. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
     /// The codec set (<paramref name="registry"/>), DTLS-SRTP engine (<paramref name="dtlsFactory"/>), and
@@ -194,6 +207,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     {
         if (_videoDepacketizer is not null && header.PayloadType == _videoPayloadType)
         {
+            RecordRxStats(header, payload.Length);
             if (_syncEnabled && header.AbsoluteCaptureTimeNtp is { } videoNtp && videoNtp != 0)
             {
                 _aligner.RecordAbsCaptureTime(SyncStream.Video, videoNtp, header.Timestamp, VideoClockRate);
@@ -224,6 +238,41 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             }
         }
     }
+
+    // Accumulate one video RTP packet into the per-second receive-stats window and flush a Debug line when the
+    // window closes. Single-threaded (the receive thread), so no locking. Loss is from 16-bit sequence gaps
+    // (reordering shows as a large backward gap and is ignored); jitter is the RFC 3550 inter-arrival estimate
+    // (the constant peer clock offset cancels in the transit delta).
+    private void RecordRxStats(RtpHeader header, int bytes)
+    {
+        long nowMs = _rxSw.ElapsedMilliseconds;
+        _rxBytes += bytes;
+        _rxPackets++;
+        if (_rxLastSeq >= 0)
+        {
+            int gap = (ushort)(header.SequenceNumber - _rxLastSeq);
+            if (gap is > 0 and < 0x4000) { _rxLost += gap - 1; } // forward gap: gap-1 missing; large gap = reorder
+        }
+        _rxLastSeq = header.SequenceNumber;
+
+        double transitMs = nowMs - (header.Timestamp / 90.0);
+        if (_rxPackets > 1) { _rxJitterMs += (Math.Abs(transitMs - _rxLastTransitMs) - _rxJitterMs) / 16.0; }
+        _rxLastTransitMs = transitMs;
+
+        long elapsed = nowMs - _rxWindowStartMs;
+        if (elapsed >= 1000)
+        {
+            long kbps = _rxBytes * 8 / elapsed;
+            int pps = (int)(_rxPackets * 1000L / elapsed);
+            double lossPct = (_rxPackets + _rxLost) > 0 ? 100.0 * _rxLost / (_rxPackets + _rxLost) : 0;
+            long playoutMs = (_scheduler?.CurrentDelayNs ?? 0) / 1_000_000;
+            LogNetworkRx(kbps, pps, lossPct, _rxJitterMs, playoutMs);
+            _rxBytes = 0; _rxPackets = 0; _rxLost = 0; _rxWindowStartMs = nowMs;
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Network rx: {Kbps} kbps, {Pps} pps, loss {LossPct:F1}%, jitter {JitterMs:F1} ms, playout {PlayoutMs} ms.")]
+    private partial void LogNetworkRx(long kbps, int pps, double lossPct, double jitterMs, long playoutMs);
 
     // Present on arrival, or - when synced and both stream clocks are anchored - schedule by capture time so
     // audio and video lip-sync.

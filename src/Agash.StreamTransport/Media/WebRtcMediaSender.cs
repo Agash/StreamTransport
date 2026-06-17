@@ -170,11 +170,17 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         _videoEncoder?.UpdateBitrate(estimate.TargetBitrateBps);
         _pacer?.SetRate(estimate.PacingRateBps);
         TransportHealthMetrics health = _session?.Pc.CurrentHealth ?? default;
-        LogHealth(estimate.TargetBitrateBps / 1000, estimate.PacingRateBps / 1000, estimate.SmoothedRttMicros / 1000.0, health.LossRate * 100);
+        // queueDelay = smoothed - base RTT: the standing one-way queue SCReAM builds, i.e. the actual
+        // delay-based congestion signal. queueDelay near 0 with low loss means the link is not the limit even
+        // when the rate is capped; a rising queueDelay is real congestion. baseRtt is the link's floor RTT.
+        double baseRttMs = health.BaseRttMicros / 1000.0;
+        double rttMs = estimate.SmoothedRttMicros / 1000.0;
+        LogHealth(estimate.TargetBitrateBps / 1000, estimate.PacingRateBps / 1000, rttMs, baseRttMs,
+            Math.Max(0, rttMs - baseRttMs), health.LossRate * 100);
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Congestion: target {TargetKbps} kbps, pacing {PacingKbps} kbps, rtt {RttMs:F1} ms, loss {LossPercent:F1}%.")]
-    private partial void LogHealth(long targetKbps, long pacingKbps, double rttMs, double lossPercent);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Congestion: target {TargetKbps} kbps, pacing {PacingKbps} kbps, rtt {RttMs:F1} ms (base {BaseRttMs:F1}, queue {QueueMs:F1}), loss {LossPercent:F1}%.")]
+    private partial void LogHealth(long targetKbps, long pacingKbps, double rttMs, double baseRttMs, double queueMs, double lossPercent);
 
     // Pace one packet onto the link: block briefly while the budget is short, so a bursty intra frame is
     // smoothed instead of dumped (the cellular bufferbloat guard). No-op without a controller/pacer.

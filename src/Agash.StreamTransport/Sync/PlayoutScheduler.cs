@@ -51,6 +51,9 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
     /// </summary>
     public void ObserveArrival(long senderWallNs) => _timeline.ObserveArrival(senderWallNs, _nowNs());
 
+    /// <summary>The current adaptive jitter-buffer/playout depth in ns (for receive-side network telemetry).</summary>
+    public long CurrentDelayNs => _timeline.CurrentDelayNs;
+
     /// <summary>
     /// Schedule <paramref name="submit"/> using the timeline's current estimates <i>without</i> updating them
     /// (see <see cref="PlayoutTimeline.PeekReleaseLocalNs"/>) - so the scheduled stream (audio) aligns to the
