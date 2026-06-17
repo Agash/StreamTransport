@@ -42,6 +42,8 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     // Resolved from the negotiated media once connected.
     private IVideoDecoder? _video;
     private IRtpDepacketizer? _videoDepacketizer;
+    private WebRtc.Rtp.H265PacketBuffer? _videoPacketBuffer; // sequence-aware reassembly for H.265 (the modern path).
+    private uint _videoSsrc;
     private byte _videoPayloadType;
     private IAudioDecoder? _audio;
     private byte _audioPayloadType;
@@ -75,6 +77,15 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private int _framesDecoded;
     private int _framesDecodeFailed;
     private long _pipeWindowStartMs;
+
+    // Keyframe-request throttling for the sequence-aware path: when the packet buffer reports a gap it cannot
+    // assemble (an IRAP without parameter sets, a whole-frame gap, or a stall NACK/RTX has not repaired within
+    // the recovery window), ask the sender for a fresh keyframe - but at most once per throttle interval, so a
+    // burst of loss does not become a PLI storm.
+    private long _lastKeyframeReqMs;
+    private long _gapStartMs;
+    private const long KeyframeRequestThrottleMs = 250;
+    private const long GapStallMs = 100; // give NACK/RTX a few RTTs to fill a hole before forcing a keyframe.
 
     /// <summary>
     /// Create a receiver. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
@@ -159,8 +170,20 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                 && _registry.FindVideo(codec.EncodingName) is { } videoCodec)
             {
                 _video = videoCodec.CreateDecoder(new VideoDecoderSettings(_options.PreferGpuVideoOutput, _preserveAlpha));
-                _videoDepacketizer = videoCodec.CreateDepacketizer();
                 _videoPayloadType = (byte)codec.PayloadType;
+                _videoSsrc = media.LocalSsrc;
+
+                // H.265 uses the modern sequence-aware packet buffer (reorders + only emits complete frames, so
+                // NACK/RTX can repair a hole in order); other codecs keep the arrival-order depacketizer.
+                if (string.Equals(codec.EncodingName, "H265", StringComparison.OrdinalIgnoreCase))
+                {
+                    _videoPacketBuffer = new WebRtc.Rtp.H265PacketBuffer();
+                }
+                else
+                {
+                    _videoDepacketizer = videoCodec.CreateDepacketizer();
+                }
+
                 LogNegotiated("video", codec.EncodingName, codec.PayloadType);
             }
             else if (media.Kind == WebRtc.Sdp.SdpMediaKind.Audio && AudioSink is not null && _audio is null
@@ -215,7 +238,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     // into the assembled unit) and enqueue; never decode here. The payload is a borrowed buffer for this call.
     private void OnRtpReceived(RtpHeader header, ReadOnlyMemory<byte> payload)
     {
-        if (_videoDepacketizer is not null && header.PayloadType == _videoPayloadType)
+        if ((_videoPacketBuffer is not null || _videoDepacketizer is not null) && header.PayloadType == _videoPayloadType)
         {
             RecordRxStats(header, payload.Length);
             if (_syncEnabled && header.AbsoluteCaptureTimeNtp is { } videoNtp && videoNtp != 0)
@@ -223,15 +246,35 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                 _aligner.RecordAbsCaptureTime(SyncStream.Video, videoNtp, header.Timestamp, VideoClockRate);
             }
 
-            // Depacketize on the receive thread (cheap) into a pool-rented buffer whose ownership passes through
-            // the queue to the decode worker, which returns it after decode. If the queue rejects it, return it.
-            PooledBuffer? accessUnit = _videoDepacketizer.Push(payload.Span, header.Marker);
-            if (accessUnit is { } videoUnit)
+            if (_videoPacketBuffer is { } packetBuffer)
             {
-                _auAssembled++;
-                if (!_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
+                // Sequence-aware path: reorder and assemble only complete frames; a hole holds the frame for
+                // NACK/RTX. Each completed frame's access unit is pool-owned - hand it to the decode worker.
+                WebRtc.Rtp.H265PacketBuffer.InsertResult result =
+                    packetBuffer.Insert(header.SequenceNumber, header.Timestamp, header.Marker, payload.Span);
+                foreach (WebRtc.Rtp.H265PacketBuffer.AssembledFrame frame in result.Frames)
                 {
-                    videoUnit.Dispose();
+                    _auAssembled++;
+                    var unit = new PooledBuffer(frame.AccessUnit, frame.Length);
+                    if (!_videoQueue.Writer.TryWrite((unit, frame.Timestamp)))
+                    {
+                        unit.Dispose();
+                    }
+                }
+
+                MaybeRequestKeyframe(result.KeyframeRequired, packetBuffer.HasUnresolvedGap);
+            }
+            else
+            {
+                // Arrival-order fallback (non-H.265): depacketize on the receive thread and enqueue.
+                PooledBuffer? accessUnit = _videoDepacketizer!.Push(payload.Span, header.Marker);
+                if (accessUnit is { } videoUnit)
+                {
+                    _auAssembled++;
+                    if (!_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
+                    {
+                        videoUnit.Dispose();
+                    }
                 }
             }
         }
@@ -312,6 +355,42 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Pipeline rx: assembled {Assembled} AU, decoded {Decoded} ok, {Failed} decode-fail (last 1s).")]
     private partial void LogPipelineRx(int assembled, int decoded, int failed);
+
+    // Decide whether to ask the sender for a fresh keyframe. Fires when the packet buffer reports a definite
+    // need (IRAP without params, or a whole-frame gap), or when a sequence hole has gone unrepaired by NACK/RTX
+    // for longer than the recovery window. Throttled so a loss burst cannot become a PLI storm. Runs on the
+    // receive thread.
+    private void MaybeRequestKeyframe(bool required, bool hasUnresolvedGap)
+    {
+        long now = _rxSw.ElapsedMilliseconds;
+
+        if (hasUnresolvedGap)
+        {
+            if (_gapStartMs == 0)
+            {
+                _gapStartMs = now;
+            }
+            else if (now - _gapStartMs >= GapStallMs)
+            {
+                required = true; // a hole NACK/RTX has not filled within the recovery window: resync.
+            }
+        }
+        else
+        {
+            _gapStartMs = 0;
+        }
+
+        if (!required || now - _lastKeyframeReqMs < KeyframeRequestThrottleMs)
+        {
+            return;
+        }
+
+        _lastKeyframeReqMs = now;
+        if (_session is { } session)
+        {
+            _ = session.Pc.RequestKeyframeAsync(_videoSsrc);
+        }
+    }
 
     // Present on arrival, or - when synced and both stream clocks are anchored - schedule by capture time so
     // audio and video lip-sync.
@@ -429,6 +508,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         _video?.Dispose();
         _audio?.Dispose();
         _videoDepacketizer?.Dispose();
+        _videoPacketBuffer?.Dispose();
         LogStopped();
     }
 
