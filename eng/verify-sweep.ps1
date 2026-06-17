@@ -12,7 +12,9 @@
 #   pwsh eng/verify-sweep.ps1 [-Durations 15,60] [-Rows webcam-irl-1080p30,desktop-2160p30] [-WinIp x.x.x.x]
 [CmdletBinding()]
 param(
-    [int[]]$Durations = @(15, 60),
+    # String[] (not int[]) so that `-File ... -Durations 15,60` - which passes "15,60" as one token - is split
+    # rather than coerced to the integer 1560. Both `-Durations 15,60` and `-Durations 15 60` then work.
+    [string[]]$Durations = @('15', '60'),
     [string[]]$Rows,
     [string]$WinIp,
     [string]$LinuxHost = 'agash@192.168.20.102',
@@ -24,6 +26,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+# Normalise durations: accept "15,60", "15 60", or separate args; reject anything non-numeric.
+[int[]]$Durations = $Durations | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ } | ForEach-Object { [int]$_ }
+if (-not $Durations) { throw 'no valid -Durations.' }
 if (-not $WinIp) {
     $WinIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like '192.168.*' } |
         Select-Object -First 1).IPAddress
