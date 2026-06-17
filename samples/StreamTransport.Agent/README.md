@@ -160,7 +160,9 @@ appears as a normal source.
   ```
 
 - **macOS:** `--publish-syphon <name>` republishes as a Syphon server. Add a Syphon client source in OBS with
-  that name.
+  that name. The receiver decodes through a raw `VTDecompressionSession` straight into BGRA IOSurface-backed
+  buffers (Syphon's native format), so an opaque frame is announced zero-copy with no GPU conversion pass
+  (verified Win-NVENC -> Mac up to 4K60). Alpha frames are GPU-unpacked via Metal before publish.
 
   ```bash
   streamtransport-agent receive --relay ws://<relay>/ws --room demo --publish-syphon StreamTransport
@@ -256,6 +258,8 @@ the full 3-way matrix — see issues #6 and #7.
 | `--profile <name>` | `interactive`, `screenshare`, or `irl`. |
 | `--bframes <n>` | Override the profile's B-frame count. |
 | `--synced` | Force capture-clock-synced playout on the receiver. |
+| `--fps <n>` | Synthetic-source frame rate and encoder rate-control hint (default 30). |
+| `--resolution <WxH>` | Synthetic-source resolution (default `1280x720`, e.g. `1920x1080`, `3840x2160`). |
 | `--verify` | Run a fixed window and print a content + sync report. |
 | `--seconds <n>` | The `--verify` window length. |
 | `--verbose` | Debug-level logging. |
