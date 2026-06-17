@@ -1,18 +1,20 @@
 #!/usr/bin/env pwsh
-# Cross-machine A/V verify matrix - Windows <-> Linux (handheld), orchestrated from Windows.
+# Cross-machine A/V verify matrix - Windows <-> Linux (handheld) <-> macOS, orchestrated from Windows.
 #
 # Relay + STUN run on Windows (signaling only; media is direct P2P UDP - WebRTC ICE punches the handheld's
 # stateful WiFi path so unsolicited-inbound-UDP drops don't matter). Each cell runs a sender on one machine and
-# a verifying receiver on the other; both use the synthetic source with --verify (correlated A/V sync markers),
+# a verifying receiver on another; both use the synthetic source with --verify (correlated A/V sync markers),
 # so each side self-terminates after --seconds and the receiver prints a VERIFY-PASS/FAIL report we parse.
 #
-# Verify-capability asymmetry (drives which side is the verifier): the in-agent GPU-readback verify exists only
-# on the Linux receiver (--publish-pipewire reads each decoded GPU surface back to CPU, even with no consumer);
-# Windows --verify is CPU-decode only. So GPU-path cells put Linux as the receiver. Windows GPU output (Spout)
-# and the macOS legs are display-attached / deferred and are not in this in-agent matrix.
+# Verify-capability asymmetry (drives which side is the verifier): the in-agent GPU-readback verify exists on
+# the Linux receiver (--publish-pipewire reads each decoded GPU surface back to CPU, even with no consumer) and
+# the macOS receiver (--publish-syphon, which reads back the published BGRA surface); Windows --verify is
+# CPU-decode only. So GPU-path cells put Linux or macOS as the receiver. Windows GPU output (Spout) stays
+# display-attached and is not in this in-agent matrix.
 #
 # Usage:
-#   pwsh eng/verify-matrix.ps1 [-Build] [-Seconds 18] [-Cells C1,C5] [-WinIp 192.168.20.51]
+#   pwsh eng/verify-matrix.ps1 [-Build] [-Seconds 18] [-Cells C1,CM3] [-WinIp 192.168.20.51]
+#   Cell IDs: C1-C9 = Win<->Linux; CM1-CM6 = macOS legs (Win<->Mac, Mac<->Linux).
 [CmdletBinding()]
 param(
     [switch]$Build,
@@ -21,6 +23,8 @@ param(
     [string]$WinIp = '192.168.20.51',
     [string]$LinuxHost = 'agash@192.168.20.102',
     [string]$LinuxRepo = '~/stx',
+    [string]$MacHost = 'agash@mac-mini.local',
+    [string]$MacRepo = '~/repos/StreamTransport',
     [int]$Port = 8099
 )
 
@@ -35,11 +39,16 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 function Strip-Ansi([string]$s) { return ($s -replace "`e\[[0-9;]*m", '') }
 
 # Launch one agent invocation. Returns the started Process (use -Wait for the blocking receiver). Local Windows
-# runs the exe; Linux runs over SSH through eng/matrix-linux-agent.sh (sets dotnet + Wayland env; quote-free).
+# runs the exe; Linux and macOS run over SSH through their eng/matrix-*-agent.sh launcher (which sets the
+# runtime env and locates the agent; quote-free so the SSH command line stays simple).
 function Start-Agent {
-    param([ValidateSet('win', 'linux')]$On, [string[]]$AgentArgs, [string]$OutFile, [switch]$Wait)
+    param([ValidateSet('win', 'linux', 'mac')]$On, [string[]]$AgentArgs, [string]$OutFile, [switch]$Wait)
     if ($On -eq 'win') {
         $file = $winAgent; $argList = $AgentArgs
+    }
+    elseif ($On -eq 'mac') {
+        $file = 'ssh'
+        $argList = @($MacHost, 'bash', "$MacRepo/eng/matrix-mac-agent.sh") + $AgentArgs
     }
     else {
         $file = 'ssh'
@@ -51,17 +60,28 @@ function Start-Agent {
 }
 
 # --- matrix cells -------------------------------------------------------------------------------------------
-# Each cell: Sender machine, the receiver (verifier) is the other one. SendExtra/RecvExtra carry the mode flags.
+# Each cell names its Sender and Receiver (the verifier) explicitly. SendExtra/RecvExtra carry the mode flags;
+# the GPU receivers add their zero-copy publish (--publish-pipewire on Linux, --publish-syphon on macOS) so the
+# in-agent GPU-readback verify taps the real decoded surface.
 $matrix = @(
-    @{ Id = 'C1'; Name = 'win2lin-cpu-video';       Sender = 'win';   SendExtra = @('--video-only'); RecvExtra = @('--video-only') }
-    @{ Id = 'C2'; Name = 'win2lin-cpu-av';          Sender = 'win';   SendExtra = @();               RecvExtra = @() }
-    @{ Id = 'C3'; Name = 'win2lin-cpu-av-synced';   Sender = 'win';   SendExtra = @();               RecvExtra = @('--synced') }
-    @{ Id = 'C4'; Name = 'win2lin-gpu-video';       Sender = 'win';   SendExtra = @('--video-only'); RecvExtra = @('--video-only', '--publish-pipewire', 'MxV') }
-    @{ Id = 'C5'; Name = 'win2lin-gpu-av-synced';   Sender = 'win';   SendExtra = @();               RecvExtra = @('--synced', '--publish-pipewire', 'MxAV') }
-    @{ Id = 'C6'; Name = 'win2lin-gpu-alpha-synced';Sender = 'win';   SendExtra = @('--alpha');      RecvExtra = @('--synced', '--alpha', '--publish-pipewire', 'MxAL') }
-    @{ Id = 'C7'; Name = 'lin2win-cpu-video';       Sender = 'linux'; SendExtra = @('--video-only'); RecvExtra = @('--video-only') }
-    @{ Id = 'C8'; Name = 'lin2win-cpu-av-synced';   Sender = 'linux'; SendExtra = @();               RecvExtra = @('--synced') }
-    @{ Id = 'C9'; Name = 'lin2win-cpu-alpha-synced';Sender = 'linux'; SendExtra = @('--alpha');      RecvExtra = @('--synced') }
+    # Win <-> Linux (handheld)
+    @{ Id = 'C1'; Name = 'win2lin-cpu-video';       Sender = 'win';   Receiver = 'linux'; SendExtra = @('--video-only'); RecvExtra = @('--video-only') }
+    @{ Id = 'C2'; Name = 'win2lin-cpu-av';          Sender = 'win';   Receiver = 'linux'; SendExtra = @();               RecvExtra = @() }
+    @{ Id = 'C3'; Name = 'win2lin-cpu-av-synced';   Sender = 'win';   Receiver = 'linux'; SendExtra = @();               RecvExtra = @('--synced') }
+    @{ Id = 'C4'; Name = 'win2lin-gpu-video';       Sender = 'win';   Receiver = 'linux'; SendExtra = @('--video-only'); RecvExtra = @('--video-only', '--publish-pipewire', 'MxV') }
+    @{ Id = 'C5'; Name = 'win2lin-gpu-av-synced';   Sender = 'win';   Receiver = 'linux'; SendExtra = @();               RecvExtra = @('--synced', '--publish-pipewire', 'MxAV') }
+    @{ Id = 'C6'; Name = 'win2lin-gpu-alpha-synced';Sender = 'win';   Receiver = 'linux'; SendExtra = @('--alpha');      RecvExtra = @('--synced', '--alpha', '--publish-pipewire', 'MxAL') }
+    @{ Id = 'C7'; Name = 'lin2win-cpu-video';       Sender = 'linux'; Receiver = 'win';   SendExtra = @('--video-only'); RecvExtra = @('--video-only') }
+    @{ Id = 'C8'; Name = 'lin2win-cpu-av-synced';   Sender = 'linux'; Receiver = 'win';   SendExtra = @();               RecvExtra = @('--synced') }
+    @{ Id = 'C9'; Name = 'lin2win-cpu-alpha-synced';Sender = 'linux'; Receiver = 'win';   SendExtra = @('--alpha');      RecvExtra = @('--synced') }
+    # macOS legs - Win <-> Mac and Mac <-> Linux. The Mac verifies GPU cells via --publish-syphon (zero-copy
+    # publish + BGRA readback); Mac-as-sender uses the synthetic source so no display/capture is needed.
+    @{ Id = 'CM1'; Name = 'win2mac-cpu-av-synced';  Sender = 'win';   Receiver = 'mac';   SendExtra = @();               RecvExtra = @('--synced') }
+    @{ Id = 'CM2'; Name = 'win2mac-gpu-av-synced';  Sender = 'win';   Receiver = 'mac';   SendExtra = @();               RecvExtra = @('--synced', '--publish-syphon', 'MxAV') }
+    @{ Id = 'CM3'; Name = 'win2mac-gpu-alpha-synced';Sender = 'win';  Receiver = 'mac';   SendExtra = @('--alpha');      RecvExtra = @('--synced', '--alpha', '--publish-syphon', 'MxAL') }
+    @{ Id = 'CM4'; Name = 'mac2win-cpu-av-synced';  Sender = 'mac';   Receiver = 'win';   SendExtra = @();               RecvExtra = @('--synced') }
+    @{ Id = 'CM5'; Name = 'mac2lin-gpu-av-synced';  Sender = 'mac';   Receiver = 'linux'; SendExtra = @();               RecvExtra = @('--synced', '--publish-pipewire', 'MxAV') }
+    @{ Id = 'CM6'; Name = 'lin2mac-gpu-av-synced';  Sender = 'linux'; Receiver = 'mac';   SendExtra = @();               RecvExtra = @('--synced', '--publish-syphon', 'MxAV') }
 )
 if ($Cells) {
     # -File passes "-Cells C1,C7" as a single token, so split on commas/space to get the real list.
@@ -77,9 +97,15 @@ if ($Build) {
     Write-Host '== updating + building handheld (git ff + Release) ==' -ForegroundColor Cyan
     & ssh $LinuxHost "bash -lc 'cd $LinuxRepo && git fetch origin && git pull --ff-only && export DOTNET_ROOT=`$HOME/.dotnet PATH=`$HOME/.dotnet:`$PATH && dotnet build samples/StreamTransport.Agent/StreamTransport.Agent.csproj -c Release'"
     if ($LASTEXITCODE -ne 0) { throw 'handheld build failed' }
+    Write-Host '== updating + building Mac (git ff + Release, net11.0-macos) ==' -ForegroundColor Cyan
+    # Xcode (26.5) is ahead of the .NET macOS SDK's pinned version, so skip the version gate; app/test
+    # projects also need an explicit RID. The .refs/Syphon.NET clone is synced separately (gitignored).
+    & ssh $MacHost "bash -lc 'cd $MacRepo && git fetch origin && git pull --ff-only && export DOTNET_ROOT=`$HOME/.dotnet PATH=`$HOME/.dotnet:`$PATH && dotnet build samples/StreamTransport.Agent/StreamTransport.Agent.csproj -c Release -r osx-arm64 -p:ValidateXcodeVersion=false'"
+    if ($LASTEXITCODE -ne 0) { throw 'mac build failed' }
 }
-# Ensure the Linux launcher is present/fresh on the handheld.
+# Ensure the per-OS launchers are present/fresh on the remote machines.
 & scp (Join-Path $repo 'eng/matrix-linux-agent.sh') "${LinuxHost}:$LinuxRepo/eng/matrix-linux-agent.sh" | Out-Null
+& scp (Join-Path $repo 'eng/matrix-mac-agent.sh') "${MacHost}:$MacRepo/eng/matrix-mac-agent.sh" | Out-Null
 
 if (-not (Test-Path $winAgent)) { throw "Windows agent missing: $winAgent (run with -Build)" }
 
@@ -100,7 +126,7 @@ Write-Host 'relay ready' -ForegroundColor Green
 $results = @()
 try {
     foreach ($c in $matrix) {
-        $recvOn = if ($c.Sender -eq 'win') { 'linux' } else { 'win' }
+        $recvOn = $c.Receiver
         $room = $c.Id.ToLower()
         $base = @('--relay', $ws, '--room', $room, '--source', 'synthetic', '--verify')
         $sendArgs = @('send') + $base + @('--seconds', ($Seconds + 6)) + $c.SendExtra
