@@ -38,11 +38,13 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 function Strip-Ansi([string]$s) { return ($s -replace "`e\[[0-9;]*m", '') }
 
-# Launch one agent invocation. Returns the started Process (use -Wait for the blocking receiver). Local Windows
-# runs the exe; Linux and macOS run over SSH through their eng/matrix-*-agent.sh launcher (which sets the
-# runtime env and locates the agent; quote-free so the SSH command line stays simple).
+# Launch one agent invocation, returning the started Process. Local Windows runs the exe; Linux and macOS run
+# over SSH through their eng/matrix-*-agent.sh launcher (which sets the runtime env and locates the agent;
+# quote-free so the SSH command line stays simple). Callers bound the wait themselves (see Wait-Receiver) - a
+# remote agent can exit cleanly yet leave its SSH pipe held open (a lingering PipeWire/Syphon connection), which
+# would hang an unbounded -Wait, so we never block indefinitely on a remote process.
 function Start-Agent {
-    param([ValidateSet('win', 'linux', 'mac')]$On, [string[]]$AgentArgs, [string]$OutFile, [switch]$Wait)
+    param([ValidateSet('win', 'linux', 'mac')]$On, [string[]]$AgentArgs, [string]$OutFile)
     if ($On -eq 'win') {
         $file = $winAgent; $argList = $AgentArgs
     }
@@ -56,7 +58,17 @@ function Start-Agent {
     }
     $p = @{ FilePath = $file; ArgumentList = $argList; RedirectStandardOutput = $OutFile;
         RedirectStandardError = "$OutFile.err"; NoNewWindow = $true; PassThru = $true }
-    if ($Wait) { return Start-Process @p -Wait } else { return Start-Process @p }
+    return Start-Process @p
+}
+
+# Wait for the verifying receiver to finish, bounded by its --verify window plus margin for ICE setup and
+# teardown. If it overruns (a remote agent that exited but left its SSH pipe open), force-kill it so the matrix
+# moves on instead of hanging - the verdict is still parsed from whatever the receiver logged.
+function Wait-Receiver([System.Diagnostics.Process]$Proc, [int]$Seconds) {
+    if (-not $Proc.WaitForExit(($Seconds + 30) * 1000)) {
+        Write-Host '  (receiver overran its window; killing - likely a lingering SSH pipe)' -ForegroundColor DarkYellow
+        $Proc | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # --- matrix cells -------------------------------------------------------------------------------------------
@@ -137,7 +149,8 @@ try {
         Write-Host ("`n=== {0} {1}  ({2} send -> {3} verify) ===" -f $c.Id, $c.Name, $c.Sender, $recvOn) -ForegroundColor Yellow
         $sender = Start-Agent -On $c.Sender -AgentArgs $sendArgs -OutFile $sendLog
         Start-Sleep -Seconds 2
-        Start-Agent -On $recvOn -AgentArgs $recvArgs -OutFile $recvLog -Wait | Out-Null
+        $receiver = Start-Agent -On $recvOn -AgentArgs $recvArgs -OutFile $recvLog
+        Wait-Receiver $receiver $Seconds
 
         if ($sender -and -not $sender.HasExited) { Start-Sleep -Seconds 1; $sender | Stop-Process -Force -ErrorAction SilentlyContinue }
 
