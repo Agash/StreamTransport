@@ -75,6 +75,11 @@
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
     <ApplicationTitle>streamtransport-agent</ApplicationTitle>
+    <!-- The .NET-for-macOS workload pins an exact recommended Xcode (e.g. net11.0_26.4 wants Xcode 26.4) and
+         hard-errors when the installed Xcode is even a point release newer (26.5). The codegen difference
+         between adjacent Xcode point releases is benign for this agent, so relax the check rather than pin every
+         build machine to a specific Xcode. Drop this once a workload matching the installed Xcode ships. -->
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
     <ProjectReference Include="..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj"
