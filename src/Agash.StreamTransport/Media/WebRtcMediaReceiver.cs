@@ -87,6 +87,17 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private const long KeyframeRequestThrottleMs = 250;
     private const long GapStallMs = 100; // give NACK/RTX a few RTTs to fill a hole before forcing a keyframe.
 
+    // Sync diagnostics (synced GPU path): per-second distribution of the video arrival offset (localNow -
+    // senderWall) - whose variance IS the lip-sync jitter, since audio is released at the EWMA of this offset and
+    // skew = offset - EWMA - plus the decode->present cadence (to attribute jitter to bursty decode). Logged at
+    // Debug so it lands in --verbose matrix runs. Single-threaded (the decode/present thread); no locking.
+    private long _syncWindowStartMs;
+    private int _syncVidCount;
+    private double _syncOffSumMs, _syncOffSumSqMs, _syncOffMinMs = double.MaxValue, _syncOffMaxMs = double.MinValue;
+    private long _syncLastVidNs;
+    private double _syncGapSumMs, _syncGapSumSqMs, _syncGapMaxMs;
+    private int _syncGapCount;
+
     /// <summary>
     /// Create a receiver. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
     /// The codec set (<paramref name="registry"/>), DTLS-SRTP engine (<paramref name="dtlsFactory"/>), and
@@ -392,6 +403,53 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         }
     }
 
+    // Sample the on-arrival video frame's arrival offset (localNow - senderWall) and its inter-frame cadence,
+    // and flush a per-second summary. The offset's std-dev is the lip-sync jitter (audio releases at the EWMA of
+    // this offset, so per-frame skew = offset - EWMA); the cadence std-dev attributes that jitter to bursty
+    // decode/arrival. Runs on the decode/present thread (single-threaded; no locking).
+    private void RecordSyncArrival(long senderWallNs, PlayoutScheduler scheduler)
+    {
+        long now = NowNs();
+        double offMs = (now - senderWallNs) / 1_000_000.0;
+        _syncVidCount++;
+        _syncOffSumMs += offMs;
+        _syncOffSumSqMs += offMs * offMs;
+        _syncOffMinMs = Math.Min(_syncOffMinMs, offMs);
+        _syncOffMaxMs = Math.Max(_syncOffMaxMs, offMs);
+        if (_syncLastVidNs != 0)
+        {
+            double gapMs = (now - _syncLastVidNs) / 1_000_000.0;
+            _syncGapCount++;
+            _syncGapSumMs += gapMs;
+            _syncGapSumSqMs += gapMs * gapMs;
+            _syncGapMaxMs = Math.Max(_syncGapMaxMs, gapMs);
+        }
+
+        _syncLastVidNs = now;
+
+        long nowMs = _rxSw.ElapsedMilliseconds;
+        if (_syncWindowStartMs == 0) { _syncWindowStartMs = nowMs; }
+        if (nowMs - _syncWindowStartMs < 1000 || _syncVidCount == 0)
+        {
+            return;
+        }
+
+        double offMean = _syncOffSumMs / _syncVidCount;
+        double offStd = Math.Sqrt(Math.Max(0, (_syncOffSumSqMs / _syncVidCount) - (offMean * offMean)));
+        double gapMean = _syncGapCount > 0 ? _syncGapSumMs / _syncGapCount : 0;
+        double gapStd = _syncGapCount > 0 ? Math.Sqrt(Math.Max(0, (_syncGapSumSqMs / _syncGapCount) - (gapMean * gapMean))) : 0;
+        LogSyncArrival(_syncVidCount, offMean, offStd, _syncOffMaxMs - _syncOffMinMs,
+            scheduler.ArrivalOffsetNs / 1_000_000.0, gapMean, gapStd, _syncGapMaxMs,
+            scheduler.CurrentDelayNs / 1_000_000.0);
+
+        _syncWindowStartMs = nowMs; _syncVidCount = 0; _syncOffSumMs = 0; _syncOffSumSqMs = 0;
+        _syncOffMinMs = double.MaxValue; _syncOffMaxMs = double.MinValue;
+        _syncGapCount = 0; _syncGapSumMs = 0; _syncGapSumSqMs = 0; _syncGapMaxMs = 0;
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Sync video: {Frames} fr, arrival-offset mean {OffMeanMs:F1} ms std {OffStdMs:F1} range {OffRangeMs:F1} (EWMA {EwmaMs:F1}); present-gap mean {GapMeanMs:F1} ms std {GapStdMs:F1} max {GapMaxMs:F1}; buf {BufMs:F0} ms (last 1s).")]
+    private partial void LogSyncArrival(int frames, double offMeanMs, double offStdMs, double offRangeMs, double ewmaMs, double gapMeanMs, double gapStdMs, double gapMaxMs, double bufMs);
+
     // Present on arrival, or - when synced and both stream clocks are anchored - schedule by capture time so
     // audio and video lip-sync.
     private void Present(SyncStream stream, uint rtpTimestamp, Action submit)
@@ -405,6 +463,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                 // delayed onto that timeline so it lip-syncs with the on-arrival video.
                 if (stream == SyncStream.Video)
                 {
+                    RecordSyncArrival(wallNs, scheduler);
                     scheduler.ObserveArrival(wallNs);
                     submit();
                 }
