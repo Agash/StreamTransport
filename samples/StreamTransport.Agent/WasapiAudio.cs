@@ -1,7 +1,6 @@
 #if WINDOWS_HEAD
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
-using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using AudioFrame = Agash.StreamTransport.AudioFrame;
 using AudioSampleFormat = Agash.StreamTransport.AudioSampleFormat;
@@ -21,7 +20,7 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
 
     private readonly PullAudioRingBuffer _ring = new(MaxQueuedBytes);
     private readonly Lock _gate = new();
-    private WasapiOut? _out;
+    private IWavePlayer? _out;
     private bool _disposed;
 
     public void Submit(AudioFrame frame)
@@ -40,10 +39,16 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
             }
 
             // Lazy init on the first frame, when rate/channels are known. Shared-mode, ~50 ms device buffer.
+            // NAudio 3's WasapiPlayer (GeneratedComInterface/LibraryImport interop) is NativeAOT-compatible,
+            // unlike the legacy WasapiOut's classic-COM device enumeration.
             if (_out is null)
             {
                 var format = new WaveFormat(frame.SampleRate, 16, Math.Max(1, frame.Channels));
-                var output = new WasapiOut(AudioClientShareMode.Shared, useEventSync: true, latency: 50);
+                IWavePlayer output = new WasapiPlayerBuilder()
+                    .WithSharedMode()
+                    .WithEventSync()
+                    .WithLatency(50)
+                    .Build();
                 output.Init(new RingWaveProvider(_ring, format));
                 output.Play();
                 _out = output;
@@ -55,7 +60,7 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
 
     public void Dispose()
     {
-        WasapiOut? output;
+        IWavePlayer? output;
         lock (_gate)
         {
             if (_disposed)
@@ -79,15 +84,16 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
     {
         public WaveFormat WaveFormat => format;
 
-        public int Read(byte[] buffer, int offset, int count)
+        // NAudio 3 modernized IWaveProvider.Read to a single Span<byte> (no array/offset/count).
+        public int Read(Span<byte> buffer)
         {
-            int written = ring.Read(buffer.AsSpan(offset, count));
-            if (written < count)
+            int written = ring.Read(buffer);
+            if (written < buffer.Length)
             {
-                buffer.AsSpan(offset + written, count - written).Clear();
+                buffer[written..].Clear();
             }
 
-            return count;
+            return buffer.Length;
         }
     }
 }
@@ -101,18 +107,27 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
 [SupportedOSPlatform("windows")]
 internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
 {
-    private readonly WasapiCapture _capture;
+    private readonly WasapiRecorder _capture;
     private readonly Lock _gate = new();
     private readonly Queue<AudioFrame> _frames = new();
     private readonly int _channels;
+    private readonly int _sampleRate;
     private bool _disposed;
 
     /// <param name="loopback">true = capture system output ("what you hear"); false = the default microphone.</param>
     public WasapiAudioCaptureSource(bool loopback)
     {
-        _capture = loopback ? new WasapiLoopbackCapture() : new WasapiCapture();
+        // NAudio 3's WasapiRecorder (GeneratedComInterface/LibraryImport interop) is NativeAOT-compatible.
+        WasapiRecorderBuilder builder = new();
+        if (loopback)
+        {
+            builder = builder.WithLoopbackCapture();
+        }
+
+        _capture = builder.Build();
         _channels = _capture.WaveFormat.Channels;
-        _capture.DataAvailable += OnDataAvailable;
+        _sampleRate = _capture.WaveFormat.SampleRate;
+        _capture.DataAvailable += (buffer, _) => HandleCapturedData(buffer);
         _capture.StartRecording();
     }
 
@@ -132,11 +147,11 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
     }
 
     // WASAPI delivers 32-bit float; convert to interleaved S16 at the device rate (the Opus encoder resamples
-    // /matches channel count downstream). Stamp the capture time so A/V sync has a reference.
-    private void OnDataAvailable(object? sender, WaveInEventArgs e)
+    // /matches channel count downstream). Stamp the capture time so A/V sync has a reference. NAudio 3 hands the
+    // captured bytes directly as a span (no WaveInEventArgs / byte[] copy).
+    private void HandleCapturedData(ReadOnlySpan<byte> buffer)
     {
-        WaveFormat fmt = _capture.WaveFormat;
-        int floatCount = e.BytesRecorded / 4;
+        int floatCount = buffer.Length / 4;
         if (floatCount == 0)
         {
             return;
@@ -144,13 +159,13 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
 
         byte[] pcm = new byte[floatCount * 2];
         Span<short> dst = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, short>(pcm);
-        ReadOnlySpan<float> src = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(e.Buffer.AsSpan(0, e.BytesRecorded));
+        ReadOnlySpan<float> src = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer);
         for (int i = 0; i < floatCount; i++)
         {
             dst[i] = (short)Math.Clamp(src[i] * 32767f, short.MinValue, short.MaxValue);
         }
 
-        var frame = new AudioFrame(pcm, AudioSampleFormat.S16, fmt.SampleRate, _channels, NowNs());
+        var frame = new AudioFrame(pcm, AudioSampleFormat.S16, _sampleRate, _channels, NowNs());
         lock (_gate)
         {
             if (_disposed)
@@ -175,9 +190,8 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
             _disposed = true;
         }
 
-        _capture.DataAvailable -= OnDataAvailable;
         try { _capture.StopRecording(); } catch { /* already stopped */ }
-        _capture.Dispose();
+        _capture.Dispose(); // releases the DataAvailable handler with the recorder.
     }
 }
 #endif
