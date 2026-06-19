@@ -5,9 +5,9 @@ using Spectre.Console;
 namespace StreamTransport.Agent;
 
 /// <summary>Publisher run loop: connect, capture, encode, fan out.</summary>
-internal static class Publish
+internal sealed class Publish(AgentMediaFactory media)
 {
-    public static async Task<int> RunAsync(AgentConfig config, MediaSessionFactory transport, CancellationToken cancellationToken)
+    public async Task<int> RunAsync(AgentConfig config, MediaSessionFactory transport, CancellationToken cancellationToken)
     {
         bool video = config.Video;
         if (video && !FfmpegReady())
@@ -45,7 +45,7 @@ internal static class Publish
             {
                 // Spout surfaces are BGRA, encoded directly by nvenc with no conversion (zero-copy).
                 encoderName ??= "hevc_nvenc";
-                var spout = new SpoutVideoCaptureSource(config.SpoutSender, encoderName, config.Alpha);
+                var spout = media.CreateSpoutCapture(config.SpoutSender, encoderName, config.Alpha);
                 gpuSource = spout;
                 videoSource = spout;
                 gpuDevice = spout.DeviceHandle;
@@ -59,7 +59,7 @@ internal static class Publish
                     }
                     else
                     {
-                        var cap = new WasapiAudioCaptureSource(loopback: true);
+                        var cap = media.CreateWasapiCapture(loopback: true);
                         audioSource = cap;
                         audioCapture = cap;
                     }
@@ -69,7 +69,7 @@ internal static class Publish
 #if HAS_PIPEWIRE
             else if (config.Source == VideoSourceKind.PipeWire && video && OperatingSystem.IsLinux())
             {
-                var pw = await PipeWireVideoCaptureSource.CreateAsync(PipeWire.NET.PipeWireVideoCapture.AnyNode, config.Alpha);
+                var pw = await media.CreatePipeWireCaptureAsync(PipeWire.NET.PipeWireVideoCapture.AnyNode, config.Alpha);
                 asyncSource = pw;
                 videoSource = pw;
                 encoderName ??= "hevc_vaapi"; // Linux Intel/AMD; override with --encoder for nvenc.
@@ -81,7 +81,7 @@ internal static class Publish
             {
                 // Discover a Syphon server through the directory; --syphon-server targets one by name,
                 // otherwise the first advertised server is used.
-                var syphon = SyphonVideoCaptureSource.Connect(config.SyphonServer, config.Alpha);
+                var syphon = media.CreateSyphonCapture(config.SyphonServer, config.Alpha);
                 gpuSource = syphon;
                 videoSource = syphon;
                 encoderName ??= "hevc_videotoolbox"; // Apple silicon/Intel Mac; VideoToolbox takes BGRA directly.
@@ -227,9 +227,9 @@ internal static class Publish
 }
 
 /// <summary>Subscriber run loop: connect, attach to the publisher, decode into reporting sinks.</summary>
-internal static class Subscribe
+internal sealed class Subscribe(AgentMediaFactory media)
 {
-    public static async Task<int> RunAsync(AgentConfig config, MediaSessionFactory transport, CancellationToken cancellationToken)
+    public async Task<int> RunAsync(AgentConfig config, MediaSessionFactory transport, CancellationToken cancellationToken)
     {
         try
         {
@@ -267,7 +267,7 @@ internal static class Subscribe
             // Linux publish: a HW decoder (VAAPI) keeps frames on the GPU and the sink republishes them to
             // PipeWire as zero-copy as possible; a software-decoded CPU frame is the fallback the sink converts
             // to BGRA. Audio also goes to PipeWire (the Linux audio sink). preferGpu requests the GPU path.
-            var pw = await PipeWireVideoPublishSink.CreateAsync(config.PublishPipeWire, config.Alpha);
+            var pw = await media.CreatePipeWirePublishAsync(config.PublishPipeWire, config.Alpha);
             asyncPublishSink = pw;
             pwVideoSink = pw;
             videoSink = pw;
@@ -277,7 +277,7 @@ internal static class Subscribe
             // (so A/V sync is measured) rather than out to PipeWire.
             if (config.Audio && !config.Verify)
             {
-                pipeWireAudio = await PipeWireAudioPublishSink.CreateAsync($"{config.PublishPipeWire} Audio");
+                pipeWireAudio = await media.CreatePipeWireAudioPublishAsync($"{config.PublishPipeWire} Audio");
             }
         }
         else
@@ -285,7 +285,7 @@ internal static class Subscribe
 #if WINDOWS_HEAD
         if (config.PublishSpout is not null)
         {
-            var spout = new SpoutVideoPublishSink(config.PublishSpout, config.Alpha);
+            var spout = media.CreateSpoutPublish(config.PublishSpout, config.Alpha);
             publishSink = spout;
             videoSink = spout;
             applyNegotiatedAlpha = spout.SetPreserveAlpha;
@@ -296,7 +296,7 @@ internal static class Subscribe
 #if HAS_SYPHON
         if (config.PublishSyphon is not null && OperatingSystem.IsMacOS())
         {
-            var syphon = new SyphonVideoPublishSink(config.PublishSyphon, config.Alpha);
+            var syphon = media.CreateSyphonPublish(config.PublishSyphon, config.Alpha);
             publishSink = syphon;
             videoSink = syphon;
             syphonVideoSink = syphon;
@@ -355,7 +355,7 @@ internal static class Subscribe
         // capture + the system hear it), unless --verify routes audio to the verifying sink to measure A/V sync.
         if (config.Audio && !config.Verify && OperatingSystem.IsWindows())
         {
-            wasapiAudio = new WasapiAudioPublishSink();
+            wasapiAudio = media.CreateWasapiPublish();
         }
 #endif
 #if MACOS_HEAD
@@ -363,7 +363,7 @@ internal static class Subscribe
         // audio to the verifying sink to measure A/V sync.
         if (config.Audio && !config.Verify && OperatingSystem.IsMacOS())
         {
-            coreAudio = new CoreAudioPublishSink();
+            coreAudio = media.CreateCoreAudioPublish();
         }
 #endif
 

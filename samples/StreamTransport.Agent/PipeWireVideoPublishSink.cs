@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
+using Microsoft.Extensions.Logging;
 using PipeWire.NET;
 using PwPixelFormat = PipeWire.NET.PixelFormat;
 using VideoFrame = Agash.StreamTransport.VideoFrame;
@@ -93,9 +94,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     }
 
     /// <summary>Start the PipeWire loop and return a sink ready to publish under <paramref name="nodeName"/>.</summary>
-    public static async Task<PipeWireVideoPublishSink> CreateAsync(string nodeName, bool alpha = false, int frameRate = 30)
+    public static async Task<PipeWireVideoPublishSink> CreateAsync(string nodeName, bool alpha = false, int frameRate = 30, ILoggerFactory? loggerFactory = null)
     {
-        var context = new PipeWireContext();
+        var context = new PipeWireContext("StreamTransport.Agent", loggerFactory);
         await context.StartAsync().ConfigureAwait(false);
         return new PipeWireVideoPublishSink(context, nodeName, alpha, frameRate);
     }

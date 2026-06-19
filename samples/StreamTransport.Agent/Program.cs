@@ -65,6 +65,12 @@ builder.Logging.ClearProviders();
 builder.Logging.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
 builder.Logging.AddProvider(new SpectreLoggerProvider(verbose ? LogLevel.Debug : LogLevel.Information));
 builder.Services.AddStreamTransport();
+// The platform media factory (capture sources / publish sinks) and the two run loops are DI services, so the
+// host ILoggerFactory flows into them by constructor injection - that's how PipeWire stream tracing reaches
+// the agent's --verbose without being threaded through call signatures.
+builder.Services.AddSingleton<AgentMediaFactory>();
+builder.Services.AddSingleton<Publish>();
+builder.Services.AddSingleton<Subscribe>();
 using IHost host = builder.Build();
 MediaSessionFactory transport = host.Services.GetRequiredService<MediaSessionFactory>();
 
@@ -88,8 +94,8 @@ Console.CancelKeyPress += (_, e) =>
 try
 {
     return config.Role == PeerRole.Publisher
-        ? await Publish.RunAsync(config, transport, shutdown.Token)
-        : await Subscribe.RunAsync(config, transport, shutdown.Token);
+        ? await host.Services.GetRequiredService<Publish>().RunAsync(config, transport, shutdown.Token)
+        : await host.Services.GetRequiredService<Subscribe>().RunAsync(config, transport, shutdown.Token);
 }
 catch (OperationCanceledException)
 {
