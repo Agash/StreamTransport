@@ -408,6 +408,14 @@ internal static class Subscribe
             if (applyNegotiatedAlpha is not null)
             {
                 subscriber.AlphaNegotiated += applyNegotiatedAlpha;
+                // Apply a value that already arrived: the publisher sends stream.alpha on the ordered control
+                // channel before its offer, so under auto-negotiation it can land before this subscription. The
+                // event is fire-and-forget, so without this the GPU publish sink would miss it and commit its
+                // output pool as NV12 at first frame (alpha lost). (#11)
+                if (subscriber.NegotiatedAlpha is { } alreadyNegotiated)
+                {
+                    applyNegotiatedAlpha(alreadyNegotiated);
+                }
             }
 
             await subscriber.StartAsync(cancellationToken);

@@ -27,6 +27,18 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     /// </summary>
     public event Action<bool>? AlphaNegotiated;
 
+    /// <summary>
+    /// The most recently advertised side-by-side-alpha value, or null if none has arrived yet. The publisher
+    /// sends it on the ordered control channel before its offer, so a host wiring a downstream GPU sink can read
+    /// this <i>immediately after subscribing to <see cref="AlphaNegotiated"/></i> to adopt a value that already
+    /// arrived (the event is fire-and-forget and would otherwise be missed), closing the first-frame race where
+    /// the sink commits its output-pool format before learning alpha.
+    /// </summary>
+    public bool? NegotiatedAlpha
+    {
+        get { lock (_gate) { return _negotiatedAlpha; } }
+    }
+
     /// <summary>Create a subscriber over a room joined as <see cref="PeerRole.Subscriber"/>.</summary>
     /// <param name="options">The media transport options (codecs, ICE, playout).</param>
     /// <param name="transport">The wire transport that mints the receiver.</param>

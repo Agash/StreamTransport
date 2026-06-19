@@ -32,6 +32,11 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     private readonly int _frameRate;
     private readonly Lock _gate = new();
     private volatile bool _alpha;
+    // Set once the publisher's negotiated alpha has been applied (SetPreserveAlpha). Until then the first-frame
+    // pool commit is deferred (bounded) so a frame that beats the control message can't lock in NV12 (#11).
+    private volatile bool _alphaKnown;
+    private int _alphaDeferrals;
+    private const int MaxAlphaDeferrals = 15; // ~250 ms at 60 fps; the alpha control reliably lands well within.
 
     private PipeWireVideoOutput? _output;
     private byte[]? _bgra;     // latest decoded frame, tightly packed W*4 BGRA
@@ -99,7 +104,11 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     /// Adopt the publisher's negotiated side-by-side-alpha setting. Safe to call before the first frame (the
     /// decoded BGRA vs NV12 decision is made per frame), so the receiver needs no flag of its own.
     /// </summary>
-    public void SetPreserveAlpha(bool value) => _alpha = value;
+    public void SetPreserveAlpha(bool value)
+    {
+        _alpha = value;
+        _alphaKnown = true;
+    }
 
     public void Submit(VideoFrame frame)
     {
@@ -190,6 +199,17 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 if (_mode == Mode.HostMemory)
                 {
                     return; // already committed to the CPU path this session; ignore a stray surface frame.
+                }
+
+                // The pool format (NV12 vs Vulkan BGRA) hinges on alpha, but the negotiated alpha (control
+                // channel) can land just after the first media frame. Defer the commit until alpha is known so a
+                // frame that beats the control can't lock in NV12 and lose alpha (#11); cap the wait so a peer
+                // that never sends the control still starts. The publisher sends alpha=0/1 in all cases, so this
+                // normally only waits for that message, not the full cap.
+                if (!_alphaKnown && _alphaDeferrals < MaxAlphaDeferrals)
+                {
+                    _alphaDeferrals++;
+                    return;
                 }
 
                 try
