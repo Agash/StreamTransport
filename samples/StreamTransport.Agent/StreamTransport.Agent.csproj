@@ -46,7 +46,12 @@
     <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
-    <PackageReference Include="Spout2.NET" />
+    <!-- Spout2.NET: reference the local .refs working copy during active development so lib fixes are
+         picked up without a NuGet round-trip; CI (and any tree without .refs) falls back to the package. -->
+    <ProjectReference Include="..\..\.refs\Spout2.NET\src\Spout2.NET\Spout2.NET.csproj"
+                      Condition="Exists('..\..\.refs\Spout2.NET\src\Spout2.NET\Spout2.NET.csproj')" />
+    <PackageReference Include="Spout2.NET"
+                      Condition="!Exists('..\..\.refs\Spout2.NET\src\Spout2.NET\Spout2.NET.csproj')" />
     <PackageReference Include="Vortice.Direct3D11" />
     <PackageReference Include="Vortice.D3DCompiler" />
     <PackageReference Include="NAudio" />

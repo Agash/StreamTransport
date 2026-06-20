@@ -18,10 +18,10 @@ internal sealed class AgentMediaFactory(ILoggerFactory loggerFactory)
 
 #if WINDOWS_HEAD
     public SpoutVideoCaptureSource CreateSpoutCapture(string? senderName, string encoderName, bool alpha) =>
-        new(senderName, encoderName, alpha);
+        new(senderName, encoderName, alpha, LoggerFactory);
 
     public SpoutVideoPublishSink CreateSpoutPublish(string senderName, bool alpha) =>
-        new(senderName, alpha);
+        new(senderName, alpha, LoggerFactory);
 
     public WasapiAudioCaptureSource CreateWasapiCapture(bool loopback) => new(loopback);
 
@@ -45,11 +45,11 @@ internal sealed class AgentMediaFactory(ILoggerFactory loggerFactory)
 #if HAS_SYPHON
     [SupportedOSPlatform("macos")]
     public SyphonVideoCaptureSource CreateSyphonCapture(string? serverName, bool alpha) =>
-        SyphonVideoCaptureSource.Connect(serverName, alpha);
+        SyphonVideoCaptureSource.Connect(serverName, alpha, loggerFactory: LoggerFactory);
 
     [SupportedOSPlatform("macos")]
     public SyphonVideoPublishSink CreateSyphonPublish(string serverName, bool alpha) =>
-        new(serverName, alpha);
+        new(serverName, alpha, LoggerFactory);
 #endif
 
 #if MACOS_HEAD

@@ -5,6 +5,7 @@ using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
 using CoreVideo;
 using IOSurface;
+using Microsoft.Extensions.Logging;
 using ObjCRuntime;
 using Syphon.NET;
 
@@ -27,6 +28,7 @@ namespace StreamTransport.Agent;
 internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
 {
     private readonly string? _serverName;
+    private readonly ILoggerFactory? _loggerFactory;
     private readonly Thread _thread;
     private readonly ManualResetEventSlim _ready = new();
     private readonly Lock _gate = new();
@@ -39,9 +41,10 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     private long _timeNs;
     private bool _hasNew;
 
-    private SyphonVideoCaptureSource(string? serverName, bool alpha)
+    private SyphonVideoCaptureSource(string? serverName, bool alpha, ILoggerFactory? loggerFactory)
     {
         _serverName = serverName;
+        _loggerFactory = loggerFactory;
         _alpha = alpha ? new MetalAlphaCodec() : null;
         _thread = new Thread(Run) { IsBackground = true, Name = "syphon-capture" };
         _thread.Start();
@@ -54,9 +57,9 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     /// is found or <paramref name="timeout"/> elapses. <paramref name="alpha"/> preserves transparency by
     /// packing each captured IOSurface side-by-side (colour|alpha) on the GPU via <see cref="MetalAlphaCodec"/>.
     /// </summary>
-    public static SyphonVideoCaptureSource Connect(string? serverName, bool alpha = false, TimeSpan? timeout = null)
+    public static SyphonVideoCaptureSource Connect(string? serverName, bool alpha = false, TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
     {
-        var source = new SyphonVideoCaptureSource(serverName, alpha);
+        var source = new SyphonVideoCaptureSource(serverName, alpha, loggerFactory);
         if (!source._ready.Wait(timeout ?? TimeSpan.FromSeconds(8)) || source._connectError is not null)
         {
             Exception? error = source._connectError;
@@ -102,7 +105,7 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
         IOSurface.IOSurface? previous = null;
         try
         {
-            directory = new SyphonServerDirectory();
+            directory = new SyphonServerDirectory(_loggerFactory);
 
             long deadline = Stopwatch.GetTimestamp() + (8 * Stopwatch.Frequency);
             while (!_disposed && client is null && Stopwatch.GetTimestamp() < deadline)
@@ -229,9 +232,9 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     private long _firstPublishTicks;
     private bool _disposed;
 
-    public SyphonVideoPublishSink(string serverName, bool alpha = false)
+    public SyphonVideoPublishSink(string serverName, bool alpha = false, ILoggerFactory? loggerFactory = null)
     {
-        _server = new SyphonServer(serverName);
+        _server = new SyphonServer(serverName, loggerFactory);
         _preserveAlpha = alpha;
     }
 

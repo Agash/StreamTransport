@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
+using Microsoft.Extensions.Logging;
 using Spout2.NET;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -36,7 +37,7 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
     private byte[] _nv12 = [];
     private bool _disposed;
 
-    public SpoutVideoCaptureSource(string? senderName, string encoderName, bool alpha = false)
+    public SpoutVideoCaptureSource(string? senderName, string encoderName, bool alpha = false, ILoggerFactory? loggerFactory = null)
     {
         _alpha = alpha;
         // One device (refcount 1) shared with the encoder on the zero-copy path; also used for Spout
@@ -52,7 +53,7 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         DeviceHandle = deviceHandle;
 
         _context = _device.ImmediateContext;
-        _receiver = new SpoutReceiver(deviceHandle, senderName);
+        _receiver = new SpoutReceiver(deviceHandle, senderName, loggerFactory);
     }
 
     /// <summary>The shared <c>ID3D11Device*</c> handed to the publisher for the zero-copy path.</summary>
