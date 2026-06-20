@@ -45,7 +45,7 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, rid: win-x64 }
-          - { os: macos-latest, rid: osx-arm64 }
+          - { os: macos-26, rid: osx-arm64 }
           - { os: ubuntu-latest, rid: linux-x64 }
           - { os: ubuntu-24.04-arm, rid: linux-arm64 }
     steps:
@@ -63,12 +63,31 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ffmpeg
 
-      # Base TFM: the GPU-capture heads need the (unpublished) Spout/Syphon/PipeWire clones, absent in CI.
-      - name: Publish single-file agent
+      # macOS ships the real net11.0-macos head (Syphon/Metal/CoreAudio), which links the Microsoft macOS bindings
+      # and Syphon.NET against the macOS 26.5 SDK - so select Xcode 26.5 and install the macos workload.
+      - name: Select Xcode 26.5 (macOS)
+        if: runner.os == 'macOS'
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
+      - name: Install macos workload (macOS)
+        if: runner.os == 'macOS'
+        run: dotnet workload install macos
+
+      # Windows/Linux: single-file self-contained net11.0 (the Linux head carries the PipeWire GPU path).
+      - name: Publish agent (Windows/Linux)
+        if: runner.os != 'macOS'
         run: >
           dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
           -c Release -f net11.0 -r ${{ matrix.rid }} --self-contained
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o publish/${{ matrix.rid }}
+
+      # macOS: the net11.0-macos head is a NativeAOT .app bundle (PublishAot kicks in once a RID is set, so
+      # single-file does not apply). Syphon.NET's native dylib flows in from the NuGet package.
+      - name: Publish agent (macOS)
+        if: runner.os == 'macOS'
+        run: >
+          dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
+          -c Release -f net11.0-macos -r ${{ matrix.rid }}
           -o publish/${{ matrix.rid }}
 
       # Ship the FFmpeg shared libraries next to the executable.
@@ -77,9 +96,14 @@ jobs:
         shell: pwsh
         run: Copy-Item native/ffmpeg/${{ matrix.rid }}/* publish/${{ matrix.rid }}/ -Force
 
-      - name: Package
+      - name: Package (Windows/Linux)
+        if: runner.os != 'macOS'
         shell: pwsh
         run: Compress-Archive -Path publish/${{ matrix.rid }}/* -DestinationPath streamtransport-agent-${{ matrix.rid }}.zip
+      # ditto preserves the .app bundle's symlinks and executable bits, which Compress-Archive would drop.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent "publish/${{ matrix.rid }}" "streamtransport-agent-${{ matrix.rid }}.zip"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -98,17 +122,36 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Docker Hub publishing is optional: it runs only once DOCKERHUB_USERNAME/DOCKERHUB_TOKEN secrets are
+      # configured. Until then the job no-ops (stays green) instead of failing the release on a missing login.
+      - name: Check Docker Hub credentials
+        id: dh
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Docker Hub secrets not configured - skipping relay image publish."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v6
+        if: steps.dh.outputs.ready == 'true'
       - uses: docker/setup-buildx-action@v3
+        if: steps.dh.outputs.ready == 'true'
       - uses: docker/login-action@v3
+        if: steps.dh.outputs.ready == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - uses: docker/metadata-action@v5
         id: meta
+        if: steps.dh.outputs.ready == 'true'
         with:
           images: agash/streamtransport-relay
       - uses: docker/build-push-action@v6
+        if: steps.dh.outputs.ready == 'true'
         with:
           context: .
           file: docker/Dockerfile
