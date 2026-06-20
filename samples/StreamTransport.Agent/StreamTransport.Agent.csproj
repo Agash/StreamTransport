@@ -46,12 +46,7 @@
     <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
-    <!-- Spout2.NET: reference the local .refs working copy during active development so lib fixes are
-         picked up without a NuGet round-trip; CI (and any tree without .refs) falls back to the package. -->
-    <ProjectReference Include="..\..\.refs\Spout2.NET\src\Spout2.NET\Spout2.NET.csproj"
-                      Condition="Exists('..\..\.refs\Spout2.NET\src\Spout2.NET\Spout2.NET.csproj')" />
-    <PackageReference Include="Spout2.NET"
-                      Condition="!Exists('..\..\.refs\Spout2.NET\src\Spout2.NET\Spout2.NET.csproj')" />
+    <PackageReference Include="Spout2.NET" />
     <PackageReference Include="Vortice.Direct3D11" />
     <PackageReference Include="Vortice.D3DCompiler" />
     <PackageReference Include="NAudio" />
@@ -71,12 +66,7 @@
     <DefineConstants>$(DefineConstants);HAS_PIPEWIRE;HAS_VULKAN</DefineConstants>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
-    <!-- PipeWire.NET: reference the local .refs working copy during active development so lib fixes are
-         picked up without a NuGet round-trip; CI (and any tree without .refs) falls back to the package. -->
-    <ProjectReference Include="..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj"
-                      Condition="Exists('..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj')" />
-    <PackageReference Include="PipeWire.NET"
-                      Condition="!Exists('..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj')" />
+    <PackageReference Include="PipeWire.NET" />
     <!-- Linux GPU alpha pack/unpack: Vulkan compute over the PipeWire dmabuf. The GLSL .comp shaders are
          compiled to SPIR-V at build time (see the CompileComputeShadersToSpirV target) and loaded as
          precompiled .spv at runtime - NOT via a runtime GLSL->SPIR-V compiler (shaderc), whose bundled
@@ -86,8 +76,7 @@
 
   <!-- macOS head (net11.0-macos): Syphon (IOSurface) zero-copy + Metal alpha compute + CoreAudio, via the
        Microsoft -macos framework bindings (Metal/CoreVideo/AudioUnit). Syphon.NET provides the IOSurface
-       sharing protocol; the Metal compute is done directly through the MS Metal bindings (no native shim).
-       Reference the local .refs working copy while we rework Syphon.NET; CI falls back to the package. -->
+       sharing protocol; the Metal compute is done directly through the MS Metal bindings (no native shim). -->
   <PropertyGroup Condition="$(TargetFramework.Contains('-macos'))">
     <DefineConstants>$(DefineConstants);MACOS_HEAD;HAS_SYPHON</DefineConstants>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
@@ -104,10 +93,7 @@
     <ValidateXcodeVersion>false</ValidateXcodeVersion>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
-    <ProjectReference Include="..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj"
-                      Condition="Exists('..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj')" />
-    <PackageReference Include="Syphon.NET"
-                      Condition="!Exists('..\..\.refs\Syphon.NET\src\Syphon.NET\Syphon.NET.csproj')" />
+    <PackageReference Include="Syphon.NET" />
   </ItemGroup>
 
   <!-- macOS GPU alpha pack/unpack + colour-convert shaders (Metal compute kernels). The SDK's default Metal
