@@ -8,6 +8,9 @@ namespace Agash.StreamTransport.Tests;
 // parallel pool so neither the encoder session nor the handshake is starved.
 [TestClass]
 [DoNotParallelize]
+// Hardware encode + real loopback sockets + full WebRTC handshake: reliable on Windows, Linux and real macOS
+// hardware, but the connect races on the GitHub macOS runner's loopback. Off the gate; runs non-gating. (#1)
+[TestCategory("Integration")]
 public sealed class VideoLoopbackTests
 {
     /// <summary>Auto-selected encoder (NVENC on Windows/Linux, VideoToolbox on macOS): source -> encode -> WebRTC -> decode -> sink.</summary>

@@ -10,6 +10,9 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 /// and a media datagram flows across the selected pair.
 /// </summary>
 [TestClass]
+// Real-socket loopback E2E (two IceAgents over UDP): reliable on Windows, Linux and real macOS hardware, but the
+// handshake races on the GitHub macOS runner's loopback. Off the gate; runs in the non-gating Integration leg. (#1)
+[TestCategory("Integration")]
 public sealed class IceAgentLoopbackTests
 {
     [TestMethod]

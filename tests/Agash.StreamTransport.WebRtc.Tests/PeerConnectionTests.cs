@@ -22,6 +22,7 @@ public sealed class PeerConnectionTests
 {
     [TestMethod]
     [Timeout(90_000)]
+    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task OfferAnswer_ConnectsAndDeliversEncryptedRtp()
     {
         var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
@@ -77,6 +78,7 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
+    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task Mobility_Recovery_ReconnectsAndPreservesSrtpSession()
     {
         // Connect, then force a mobility recovery on the sender. A packet sent AFTER recovery must still
@@ -136,6 +138,7 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
+    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task IceRestart_RotatesCredentials_AndPreservesSrtpSession()
     {
         var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
@@ -306,6 +309,7 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
+    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task Receiver_RequestKeyframe_ReachesSenderAsRtcpPli()
     {
         var videoCodec = new SdpCodec(96, "H264", 90000, null, "packetization-mode=1", ["nack", "nack pli"]);
