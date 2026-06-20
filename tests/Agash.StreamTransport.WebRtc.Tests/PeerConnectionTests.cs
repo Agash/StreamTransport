@@ -203,6 +203,9 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
+    // Live two-PeerConnection loopback (real ICE/DTLS handshake): off the gate, as the loopback connect races on
+    // a loaded CI host - notably the macOS runner (#1). Runs in the non-gating Integration leg.
+    [TestCategory("Integration")]
     public async Task Congestion_FeedbackLoop_IsLive_AndProducesEstimates()
     {
         // Proves the congestion loop is actually wired in a live connection (CCFB timer + estimate event +

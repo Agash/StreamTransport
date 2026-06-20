@@ -15,6 +15,9 @@ public sealed class SystemPipelineTests
 {
     [TestMethod]
     [Timeout(30_000)]
+    // Drives a full media path over a real loopback ICE/DTLS connection; the connect races on a loaded CI host
+    // (notably the macOS runner), so keep it off the gate (#1). Runs in the non-gating Integration leg.
+    [TestCategory("Integration")]
     public async Task VideoOrchestration_FakeCodec_NegotiatesEncodesAndDeliversFrames()
     {
         var registry = new MediaCodecRegistry([new FakeVideoCodec()], []);
