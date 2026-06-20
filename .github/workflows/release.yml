@@ -45,9 +45,11 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, rid: win-x64 }
-          - { os: macos-26, rid: osx-arm64 }
           - { os: ubuntu-latest, rid: linux-x64 }
           - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          # macOS (osx-arm64) is intentionally omitted: the -macos agent packaging (NativeAOT vs CoreCLR, .app vs
+          # bare CLI, bundled FFmpeg, and a startup crash to chase down) is unfinished. The 9 libraries cover macOS
+          # consumers; the macOS agent ships once that is sorted. Tracked as a follow-up.
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -56,66 +58,25 @@ jobs:
           dotnet-quality: preview
 
       - name: Fetch FFmpeg
-        if: runner.os != 'macOS'
         shell: pwsh
         run: ./eng/fetch-ffmpeg.ps1 -Rids ${{ matrix.rid }}
-      - name: Install FFmpeg (macOS)
-        if: runner.os == 'macOS'
-        run: brew install ffmpeg
 
-      # macOS ships the real net11.0-macos head (Syphon/Metal/CoreAudio), which links the Microsoft macOS bindings
-      # and Syphon.NET against the macOS 26.5 SDK - so select Xcode 26.5 and install the macos workload.
-      - name: Select Xcode 26.5 (macOS)
-        if: runner.os == 'macOS'
-        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
-      - name: Install macos workload (macOS)
-        if: runner.os == 'macOS'
-        run: dotnet workload install macos
-
-      # Windows/Linux: single-file self-contained net11.0 (the Linux head carries the PipeWire GPU path).
-      - name: Publish agent (Windows/Linux)
-        if: runner.os != 'macOS'
+      # Single-file self-contained net11.0 (the Linux head carries the PipeWire GPU path).
+      - name: Publish single-file agent
         run: >
           dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
           -c Release -f net11.0 -r ${{ matrix.rid }} --self-contained
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o publish/${{ matrix.rid }}
 
-      # macOS: the net11.0-macos head is a NativeAOT .app bundle (PublishAot kicks in once a RID is set, so
-      # single-file does not apply). Syphon.NET's native dylib flows in from the NuGet package.
-      - name: Publish agent (macOS)
-        if: runner.os == 'macOS'
-        run: >
-          dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
-          -c Release -f net11.0-macos -r ${{ matrix.rid }}
-          -o publish/${{ matrix.rid }}
-
       # Ship the FFmpeg shared libraries next to the executable.
       - name: Bundle FFmpeg natives
-        if: runner.os != 'macOS'
         shell: pwsh
         run: Copy-Item native/ffmpeg/${{ matrix.rid }}/* publish/${{ matrix.rid }}/ -Force
 
-      # The macOS agent is a .app bundle (its Metal shader library lives inside it, so a bare binary can't run).
-      # Ship a thin launcher next to it so it is usable as an ordinary terminal command: `./streamtransport-agent ...`.
-      - name: Add CLI launcher (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          cat > "publish/${{ matrix.rid }}/streamtransport-agent" <<'SH'
-          #!/bin/sh
-          here="$(cd "$(dirname "$0")" && pwd)"
-          exec "$here/streamtransport-agent.app/Contents/MacOS/streamtransport-agent" "$@"
-          SH
-          chmod +x "publish/${{ matrix.rid }}/streamtransport-agent"
-
-      - name: Package (Windows/Linux)
-        if: runner.os != 'macOS'
+      - name: Package
         shell: pwsh
         run: Compress-Archive -Path publish/${{ matrix.rid }}/* -DestinationPath streamtransport-agent-${{ matrix.rid }}.zip
-      # ditto preserves the .app bundle's symlinks and executable bits, which Compress-Archive would drop.
-      - name: Package (macOS)
-        if: runner.os == 'macOS'
-        run: ditto -c -k --sequesterRsrc --keepParent "publish/${{ matrix.rid }}" "streamtransport-agent-${{ matrix.rid }}.zip"
 
       - uses: actions/upload-artifact@v7
         with:
