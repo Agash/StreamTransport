@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using Agash.StreamTransport;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 using PipeWire.NET;
 using PwPixelFormat = PipeWire.NET.PixelFormat;
 using PwVideoFrame = PipeWire.NET.VideoFrame;
@@ -40,9 +41,9 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
     }
 
     /// <summary>Start the PipeWire loop and connect to <paramref name="targetNodeId"/> (or any node).</summary>
-    public static async Task<PipeWireVideoCaptureSource> CreateAsync(uint targetNodeId, bool alpha = false)
+    public static async Task<PipeWireVideoCaptureSource> CreateAsync(uint targetNodeId, bool alpha = false, ILoggerFactory? loggerFactory = null)
     {
-        var context = new PipeWireContext();
+        var context = new PipeWireContext("StreamTransport.Agent", loggerFactory);
         await context.StartAsync().ConfigureAwait(false);
         var capture = new PipeWireVideoCapture(context);
         var source = new PipeWireVideoCaptureSource(context, capture, alpha);

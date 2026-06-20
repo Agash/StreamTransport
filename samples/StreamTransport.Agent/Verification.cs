@@ -21,6 +21,16 @@ internal sealed class VerificationReport
     private readonly Lock _gate = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
+    // Output-path latencies for the boundary-skew estimate (#14). La is the receiver platform's audio device
+    // buffer depth (the part bypassed in --verify, where audio goes to the measurement sink); Lv is the measured
+    // video publish-staging latency (decode -> publish hand-off), accumulated from the GPU publish sink.
+    private readonly double _audioDeviceLatencyMs;
+    private double _videoPublishLatencySumMs;
+    private int _videoPublishLatencyCount;
+
+    /// <param name="audioDeviceLatencyMs">The receiver platform's audio device buffer depth (La), for the boundary-skew estimate.</param>
+    public VerificationReport(double audioDeviceLatencyMs = 0) => _audioDeviceLatencyMs = audioDeviceLatencyMs;
+
     // First observation per sequence id, in the shared QPC clock (comparable across both sinks, and - on one
     // machine - with the sender's embedded capture ms).
     private readonly Dictionary<int, (double PresentMs, long CaptureMs)> _videoMarkers = [];
@@ -48,13 +58,16 @@ internal sealed class VerificationReport
 
     public double ElapsedMs => _clock.Elapsed.TotalMilliseconds;
 
-    public void RecordVideoContent(double brightness, bool isBgra, bool alphaGradient)
+    public void RecordVideoContent(double brightness, bool isBgra, bool alphaGradient, bool opaque)
     {
         lock (_gate)
         {
             _videoFrames++;
             _lastVideoFormat = isBgra ? VideoPixelFormat.Bgra : _lastVideoFormat;
-            _sawAnyBgra |= isBgra;
+            // Only a BGRA frame whose alpha actually varies marks the transparency path (so the gradient becomes
+            // a pass requirement). An opaque decode that simply colour-converted to BGRA (e.g. the macOS GPU
+            // NV12->BGRA publish, or a white sync-marker frame) has uniform alpha and must NOT demand a gradient.
+            _sawAnyBgra |= isBgra && !opaque;
             _sawAlphaGradient |= alphaGradient;
             // The gradient test pattern averages to a near-constant ~127 every frame (so the gradient alone
             // reads as "frozen"); the once-a-second white marker frame (~255) is the real liveness signal, so
@@ -89,6 +102,16 @@ internal sealed class VerificationReport
         lock (_gate)
         {
             _audioMarkers.TryAdd(seqId, presentMs);
+        }
+    }
+
+    /// <summary>Record a video publish-staging latency sample (decode -&gt; publish hand-off, ms), for the boundary-skew estimate (#14).</summary>
+    public void RecordVideoPublishLatency(double ms)
+    {
+        lock (_gate)
+        {
+            _videoPublishLatencySumMs += ms;
+            _videoPublishLatencyCount++;
         }
     }
 
@@ -212,6 +235,16 @@ internal sealed class VerificationReport
             log($"sync  : capture->present video ~{latencySum / latencyCount:F0} ms, audio ~{audioLatencySum / latencyCount:F0} ms (same-machine QPC only)");
         }
 
+        // Boundary-skew estimate (#14): the skew above is at scheduler release - the part the playout controls. The
+        // viewer's real lip-sync also carries each path's downstream output latency: video's publish staging (Lv,
+        // measured) and audio's device buffer (La, the receiver platform's, bypassed in --verify). Output skew ~=
+        // scheduler skew + (Lv - La). Informational - the IN/OUT verdict stays on the controllable scheduler skew;
+        // a host that sets the receiver's output-latency offset (Lv - La) drives this toward zero. See
+        // docs/notes/output-boundary-latency-sync.md.
+        double lv = _videoPublishLatencyCount > 0 ? _videoPublishLatencySumMs / _videoPublishLatencyCount : 0;
+        double boundary = mean + (lv - _audioDeviceLatencyMs);
+        log($"sync  : output-boundary skew ~{boundary:+0;-0;0} ms (video publish Lv ~{lv:F0} ms, audio device La ~{_audioDeviceLatencyMs:F0} ms; uncompensated)");
+
         return locked;
     }
 }
@@ -232,8 +265,10 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
 
         ReadOnlySpan<byte> px = frame.Pixels.Span;
         bool isBgra = frame.PixelFormat == VideoPixelFormat.Bgra;
-        (double brightness, bool alphaGradient) = isBgra ? SampleBgra(px, frame.Width, frame.Height) : (SampleLuma(px, frame.Width, frame.Height), false);
-        report.RecordVideoContent(brightness, isBgra, alphaGradient);
+        (double brightness, bool alphaGradient, bool opaque) = isBgra
+            ? SampleBgra(px, frame.Width, frame.Height)
+            : (SampleLuma(px, frame.Width, frame.Height), false, true);
+        report.RecordVideoContent(brightness, isBgra, alphaGradient, opaque);
 
         // The marker codec rides the NV12/I420 luma plane (the alpha path keeps the plain white marker).
         if (!isBgra && SyncMarkerCodec.TryReadVideoMarker(px, frame.Width, frame.Height, out int seqId, out long captureMs))
@@ -267,11 +302,12 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
         return n > 0 ? sum / (double)n : 0;
     }
 
-    private static (double Brightness, bool AlphaGradient) SampleBgra(ReadOnlySpan<byte> px, int width, int height)
+    private static (double Brightness, bool AlphaGradient, bool Opaque) SampleBgra(ReadOnlySpan<byte> px, int width, int height)
     {
         long sum = 0;
         int n = 0;
         int alphaLeft = 0, alphaRight = 0, leftN = 0, rightN = 0;
+        int alphaMin = 255;
         for (int y = 0; y < height; y += 8)
         {
             int row = y * width * 4;
@@ -280,6 +316,7 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
                 int p = row + (x * 4);
                 sum += (px[p] + px[p + 1] + px[p + 2]) / 3;
                 n++;
+                alphaMin = Math.Min(alphaMin, px[p + 3]);
                 if (x < width / 4) { alphaLeft += px[p + 3]; leftN++; }
                 else if (x > 3 * width / 4) { alphaRight += px[p + 3]; rightN++; }
             }
@@ -288,7 +325,9 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
         double brightness = n > 0 ? sum / (double)n : 0;
         bool gradient = leftN > 0 && rightN > 0 && brightness < 200
             && (alphaRight / (double)rightN) - (alphaLeft / (double)leftN) > 40;
-        return (brightness, gradient);
+        // Uniformly near-255 alpha = an opaque frame that merely colour-converted to BGRA (not the alpha path).
+        bool opaque = alphaMin > 250;
+        return (brightness, gradient, opaque);
     }
 }
 

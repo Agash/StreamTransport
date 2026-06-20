@@ -21,6 +21,14 @@ if (args.Length > 0 && args[0].Equals("selftest", StringComparison.OrdinalIgnore
 {
     // `selftest alpha [encoder]` runs the GPU side-by-side-alpha round-trip (pack -> encode -> decode ->
     // unpack) through a real hardware encoder, with no Spout sender / OBS needed.
+    // `selftest caps` probes and prints the host's usable HEVC hardware encode/decode capabilities. Works on
+    // every platform (no relay, no GPU surface), so it doubles as a quick "what will this machine do?" check.
+    if (args.Length > 1 && args[1].Equals("caps", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine(Agash.StreamTransport.Codecs.CodecCapabilities.Probe().Describe());
+        return 0;
+    }
+
     bool alpha = args.Length > 1 && args[1].Equals("alpha", StringComparison.OrdinalIgnoreCase);
     string selfTestEncoder = args.Length > 2 ? args[2] : "hevc_nvenc";
 #if HAS_PIPEWIRE
@@ -57,6 +65,12 @@ builder.Logging.ClearProviders();
 builder.Logging.SetMinimumLevel(verbose ? LogLevel.Debug : LogLevel.Information);
 builder.Logging.AddProvider(new SpectreLoggerProvider(verbose ? LogLevel.Debug : LogLevel.Information));
 builder.Services.AddStreamTransport();
+// The platform media factory (capture sources / publish sinks) and the two run loops are DI services, so the
+// host ILoggerFactory flows into them by constructor injection - that's how PipeWire stream tracing reaches
+// the agent's --verbose without being threaded through call signatures.
+builder.Services.AddSingleton<AgentMediaFactory>();
+builder.Services.AddSingleton<Publish>();
+builder.Services.AddSingleton<Subscribe>();
 using IHost host = builder.Build();
 MediaSessionFactory transport = host.Services.GetRequiredService<MediaSessionFactory>();
 
@@ -80,8 +94,8 @@ Console.CancelKeyPress += (_, e) =>
 try
 {
     return config.Role == PeerRole.Publisher
-        ? await Publish.RunAsync(config, transport, shutdown.Token)
-        : await Subscribe.RunAsync(config, transport, shutdown.Token);
+        ? await host.Services.GetRequiredService<Publish>().RunAsync(config, transport, shutdown.Token)
+        : await host.Services.GetRequiredService<Subscribe>().RunAsync(config, transport, shutdown.Token);
 }
 catch (OperationCanceledException)
 {
@@ -91,7 +105,16 @@ catch (OperationCanceledException)
 catch (Exception ex)
 {
     AnsiConsole.MarkupLineInterpolated($"[red]error:[/] {ex.Message}");
-    AnsiConsole.WriteException(ex, ExceptionFormats.ShortenEverything);
+    // Rich exception formatter uses dynamic code (not NativeAOT-safe); plain dump when AOT-compiled.
+    if (System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+    {
+        AnsiConsole.WriteException(ex, ExceptionFormats.ShortenEverything);
+    }
+    else
+    {
+        AnsiConsole.WriteLine(ex.ToString());
+    }
+
     return 1;
 }
 
@@ -119,7 +142,10 @@ internal sealed record AgentConfig(
     int Seconds = 15,
     int BFrames = 0,
     MediaProfile Profile = MediaProfile.InteractiveP2P,
-    IReadOnlyList<string>? Interfaces = null)
+    IReadOnlyList<string>? Interfaces = null,
+    int Fps = 30,
+    int Width = 1280,
+    int Height = 720)
 {
     public static AgentConfig? FromArgs(string[] args)
     {
@@ -137,6 +163,9 @@ internal sealed record AgentConfig(
         bool audio = true, video = true, host = false, devTunnel = false, alpha = false, verify = false, synced = false;
         int seconds = 15;
         int bFrames = 0;
+        int fps = 30;
+        int width = 1280;
+        int height = 720;
         var profile = MediaProfile.InteractiveP2P;
         var interfaces = new List<string>();
 
@@ -163,6 +192,14 @@ internal sealed record AgentConfig(
                 case "--verify": verify = true; break;
                 case "--synced": synced = true; break;
                 case "--seconds": seconds = int.Parse(args[++i]); break;
+                case "--fps": fps = int.Parse(args[++i]); break;
+                case "--resolution":
+                {
+                    string[] wh = args[++i].Split('x', 'X');
+                    if (wh.Length != 2 || !int.TryParse(wh[0], out width) || !int.TryParse(wh[1], out height))
+                        throw new ArgumentException("--resolution expects WxH, e.g. 1920x1080.");
+                    break;
+                }
                 case "--bframes": bFrames = int.Parse(args[++i]); break;
                 case "--profile": profile = ParseProfile(args[++i]); break;
                 case "--interface": interfaces.Add(args[++i]); break;
@@ -187,7 +224,7 @@ internal sealed record AgentConfig(
 
         room ??= role == PeerRole.Publisher ? RandomRoom() : throw new ArgumentException("--room <code> is required for receive.");
         return new AgentConfig(
-            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, publishPipeWire, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces);
+            role, relayUri, room, source, audio, video, videoDevice, audioDevice, encoder, host, devTunnel, spoutSender, publishSpout, publishSyphon, publishPipeWire, syphonServer, alpha, verify, synced, seconds, bFrames, profile, interfaces, fps, width, height);
     }
 
     private static MediaProfile ParseProfile(string value) => value.ToLowerInvariant() switch

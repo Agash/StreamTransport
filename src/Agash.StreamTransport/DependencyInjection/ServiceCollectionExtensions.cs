@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Agash.StreamTransport.Codecs;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
@@ -58,7 +59,7 @@ public static class ServiceCollectionExtensions
     /// Register an additional video codec. Its descriptor is added to the <see cref="IMediaCodecRegistry"/>,
     /// so it is offered in SDP and selectable by a peer with no edits to the negotiation code.
     /// </summary>
-    public static IServiceCollection AddVideoCodec<T>(this IServiceCollection services)
+    public static IServiceCollection AddVideoCodec<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this IServiceCollection services)
         where T : class, IVideoCodecDescriptor
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -67,7 +68,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>Register an additional audio codec (the audio counterpart of <see cref="AddVideoCodec{T}"/>).</summary>
-    public static IServiceCollection AddAudioCodec<T>(this IServiceCollection services)
+    public static IServiceCollection AddAudioCodec<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this IServiceCollection services)
         where T : class, IAudioCodecDescriptor
     {
         ArgumentNullException.ThrowIfNull(services);

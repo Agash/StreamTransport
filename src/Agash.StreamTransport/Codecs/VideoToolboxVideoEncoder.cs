@@ -18,7 +18,7 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
 
     /// <inheritdoc/>
     public byte[]? Encode(in VideoFrame frame, out long capturePtsNs) =>
-        EncodeIOSurface(frame.Surface, frame.PresentationTimeNs, out capturePtsNs);
+        EncodeIOSurface(frame.Surface, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
 
     private readonly int _width;
     private readonly int _height;
@@ -73,9 +73,9 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
     }
 
     /// <summary>Encode one Syphon IOSurface, returning the HEVC access unit or null if output was withheld.</summary>
-    public byte[]? EncodeIOSurface(nint ioSurface) => EncodeIOSurface(ioSurface, 0, out _);
+    public byte[]? EncodeIOSurface(nint ioSurface) => EncodeIOSurface(ioSurface, 0, forceKeyframe: false, out _);
 
-    public byte[]? EncodeIOSurface(nint ioSurface, long capturePtsNs, out long producedPtsNs)
+    public byte[]? EncodeIOSurface(nint ioSurface, long capturePtsNs, bool forceKeyframe, out long producedPtsNs)
     {
         producedPtsNs = 0;
         nint pixelBuffer = CoreVideoInterop.CreatePixelBufferFromIOSurface(ioSurface);
@@ -99,6 +99,7 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
                 null,
                 0);
             frame->pts = capturePtsNs;
+            frame->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
 
             ffmpeg.avcodec_send_frame(_context, frame).ThrowOnError("send IOSurface frame to encoder");
 

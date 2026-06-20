@@ -1,6 +1,7 @@
 #if HAS_PIPEWIRE
 using System.Runtime.Versioning;
 using Agash.StreamTransport;
+using Microsoft.Extensions.Logging;
 using PipeWire.NET;
 using PwAudioSampleFormat = PipeWire.NET.AudioSampleFormat;
 using AudioFrame = Agash.StreamTransport.AudioFrame;
@@ -39,9 +40,9 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
     }
 
     /// <summary>Start the PipeWire loop and return a sink ready to publish under <paramref name="nodeName"/>.</summary>
-    public static async Task<PipeWireAudioPublishSink> CreateAsync(string nodeName)
+    public static async Task<PipeWireAudioPublishSink> CreateAsync(string nodeName, ILoggerFactory? loggerFactory = null)
     {
-        var context = new PipeWireContext();
+        var context = new PipeWireContext("StreamTransport.Agent", loggerFactory);
         await context.StartAsync().ConfigureAwait(false);
         return new PipeWireAudioPublishSink(context, nodeName);
     }

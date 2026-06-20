@@ -8,6 +8,14 @@ export DOTNET_ROOT="$HOME/.dotnet"
 export PATH="$HOME/.dotnet:$PATH"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-AGENT="$HOME/stx/samples/StreamTransport.Agent/bin/Release/net11.0/streamtransport-agent.dll"
-[ -f "$AGENT" ] || { echo "MATRIX-LINUX-AGENT-MISSING: $AGENT"; exit 97; }
-exec dotnet "$AGENT" "$@"
+# Prefer the self-contained NativeAOT binary (the deployment artifact); fall back to the framework-dependent
+# dll via the runtime only if the AOT publish is absent.
+AOT="$HOME/stx/samples/StreamTransport.Agent/bin/Release/net11.0/linux-x64/publish/streamtransport-agent"
+DLL="$HOME/stx/samples/StreamTransport.Agent/bin/Release/net11.0/streamtransport-agent.dll"
+if [ -x "$AOT" ]; then
+  exec "$AOT" "$@"
+elif [ -f "$DLL" ]; then
+  exec dotnet "$DLL" "$@"
+else
+  echo "MATRIX-LINUX-AGENT-MISSING: $AOT (build the linux-x64 AOT publish first)"; exit 97
+fi

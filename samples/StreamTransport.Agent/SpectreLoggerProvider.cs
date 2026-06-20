@@ -47,7 +47,16 @@ internal sealed class SpectreLoggerProvider(LogLevel minLevel = LogLevel.Informa
             AnsiConsole.MarkupLineInterpolated($"[{colour}]{Tag(logLevel)} {_shortCategory}: {formatter(state, exception)}[/]");
             if (exception is not null)
             {
-                AnsiConsole.WriteException(exception, ExceptionFormats.ShortenEverything);
+                // Spectre's rich exception formatter uses dynamic code (not NativeAOT-safe); fall back to a
+                // plain dump when AOT-compiled.
+                if (System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported)
+                {
+                    AnsiConsole.WriteException(exception, ExceptionFormats.ShortenEverything);
+                }
+                else
+                {
+                    AnsiConsole.WriteLine(exception.ToString());
+                }
             }
         }
 

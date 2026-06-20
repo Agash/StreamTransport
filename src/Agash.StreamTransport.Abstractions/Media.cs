@@ -207,6 +207,13 @@ public sealed record MediaTransportOptions
     /// </summary>
     public string? VideoEncoderName { get; init; }
 
+    /// <summary>
+    /// Nominal video frame rate, used for encoder rate-control/keyframe-interval tuning. The actual send rate
+    /// follows the source's real capture cadence (RTP timestamps advance by the measured interval), so this is
+    /// a hint, not a throttle. Defaults to 30.
+    /// </summary>
+    public int VideoFps { get; init; } = 30;
+
     /// <summary>The audio codec. Opus is the only WebRTC audio codec.</summary>
     public AudioCodec AudioCodec { get; init; } = AudioCodec.Opus;
 
@@ -318,4 +325,12 @@ public interface IMediaReceiver : IAsyncDisposable
 
     /// <summary>Adopt the publisher's negotiated side-by-side-alpha setting (no-op for audio-only).</summary>
     void SetPreserveAlpha(bool value);
+
+    /// <summary>
+    /// Set the differential output-path latency <c>Lv - La</c> (video publish latency minus audio device latency),
+    /// in nanoseconds, so the synced playout lip-syncs at the <i>output</i> boundary (display / speaker) rather
+    /// than only at scheduler release. The host computes it from the latencies of the concrete sinks it owns.
+    /// 0 (the default) keeps scheduler-aligned playout. No-op unless both streams are present and synced.
+    /// </summary>
+    void SetOutputLatencyOffset(long differentialNs);
 }

@@ -18,6 +18,7 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     private readonly Lock _gate = new();
     private IMediaReceiver? _receiver;
     private bool? _negotiatedAlpha;
+    private long _outputLatencyOffsetNs;
 
     /// <summary>
     /// Raised when the publisher advertises whether its stream carries side-by-side alpha (over the signaling
@@ -26,6 +27,18 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     /// to this to adopt the value without needing a flag of its own.
     /// </summary>
     public event Action<bool>? AlphaNegotiated;
+
+    /// <summary>
+    /// The most recently advertised side-by-side-alpha value, or null if none has arrived yet. The publisher
+    /// sends it on the ordered control channel before its offer, so a host wiring a downstream GPU sink can read
+    /// this <i>immediately after subscribing to <see cref="AlphaNegotiated"/></i> to adopt a value that already
+    /// arrived (the event is fire-and-forget and would otherwise be missed), closing the first-frame race where
+    /// the sink commits its output-pool format before learning alpha.
+    /// </summary>
+    public bool? NegotiatedAlpha
+    {
+        get { lock (_gate) { return _negotiatedAlpha; } }
+    }
 
     /// <summary>Create a subscriber over a room joined as <see cref="PeerRole.Subscriber"/>.</summary>
     /// <param name="options">The media transport options (codecs, ICE, playout).</param>
@@ -107,9 +120,27 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Debug, Message = "Publisher negotiated side-by-side alpha = {Alpha}.")]
     private partial void LogAlphaNegotiated(bool alpha);
 
+    /// <summary>
+    /// Set the differential output-path latency (<c>Lv - La</c>) used to lip-sync at the output boundary rather
+    /// than scheduler release (#14). Stored and applied to the receiver as soon as it exists; safe to call before
+    /// or after attaching to a publisher. 0 (the default) keeps scheduler-aligned playout.
+    /// </summary>
+    public void SetOutputLatencyOffset(long differentialNs)
+    {
+        IMediaReceiver? receiver;
+        lock (_gate)
+        {
+            _outputLatencyOffsetNs = differentialNs;
+            receiver = _receiver;
+        }
+
+        receiver?.SetOutputLatencyOffset(differentialNs);
+    }
+
     private async Task AttachAsync(PeerId publisher, CancellationToken cancellationToken)
     {
         IMediaReceiver receiver;
+        long offsetNs;
         lock (_gate)
         {
             if (_receiver is not null)
@@ -119,6 +150,12 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
 
             receiver = _transport.CreateReceiver(_options, _videoSink, _audioSink);
             _receiver = receiver;
+            offsetNs = _outputLatencyOffsetNs;
+        }
+
+        if (offsetNs != 0)
+        {
+            receiver.SetOutputLatencyOffset(offsetNs);
         }
 
         LogAttaching(publisher.Value);

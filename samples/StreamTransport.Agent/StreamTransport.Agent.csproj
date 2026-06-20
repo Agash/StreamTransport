@@ -1,16 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- The cross-platform agent. The base TFM runs everywhere on the CPU media path (synthetic + camera
-         via FFmpeg libavdevice) and carries the macOS (Syphon/IOSurface) and Linux (PipeWire/DMA-BUF) GPU
-         zero-copy capture as runtime P/Invoke, gated by OperatingSystem checks. Only Windows needs a head,
-         for Spout (D3D11). The capture libraries come from NuGet (Spout2.NET / Syphon.NET / PipeWire.NET). -->
+    <!-- The cross-platform agent, one platform head per OS (each builds only on its own OS):
+           net11.0                 - Linux: PipeWire/DMA-BUF GPU path + Vulkan alpha compute (HAS_PIPEWIRE/HAS_VULKAN)
+           net11.0-windows...      - Windows: Spout (D3D11) + WASAPI audio (WINDOWS_HEAD)
+           net11.0-macos           - macOS: Syphon (IOSurface) + Metal alpha + CoreAudio, via Microsoft bindings (MACOS_HEAD)
+         The Linux/Windows GPU capture comes from NuGet (Spout2.NET / PipeWire.NET); macOS uses the -macos TFM's
+         Microsoft frameworks (Metal/CoreVideo/AudioUnit) plus Syphon.NET for the IOSurface sharing protocol. -->
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net11.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net11.0-macos</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
     <RootNamespace>StreamTransport.Agent</RootNamespace>
     <AssemblyName>streamtransport-agent</AssemblyName>
     <IsPackable>false</IsPackable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- NativeAOT (ILC) + self-contained + trimmed is the deployment model for every head: enable it whenever
+         publishing with a RID (a plain `dotnet build` stays fast and non-AOT). NativeAOT is the CoreCLR-lineage
+         AOT - it statically links the CoreCLR NativeAOT runtime, not MonoVM - so this gives a uniform
+         CoreCLR/NativeAOT artifact on Windows, Linux, and macOS (the -macos workload's ILC path; verified the
+         output is a single self-contained Mach-O with the Apple Metal/VideoToolbox/CoreAudio bindings + Syphon
+         working under AOT). The -macos dev/JIT runtime can separately be switched off Mono via
+         UseMonoRuntime=false (experimental CoreCLR-on-macOS), but that does not affect this published binary. -->
+    <PublishAot Condition="'$(RuntimeIdentifier)' != ''">true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,6 +39,11 @@
   <!-- Windows head: Spout zero-copy capture (D3D11). -->
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
     <DefineConstants>$(DefineConstants);WINDOWS_HEAD</DefineConstants>
+    <!-- SharpGen.Runtime (the interop runtime under Vortice.Direct3D11/DXGI) is not trim-annotated, so ILC
+         rolls its internal trim warnings up into IL2104 and our TreatWarningsAsErrors fails the NativeAOT
+         publish. Vortice has advertised AOT/trimming support since 2.4.2, so suppress the rollup and rely on a
+         runtime verification of the D3D11 encode path under AOT. (IL3053 is the AOT-analysis equivalent.) -->
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
     <PackageReference Include="Spout2.NET" />
@@ -44,20 +60,13 @@
     <EmbeddedResource Include="Shaders/nv12_to_bgra.hlsl" LogicalName="nv12_to_bgra.hlsl" />
   </ItemGroup>
 
-  <!-- Base (non-Windows-head) TFM: macOS Syphon (IOSurface) and Linux PipeWire (DMA-BUF) zero-copy
-       capture, both runtime-gated by OperatingSystem checks. The native dylib/so for each ships in its
-       NuGet package under runtimes/<rid>, so a given RID's publish carries only its own. -->
-  <PropertyGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <DefineConstants>$(DefineConstants);HAS_SYPHON;HAS_PIPEWIRE;HAS_VULKAN</DefineConstants>
+  <!-- Linux head (plain net11.0): PipeWire (DMA-BUF) zero-copy capture + Vulkan alpha compute, runtime-gated
+       by OperatingSystem.IsLinux(). The native .so ships in the NuGet package under runtimes/<rid>. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <DefineConstants>$(DefineConstants);HAS_PIPEWIRE;HAS_VULKAN</DefineConstants>
   </PropertyGroup>
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <PackageReference Include="Syphon.NET" />
-    <!-- PipeWire.NET: reference the local .refs working copy during active development so lib fixes are
-         picked up without a NuGet round-trip; CI (and any tree without .refs) falls back to the package. -->
-    <ProjectReference Include="..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj"
-                      Condition="Exists('..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj')" />
-    <PackageReference Include="PipeWire.NET"
-                      Condition="!Exists('..\..\.refs\PipeWire.NET\src\PipeWire.NET\PipeWire.NET.csproj')" />
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <PackageReference Include="PipeWire.NET" />
     <!-- Linux GPU alpha pack/unpack: Vulkan compute over the PipeWire dmabuf. The GLSL .comp shaders are
          compiled to SPIR-V at build time (see the CompileComputeShadersToSpirV target) and loaded as
          precompiled .spv at runtime - NOT via a runtime GLSL->SPIR-V compiler (shaderc), whose bundled
@@ -65,20 +74,41 @@
     <PackageReference Include="Vortice.Vulkan" />
   </ItemGroup>
 
-  <!-- macOS GPU alpha pack/unpack shaders, run at runtime through Syphon.NET's SurfaceEffect.
-       Kept as editable .metal files and embedded so they load without a file dependency. -->
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <EmbeddedResource Include="Shaders/alpha_pack.metal" LogicalName="alpha_pack.metal" />
-    <EmbeddedResource Include="Shaders/alpha_unpack_nv12.metal" LogicalName="alpha_unpack_nv12.metal" />
-    <EmbeddedResource Include="Shaders/alpha_unpack_bgra.metal" LogicalName="alpha_unpack_bgra.metal" />
-    <EmbeddedResource Include="Shaders/nv12_to_bgra.metal" LogicalName="nv12_to_bgra.metal" />
+  <!-- macOS head (net11.0-macos): Syphon (IOSurface) zero-copy + Metal alpha compute + CoreAudio, via the
+       Microsoft -macos framework bindings (Metal/CoreVideo/AudioUnit). Syphon.NET provides the IOSurface
+       sharing protocol; the Metal compute is done directly through the MS Metal bindings (no native shim). -->
+  <PropertyGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <DefineConstants>$(DefineConstants);MACOS_HEAD;HAS_SYPHON</DefineConstants>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
+    <ApplicationTitle>streamtransport-agent</ApplicationTitle>
+    <!-- Run the -macos head on CoreCLR instead of MonoVM (experimental CoreCLR-on-Apple support). This affects
+         the JIT/dev inner loop (`dotnet build`/`run`); the published artifact is NativeAOT (ILC) regardless, so
+         the whole macOS story is CoreCLR-lineage - no Mono - matching Windows and Linux. -->
+    <UseMonoRuntime>false</UseMonoRuntime>
+    <!-- The .NET-for-macOS workload pins an exact recommended Xcode (e.g. net11.0_26.4 wants Xcode 26.4) and
+         hard-errors when the installed Xcode is even a point release newer (26.5). The codegen difference
+         between adjacent Xcode point releases is benign for this agent, so relax the check rather than pin every
+         build machine to a specific Xcode. Drop this once a workload matching the installed Xcode ships. -->
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+  </PropertyGroup>
+  <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <PackageReference Include="Syphon.NET" />
+  </ItemGroup>
+
+  <!-- macOS GPU alpha pack/unpack + colour-convert shaders (Metal compute kernels). The SDK's default Metal
+       items compile each Shaders/*.metal into the bundle's default.metallib at build time (Metal Toolchain),
+       loaded at runtime via MTLDevice.CreateDefaultLibrary - the macOS parallel to the Vulkan .comp -> .spv
+       precompilation. The .hlsl/.comp/.spv globs below are scoped to their own heads, so only .metal applies. -->
+  <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <Metal Update="Shaders/*.metal" />
   </ItemGroup>
 
   <!-- Linux GPU alpha pack/unpack compute shaders. The .comp GLSL is the editable source; it is compiled to
        SPIR-V at build time (CompileComputeShadersToSpirV, below) and the resulting .spv is embedded and loaded
        at runtime. The .spv are committed so a build machine without glslc still builds; glslc, when present,
        regenerates them from the .comp. Runtime never loads a GLSL compiler (shaderc) - see the note above. -->
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
     <ComputeShaderSource Include="Shaders/alpha_pack.comp" />
     <ComputeShaderSource Include="Shaders/alpha_unpack_nv12.comp" />
     <ComputeShaderSource Include="Shaders/alpha_unpack_bgra.comp" />
@@ -95,7 +125,7 @@
        'xcrun metal') and Windows (.hlsl -> DXIL via dxc) shaders as analogous targets on their own build OS -
        those toolchains are platform-locked, and unlike shaderc they do not collide with any driver. -->
   <Target Name="CompileComputeShadersToSpirV" BeforeTargets="PrepareForBuild"
-          Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
+          Condition="'$(TargetFramework)' == 'net11.0' and '$(OS)' != 'Windows_NT'"
           Inputs="@(ComputeShaderSource)"
           Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')">
     <Exec Command="command -v glslc" ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low" StandardOutputImportance="low">

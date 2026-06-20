@@ -44,7 +44,6 @@ internal sealed class PlayoutTimeline
     // arrival. Audio is released at senderWall + this, so it lands on video's *typical* arrival - video jitter
     // then spreads symmetrically around the audio (centred at 0), rather than the min/max jitter-buffer model
     // (which is for held streams and would park audio behind a deep buffer the on-arrival video never paid).
-    private long _arrivalOffsetNs;
     private bool _arrivalAnchored;
 
     /// <summary>True once at least one frame has established the estimates.</summary>
@@ -65,6 +64,9 @@ internal sealed class PlayoutTimeline
 
     /// <summary>The current adaptive target buffer depth, in nanoseconds.</summary>
     public long CurrentDelayNs => Math.Clamp(_jitterNs + _marginNs, _minDelayNs, _maxDelayNs);
+
+    /// <summary>The asymmetric-sync arrival-offset EWMA (local − sender over on-arrival video), in ns; for sync diagnostics.</summary>
+    public long ArrivalOffsetNs { get; private set; }
 
     /// <summary>
     /// Compute the local release time for a frame captured at <paramref name="senderWallNs"/>, given the local
@@ -113,12 +115,12 @@ internal sealed class PlayoutTimeline
         long raw = localNowNs - senderWallNs;
         if (!_arrivalAnchored)
         {
-            _arrivalOffsetNs = raw;
+            ArrivalOffsetNs = raw;
             _arrivalAnchored = true;
         }
         else
         {
-            _arrivalOffsetNs += (raw - _arrivalOffsetNs) >> 3; // EWMA, alpha = 1/8
+            ArrivalOffsetNs += (raw - ArrivalOffsetNs) >> 3; // EWMA, alpha = 1/8
         }
     }
 
@@ -128,5 +130,5 @@ internal sealed class PlayoutTimeline
     /// video. Returns <paramref name="senderWallNs"/> unchanged until a video frame has anchored the offset.
     /// </summary>
     public long PeekReleaseLocalNs(long senderWallNs)
-        => _arrivalAnchored ? senderWallNs + _arrivalOffsetNs : senderWallNs;
+        => _arrivalAnchored ? senderWallNs + ArrivalOffsetNs : senderWallNs;
 }

@@ -1,6 +1,7 @@
 #if WINDOWS_HEAD
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
+using Microsoft.Extensions.Logging;
 using Spout2.NET;
 using Vortice.Direct3D11;
 
@@ -15,6 +16,7 @@ namespace StreamTransport.Agent;
 internal sealed class SpoutVideoPublishSink : IVideoFrameSink, IDisposable
 {
     private readonly string _senderName;
+    private readonly ILoggerFactory? _loggerFactory;
     private readonly Lock _gate = new();
     private volatile bool _alpha;
     private ID3D11Device? _device;
@@ -23,10 +25,11 @@ internal sealed class SpoutVideoPublishSink : IVideoFrameSink, IDisposable
     private SpoutSender? _sender;
     private bool _disposed;
 
-    public SpoutVideoPublishSink(string senderName, bool alpha = false)
+    public SpoutVideoPublishSink(string senderName, bool alpha = false, ILoggerFactory? loggerFactory = null)
     {
         _senderName = senderName;
         _alpha = alpha;
+        _loggerFactory = loggerFactory;
     }
 
     /// <summary>
@@ -74,7 +77,7 @@ internal sealed class SpoutVideoPublishSink : IVideoFrameSink, IDisposable
         using var tex = new ID3D11Texture2D(texture);
         tex.AddRef();
         _device = tex.Device;
-        _sender = new SpoutSender(_senderName, _device.NativePointer);
+        _sender = new SpoutSender(_senderName, _device.NativePointer, _loggerFactory);
     }
 
     public void Dispose()

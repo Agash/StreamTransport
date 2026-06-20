@@ -20,7 +20,7 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
 {
     /// <inheritdoc/>
     public byte[]? Encode(in VideoFrame frame, out long capturePtsNs) =>
-        EncodeTexture(frame.Surface, subresourceIndex: 0, frame.PresentationTimeNs, out capturePtsNs);
+        EncodeTexture(frame.Surface, subresourceIndex: 0, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
 
     private readonly int _width;
     private readonly int _height;
@@ -314,9 +314,9 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
     /// Returns the HEVC access unit, or null if the encoder withheld output.
     /// </summary>
     public byte[]? EncodeTexture(nint texture, int subresourceIndex) =>
-        EncodeTexture(texture, subresourceIndex, 0, out _);
+        EncodeTexture(texture, subresourceIndex, 0, forceKeyframe: false, out _);
 
-    public byte[]? EncodeTexture(nint texture, int subresourceIndex, long capturePtsNs, out long producedPtsNs)
+    public byte[]? EncodeTexture(nint texture, int subresourceIndex, long capturePtsNs, bool forceKeyframe, out long producedPtsNs)
     {
         producedPtsNs = 0;
         AVFrame* hwFrame = ffmpeg.av_frame_alloc();
@@ -331,7 +331,15 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
             CopyIntoPool(texture, subresourceIndex, poolTexture, poolIndex);
 
             hwFrame->pts = capturePtsNs;
+            // Force an IDR when requested (keyframe-on-PLI): pict_type I makes nvenc/amf/qsv emit a key frame
+            // for this input regardless of the GOP cadence. NONE leaves the encoder's own decision.
+            hwFrame->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
             AVFrame* encodeFrame = _isQsv ? MapToQsv(hwFrame) : hwFrame;
+            if (_isQsv)
+            {
+                encodeFrame->pict_type = hwFrame->pict_type; // the QSV-mapped frame does not inherit it.
+            }
+
             try
             {
                 ffmpeg.avcodec_send_frame(_context, encodeFrame).ThrowOnError("send frame to encoder");

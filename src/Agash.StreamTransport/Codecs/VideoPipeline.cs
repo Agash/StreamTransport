@@ -3,18 +3,27 @@ using FFmpeg.AutoGen;
 
 namespace Agash.StreamTransport.Codecs;
 
-/// <summary>Picks the first available hardware HEVC encoder for the current machine.</summary>
-internal static unsafe class HevcEncoderSelector
+/// <summary>Selects (and enumerates) the usable hardware HEVC encoders for the current machine.</summary>
+internal static class HevcEncoderSelector
 {
     // Priority order. Each encoder is generally present only in its platform's FFmpeg build, but the desktop
     // Linux/Windows BtbN builds carry several (nvenc/amf/qsv/vaapi) regardless of which GPU is actually
-    // present - so selection also probes that the encoder's hardware can be initialised (see HardwareUsable),
+    // present - so selection also probes that the encoder's hardware can be initialised (see IsUsable),
     // otherwise an AMD or Intel Linux box would pick hevc_nvenc (in the build) and fail to open it. The native
     // vendor encoders come first (NVENC for NVIDIA, QSV for Intel) so VAAPI never preempts a better same-vendor
     // path - a VAAPI driver can initialise on an NVIDIA box too, but NVENC is the right choice there. VAAPI sits
     // after them as the broad Mesa fallback (AMD, and Intel where QSV is absent); AMF (proprietary runtime) last.
-    private static readonly string[] s_candidates =
-        ["hevc_videotoolbox", "hevc_rkmpp", "hevc_nvenc", "hevc_qsv", "hevc_vaapi", "hevc_amf"];
+    // The device type drives the cheap hardware probe; NONE means "no cheap probe, trust the platform build"
+    // (videotoolbox/rkmpp/amf ship only in their own platform's FFmpeg).
+    public static readonly IReadOnlyList<(string Name, AVHWDeviceType Type)> Candidates =
+    [
+        ("hevc_videotoolbox", AVHWDeviceType.AV_HWDEVICE_TYPE_NONE),
+        ("hevc_rkmpp", AVHWDeviceType.AV_HWDEVICE_TYPE_NONE),
+        ("hevc_nvenc", AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA),
+        ("hevc_qsv", AVHWDeviceType.AV_HWDEVICE_TYPE_QSV),
+        ("hevc_vaapi", AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI),
+        ("hevc_amf", AVHWDeviceType.AV_HWDEVICE_TYPE_NONE),
+    ];
 
     public static string Select(string? preferred = null)
     {
@@ -25,59 +34,35 @@ internal static unsafe class HevcEncoderSelector
                 : throw new NotSupportedException($"Requested HEVC encoder '{preferred}' is not present in the FFmpeg build.");
         }
 
-        foreach (string name in s_candidates)
+        IReadOnlyList<string> usable = UsableEncoders();
+        return usable.Count > 0
+            ? usable[0]
+            : throw new NotSupportedException(
+                "No usable hardware HEVC encoder (vaapi/nvenc/amf/qsv/rkmpp/videotoolbox) is available on this machine.");
+    }
+
+    /// <summary>The usable hardware encoders, in priority order - present in the build and with usable hardware.</summary>
+    public static IReadOnlyList<string> UsableEncoders()
+    {
+        var usable = new List<string>();
+        foreach ((string name, AVHWDeviceType type) in Candidates)
         {
-            if (FFmpegLibrary.HasEncoder(name) && HardwareUsable(name))
+            if (FFmpegLibrary.HasEncoder(name) && IsUsable(name, type))
             {
-                return name;
+                usable.Add(name);
             }
         }
 
-        throw new NotSupportedException(
-            "No usable hardware HEVC encoder (vaapi/nvenc/amf/qsv/rkmpp/videotoolbox) is available on this machine.");
+        return usable;
     }
 
-    // Probe results are cached for the process: creating a hardware device touches the GPU driver (libva, CUDA)
-    // and the answer cannot change at runtime, so repeating it per Select() call would only churn driver
-    // init/teardown - which on some VAAPI/Mesa stacks is itself unstable across many cycles.
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> s_usable = new(StringComparer.Ordinal);
-
-    // Whether the GPU backing an encoder can actually be initialised, probed by creating (and immediately
-    // freeing) the matching FFmpeg hardware device. Encoders with no distinct hwdevice type - videotoolbox,
-    // rkmpp, amf - have no cheap probe and only ship in their own platform's build, so they are taken as usable
-    // when present. This is what stops a multi-encoder desktop build from selecting a vendor whose GPU is absent.
-    private static bool HardwareUsable(string encoderName) => s_usable.GetOrAdd(encoderName, ProbeHardware);
-
-    private static bool ProbeHardware(string encoderName)
+    /// <summary>Whether the hardware backing an encoder can actually be initialised on this host.</summary>
+    public static bool IsUsable(string name, AVHWDeviceType type) => name switch
     {
-        // VAAPI goes through the shared process-wide device, so probing creates the one device that the
-        // encoder/decoder then reuse - no separate open/close (see VaapiDevice).
-        if (encoderName == "hevc_vaapi")
-        {
-            return VaapiDevice.IsAvailable();
-        }
-
-        AVHWDeviceType type = encoderName switch
-        {
-            "hevc_nvenc" => AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA,
-            "hevc_qsv" => AVHWDeviceType.AV_HWDEVICE_TYPE_QSV,
-            _ => AVHWDeviceType.AV_HWDEVICE_TYPE_NONE,
-        };
-
-        if (type == AVHWDeviceType.AV_HWDEVICE_TYPE_NONE)
-        {
-            return true;
-        }
-
-        AVBufferRef* device = null;
-        int created = ffmpeg.av_hwdevice_ctx_create(&device, type, null, null, 0);
-        if (device is not null)
-        {
-            ffmpeg.av_buffer_unref(&device);
-        }
-
-        return created >= 0;
-    }
+        // VAAPI goes through the shared process-wide device (see VaapiDevice), not a throwaway probe device.
+        "hevc_vaapi" => VaapiDevice.IsAvailable(),
+        _ => CodecProbe.HwDeviceUsable(type),
+    };
 }
 
 /// <summary>
@@ -149,11 +134,40 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         StreamInteropKind.Spout => new D3D11VideoEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, frame.PixelFormat, gpuDeviceHandle),
 #endif
         StreamInteropKind.Syphon => new VideoToolboxVideoEncoder(frame.Width, frame.Height, fps, bitrate),
-        StreamInteropKind.None => _encoderName == "hevc_vaapi"
-            ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate)
-            : new HardwareHevcEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, maxBFrames),
+        StreamInteropKind.None => CreateCpuEncoderWithFallback(frame),
         _ => throw new NotSupportedException($"Interop kind {frame.InteropKind} is not supported on this platform."),
     };
+
+    // CPU-input (None) path. A pinned encoder is honoured exactly (no silent substitution). Otherwise try the
+    // usable hardware encoders in priority order: device-probe says the GPU is present, but an encoder can still
+    // fail to *open* (NVENC session caps, an unsupported resolution/profile, a half-initialised driver), so fall
+    // back to the next usable candidate instead of failing the whole send.
+    private IVideoEncoderBackend CreateCpuEncoderWithFallback(in VideoFrame frame)
+    {
+        if (encoderName is not null)
+        {
+            return _encoderName == "hevc_vaapi"
+                ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate)
+                : new HardwareHevcEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, maxBFrames);
+        }
+
+        Exception? last = null;
+        foreach (string name in HevcEncoderSelector.UsableEncoders())
+        {
+            try
+            {
+                return name == "hevc_vaapi"
+                    ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate)
+                    : new HardwareHevcEncoder(name, frame.Width, frame.Height, fps, bitrate, maxBFrames);
+            }
+            catch (Exception ex) when (ex is HardwareEncoderUnavailableException or NotSupportedException)
+            {
+                last = ex; // probed-usable but failed to open; try the next candidate
+            }
+        }
+
+        throw new NotSupportedException("No hardware HEVC encoder could be opened on this machine.", last);
+    }
 
     // The CPU surface transform (last resort, CPU-memory sources only): a BGRA frame with alpha is packed
     // side-by-side (colour | alpha-as-luma) into a 2W x H NV12 frame so an ordinary opaque codec carries

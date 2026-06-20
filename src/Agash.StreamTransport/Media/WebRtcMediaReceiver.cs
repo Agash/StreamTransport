@@ -42,6 +42,8 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     // Resolved from the negotiated media once connected.
     private IVideoDecoder? _video;
     private IRtpDepacketizer? _videoDepacketizer;
+    private WebRtc.Rtp.H265PacketBuffer? _videoPacketBuffer; // sequence-aware reassembly for H.265 (the modern path).
+    private uint _videoSsrc;
     private byte _videoPayloadType;
     private IAudioDecoder? _audio;
     private byte _audioPayloadType;
@@ -50,8 +52,56 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private bool _syncEnabled;
     private bool _gpuAsymmetricSync;
     private bool _preserveAlpha;
+    // Differential output-path latency Lv - La (video publish latency minus audio device latency), applied to the
+    // audio release so the two streams lip-sync at the *output* boundary (OBS / speaker), not just at scheduler
+    // release (#14). Positive delays audio (video is the slower path); negative releases it earlier. Set by the
+    // host once it knows its sinks' latencies; 0 keeps the pre-#14 scheduler-aligned behaviour.
+    private long _audioOutputOffsetNs;
     private Task? _videoDecodeLoop;
     private Task? _audioDecodeLoop;
+
+    // Receiver-side network telemetry for the video stream, accumulated on the (single) receive thread and
+    // flushed ~once a second at Debug. Complements the sender's congestion log: this is the receiver's view of
+    // what actually arrived - rate, RTP loss from sequence gaps, RFC 3550 inter-arrival jitter, and the adaptive
+    // jitter-buffer/playout depth - which is exactly what reveals a jittery link starving high-fps delivery.
+    private readonly System.Diagnostics.Stopwatch _rxSw = System.Diagnostics.Stopwatch.StartNew();
+    private long _rxWindowStartMs;
+    private long _rxBytes;
+    private int _rxPackets;
+    private int _rxLost;
+    private int _rxLastSeq = -1;
+    private double _rxJitterMs;
+    private double _rxLastTransitMs;
+    private WebRtc.TransportLossStats _lastRxStats;
+
+    // Decode-pipeline telemetry (single decode thread, no locking), flushed ~once a second at Debug alongside the
+    // network view: how many access units the depacketizer assembled, how many the decoder accepted, and how many
+    // it rejected (a corrupt/merged AU - the signature of a packet lost inside a frame that RTX did not recover in
+    // time). assembled >> decoded localises loss to frame assembly rather than the link.
+    private int _auAssembled;
+    private int _framesDecoded;
+    private int _framesDecodeFailed;
+    private long _pipeWindowStartMs;
+
+    // Keyframe-request throttling for the sequence-aware path: when the packet buffer reports a gap it cannot
+    // assemble (an IRAP without parameter sets, a whole-frame gap, or a stall NACK/RTX has not repaired within
+    // the recovery window), ask the sender for a fresh keyframe - but at most once per throttle interval, so a
+    // burst of loss does not become a PLI storm.
+    private long _lastKeyframeReqMs;
+    private long _gapStartMs;
+    private const long KeyframeRequestThrottleMs = 250;
+    private const long GapStallMs = 100; // give NACK/RTX a few RTTs to fill a hole before forcing a keyframe.
+
+    // Sync diagnostics (synced GPU path): per-second distribution of the video arrival offset (localNow -
+    // senderWall) - whose variance IS the lip-sync jitter, since audio is released at the EWMA of this offset and
+    // skew = offset - EWMA - plus the decode->present cadence (to attribute jitter to bursty decode). Logged at
+    // Debug so it lands in --verbose matrix runs. Single-threaded (the decode/present thread); no locking.
+    private long _syncWindowStartMs;
+    private int _syncVidCount;
+    private double _syncOffSumMs, _syncOffSumSqMs, _syncOffMinMs = double.MaxValue, _syncOffMaxMs = double.MinValue;
+    private long _syncLastVidNs;
+    private double _syncGapSumMs, _syncGapSumSqMs, _syncGapMaxMs;
+    private int _syncGapCount;
 
     /// <summary>
     /// Create a receiver. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
@@ -93,6 +143,14 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         _preserveAlpha = value;
         _video?.SetPreserveAlpha(value);
     }
+
+    /// <summary>
+    /// Set the differential output-path latency <c>Lv - La</c> (video publish latency minus audio device latency),
+    /// in nanoseconds, used to lip-sync at the output boundary rather than at scheduler release (#14). The host
+    /// computes it from the latencies of the concrete sinks it owns (e.g. the video publish staging cost and the
+    /// audio device buffer depth) and may update it as those measurements settle. Only affects the synced path.
+    /// </summary>
+    public void SetOutputLatencyOffset(long differentialNs) => Interlocked.Exchange(ref _audioOutputOffsetNs, differentialNs);
 
     /// <inheritdoc/>
     public Task StartAsync(ISignalingChannel signaling, CancellationToken cancellationToken = default)
@@ -136,8 +194,20 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                 && _registry.FindVideo(codec.EncodingName) is { } videoCodec)
             {
                 _video = videoCodec.CreateDecoder(new VideoDecoderSettings(_options.PreferGpuVideoOutput, _preserveAlpha));
-                _videoDepacketizer = videoCodec.CreateDepacketizer();
                 _videoPayloadType = (byte)codec.PayloadType;
+                _videoSsrc = media.LocalSsrc;
+
+                // H.265 uses the modern sequence-aware packet buffer (reorders + only emits complete frames, so
+                // NACK/RTX can repair a hole in order); other codecs keep the arrival-order depacketizer.
+                if (string.Equals(codec.EncodingName, "H265", StringComparison.OrdinalIgnoreCase))
+                {
+                    _videoPacketBuffer = new WebRtc.Rtp.H265PacketBuffer();
+                }
+                else
+                {
+                    _videoDepacketizer = videoCodec.CreateDepacketizer();
+                }
+
                 LogNegotiated("video", codec.EncodingName, codec.PayloadType);
             }
             else if (media.Kind == WebRtc.Sdp.SdpMediaKind.Audio && AudioSink is not null && _audio is null
@@ -192,19 +262,44 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     // into the assembled unit) and enqueue; never decode here. The payload is a borrowed buffer for this call.
     private void OnRtpReceived(RtpHeader header, ReadOnlyMemory<byte> payload)
     {
-        if (_videoDepacketizer is not null && header.PayloadType == _videoPayloadType)
+        if ((_videoPacketBuffer is not null || _videoDepacketizer is not null) && header.PayloadType == _videoPayloadType)
         {
+            RecordRxStats(header, payload.Length);
             if (_syncEnabled && header.AbsoluteCaptureTimeNtp is { } videoNtp && videoNtp != 0)
             {
                 _aligner.RecordAbsCaptureTime(SyncStream.Video, videoNtp, header.Timestamp, VideoClockRate);
             }
 
-            // Depacketize on the receive thread (cheap) into a pool-rented buffer whose ownership passes through
-            // the queue to the decode worker, which returns it after decode. If the queue rejects it, return it.
-            PooledBuffer? accessUnit = _videoDepacketizer.Push(payload.Span, header.Marker);
-            if (accessUnit is { } videoUnit && !_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
+            if (_videoPacketBuffer is { } packetBuffer)
             {
-                videoUnit.Dispose();
+                // Sequence-aware path: reorder and assemble only complete frames; a hole holds the frame for
+                // NACK/RTX. Each completed frame's access unit is pool-owned - hand it to the decode worker.
+                WebRtc.Rtp.H265PacketBuffer.InsertResult result =
+                    packetBuffer.Insert(header.SequenceNumber, header.Timestamp, header.Marker, payload.Span);
+                foreach (WebRtc.Rtp.H265PacketBuffer.AssembledFrame frame in result.Frames)
+                {
+                    _auAssembled++;
+                    var unit = new PooledBuffer(frame.AccessUnit, frame.Length);
+                    if (!_videoQueue.Writer.TryWrite((unit, frame.Timestamp)))
+                    {
+                        unit.Dispose();
+                    }
+                }
+
+                MaybeRequestKeyframe(result.KeyframeRequired, packetBuffer.HasUnresolvedGap);
+            }
+            else
+            {
+                // Arrival-order fallback (non-H.265): depacketize on the receive thread and enqueue.
+                PooledBuffer? accessUnit = _videoDepacketizer!.Push(payload.Span, header.Marker);
+                if (accessUnit is { } videoUnit)
+                {
+                    _auAssembled++;
+                    if (!_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
+                    {
+                        videoUnit.Dispose();
+                    }
+                }
             }
         }
         else if (_audio is not null && header.PayloadType == _audioPayloadType)
@@ -225,6 +320,149 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         }
     }
 
+    // Accumulate one video RTP packet into the per-second receive-stats window and flush a Debug line when the
+    // window closes. Single-threaded (the receive thread), so no locking. Loss is from 16-bit sequence gaps
+    // (reordering shows as a large backward gap and is ignored); jitter is the RFC 3550 inter-arrival estimate
+    // (the constant peer clock offset cancels in the transit delta).
+    private void RecordRxStats(RtpHeader header, int bytes)
+    {
+        long nowMs = _rxSw.ElapsedMilliseconds;
+        _rxBytes += bytes;
+        _rxPackets++;
+        if (_rxLastSeq >= 0)
+        {
+            int gap = (ushort)(header.SequenceNumber - _rxLastSeq);
+            if (gap is > 0 and < 0x4000) { _rxLost += gap - 1; } // forward gap: gap-1 missing; large gap = reorder
+        }
+        _rxLastSeq = header.SequenceNumber;
+
+        double transitMs = nowMs - (header.Timestamp / 90.0);
+        if (_rxPackets > 1) { _rxJitterMs += (Math.Abs(transitMs - _rxLastTransitMs) - _rxJitterMs) / 16.0; }
+        _rxLastTransitMs = transitMs;
+
+        long elapsed = nowMs - _rxWindowStartMs;
+        if (elapsed >= 1000)
+        {
+            long kbps = _rxBytes * 8 / elapsed;
+            int pps = (int)(_rxPackets * 1000L / elapsed);
+            double lossPct = (_rxPackets + _rxLost) > 0 ? 100.0 * _rxLost / (_rxPackets + _rxLost) : 0;
+            long playoutMs = (_scheduler?.CurrentDelayNs ?? 0) / 1_000_000;
+
+            // Per-second deltas of the transport's recovery counters: NACKs we asked for, packets RTX actually
+            // recovered, and PLIs we sent. recovered vs lost shows how much of the raw loss the link recovered.
+            WebRtc.TransportLossStats s = _session?.Pc.CurrentLossStats ?? default;
+            long nacks = s.NackSequencesRequested - _lastRxStats.NackSequencesRequested;
+            long recovered = s.RtxPacketsRecovered - _lastRxStats.RtxPacketsRecovered;
+            long keyframeReqs = s.KeyframeRequestsSent - _lastRxStats.KeyframeRequestsSent;
+            LogNetworkRx(kbps, pps, lossPct, _rxJitterMs, playoutMs, nacks, recovered, keyframeReqs);
+
+            _rxBytes = 0; _rxPackets = 0; _rxLost = 0; _rxWindowStartMs = nowMs; _lastRxStats = s;
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Network rx: {Kbps} kbps, {Pps} pps, loss {LossPct:F1}%, jitter {JitterMs:F1} ms, playout {PlayoutMs} ms; nack {Nacks}, recovered {Recovered}, kf-req {KeyframeReqs} (last 1s).")]
+    private partial void LogNetworkRx(long kbps, int pps, double lossPct, double jitterMs, long playoutMs, long nacks, long recovered, long keyframeReqs);
+
+    // Flush the decode-pipeline counters once a second (called on the decode thread per access unit).
+    private void LogPipelineStats()
+    {
+        long nowMs = _rxSw.ElapsedMilliseconds;
+        long elapsed = nowMs - _pipeWindowStartMs;
+        if (elapsed < 1000)
+        {
+            return;
+        }
+
+        LogPipelineRx(_auAssembled, _framesDecoded, _framesDecodeFailed);
+        _auAssembled = 0; _framesDecoded = 0; _framesDecodeFailed = 0; _pipeWindowStartMs = nowMs;
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Pipeline rx: assembled {Assembled} AU, decoded {Decoded} ok, {Failed} decode-fail (last 1s).")]
+    private partial void LogPipelineRx(int assembled, int decoded, int failed);
+
+    // Decide whether to ask the sender for a fresh keyframe. Fires when the packet buffer reports a definite
+    // need (IRAP without params, or a whole-frame gap), or when a sequence hole has gone unrepaired by NACK/RTX
+    // for longer than the recovery window. Throttled so a loss burst cannot become a PLI storm. Runs on the
+    // receive thread.
+    private void MaybeRequestKeyframe(bool required, bool hasUnresolvedGap)
+    {
+        long now = _rxSw.ElapsedMilliseconds;
+
+        if (hasUnresolvedGap)
+        {
+            if (_gapStartMs == 0)
+            {
+                _gapStartMs = now;
+            }
+            else if (now - _gapStartMs >= GapStallMs)
+            {
+                required = true; // a hole NACK/RTX has not filled within the recovery window: resync.
+            }
+        }
+        else
+        {
+            _gapStartMs = 0;
+        }
+
+        if (!required || now - _lastKeyframeReqMs < KeyframeRequestThrottleMs)
+        {
+            return;
+        }
+
+        _lastKeyframeReqMs = now;
+        if (_session is { } session)
+        {
+            _ = session.Pc.RequestKeyframeAsync(_videoSsrc);
+        }
+    }
+
+    // Sample the on-arrival video frame's arrival offset (localNow - senderWall) and its inter-frame cadence,
+    // and flush a per-second summary. The offset's std-dev is the lip-sync jitter (audio releases at the EWMA of
+    // this offset, so per-frame skew = offset - EWMA); the cadence std-dev attributes that jitter to bursty
+    // decode/arrival. Runs on the decode/present thread (single-threaded; no locking).
+    private void RecordSyncArrival(long senderWallNs, PlayoutScheduler scheduler)
+    {
+        long now = NowNs();
+        double offMs = (now - senderWallNs) / 1_000_000.0;
+        _syncVidCount++;
+        _syncOffSumMs += offMs;
+        _syncOffSumSqMs += offMs * offMs;
+        _syncOffMinMs = Math.Min(_syncOffMinMs, offMs);
+        _syncOffMaxMs = Math.Max(_syncOffMaxMs, offMs);
+        if (_syncLastVidNs != 0)
+        {
+            double gapMs = (now - _syncLastVidNs) / 1_000_000.0;
+            _syncGapCount++;
+            _syncGapSumMs += gapMs;
+            _syncGapSumSqMs += gapMs * gapMs;
+            _syncGapMaxMs = Math.Max(_syncGapMaxMs, gapMs);
+        }
+
+        _syncLastVidNs = now;
+
+        long nowMs = _rxSw.ElapsedMilliseconds;
+        if (_syncWindowStartMs == 0) { _syncWindowStartMs = nowMs; }
+        if (nowMs - _syncWindowStartMs < 1000 || _syncVidCount == 0)
+        {
+            return;
+        }
+
+        double offMean = _syncOffSumMs / _syncVidCount;
+        double offStd = Math.Sqrt(Math.Max(0, (_syncOffSumSqMs / _syncVidCount) - (offMean * offMean)));
+        double gapMean = _syncGapCount > 0 ? _syncGapSumMs / _syncGapCount : 0;
+        double gapStd = _syncGapCount > 0 ? Math.Sqrt(Math.Max(0, (_syncGapSumSqMs / _syncGapCount) - (gapMean * gapMean))) : 0;
+        LogSyncArrival(_syncVidCount, offMean, offStd, _syncOffMaxMs - _syncOffMinMs,
+            scheduler.ArrivalOffsetNs / 1_000_000.0, gapMean, gapStd, _syncGapMaxMs,
+            scheduler.CurrentDelayNs / 1_000_000.0);
+
+        _syncWindowStartMs = nowMs; _syncVidCount = 0; _syncOffSumMs = 0; _syncOffSumSqMs = 0;
+        _syncOffMinMs = double.MaxValue; _syncOffMaxMs = double.MinValue;
+        _syncGapCount = 0; _syncGapSumMs = 0; _syncGapSumSqMs = 0; _syncGapMaxMs = 0;
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Sync video: {Frames} fr, arrival-offset mean {OffMeanMs:F1} ms std {OffStdMs:F1} range {OffRangeMs:F1} (EWMA {EwmaMs:F1}); present-gap mean {GapMeanMs:F1} ms std {GapStdMs:F1} max {GapMaxMs:F1}; buf {BufMs:F0} ms (last 1s).")]
+    private partial void LogSyncArrival(int frames, double offMeanMs, double offStdMs, double offRangeMs, double ewmaMs, double gapMeanMs, double gapStdMs, double gapMaxMs, double bufMs);
+
     // Present on arrival, or - when synced and both stream clocks are anchored - schedule by capture time so
     // audio and video lip-sync.
     private void Present(SyncStream stream, uint rtpTimestamp, Action submit)
@@ -232,23 +470,29 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         if (_syncEnabled && _scheduler is { } scheduler && _aligner.BothAligned
             && _aligner.TryToSenderWallNs(stream, rtpTimestamp, out long wallNs))
         {
+            // Audio carries the differential output-latency offset (Lv - La) so it reaches the speaker in step with
+            // video at the viewer's output, not just at scheduler release (#14). Video is the reference (offset 0):
+            // on the GPU path it presents on arrival and can't be shifted, and on the CPU path keeping video the
+            // reference means only one stream moves.
+            long audioOffset = stream == SyncStream.Audio ? Interlocked.Read(ref _audioOutputOffsetNs) : 0;
             if (_gpuAsymmetricSync)
             {
                 // GPU: video can't be held, so present it now and let its arrival define the timeline; audio is
                 // delayed onto that timeline so it lip-syncs with the on-arrival video.
                 if (stream == SyncStream.Video)
                 {
+                    RecordSyncArrival(wallNs, scheduler);
                     scheduler.ObserveArrival(wallNs);
                     submit();
                 }
                 else
                 {
-                    scheduler.ScheduleOnTimeline(wallNs, submit);
+                    scheduler.ScheduleOnTimeline(wallNs, submit, audioOffset);
                 }
             }
             else
             {
-                scheduler.Schedule(wallNs, submit);
+                scheduler.Schedule(wallNs, submit, audioOffset);
             }
         }
         else
@@ -269,10 +513,20 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                     // submitted: the decoder holds a pipeline (and B-frame reorder), so the content emerging now
                     // belongs to an earlier timestamp. The decoded frame owns its own pixels, so the access-unit
                     // buffer is returned to the pool here, before any scheduled submit.
-                    if (VideoSink is { } sink && _video!.Decode(accessUnit.Memory.Span, timestamp, NowNs(), out uint frameRtp) is { } frame)
+                    if (_video!.Decode(accessUnit.Memory.Span, timestamp, NowNs(), out uint frameRtp) is { } frame)
                     {
-                        Present(SyncStream.Video, frameRtp, () => sink.Submit(frame));
+                        _framesDecoded++;
+                        if (VideoSink is { } sink)
+                        {
+                            Present(SyncStream.Video, frameRtp, () => sink.Submit(frame));
+                        }
                     }
+                    else
+                    {
+                        _framesDecodeFailed++;
+                    }
+
+                    LogPipelineStats();
                 }
             }
         }
@@ -331,6 +585,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         _video?.Dispose();
         _audio?.Dispose();
         _videoDepacketizer?.Dispose();
+        _videoPacketBuffer?.Dispose();
         LogStopped();
     }
 
