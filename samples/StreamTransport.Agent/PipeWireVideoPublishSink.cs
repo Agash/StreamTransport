@@ -5,6 +5,7 @@ using System.Runtime.Versioning;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PipeWire.NET;
 using PwPixelFormat = PipeWire.NET.PixelFormat;
 using VideoFrame = Agash.StreamTransport.VideoFrame;
@@ -26,9 +27,10 @@ namespace StreamTransport.Agent;
 /// from the first frame, <see cref="SetPreserveAlpha"/>, latest-frame serve) is identical for both.</para>
 /// </summary>
 [SupportedOSPlatform("linux")]
-internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposable
+internal sealed partial class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposable
 {
     private readonly PipeWireContext _context;
+    private readonly ILogger _logger;
     private readonly string _nodeName;
     private readonly int _frameRate;
     private readonly Lock _gate = new();
@@ -46,7 +48,6 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     private bool _hasFrame;
     private bool _disposed;
 
-    private static readonly bool s_debug = Environment.GetEnvironmentVariable("STX_PW_DEBUG") is { Length: > 0 };
     private long _submits;
     private long _fills;
     private long _served;
@@ -85,12 +86,13 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
     private enum Mode { Unset, HostMemory, GpuDmaBuf }
 
-    private PipeWireVideoPublishSink(PipeWireContext context, string nodeName, bool alpha, int frameRate)
+    private PipeWireVideoPublishSink(PipeWireContext context, string nodeName, bool alpha, int frameRate, ILogger logger)
     {
         _context = context;
         _nodeName = nodeName;
         _alpha = alpha;
         _frameRate = frameRate;
+        _logger = logger;
     }
 
     /// <summary>Start the PipeWire loop and return a sink ready to publish under <paramref name="nodeName"/>.</summary>
@@ -98,7 +100,8 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     {
         var context = new PipeWireContext("StreamTransport.Agent", loggerFactory);
         await context.StartAsync().ConfigureAwait(false);
-        return new PipeWireVideoPublishSink(context, nodeName, alpha, frameRate);
+        ILogger logger = loggerFactory?.CreateLogger("StreamTransport.Agent.pw-sink") ?? NullLogger.Instance;
+        return new PipeWireVideoPublishSink(context, nodeName, alpha, frameRate, logger);
     }
 
     /// <summary>
@@ -159,9 +162,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             _width = width;
             _height = height;
             _hasFrame = true;
-            if (s_debug && ++_submits <= 3)
+            if (_logger.IsEnabled(LogLevel.Debug) && ++_submits <= 3)
             {
-                Console.Error.WriteLine($"[pw-sink] submit#{_submits} {width}x{height} {frame.PixelFormat} bytes={bgra.Length}");
+                LogSubmit(_submits, width, height, frame.PixelFormat, bgra.Length);
             }
 
             // Create the output lazily on the first frame, when the decoded dimensions are known. Construction
@@ -241,19 +244,17 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                         ulong outModifier = _vkOut[0].Modifier;
                         _width = _outWidth;
                         _height = _outHeight;
-                        if (s_debug)
+                        if (_logger.IsEnabled(LogLevel.Debug))
                         {
                             DmaBufSurface st = _pool.Planes(0);
-                            Console.Error.WriteLine($"[pw-sink] alpha staging modifier=0x{_pool.Modifier:x} planes={st.PlaneCount} out={_outWidth}x{_outHeight} bgra fd0={_vkOut[0].Fd} pitch={_vkOut[0].RowPitch} cand=[{string.Join(",", candidates.Select(m => "0x" + m.ToString("x")))}] chosen=0x{outModifier:x}");
+                            LogAlphaStaging(_pool.Modifier, st.PlaneCount, _outWidth, _outHeight, _vkOut[0].Fd, _vkOut[0].RowPitch,
+                                string.Join(",", candidates.Select(m => "0x" + m.ToString("x"))), outModifier);
                         }
 
                         output = new PipeWireVideoOutput(_context, _nodeName, _outWidth, _outHeight, PwPixelFormat.Bgra, _frameRate);
                         output.AllocateDmaBuf += OnAllocateDmaBuf;
                         output.FillDmaBuf += OnFillDmaBuf;
-                        if (s_debug)
-                        {
-                            output.StateChanged += (_, oldS, newS) => Console.Error.WriteLine($"[pw-sink] alpha-gpu state {oldS}->{newS}");
-                        }
+                        output.StateChanged += (_, oldS, newS) => LogStreamState("alpha-gpu", oldS, newS);
 
                         output.ConnectDmaBuf([(long)outModifier]);
                         _output = output;
@@ -262,10 +263,10 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                     {
                         _pool = new VaapiPresentationPool(frame.Width, frame.Height, MaxDmaBufBuffers + 1);
                         _stagingIndex = MaxDmaBufBuffers; // the last surface is staging; 0..Max-1 are PipeWire buffers.
-                        if (s_debug)
+                        if (_logger.IsEnabled(LogLevel.Debug))
                         {
                             DmaBufSurface s0 = _pool.Planes(0);
-                            Console.Error.WriteLine($"[pw-sink] pool modifier=0x{_pool.Modifier:x} planes={s0.PlaneCount} p0(fd={s0[0].Fd},off={s0[0].Offset},stride={s0[0].Stride},fourcc=0x{s0[0].DrmFourcc:x})");
+                            LogPool(_pool.Modifier, s0.PlaneCount, s0[0].Fd, s0[0].Offset, s0[0].Stride, s0[0].DrmFourcc);
                         }
                         _width = frame.Width;
                         _height = frame.Height;
@@ -281,10 +282,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                         output = new PipeWireVideoOutput(_context, _nodeName, frame.Width, frame.Height, PwPixelFormat.Nv12, _frameRate);
                         output.AllocateDmaBuf += OnAllocateDmaBuf;
                         output.FillDmaBuf += OnFillDmaBuf;
-                        if (s_debug)
-                        {
-                            output.StateChanged += (_, oldS, newS) => Console.Error.WriteLine($"[pw-sink] gpu state {oldS}->{newS}");
-                        }
+                        output.StateChanged += (_, oldS, newS) => LogStreamState("gpu", oldS, newS);
 
                         output.ConnectDmaBuf([(long)_pool.Modifier]);
                         _output = output;
@@ -297,11 +295,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                     // also emits CPU frames, which a GPU-surface decoder does not.
                     _gpuUnavailable = true;
                     DisposeGpuResources();
-                    if (s_debug)
-                    {
-                        Console.Error.WriteLine($"[pw-sink] GPU pool unavailable: {ex.Message}");
-                    }
-
+                    LogGpuPoolUnavailable(ex.Message);
                     return;
                 }
             }
@@ -313,9 +307,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 // Do not drive the graph from this decode thread: pw_stream_trigger_process must run on the
                 // PipeWire loop thread, and calling it here crashes inside libpipewire's loop. The consumer
                 // (gst/OBS) drives the cycle; FillDmaBuf then pulls the latest staged frame.
-                if (s_debug && ++_submits <= 3)
+                if (_logger.IsEnabled(LogLevel.Debug) && ++_submits <= 3)
                 {
-                    Console.Error.WriteLine($"[pw-sink] gpu submit#{_submits} {frame.Width}x{frame.Height} srcSurf={decodedSurfaceId}");
+                    LogGpuSubmit(_submits, frame.Width, frame.Height, decodedSurfaceId);
                 }
 
                 // --verify: read the just-produced GPU surface back to CPU and feed the verification report.
@@ -327,9 +321,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                     EmitVerifyFrame(frame.PresentationTimeNs);
                 }
             }
-            else if (s_debug)
+            else
             {
-                Console.Error.WriteLine($"[pw-sink] gpu VPP decoded->staging failed VAStatus={rc}");
+                LogGpuVppFailed(rc);
             }
         }
     }
@@ -351,11 +345,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 VulkanAlphaCodec.ExportedImage img = _vkOut[bufferIndex];
                 uint size = (uint)(img.RowPitch * (ulong)_outHeight);
                 planes[0] = new VideoPlane(img.Fd, (uint)img.Offset, (int)img.RowPitch, size);
-                if (s_debug)
-                {
-                    Console.Error.WriteLine($"[pw-sink] alpha allocDmaBuf buf={bufferIndex} fd={img.Fd} off={img.Offset} pitch={img.RowPitch} size={size}");
-                }
-
+                LogAlphaAllocDmaBuf(bufferIndex, img.Fd, img.Offset, img.RowPitch, size);
                 return 1;
             }
 
@@ -366,10 +356,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
             DmaBufSurface surface = _pool.Planes(bufferIndex);
             int n = Math.Min(surface.PlaneCount, planes.Length);
-            if (s_debug)
-            {
-                Console.Error.WriteLine($"[pw-sink] allocDmaBuf buf={bufferIndex} planes={surface.PlaneCount} modifier=0x{modifier:x} stagingIdx={_stagingIndex}");
-            }
+            LogAllocDmaBuf(bufferIndex, surface.PlaneCount, modifier, _stagingIndex);
             for (int p = 0; p < n; p++)
             {
                 DmaBufPlane pl = surface[p];
@@ -418,18 +405,18 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 }
                 catch (Exception ex)
                 {
-                    if (s_debug && _served < 3)
+                    if (_served < 3)
                     {
-                        Console.Error.WriteLine($"[pw-sink] alpha UnpackInto FAILED: {ex.GetType().Name}: {ex.Message}");
+                        LogAlphaUnpackFailed(ex.GetType().Name, ex.Message);
                         _served++;
                     }
 
                     return false;
                 }
 
-                if (s_debug && ++_served <= 3)
+                if (_logger.IsEnabled(LogLevel.Debug) && ++_served <= 3)
                 {
-                    Console.Error.WriteLine($"[pw-sink] alpha served#{_served} -> buffer {bufferIndex} ({_outWidth}x{_outHeight})");
+                    LogAlphaServed(_served, bufferIndex, _outWidth, _outHeight);
                 }
 
                 return true;
@@ -441,9 +428,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
             }
 
             int rc = _pool.CopyInto(_pool.SurfaceId(_stagingIndex), bufferIndex);
-            if (s_debug && ++_served <= 3)
+            if (_logger.IsEnabled(LogLevel.Debug) && ++_served <= 3)
             {
-                Console.Error.WriteLine($"[pw-sink] gpu served#{_served} -> buffer {bufferIndex} VAStatus={rc}");
+                LogGpuServed(_served, bufferIndex, rc);
             }
 
             return rc == 0;
@@ -456,9 +443,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
     {
         lock (_gate)
         {
-            if (s_debug && ++_fills <= 3)
+            if (_logger.IsEnabled(LogLevel.Debug) && ++_fills <= 3)
             {
-                Console.Error.WriteLine($"[pw-sink] fill#{_fills} want {width}x{height} stride={stride} have {_width}x{_height} hasFrame={_hasFrame}");
+                LogFill(_fills, width, height, stride, _width, _height, _hasFrame);
             }
 
             if (!_hasFrame || _bgra is null || width != _width || height != _height)
@@ -466,9 +453,9 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
                 return false;
             }
 
-            if (s_debug && ++_served <= 3)
+            if (_logger.IsEnabled(LogLevel.Debug) && ++_served <= 3)
             {
-                Console.Error.WriteLine($"[pw-sink] served#{_served}");
+                LogServed(_served);
             }
 
             int srcStride = _width * 4;
@@ -591,10 +578,7 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
         }
         catch (Exception ex)
         {
-            if (s_debug)
-            {
-                Console.Error.WriteLine($"[pw-sink] verify readback failed: {ex.GetType().Name}: {ex.Message}");
-            }
+            LogVerifyReadbackFailed(ex.GetType().Name, ex.Message);
         }
     }
 
@@ -648,5 +632,53 @@ internal sealed class PipeWireVideoPublishSink : IVideoFrameSink, IAsyncDisposab
 
         await _context.DisposeAsync().ConfigureAwait(false);
     }
+
+    // Diagnostic tracing for the publish path at Debug so the agent's --verbose (LogLevel.Debug) surfaces it
+    // (replaces the old STX_PW_DEBUG env gate, #9). Per-frame traces (submit/fill/served) self-limit to the first
+    // few; init/copy failures are Warning.
+    [LoggerMessage(Level = LogLevel.Debug, Message = "submit#{Count} {Width}x{Height} {Format} bytes={Bytes}")]
+    partial void LogSubmit(long count, int width, int height, VideoPixelFormat format, int bytes);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "alpha staging modifier=0x{Modifier:x} planes={Planes} out={Width}x{Height} bgra fd0={Fd0} pitch={Pitch} cand=[{Candidates}] chosen=0x{Chosen:x}")]
+    partial void LogAlphaStaging(ulong modifier, int planes, int width, int height, int fd0, ulong pitch, string candidates, ulong chosen);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Path} state {From}->{To}")]
+    partial void LogStreamState(string path, PipeWireStreamState from, PipeWireStreamState to);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "pool modifier=0x{Modifier:x} planes={Planes} p0(fd={Fd},off={Offset},stride={Stride},fourcc=0x{Fourcc:x})")]
+    partial void LogPool(ulong modifier, int planes, int fd, uint offset, uint stride, uint fourcc);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "GPU pool unavailable: {Message}")]
+    partial void LogGpuPoolUnavailable(string message);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "gpu submit#{Count} {Width}x{Height} srcSurf={SrcSurface}")]
+    partial void LogGpuSubmit(long count, int width, int height, uint srcSurface);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "gpu VPP decoded->staging failed VAStatus={VaStatus}")]
+    partial void LogGpuVppFailed(int vaStatus);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "alpha allocDmaBuf buf={Buffer} fd={Fd} off={Offset} pitch={Pitch} size={Size}")]
+    partial void LogAlphaAllocDmaBuf(int buffer, int fd, ulong offset, ulong pitch, uint size);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "allocDmaBuf buf={Buffer} planes={Planes} modifier=0x{Modifier:x} stagingIdx={StagingIndex}")]
+    partial void LogAllocDmaBuf(int buffer, int planes, ulong modifier, int stagingIndex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "alpha UnpackInto FAILED: {ExceptionType}: {Message}")]
+    partial void LogAlphaUnpackFailed(string exceptionType, string message);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "alpha served#{Count} -> buffer {Buffer} ({Width}x{Height})")]
+    partial void LogAlphaServed(long count, int buffer, int width, int height);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "gpu served#{Count} -> buffer {Buffer} VAStatus={VaStatus}")]
+    partial void LogGpuServed(long count, int buffer, int vaStatus);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "fill#{Count} want {WantWidth}x{WantHeight} stride={Stride} have {HaveWidth}x{HaveHeight} hasFrame={HasFrame}")]
+    partial void LogFill(long count, int wantWidth, int wantHeight, int stride, int haveWidth, int haveHeight, bool hasFrame);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "served#{Count}")]
+    partial void LogServed(long count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "verify readback failed: {ExceptionType}: {Message}")]
+    partial void LogVerifyReadbackFailed(string exceptionType, string message);
 }
 #endif
