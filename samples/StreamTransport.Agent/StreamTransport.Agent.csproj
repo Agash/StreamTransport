@@ -79,6 +79,9 @@
        sharing protocol; the Metal compute is done directly through the MS Metal bindings (no native shim). -->
   <PropertyGroup Condition="$(TargetFramework.Contains('-macos'))">
     <DefineConstants>$(DefineConstants);MACOS_HEAD;HAS_SYPHON</DefineConstants>
+    <!-- A -macos Exe resolves a RID at build (default osx-x64) that a plain slnx restore does not pre-emit, so an
+         unqualified `dotnet build` fails NETSDK1047. Declare both candidate RIDs so restore is RID-complete. -->
+    <RuntimeIdentifiers>osx-arm64;osx-x64</RuntimeIdentifiers>
     <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
     <ApplicationId>com.agash.streamtransport.agent</ApplicationId>
     <ApplicationTitle>streamtransport-agent</ApplicationTitle>
