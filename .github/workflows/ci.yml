@@ -18,17 +18,35 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, rid: win-x64 }
-          - { os: macos-latest, rid: osx-arm64 }
+          - { os: macos-26, rid: osx-arm64 }
           - { os: ubuntu-latest, rid: linux-x64 }
           - { os: ubuntu-24.04-arm, rid: linux-arm64 }
     steps:
       - uses: actions/checkout@v6
+
+      # The agent's net11.0-macos head links the Microsoft macOS bindings (and Syphon.NET) against the macOS 26.5
+      # SDK; macos-26 ships Xcode 26.5 as the default, but pin it so a default bump can't regress the toolchain.
+      - name: Select Xcode 26.5 (macOS)
+        if: runner.os == 'macOS'
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 11.0.x
           dotnet-quality: preview
+
+      # The agent's net11.0-macos head needs the macos workload (NETSDK1147 otherwise); the preview SDK no longer
+      # bundles it.
+      - name: Install macos workload (macOS)
+        if: runner.os == 'macOS'
+        run: dotnet workload install macos
+
+      # BtbN's LGPL FFmpeg loads VAAPI via an implib stub that aborts (SIGABRT) if libva is absent, so the HW-codec
+      # probe tests crash on a bare runner. Provide the VAAPI runtime; device init still fails gracefully headless.
+      - name: Install libva (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libva2 libva-drm2
 
       # Hardware codec libraries. Desktop RIDs use BtbN LGPL builds; macOS uses Homebrew's ffmpeg.
       - name: Fetch FFmpeg (Windows/Linux)
