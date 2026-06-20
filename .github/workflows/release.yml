@@ -96,6 +96,18 @@ jobs:
         shell: pwsh
         run: Copy-Item native/ffmpeg/${{ matrix.rid }}/* publish/${{ matrix.rid }}/ -Force
 
+      # The macOS agent is a .app bundle (its Metal shader library lives inside it, so a bare binary can't run).
+      # Ship a thin launcher next to it so it is usable as an ordinary terminal command: `./streamtransport-agent ...`.
+      - name: Add CLI launcher (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cat > "publish/${{ matrix.rid }}/streamtransport-agent" <<'SH'
+          #!/bin/sh
+          here="$(cd "$(dirname "$0")" && pwd)"
+          exec "$here/streamtransport-agent.app/Contents/MacOS/streamtransport-agent" "$@"
+          SH
+          chmod +x "publish/${{ matrix.rid }}/streamtransport-agent"
+
       - name: Package (Windows/Linux)
         if: runner.os != 'macOS'
         shell: pwsh
