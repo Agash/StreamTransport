@@ -52,6 +52,11 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private bool _syncEnabled;
     private bool _gpuAsymmetricSync;
     private bool _preserveAlpha;
+    // Differential output-path latency Lv - La (video publish latency minus audio device latency), applied to the
+    // audio release so the two streams lip-sync at the *output* boundary (OBS / speaker), not just at scheduler
+    // release (#14). Positive delays audio (video is the slower path); negative releases it earlier. Set by the
+    // host once it knows its sinks' latencies; 0 keeps the pre-#14 scheduler-aligned behaviour.
+    private long _audioOutputOffsetNs;
     private Task? _videoDecodeLoop;
     private Task? _audioDecodeLoop;
 
@@ -138,6 +143,14 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         _preserveAlpha = value;
         _video?.SetPreserveAlpha(value);
     }
+
+    /// <summary>
+    /// Set the differential output-path latency <c>Lv - La</c> (video publish latency minus audio device latency),
+    /// in nanoseconds, used to lip-sync at the output boundary rather than at scheduler release (#14). The host
+    /// computes it from the latencies of the concrete sinks it owns (e.g. the video publish staging cost and the
+    /// audio device buffer depth) and may update it as those measurements settle. Only affects the synced path.
+    /// </summary>
+    public void SetOutputLatencyOffset(long differentialNs) => Interlocked.Exchange(ref _audioOutputOffsetNs, differentialNs);
 
     /// <inheritdoc/>
     public Task StartAsync(ISignalingChannel signaling, CancellationToken cancellationToken = default)
@@ -457,6 +470,11 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         if (_syncEnabled && _scheduler is { } scheduler && _aligner.BothAligned
             && _aligner.TryToSenderWallNs(stream, rtpTimestamp, out long wallNs))
         {
+            // Audio carries the differential output-latency offset (Lv - La) so it reaches the speaker in step with
+            // video at the viewer's output, not just at scheduler release (#14). Video is the reference (offset 0):
+            // on the GPU path it presents on arrival and can't be shifted, and on the CPU path keeping video the
+            // reference means only one stream moves.
+            long audioOffset = stream == SyncStream.Audio ? Interlocked.Read(ref _audioOutputOffsetNs) : 0;
             if (_gpuAsymmetricSync)
             {
                 // GPU: video can't be held, so present it now and let its arrival define the timeline; audio is
@@ -469,12 +487,12 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                 }
                 else
                 {
-                    scheduler.ScheduleOnTimeline(wallNs, submit);
+                    scheduler.ScheduleOnTimeline(wallNs, submit, audioOffset);
                 }
             }
             else
             {
-                scheduler.Schedule(wallNs, submit);
+                scheduler.Schedule(wallNs, submit, audioOffset);
             }
         }
         else

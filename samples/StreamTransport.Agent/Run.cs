@@ -319,7 +319,13 @@ internal sealed class Subscribe(AgentMediaFactory media)
         VerificationReport? report = null;
         if (config.Verify)
         {
-            report = new VerificationReport();
+            // La = the receiver platform's audio device buffer depth, bypassed in --verify (audio goes to the
+            // measurement sink), so it's supplied for the boundary-skew estimate (#14). Representative configured
+            // values: Windows WASAPI is set to 50 ms (WasapiAudio.WithLatency(50)); the CoreAudio/PipeWire output
+            // nodes run a ~20 ms quantum. Production-grade per-device query is a follow-up - see
+            // docs/notes/output-boundary-latency-sync.md.
+            double audioDeviceLatencyMs = OperatingSystem.IsWindows() ? 50 : 20;
+            report = new VerificationReport(audioDeviceLatencyMs);
 #if HAS_PIPEWIRE
             if (pwVideoSink is not null && config.Video && OperatingSystem.IsLinux())
             {
@@ -328,7 +334,7 @@ internal sealed class Subscribe(AgentMediaFactory media)
                 // content/alpha/sync identically to the CPU decode path. usePresentationTime so the readback
                 // cost doesn't inflate the A/V skew. videoSink + preferGpu stay as set.
                 var gpuVerify = new VerifyingVideoSink(report, usePresentationTime: true);
-                pwVideoSink.EnableVerification(gpuVerify.Submit);
+                pwVideoSink.EnableVerification(gpuVerify.Submit, report.RecordVideoPublishLatency);
             }
             else
 #endif
@@ -340,7 +346,7 @@ internal sealed class Subscribe(AgentMediaFactory media)
                 // Sync markers ride the NV12 luma so the BGRA readback leaves sync inconclusive (the CPU path
                 // is the A/V-sync proof); video flow + content + alpha are verified on the real GPU output.
                 var gpuVerify = new VerifyingVideoSink(report, usePresentationTime: true);
-                syphonVideoSink.EnableVerification(gpuVerify.Submit);
+                syphonVideoSink.EnableVerification(gpuVerify.Submit, report.RecordVideoPublishLatency);
             }
             else
 #endif

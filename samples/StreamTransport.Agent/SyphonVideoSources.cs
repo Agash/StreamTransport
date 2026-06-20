@@ -228,6 +228,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     private IAlphaUnpacker? _alphaCodec;
     private INv12ToBgra? _nv12Converter;
     private Action<VideoFrame>? _verifyTap;
+    private Action<double>? _publishLatencyTap;
     private long _published;
     private long _firstPublishTicks;
     private bool _disposed;
@@ -247,8 +248,14 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     /// </summary>
     public void SetPreserveAlpha(bool value) => _preserveAlpha = value;
 
-    /// <summary>Enable content verification of the published GPU frames (CPU readback of the BGRA surface -&gt; <paramref name="tap"/>).</summary>
-    public void EnableVerification(Action<VideoFrame> tap) => _verifyTap = tap;
+    /// <summary>Enable content verification of the published GPU frames (CPU readback of the BGRA surface -&gt; <paramref name="tap"/>), optionally reporting the publish latency to <paramref name="publishLatency"/>.</summary>
+    public void EnableVerification(Action<VideoFrame> tap, Action<double>? publishLatency = null)
+    {
+        _verifyTap = tap;
+        _publishLatencyTap = publishLatency;
+    }
+
+    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     public void Submit(VideoFrame frame)
     {
@@ -285,6 +292,13 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             _server.Publish(surface);
             if (_firstPublishTicks == 0) { _firstPublishTicks = Stopwatch.GetTimestamp(); }
             _published++;
+
+            // Publish-staging latency Lv = hand-off (now, the Metal convert/publish is done) - decode time, for the
+            // boundary-skew estimate (#14). Measured before the verify readback so its cost is excluded.
+            if (_publishLatencyTap is not null && frame.PresentationTimeNs > 0)
+            {
+                _publishLatencyTap((NowNs() - frame.PresentationTimeNs) / 1_000_000.0);
+            }
 
             // GPU verify: read the published BGRA surface back to CPU and feed the verifying sink, so the real
             // GPU output is content-checked. Stamp the playout time so the readback cost doesn't inflate the

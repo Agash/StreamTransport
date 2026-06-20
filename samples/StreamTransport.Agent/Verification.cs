@@ -21,6 +21,16 @@ internal sealed class VerificationReport
     private readonly Lock _gate = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
+    // Output-path latencies for the boundary-skew estimate (#14). La is the receiver platform's audio device
+    // buffer depth (the part bypassed in --verify, where audio goes to the measurement sink); Lv is the measured
+    // video publish-staging latency (decode -> publish hand-off), accumulated from the GPU publish sink.
+    private readonly double _audioDeviceLatencyMs;
+    private double _videoPublishLatencySumMs;
+    private int _videoPublishLatencyCount;
+
+    /// <param name="audioDeviceLatencyMs">The receiver platform's audio device buffer depth (La), for the boundary-skew estimate.</param>
+    public VerificationReport(double audioDeviceLatencyMs = 0) => _audioDeviceLatencyMs = audioDeviceLatencyMs;
+
     // First observation per sequence id, in the shared QPC clock (comparable across both sinks, and - on one
     // machine - with the sender's embedded capture ms).
     private readonly Dictionary<int, (double PresentMs, long CaptureMs)> _videoMarkers = [];
@@ -92,6 +102,16 @@ internal sealed class VerificationReport
         lock (_gate)
         {
             _audioMarkers.TryAdd(seqId, presentMs);
+        }
+    }
+
+    /// <summary>Record a video publish-staging latency sample (decode -&gt; publish hand-off, ms), for the boundary-skew estimate (#14).</summary>
+    public void RecordVideoPublishLatency(double ms)
+    {
+        lock (_gate)
+        {
+            _videoPublishLatencySumMs += ms;
+            _videoPublishLatencyCount++;
         }
     }
 
@@ -214,6 +234,16 @@ internal sealed class VerificationReport
         {
             log($"sync  : capture->present video ~{latencySum / latencyCount:F0} ms, audio ~{audioLatencySum / latencyCount:F0} ms (same-machine QPC only)");
         }
+
+        // Boundary-skew estimate (#14): the skew above is at scheduler release - the part the playout controls. The
+        // viewer's real lip-sync also carries each path's downstream output latency: video's publish staging (Lv,
+        // measured) and audio's device buffer (La, the receiver platform's, bypassed in --verify). Output skew ~=
+        // scheduler skew + (Lv - La). Informational - the IN/OUT verdict stays on the controllable scheduler skew;
+        // a host that sets the receiver's output-latency offset (Lv - La) drives this toward zero. See
+        // docs/notes/output-boundary-latency-sync.md.
+        double lv = _videoPublishLatencyCount > 0 ? _videoPublishLatencySumMs / _videoPublishLatencyCount : 0;
+        double boundary = mean + (lv - _audioDeviceLatencyMs);
+        log($"sync  : output-boundary skew ~{boundary:+0;-0;0} ms (video publish Lv ~{lv:F0} ms, audio device La ~{_audioDeviceLatencyMs:F0} ms; uncompensated)");
 
         return locked;
     }

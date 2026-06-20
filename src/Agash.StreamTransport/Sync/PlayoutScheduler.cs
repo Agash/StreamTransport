@@ -36,10 +36,15 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
     {
     }
 
-    /// <summary>Schedule <paramref name="submit"/> to run when the frame captured at <paramref name="senderWallNs"/> is due.</summary>
-    public void Schedule(long senderWallNs, Action submit)
+    /// <summary>
+    /// Schedule <paramref name="submit"/> to run when the frame captured at <paramref name="senderWallNs"/> is due,
+    /// shifted by <paramref name="extraDelayNs"/> (the differential output-path latency, #14): a frame whose
+    /// downstream output path is slower is released earlier/later so the two streams reach the viewer in lip-sync,
+    /// not just the scheduler. May be negative (release earlier).
+    /// </summary>
+    public void Schedule(long senderWallNs, Action submit, long extraDelayNs = 0)
     {
-        long releaseNs = _timeline.ReleaseLocalNs(senderWallNs, _nowNs());
+        long releaseNs = _timeline.ReleaseLocalNs(senderWallNs, _nowNs()) + extraDelayNs;
         Enqueue(submit, releaseNs);
     }
 
@@ -63,9 +68,9 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
     /// arrival curve learned from <see cref="ObserveArrival"/> (video) and never pulls the offset to its own
     /// faster path.
     /// </summary>
-    public void ScheduleOnTimeline(long senderWallNs, Action submit)
+    public void ScheduleOnTimeline(long senderWallNs, Action submit, long extraDelayNs = 0)
     {
-        long releaseNs = _timeline.PeekReleaseLocalNs(senderWallNs);
+        long releaseNs = _timeline.PeekReleaseLocalNs(senderWallNs) + extraDelayNs;
         Enqueue(submit, releaseNs);
     }
 

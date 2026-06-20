@@ -78,9 +78,15 @@ internal sealed partial class PipeWireVideoPublishSink : IVideoFrameSink, IAsync
     // --verify GPU mode: read the published surface back to CPU and hand it to the verification report, so the
     // actual zero-copy output (content + alpha gradient + sync markers) is checked exactly like the CPU path.
     private Action<VideoFrame>? _verifyTap;
+    // Reports each frame's publish-staging latency (decode -> publish hand-off, ms) for the boundary-skew estimate (#14).
+    private Action<double>? _publishLatencyTap;
 
-    /// <summary>Enable content verification of the published GPU frames (CPU readback -&gt; <paramref name="tap"/>).</summary>
-    public void EnableVerification(Action<VideoFrame> tap) => _verifyTap = tap;
+    /// <summary>Enable content verification of the published GPU frames (CPU readback -&gt; <paramref name="tap"/>), optionally reporting the publish-staging latency to <paramref name="publishLatency"/>.</summary>
+    public void EnableVerification(Action<VideoFrame> tap, Action<double>? publishLatency = null)
+    {
+        _verifyTap = tap;
+        _publishLatencyTap = publishLatency;
+    }
 
     private static long NowNs() => (long)(Stopwatch.GetTimestamp() * (1_000_000_000.0 / Stopwatch.Frequency));
 
@@ -537,6 +543,15 @@ internal sealed partial class PipeWireVideoPublishSink : IVideoFrameSink, IAsync
         // frame's PresentationTimeNs). The readback below adds further latency that this correctly excludes.
         // VerifyingVideoSink reads this off PresentationTimeNs (usePresentationTime: true).
         long obsNs = presentationTimeNs;
+
+        // Publish-staging latency Lv = hand-off (now, the VPP/stage is done) - decode time. Measured before the
+        // readback so the verify-only readback cost is excluded; this is the real decode->publish-boundary cost
+        // the viewer's video path adds, fed to the boundary-skew estimate (#14).
+        if (_publishLatencyTap is not null && presentationTimeNs > 0)
+        {
+            _publishLatencyTap((NowNs() - presentationTimeNs) / 1_000_000.0);
+        }
+
         try
         {
             if (_alphaGpu)
