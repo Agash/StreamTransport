@@ -85,6 +85,20 @@ public static class FFmpegLibrary
             dir = dir.Parent;
         }
 
+        // macOS: Homebrew installs FFmpeg under a prefix that is not on the default dyld search path
+        // (/opt/homebrew/lib on Apple Silicon, /usr/local/lib on Intel), so a bare-name load would miss a
+        // `brew install ffmpeg`. Probe those prefixes so a Homebrew FFmpeg is picked up automatically.
+        if (OperatingSystem.IsMacOS())
+        {
+            foreach (string brewLib in (string[])["/opt/homebrew/lib", "/usr/local/lib"])
+            {
+                if (ContainsFFmpeg(brewLib))
+                {
+                    return brewLib;
+                }
+            }
+        }
+
         return null;
     }
 
