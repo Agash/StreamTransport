@@ -8,4 +8,4 @@ Its only dependency beyond the BCL is `Microsoft.Extensions.Logging.Abstractions
 to consume the transport's seams (for example to provide an alternative DTLS implementation) without
 pulling in crypto or `Microsoft.Extensions.*` hosting.
 
-See ADR-0003 in the repository for the design.
+

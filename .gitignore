@@ -18,12 +18,8 @@ native/ffmpeg/
 # Local clones of sibling libs for development (never committed)
 external/
 
-# Reference material (RFC texts, libwebrtc source) used while building the WebRTC stack - never committed
+# Local working copies and scratch (never committed)
 .refs/
-*.log
-
-# Local-only rescued design docs (ADRs, handoff) — never tracked
 _ref/
-
-# Cross-machine verify-matrix run logs
 .matrix-logs/
+*.log

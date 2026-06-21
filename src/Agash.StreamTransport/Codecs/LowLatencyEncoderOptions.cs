@@ -34,8 +34,8 @@ internal static unsafe class LowLatencyEncoderOptions
         ctx->flags |= ffmpeg.AV_CODEC_FLAG_LOW_DELAY;
 
         // CBR from the very first frame (previously only set on the first congestion UpdateBitrate): cap the rate
-        // at the target with a profile-sized VBV. Without this the opening ~second runs unbounded VBR. STX_ENC_VBV
-        // overrides the VBV depth (seconds) for the option sweep (see eng/encoder-sweep.ps1).
+        // at the target with a profile-sized VBV. Without this the opening ~second runs unbounded VBR. The
+        // STX_ENC_VBV env var overrides the VBV depth (seconds) for ad-hoc latency measurement (test-only).
         double vbvSeconds = VbvSeconds(profile);
         if (double.TryParse(Environment.GetEnvironmentVariable("STX_ENC_VBV"),
                 System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double vbvOverride) && vbvOverride > 0)
@@ -100,9 +100,9 @@ internal static unsafe class LowLatencyEncoderOptions
                 break;
         }
 
-        // Sweep override: STX_ENC_OPT="k1=v1;k2=v2" sets/overrides arbitrary encoder AVOptions on top of the
-        // profile defaults (av_dict_set overwrites), so eng/encoder-sweep.ps1 can vary one knob at a time without
-        // a rebuild. No effect in production (the env var is unset).
+        // Diagnostic override (test-only): STX_ENC_OPT="k1=v1;k2=v2" sets/overrides arbitrary encoder AVOptions on
+        // top of the profile defaults (av_dict_set overwrites), so a single knob can be varied for measurement
+        // without a rebuild. No effect in production (the env var is unset).
         string? envOpts = Environment.GetEnvironmentVariable("STX_ENC_OPT");
         if (!string.IsNullOrWhiteSpace(envOpts))
         {

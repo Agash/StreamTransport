@@ -250,7 +250,7 @@ trim_trailing_whitespace = false
 indent_size = 2
 
 # ─────────────────────────────────────────────────────────
-# Generated files — relax all rules
+# Generated files, relax all rules
 # ─────────────────────────────────────────────────────────
 [*.g.cs]
 generated_code = true

@@ -11,7 +11,7 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 [TestClass]
 public sealed class LocalAddressFilterTests
 {
-    private static readonly IPAddress V4 = IPAddress.Parse("192.168.20.51");
+    private static readonly IPAddress V4 = IPAddress.Parse("192.168.1.50");
     private static readonly IPAddress V6 = IPAddress.Parse("fe80::1");
 
     [TestMethod]
@@ -33,8 +33,8 @@ public sealed class LocalAddressFilterTests
     [TestMethod]
     public void LiteralIp_SelectsExactAddress()
     {
-        Assert.IsTrue(LocalAddressFilter.Includes(["192.168.20.51"], "eth0", "id", "desc", V4));
-        Assert.IsFalse(LocalAddressFilter.Includes(["192.168.20.99"], "eth0", "id", "desc", V4));
+        Assert.IsTrue(LocalAddressFilter.Includes(["192.168.1.50"], "eth0", "id", "desc", V4));
+        Assert.IsFalse(LocalAddressFilter.Includes(["192.168.1.99"], "eth0", "id", "desc", V4));
     }
 
     [TestMethod]

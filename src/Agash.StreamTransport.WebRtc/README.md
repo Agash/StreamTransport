@@ -12,4 +12,4 @@ does not provide - is supplied by `Agash.StreamTransport.WebRtc.Dtls` (BouncyCas
 pluggable factory, so this package itself has no third-party runtime dependency.
 
 This is the first-party transport that replaces SIPSorcery in
-[`Agash.StreamTransport`](https://github.com/Agash/StreamTransport). See ADR-0003 in the repository.
+[`Agash.StreamTransport`](https://github.com/Agash/StreamTransport).

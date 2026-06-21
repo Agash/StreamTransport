@@ -4,7 +4,7 @@
     <AssemblyName>Agash.StreamTransport.WebRtc.Dtls</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc.Dtls</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.Dtls</PackageId>
-    <Description>DTLS 1.2 + use_srtp (RFC 5764) handshake for the Agash.StreamTransport WebRTC stack, implementing IDtlsTransportFactory. This is the only package that depends on BouncyCastle — the WebRTC core stays free of third-party crypto.</Description>
+    <Description>DTLS 1.2 + use_srtp (RFC 5764) handshake for the Agash.StreamTransport WebRTC stack, implementing IDtlsTransportFactory. This is the only package that depends on BouncyCastle, the WebRTC core stays free of third-party crypto.</Description>
     <PackageTags>webrtc;dtls;dtls-srtp;bouncycastle;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

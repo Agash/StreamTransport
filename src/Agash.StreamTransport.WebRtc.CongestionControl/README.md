@@ -15,4 +15,4 @@ and never triggers a back-off, while sustained loss still does. ECN-CE (L4S) mar
 reduction.
 
 > The controller's parameters (queue-delay target, gains, rate bounds) are validated against shaped /
-> real cellular links, not just loopback. See ADR-0003 in the repository.
+> real cellular links, not just loopback.

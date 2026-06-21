@@ -216,29 +216,10 @@ A `VERIFY-PASS` line means video flowed, audio flowed, and (on a same-machine ru
 `selftest` command runs a self-contained GPU round-trip with no relay: `selftest` on macOS (Syphon +
 VideoToolbox) and Windows (Spout), and `selftest alpha [encoder]` for the side-by-side alpha path.
 `selftest caps` prints the host's HW codec capability probe (which encoders/decoders are present and usable,
-the auto-selected encoder, and the receive decode path) — handy for confirming a NativeAOT binary's runtime.
+the auto-selected encoder, and the receive decode path), handy for confirming a NativeAOT binary's runtime.
 
-### Cross-machine verify matrix
-
-`eng/verify-matrix.ps1` orchestrates the full **3-way** cross-machine matrix (Windows / macOS / Linux) from a
-Windows host: it starts the relay locally, then runs each cell as a sender on one machine and a verifying
-receiver on another (over SSH via `eng/matrix-linux-agent.sh` / `eng/matrix-mac-agent.sh`), exercising
-CPU/GPU × video / video+audio / `--synced` / `--alpha`. It drives each platform's **NativeAOT** binary. Both
-sides use the synthetic source with `--verify --seconds N`, so each self-terminates and the receiver's
-`VERIFY-PASS`/`VERIFY-FAIL` is the per-cell gate (lip-sync graded only on `--synced` cells). Media is direct P2P
-(WebRTC ICE); only signaling crosses the relay. `eng/verify-sweep.ps1` is a companion that tabulates measured
-decoded/publish fps across a resolution × fps × profile grid.
-
-```powershell
-pwsh eng/verify-matrix.ps1 -Group loopback                 # per-platform same-machine loopback cells
-pwsh eng/verify-matrix.ps1 -Group cross -Profiles irl      # cross-machine cells for one profile
-pwsh eng/verify-sweep.ps1  -Durations 20                   # res×fps×profile measurement sweep
-```
-
-The in-agent **GPU-readback** verify (which taps each decoded GPU surface, rather than CPU-decoding) runs on
-the Linux (`--publish-pipewire`) and macOS (`--publish-syphon`) receivers; the Windows receiver's `--verify` is
-CPU-decode. Known matrix residuals are tracked as #12 (Linux GPU-publish lip-sync) and #13 (macOS loopback
-SSH-harness flakiness).
+The in-agent **GPU-readback** verify taps each decoded GPU surface (rather than CPU-decoding) on the Linux
+(`--publish-pipewire`) and macOS (`--publish-syphon`) receivers; the Windows receiver's `--verify` is CPU-decode.
 
 ## Full option reference
 

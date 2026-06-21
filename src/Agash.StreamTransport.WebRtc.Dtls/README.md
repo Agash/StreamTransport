@@ -8,4 +8,4 @@ authenticates the peer by certificate fingerprint, and exports the SRTP keying m
 
 This is the **only** package in the stack that depends on BouncyCastle. The WebRTC core uses BCL crypto
 only; DTLS is quarantined here behind the factory interface, so a first-party BCL DTLS engine can later
-replace it as a one-package swap. See ADR-0003 in the repository.
+replace it as a one-package swap.

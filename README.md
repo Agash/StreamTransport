@@ -1,71 +1,43 @@
-# Agash.StreamTransport
+# StreamTransport
 
-Local-first, peer-to-peer real-time media transport for .NET. It moves GPU video frames and synchronised
-audio between machines over WebRTC (hardware H.265 video, Opus audio, one `RTCPeerConnection`) on a
-first-party, dependency-light WebRTC stack (ICE / STUN / DTLS-SRTP / RTP / RTCP / SDP) built on the BCL, with
-no SIP stack and NativeAOT support. The capture layer and the signaling channel are both abstracted, so the
-host application owns where frames come from and how peers find each other.
+[![NuGet](https://img.shields.io/nuget/v/Agash.StreamTransport.svg)](https://www.nuget.org/packages/Agash.StreamTransport)
+[![CI](https://github.com/Agash/StreamTransport/actions/workflows/ci.yml/badge.svg)](https://github.com/Agash/StreamTransport/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Local-first, peer-to-peer real-time media for .NET. Move hardware-encoded H.265 video and Opus audio between
+machines over WebRTC, on a first-party WebRTC stack (ICE / STUN / DTLS-SRTP / RTP / RTCP / SDP) built on the
+BCL, no SIP stack, NativeAOT-friendly.
 
 ```
-capture (Spout / Syphon / PipeWire / camera) -> HW H.265 encode -> WebRTC P2P -> HW H.265 decode -> publish
+capture (camera / Spout / Syphon / PipeWire) -> HW H.265 -> WebRTC P2P -> HW H.265 -> publish
 ```
 
-Targets `net11.0`, with per-OS agent heads — Windows (`net11.0-windows`, D3D11/Spout), macOS (`net11.0-macos`,
-Metal/IOSurface/Syphon + VideoToolbox + CoreAudio), and Linux (`net11.0`, VAAPI/PipeWire/Vulkan). All three
-publish as **self-contained, trimmed CoreCLR NativeAOT** binaries. The transport itself never touches a disk, a
-tunnel, or a capture API; those live behind two seams the host fills in.
+> ### ⚠️ Alpha, early and rough
+> This is an early `0.1.0-alpha`. The core works and is exercised by tests, but it is **largely untested in
+> the real world**, unpolished in places, and has lots of room to improve. Expect breaking changes and sharp
+> edges. Please try it and file issues, just don't ship it to production yet.
 
-> ### Status: v0.1.0-alpha1
->
-> The core stack (signaling, ICE, DTLS-SRTP, RTP/RTCP, SDP, congestion control, loss recovery, mobility) is
-> implemented and covered by unit, in-process E2E, and loopback tests on Windows, macOS, and Linux CI, plus a
-> 3-machine cross-platform verify matrix (`eng/verify-matrix.ps1`) that drives the NativeAOT binaries.
-> Hardware encode/decode is verified on **NVENC (Windows/Linux)**, **AMF (Windows)**, **VideoToolbox (macOS,
-> via a raw `VTDecompressionSession` decode path)**, and **VAAPI + PipeWire DMA-BUF (Linux)** — the Linux GPU
-> path is now hardware-verified on a real handheld, not just CI. Cross-machine 1080p60 sustains full frame rate
-> over a lossy Wi-Fi link (sequence-aware H.265 reassembly + NACK/RTX recovery). AV1 is registered as a codec
-> but has no real-time hardware encoder on current GPUs, so it is decode/software only for now.
+## What you get
 
-## The two seams
+- A complete, dependency-light **WebRTC** stack: ICE, STUN, DTLS-SRTP (GCM), RTP/RTCP, SDP/JSEP, and a
+  `PeerConnection`, BCL crypto, with one BouncyCastle dependency for the DTLS handshake.
+- **Hardware H.265** encode/decode through FFmpeg (NVENC, AMF, QSV, VAAPI, VideoToolbox) with a software
+  fallback, plus pure-managed **Opus** audio on the same connection, kept in lip-sync.
+- **Resilience for real links**: SCReAM congestion control (RFC 8298 / 8888), sequence-aware H.265 reassembly,
+  NACK/RTX and FlexFEC loss recovery, and ICE-restart / hot-standby mobility, selected by one media profile
+  (`InteractiveP2P`, `ScreenShare`, `IrlContribution`).
+- **NativeAOT-friendly**: self-contained, trimmed binaries on Windows, Linux, and macOS.
 
-1. **Capture** - `IVideoFrameSource` / `IVideoFrameSink` / `IAudioFrameSource`. The transport never knows where
-   frames originate or go. The GPU interop libraries live in the consumer, so the same transport serves a full
-   desktop app and a headless single-board-computer field agent.
-2. **Signaling** - `ISignalingChannel`. The transport never knows how SDP/ICE are delivered; the host owns
-   reachability (a WebSocket, a SignalR hub, a tunnel). Tunnel and host concerns never enter the library.
+## Two seams the host fills in
 
-## Resilience
-
-Built for lossy, mobile uplinks as well as clean LANs, selected by a single media profile (`InteractiveP2P`,
-`ScreenShare`, `IrlContribution`):
-
-- **Congestion control** - a SCReAM controller (RFC 8298) driven by RTCP Congestion Control Feedback
-  (RFC 8888); the encoder is retuned and the sender paced to the estimate.
-- **Loss recovery** - a sequence-aware H.265 packet buffer reorders RTP into complete frames (so a lost packet
-  never feeds the decoder a corrupt/merged access unit), NACK + RTX (RFC 4588) retransmit holes in order on
-  low-RTT links, with a throttled keyframe request on unrecoverable gaps; FlexFEC (RFC 8627) on the high-RTT
-  IRL profile, where a retransmit round trip is too slow.
-- **Mobility** - full credential-rollover ICE restart and pre-warmed hot-standby candidate switching, with the
-  DTLS-SRTP session (keys + rollover counter) preserved across a path change.
-
-## Packages
-
-| Package | What it is |
-|---|---|
-| `Agash.StreamTransport.Abstractions` | Capture + signaling contracts, codec/interop types. Zero deps beyond the BCL. |
-| `Agash.StreamTransport` | The transport: first-party WebRTC + FFmpeg hardware codecs + room client. Ships the per-RID FFmpeg natives. |
-| `Agash.StreamTransport.Signaling` | Transport-agnostic room router + a WebSocket signaling transport. |
-| `Agash.StreamTransport.Stun` | Single-port STUN binding server + ICE server providers (static + coturn ephemeral creds). |
-| `Agash.StreamTransport.WebRtc.Abstractions` | Transport seams for the WebRTC stack (ICE/DTLS/SRTP roles, options, diagnostics). |
-| `Agash.StreamTransport.WebRtc` | The WebRTC core: ICE, STUN, SRTP-GCM, RTP/RTCP, SDP, `PeerConnection`. BCL crypto only. |
-| `Agash.StreamTransport.WebRtc.Dtls` | DTLS-SRTP handshake behind `IDtlsTransportFactory` (the one BouncyCastle dependency). |
-| `Agash.StreamTransport.WebRtc.CongestionControl` | The SCReAM `INetworkController` and pacing. |
-| `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()` wiring. |
+- **Capture**, `IVideoFrameSource` / `IVideoFrameSink` / `IAudioFrameSource`. The transport never knows where
+  frames come from, so the GPU-interop libraries live in the consumer.
+- **Signaling**, `ISignalingChannel`. The transport never knows how SDP/ICE are delivered (a WebSocket, a
+  SignalR hub, a tunnel); the host owns reachability.
 
 ## Capture companions
 
-The GPU interop libraries that feed the capture seam are published separately and pair with
-`IVideoFrameSource` / `IVideoFrameSink`:
+Zero-copy GPU sharing libraries that feed the capture seam, published separately:
 
 | Library | Platform | Mechanism |
 |---|---|---|
@@ -73,37 +45,42 @@ The GPU interop libraries that feed the capture seam are published separately an
 | [Syphon.NET](https://github.com/Agash/Syphon.NET) | macOS | Syphon (IOSurface / Metal) |
 | [PipeWire.NET](https://github.com/Agash/PipeWire.NET) | Linux | PipeWire (DMA-BUF) |
 
-## Audio and sync
+## Packages
 
-Audio is a first-class track: the sender encodes Opus (pure-managed, no native dependency) and carries it
-alongside video on the one peer connection. Both tracks are stamped from a common monotonic capture clock, and
-the receiver schedules playout against abs-capture-time plus RTCP sender reports, so the two stay in lip-sync.
+| Package | What it is |
+|---|---|
+| `Agash.StreamTransport` | The transport: WebRTC + FFmpeg hardware codecs + room client. |
+| `Agash.StreamTransport.Abstractions` | Capture + signaling contracts. BCL only. |
+| `Agash.StreamTransport.WebRtc` | The WebRTC core: ICE, STUN, SRTP, RTP/RTCP, SDP, `PeerConnection`. |
+| `Agash.StreamTransport.WebRtc.Abstractions` | Seams for the WebRTC stack. |
+| `Agash.StreamTransport.WebRtc.Dtls` | DTLS-SRTP handshake (the one BouncyCastle dependency). |
+| `Agash.StreamTransport.WebRtc.CongestionControl` | SCReAM controller + pacing. |
+| `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()` wiring. |
+| `Agash.StreamTransport.Signaling` | Room router + a WebSocket signaling transport. |
+| `Agash.StreamTransport.Stun` | STUN binding server + ICE server providers. |
 
 ## Build
 
-Needs the .NET 11 preview SDK. FFmpeg 8.1 natives are fetched per RID before building anything that touches
-codecs:
+Needs the .NET 11 preview SDK. FFmpeg 8.1 natives are fetched per platform first:
 
 ```bash
-./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or linux-x64 / osx-arm64 / linux-arm64
+./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or linux-x64 / linux-arm64 / osx-arm64
 dotnet build StreamTransport.slnx -c Release
 dotnet test  StreamTransport.slnx -c Release --filter "TestCategory!=Integration"
 ```
 
-## Try it: relay + two agents
+## Try it
 
-A self-hostable signaling relay and a sender/receiver agent live in `samples/`. The fastest local test:
+A self-hostable signaling relay and a sender/receiver agent live in `samples/`:
 
 ```bash
-dotnet run --project samples/StreamTransport.Relay                                   # WS signaling :8080/ws + STUN :3478
-dotnet run --project samples/StreamTransport.Agent -- send    --relay ws://localhost:8080/ws --room demo --profile irl
-dotnet run --project samples/StreamTransport.Agent -- receive --relay ws://localhost:8080/ws --room demo --profile irl
+dotnet run --project samples/StreamTransport.Relay                                       # WS :8080/ws + STUN :3478
+dotnet run --project samples/StreamTransport.Agent -- send    --relay ws://localhost:8080/ws --room demo
+dotnet run --project samples/StreamTransport.Agent -- receive --relay ws://localhost:8080/ws --room demo
 ```
 
-The agent is the reference capture wiring and the cross-platform end-to-end test. See
-[`samples/StreamTransport.Agent/README.md`](samples/StreamTransport.Agent/README.md) for full install and
-configuration: providing the correct FFmpeg build (even when a different one is already on the machine),
-setting up Spout / Syphon / PipeWire capture, selecting cameras and microphones, and publishing into OBS.
+See [`samples/StreamTransport.Agent`](samples/StreamTransport.Agent) for capture setup (Spout / Syphon /
+PipeWire), device selection, and publishing into OBS.
 
 ## License
 
