@@ -85,9 +85,10 @@ internal static unsafe class LowLatencyEncoderOptions
                 break;
 
             case "hevc_videotoolbox" or "h264_videotoolbox":
-                // realtime: encode at least as fast as capture; prio_speed: favour speed over quality;
-                // constant_bit_rate: true CBR (macOS 13+; ignored on older OSes).
-                Set(options, ("realtime", "1"), ("prio_speed", "1"), ("constant_bit_rate", "1"));
+                // realtime: encode at least as fast as capture; prio_speed: favour speed over quality. The CBR
+                // ceiling comes from ConfigureContext (rc_max_rate); the encoder's own constant_bit_rate property
+                // is not supported for HEVC VideoToolbox ("not supported by the encoder"), so don't set it.
+                Set(options, ("realtime", "1"), ("prio_speed", "1"));
                 break;
 
             case "hevc_rkmpp" or "h264_rkmpp":
