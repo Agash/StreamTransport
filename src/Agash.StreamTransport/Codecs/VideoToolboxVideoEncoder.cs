@@ -63,7 +63,7 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
         _context->max_b_frames = 0;
         _context->hw_frames_ctx = ffmpeg.av_buffer_ref(_hwFrames);
 
-        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate);
         AVDictionary* options = null;
         LowLatencyEncoderOptions.Apply(&options, "hevc_videotoolbox", profile);
         int openResult = ffmpeg.avcodec_open2(_context, codec, &options);

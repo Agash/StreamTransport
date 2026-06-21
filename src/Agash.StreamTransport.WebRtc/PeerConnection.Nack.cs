@@ -112,8 +112,19 @@ public sealed partial class PeerConnection
         }
     }
 
+    // Test-only: STX_NO_NACK suppresses NACK/RTX so loss isn't retransmit-recovered, simulating a one-way link
+    // (high-RTT cellular) where intra-refresh / FEC are the only recovery - lets the intra-refresh benefit be
+    // measured same-machine. Env-gated; no effect in production.
+    private static readonly bool s_suppressNack =
+        Environment.GetEnvironmentVariable("STX_NO_NACK") is "1" or "true" or "yes";
+
     private void SendNack(uint mediaSsrc, List<ushort> sequences)
     {
+        if (s_suppressNack)
+        {
+            return;
+        }
+
         if (_srtp is not { } srtp || _iceAgent is not { } agent)
         {
             return;

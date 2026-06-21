@@ -26,7 +26,7 @@ internal static unsafe class LowLatencyEncoderOptions
     /// Set the codec-context low-latency + CBR rate-control fields shared by every HW encoder. Call after
     /// width/height/bitrate/gop are set and immediately before <c>avcodec_open2</c>.
     /// </summary>
-    public static void ConfigureContext(AVCodecContext* ctx, MediaProfile profile, long bitrate, int fps)
+    public static void ConfigureContext(AVCodecContext* ctx, MediaProfile profile, long bitrate)
     {
         // Emit output without buffering reorder frames. rkmpp keys its async pipeline depth off this flag
         // (H26X_ASYNC_FRAMES 4 -> 0); the other encoders honour or harmlessly ignore it. The decoders set the
@@ -44,21 +44,17 @@ internal static unsafe class LowLatencyEncoderOptions
         }
         ctx->rc_max_rate = bitrate;
         ctx->rc_buffer_size = (int)Math.Min(int.MaxValue, (long)(bitrate * vbvSeconds));
-
-        // IRL (lossy one-way cellular): drive recovery with gradual intra-refresh (enabled per-encoder in Apply)
-        // instead of periodic IDR. Size the GOP as the ~1s refresh cycle (nvenc keys its refresh wave off
-        // gop_size); this avoids the big IDR bitrate spike on a constrained uplink and recovers without a full
-        // keyframe. Keyframe-on-PLI still forces an IDR. Other profiles keep the caller's ~2s GOP.
-        if (profile == MediaProfile.IrlContribution)
-        {
-            ctx->gop_size = Math.Max(fps, 1);
-        }
+        // IRL keeps the caller's periodic-IDR GOP (recovery is keyframe-on-PLI + FEC); intra-refresh was measured
+        // not to help and is no longer enabled (see Apply). The deeper IRL VBV (1.5x) is latency-free per the sweep.
     }
 
     /// <summary>Set the per-encoder private AVOptions for <paramref name="encoderName"/> under <paramref name="profile"/>.</summary>
     public static void Apply(AVDictionary** options, string encoderName, MediaProfile profile)
     {
-        bool irl = profile == MediaProfile.IrlContribution;
+        // NOTE: intra-refresh is intentionally NOT enabled for the IRL profile. Measured (nvenc, one-way sim via
+        // STX_NO_NACK + STX_RTP_DROP): it did not improve loss recovery (slightly worse fps/latency at 8-15% loss)
+        // and appears to fight the keyframe-on-PLI recovery. Its real benefit (avoiding the IDR bandwidth spike on
+        // a bitrate-capped uplink) is unproven on our testbed. Re-enable per encoder via STX_ENC_OPT to retest.
         switch (encoderName)
         {
             case "hevc_nvenc" or "h264_nvenc":
@@ -69,7 +65,6 @@ internal static unsafe class LowLatencyEncoderOptions
                     ("preset", "p4"),
                     ("tune", profile == MediaProfile.InteractiveP2P ? "ull" : "ll"),
                     ("rc", "cbr"), ("zerolatency", "1"), ("delay", "0"), ("rc-lookahead", "0"), ("forced-idr", "1"));
-                if (irl) { Set(options, ("intra-refresh", "1")); }
                 break;
 
             case "hevc_amf" or "h264_amf":
@@ -81,8 +76,6 @@ internal static unsafe class LowLatencyEncoderOptions
 
             case "hevc_qsv" or "h264_qsv":
                 Set(options, ("preset", "veryfast"), ("low_delay_brc", "1"), ("async_depth", "1"));
-                // Rolling intra-refresh over ~1s for loss resilience on the IRL uplink.
-                if (irl) { Set(options, ("int_ref_type", "horizontal"), ("int_ref_cycle_size", "30")); }
                 break;
 
             case "hevc_vaapi" or "h264_vaapi":
@@ -99,10 +92,8 @@ internal static unsafe class LowLatencyEncoderOptions
                 break;
 
             case "hevc_rkmpp" or "h264_rkmpp":
-                // CBR; the low-delay (async off) comes from AV_CODEC_FLAG_LOW_DELAY in ConfigureContext. Rolling
-                // intra-refresh by MB row for the IRL uplink (HW-gated - unverified without an RK board).
+                // CBR; the low-delay (async off) comes from AV_CODEC_FLAG_LOW_DELAY in ConfigureContext.
                 Set(options, ("rc_mode", "cbr"));
-                if (irl) { Set(options, ("intra_refresh", "1"), ("refresh_mode", "row")); }
                 break;
 
             default:

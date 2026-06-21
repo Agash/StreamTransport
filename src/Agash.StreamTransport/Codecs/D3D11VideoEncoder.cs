@@ -149,7 +149,7 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
             _context->hw_frames_ctx = ffmpeg.av_buffer_ref(_hwFrames);
         }
 
-        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate);
         AVDictionary* options = null;
         LowLatencyEncoderOptions.Apply(&options, encoderName, profile);
 

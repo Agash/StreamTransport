@@ -75,7 +75,7 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
         _context->colorspace = AVColorSpace.AVCOL_SPC_BT709;
         _context->color_range = AVColorRange.AVCOL_RANGE_MPEG;
 
-        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate);
         AVDictionary* options = null;
         LowLatencyEncoderOptions.Apply(&options, "hevc_vaapi", profile);
         int open = ffmpeg.avcodec_open2(_context, codec, &options);

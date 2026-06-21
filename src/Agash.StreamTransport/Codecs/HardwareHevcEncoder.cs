@@ -56,7 +56,7 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
         // Low-delay + CBR rate control + the per-encoder low-latency AVOptions. This is the CPU-input path for
         // hevc_nvenc/amf/qsv/rkmpp - previously it opened with no options, so none of the vendor low-latency
         // settings (nor AV_CODEC_FLAG_LOW_DELAY) were applied here.
-        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate);
         AVDictionary* options = null;
         LowLatencyEncoderOptions.Apply(&options, encoderName, profile);
         int openResult = ffmpeg.avcodec_open2(_context, codec, &options);
