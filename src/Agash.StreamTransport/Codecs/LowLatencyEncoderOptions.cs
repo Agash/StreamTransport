@@ -34,9 +34,16 @@ internal static unsafe class LowLatencyEncoderOptions
         ctx->flags |= ffmpeg.AV_CODEC_FLAG_LOW_DELAY;
 
         // CBR from the very first frame (previously only set on the first congestion UpdateBitrate): cap the rate
-        // at the target with a profile-sized VBV. Without this the opening ~second runs unbounded VBR.
+        // at the target with a profile-sized VBV. Without this the opening ~second runs unbounded VBR. STX_ENC_VBV
+        // overrides the VBV depth (seconds) for the option sweep (see eng/encoder-sweep.ps1).
+        double vbvSeconds = VbvSeconds(profile);
+        if (double.TryParse(Environment.GetEnvironmentVariable("STX_ENC_VBV"),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double vbvOverride) && vbvOverride > 0)
+        {
+            vbvSeconds = vbvOverride;
+        }
         ctx->rc_max_rate = bitrate;
-        ctx->rc_buffer_size = (int)Math.Min(int.MaxValue, (long)(bitrate * VbvSeconds(profile)));
+        ctx->rc_buffer_size = (int)Math.Min(int.MaxValue, (long)(bitrate * vbvSeconds));
 
         // IRL (lossy one-way cellular): drive recovery with gradual intra-refresh (enabled per-encoder in Apply)
         // instead of periodic IDR. Size the GOP as the ~1s refresh cycle (nvenc keys its refresh wave off
@@ -100,6 +107,22 @@ internal static unsafe class LowLatencyEncoderOptions
 
             default:
                 break;
+        }
+
+        // Sweep override: STX_ENC_OPT="k1=v1;k2=v2" sets/overrides arbitrary encoder AVOptions on top of the
+        // profile defaults (av_dict_set overwrites), so eng/encoder-sweep.ps1 can vary one knob at a time without
+        // a rebuild. No effect in production (the env var is unset).
+        string? envOpts = Environment.GetEnvironmentVariable("STX_ENC_OPT");
+        if (!string.IsNullOrWhiteSpace(envOpts))
+        {
+            foreach (string pair in envOpts.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                int eq = pair.IndexOf('=');
+                if (eq > 0)
+                {
+                    ffmpeg.av_dict_set(options, pair[..eq].Trim(), pair[(eq + 1)..].Trim(), 0);
+                }
+            }
         }
     }
 
