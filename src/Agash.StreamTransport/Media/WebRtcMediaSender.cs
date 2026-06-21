@@ -164,7 +164,7 @@ public sealed partial class WebRtcMediaSender : IMediaSender
                 // the first frame and ramp together); fall back to the fixed default with no controller.
                 long startBitrate = _controller?.CurrentEstimate.TargetBitrateBps ?? VideoBitrate;
                 _videoEncoder = videoCodec.CreateEncoder(
-                    new VideoEncoderSettings(_options.VideoFps, startBitrate, _options.VideoEncoderName, _gpuDeviceHandle, _options.PreserveAlpha, _options.MaxVideoBFrames));
+                    new VideoEncoderSettings(_options.VideoFps, startBitrate, _options.VideoEncoderName, _gpuDeviceHandle, _options.PreserveAlpha, _options.MaxVideoBFrames, _options.Profile));
                 _videoPacketizer = videoCodec.CreatePacketizer();
                 _videoPayloadType = (byte)codec.PayloadType;
                 _videoSsrc = media.LocalSsrc;

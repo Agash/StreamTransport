@@ -40,18 +40,21 @@ public static class MediaProfiles
     {
         MediaProfile.InteractiveP2P => new MediaTransportOptions
         {
+            Profile = MediaProfile.InteractiveP2P,
             VideoCodecs = [VideoCodec.H264, VideoCodec.Av1, VideoCodec.H265],
             MaxVideoBFrames = 0,
             PlayoutMode = PlayoutMode.LowLatencyMonitor,
         },
         MediaProfile.ScreenShare => new MediaTransportOptions
         {
+            Profile = MediaProfile.ScreenShare,
             VideoCodecs = [VideoCodec.Av1, VideoCodec.H265, VideoCodec.H264],
             MaxVideoBFrames = 0,
             PlayoutMode = PlayoutMode.LowLatencyMonitor,
         },
         MediaProfile.IrlContribution => new MediaTransportOptions
         {
+            Profile = MediaProfile.IrlContribution,
             VideoCodecs = [VideoCodec.H265, VideoCodec.Av1],
             // No B-frames. They save uplink bandwidth, but each adds a reference dependency, so over a lossy
             // one-way link a single dropped reference-frame packet stalls every frame that depends on it -

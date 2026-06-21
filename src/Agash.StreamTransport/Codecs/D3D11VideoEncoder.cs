@@ -54,6 +54,7 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         long bitrate,
         VideoPixelFormat inputFormat = VideoPixelFormat.Nv12,
         nint externalDevice = 0,
+        MediaProfile profile = MediaProfile.InteractiveP2P,
         bool debug = false)
     {
         _width = width;
@@ -148,8 +149,9 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
             _context->hw_frames_ctx = ffmpeg.av_buffer_ref(_hwFrames);
         }
 
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
         AVDictionary* options = null;
-        LowLatencyEncoderOptions.Apply(&options, encoderName);
+        LowLatencyEncoderOptions.Apply(&options, encoderName, profile);
 
         int openResult = ffmpeg.avcodec_open2(_context, codec, &options);
         ffmpeg.av_dict_free(&options);

@@ -36,7 +36,7 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
     private AVFrame* _swFrame;
     private bool _disposed;
 
-    public VaapiVideoEncoder(int width, int height, int fps, long bitrate, string? renderNode = null)
+    public VaapiVideoEncoder(int width, int height, int fps, long bitrate, MediaProfile profile = MediaProfile.InteractiveP2P, string? renderNode = null)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -75,8 +75,9 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
         _context->colorspace = AVColorSpace.AVCOL_SPC_BT709;
         _context->color_range = AVColorRange.AVCOL_RANGE_MPEG;
 
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
         AVDictionary* options = null;
-        LowLatencyEncoderOptions.Apply(&options, "hevc_vaapi");
+        LowLatencyEncoderOptions.Apply(&options, "hevc_vaapi", profile);
         int open = ffmpeg.avcodec_open2(_context, codec, &options);
         ffmpeg.av_dict_free(&options);
         open.ThrowOnError("open hevc_vaapi");

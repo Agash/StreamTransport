@@ -197,6 +197,12 @@ public interface IAudioFrameSink
 /// </remarks>
 public sealed record MediaTransportOptions
 {
+    /// <summary>
+    /// The active use-case profile. Set by <see cref="MediaProfiles.Create"/> and carried through so the encoder
+    /// can tune for the workload (latency vs. loss-resilience: VBV depth, intra-refresh, low-delay tune).
+    /// </summary>
+    public MediaProfile Profile { get; init; } = MediaProfile.InteractiveP2P;
+
     /// <summary>Video codecs to offer, in preference order. The first mutually-supported one is used.</summary>
     public IReadOnlyList<VideoCodec> VideoCodecs { get; init; } = [VideoCodec.H265, VideoCodec.H264];
 

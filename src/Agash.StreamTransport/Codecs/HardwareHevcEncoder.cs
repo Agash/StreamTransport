@@ -28,7 +28,7 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
     private readonly Lock _rateGate = new();
     private bool _disposed;
 
-    public HardwareHevcEncoder(string encoderName, int width, int height, int fps, long bitrate, int maxBFrames = 0)
+    public HardwareHevcEncoder(string encoderName, int width, int height, int fps, long bitrate, int maxBFrames = 0, MediaProfile profile = MediaProfile.InteractiveP2P)
     {
         _width = width;
         _height = height;
@@ -53,7 +53,14 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
         // correctly timed.
         _context->max_b_frames = maxBFrames;
 
-        int openResult = ffmpeg.avcodec_open2(_context, codec, null);
+        // Low-delay + CBR rate control + the per-encoder low-latency AVOptions. This is the CPU-input path for
+        // hevc_nvenc/amf/qsv/rkmpp - previously it opened with no options, so none of the vendor low-latency
+        // settings (nor AV_CODEC_FLAG_LOW_DELAY) were applied here.
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
+        AVDictionary* options = null;
+        LowLatencyEncoderOptions.Apply(&options, encoderName, profile);
+        int openResult = ffmpeg.avcodec_open2(_context, codec, &options);
+        ffmpeg.av_dict_free(&options);
         if (openResult < 0)
         {
             fixed (AVCodecContext** context = &_context)

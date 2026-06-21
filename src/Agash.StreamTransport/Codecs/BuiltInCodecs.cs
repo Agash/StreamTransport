@@ -17,7 +17,7 @@ internal sealed class H265VideoCodecDescriptor : IVideoCodecDescriptor
     {
         ArgumentNullException.ThrowIfNull(settings);
         return new VideoSendPipeline(
-            settings.Fps, settings.Bitrate, settings.EncoderName, settings.GpuDeviceHandle, settings.PreserveAlpha, settings.MaxBFrames);
+            settings.Fps, settings.Bitrate, settings.EncoderName, settings.GpuDeviceHandle, settings.PreserveAlpha, settings.MaxBFrames, settings.Profile);
     }
 
     public IVideoDecoder CreateDecoder(VideoDecoderSettings settings)

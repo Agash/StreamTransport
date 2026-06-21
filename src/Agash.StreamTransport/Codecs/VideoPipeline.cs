@@ -70,7 +70,7 @@ internal static class HevcEncoderSelector
 /// dimensions are known. Currently the CUDA/NVENC backend accepts CPU NV12 (or I420) frames; the GPU
 /// texture (zero-copy) input is layered on in a later step.
 /// </summary>
-internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderName = null, nint gpuDeviceHandle = 0, bool preserveAlpha = false, int maxBFrames = 0) : IVideoEncoder
+internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderName = null, nint gpuDeviceHandle = 0, bool preserveAlpha = false, int maxBFrames = 0, MediaProfile profile = MediaProfile.InteractiveP2P) : IVideoEncoder
 {
     private const int ClockRate = 90_000;
     private readonly string _encoderName = HevcEncoderSelector.Select(encoderName);
@@ -131,9 +131,9 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
     {
 #if WINDOWS_HEAD
         // The Spout texture's native format (BGRA) goes straight to the ASIC; gpuDeviceHandle is the shared device.
-        StreamInteropKind.Spout => new D3D11VideoEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, frame.PixelFormat, gpuDeviceHandle),
+        StreamInteropKind.Spout => new D3D11VideoEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, frame.PixelFormat, gpuDeviceHandle, profile),
 #endif
-        StreamInteropKind.Syphon => new VideoToolboxVideoEncoder(frame.Width, frame.Height, fps, bitrate),
+        StreamInteropKind.Syphon => new VideoToolboxVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile),
         StreamInteropKind.None => CreateCpuEncoderWithFallback(frame),
         _ => throw new NotSupportedException($"Interop kind {frame.InteropKind} is not supported on this platform."),
     };
@@ -147,8 +147,8 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         if (encoderName is not null)
         {
             return _encoderName == "hevc_vaapi"
-                ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate)
-                : new HardwareHevcEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, maxBFrames);
+                ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile)
+                : new HardwareHevcEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, maxBFrames, profile);
         }
 
         Exception? last = null;
@@ -157,8 +157,8 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
             try
             {
                 return name == "hevc_vaapi"
-                    ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate)
-                    : new HardwareHevcEncoder(name, frame.Width, frame.Height, fps, bitrate, maxBFrames);
+                    ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile)
+                    : new HardwareHevcEncoder(name, frame.Width, frame.Height, fps, bitrate, maxBFrames, profile);
             }
             catch (Exception ex) when (ex is HardwareEncoderUnavailableException or NotSupportedException)
             {

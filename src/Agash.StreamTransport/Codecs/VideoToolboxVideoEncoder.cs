@@ -28,7 +28,7 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
     private AVPacket* _packet;
     private bool _disposed;
 
-    public VideoToolboxVideoEncoder(int width, int height, int fps, long bitrate)
+    public VideoToolboxVideoEncoder(int width, int height, int fps, long bitrate, MediaProfile profile = MediaProfile.InteractiveP2P)
     {
         _width = width;
         _height = height;
@@ -63,8 +63,9 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
         _context->max_b_frames = 0;
         _context->hw_frames_ctx = ffmpeg.av_buffer_ref(_hwFrames);
 
+        LowLatencyEncoderOptions.ConfigureContext(_context, profile, bitrate, fps);
         AVDictionary* options = null;
-        LowLatencyEncoderOptions.Apply(&options, "hevc_videotoolbox");
+        LowLatencyEncoderOptions.Apply(&options, "hevc_videotoolbox", profile);
         int openResult = ffmpeg.avcodec_open2(_context, codec, &options);
         ffmpeg.av_dict_free(&options);
         openResult.ThrowOnError("open hevc_videotoolbox");

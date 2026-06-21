@@ -78,8 +78,10 @@ public readonly record struct EncodedAudioPacket(uint DurationRtpUnits, byte[] P
 /// <param name="GpuDeviceHandle">Shared GPU device handle for zero-copy encode (Windows ID3D11Device*), or 0.</param>
 /// <param name="PreserveAlpha">Pack colour|alpha side by side so an opaque codec carries transparency.</param>
 /// <param name="MaxBFrames">Maximum consecutive B-frames (compression vs. reorder latency).</param>
+/// <param name="Profile">The active use-case profile, so the encoder can tune latency vs. loss-resilience (VBV depth, intra-refresh).</param>
 public sealed record VideoEncoderSettings(
-    int Fps, long Bitrate, string? EncoderName = null, nint GpuDeviceHandle = 0, bool PreserveAlpha = false, int MaxBFrames = 0);
+    int Fps, long Bitrate, string? EncoderName = null, nint GpuDeviceHandle = 0, bool PreserveAlpha = false, int MaxBFrames = 0,
+    MediaProfile Profile = MediaProfile.InteractiveP2P);
 
 /// <summary>Settings for an <see cref="IVideoDecoder"/>, fixed for the lifetime of one receive session.</summary>
 /// <param name="PreferGpuOutput">Decode straight into GPU surfaces for a zero-copy publish (Windows D3D11).</param>
