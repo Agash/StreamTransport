@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref (a new push to a branch/PR aborts the previous, in-flight run).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     name: build+test (${{ matrix.rid }})

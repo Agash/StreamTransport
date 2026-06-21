@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write # upload release assets
 
+# Serialize releases per ref; never cancel a publish that is already in flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ---- NuGet packages via OIDC trusted publishing (no stored API key) ----
   nuget:
@@ -68,13 +73,14 @@ jobs:
         if: runner.os == 'macOS'
         run: dotnet workload install macos
 
-      # Windows/Linux: single-file self-contained net11.0 (the Linux head carries the PipeWire GPU path).
-      - name: Publish single-file agent (Windows/Linux)
+      # Windows/Linux: NativeAOT (PublishAot turns on automatically once a RID is set) - a single self-contained
+      # native binary (verified: the win-x64 exe carries no coreclr/hostpolicy). No PublishSingleFile/self-extract
+      # flags: NativeAOT supersedes them. The Linux head carries the PipeWire GPU path.
+      - name: Publish NativeAOT agent (Windows/Linux)
         if: runner.os != 'macOS'
         run: >
           dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
-          -c Release -f net11.0 -r ${{ matrix.rid }} --self-contained
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -c Release -f net11.0 -r ${{ matrix.rid }}
           -o publish/${{ matrix.rid }}
 
       # macOS: NativeAOT .app. PublishAot is on once a RID is set (verified: the inner binary links only
@@ -106,6 +112,13 @@ jobs:
         if: runner.os != 'macOS'
         shell: pwsh
         run: Copy-Item native/ffmpeg/${{ matrix.rid }}/* publish/${{ matrix.rid }}/ -Force
+
+      # Drop the native debug symbols (a ~60 MB .pdb) and XML doc files - not needed at runtime. macOS is skipped:
+      # its files live inside the signed .app bundle and removing them would invalidate the code signature.
+      - name: Strip debug symbols + XML docs (Windows/Linux)
+        if: runner.os != 'macOS'
+        shell: pwsh
+        run: Get-ChildItem -Path "publish/${{ matrix.rid }}" -Recurse -Include *.pdb,*.xml | Remove-Item -Force
 
       - name: Package (Windows/Linux)
         if: runner.os != 'macOS'
