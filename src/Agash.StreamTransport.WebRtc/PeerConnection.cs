@@ -508,8 +508,21 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
+    // Test-only injected packet loss: STX_RTP_DROP=<0..0.9> drops that fraction of incoming media/RTX/FEC RTP
+    // packets, so loss-resilience (FEC / NACK-RTX / intra-refresh / PLI) can be exercised on a clean loopback.
+    // Parsed once; zero (and no overhead beyond the compare) in production where the env var is unset.
+    private static readonly double s_rtpDropRate =
+        double.TryParse(Environment.GetEnvironmentVariable("STX_RTP_DROP"),
+            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double r) && r > 0
+            ? Math.Min(r, 0.9) : 0d;
+
     private void ReceiveRtp(Memory<byte> data, byte ecn)
     {
+        if (s_rtpDropRate > 0d && Random.Shared.NextDouble() < s_rtpDropRate)
+        {
+            return; // injected loss (test-only)
+        }
+
         if (_srtp is not { } srtp)
         {
             return;
