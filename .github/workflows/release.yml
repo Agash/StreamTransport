@@ -27,6 +27,15 @@ jobs:
           dotnet-version: 11.0.x
           dotnet-quality: preview
 
+      # Bundle the pinned LGPL FFmpeg 8.1 shared libraries into the package so Windows/Linux consumers get a
+      # self-contained codec stack: fetch-ffmpeg.ps1 populates native/ffmpeg/<rid>/, which the
+      # Agash.StreamTransport csproj packs into runtimes/<rid>/native. macOS is intentionally NOT bundled
+      # (no LGPL macOS source here) - the loader probes the Homebrew prefixes, so a `brew install ffmpeg`
+      # is picked up. This is the package-side equivalent of the agent job's per-RID bundling step.
+      - name: Fetch FFmpeg natives to bundle (win/linux)
+        shell: pwsh
+        run: ./eng/fetch-ffmpeg.ps1 -Rids win-x64,linux-x64,linux-arm64
+
       # Packs every IsPackable project in the solution (all nine library packages; tests/samples/tools opt out).
       - name: Pack
         run: dotnet pack StreamTransport.slnx -c Release -o artifacts
