@@ -14,7 +14,7 @@ namespace Agash.StreamTransport.Codecs;
 /// and the decode-side NV12->BGRA shader, so the colour is consistent across the CPU and GPU paths. Output is
 /// a reusable NV12 texture; feed it to <see cref="D3D11VideoEncoder"/> created with NV12 input.
 /// </summary>
-internal sealed class D3D11BgraToNv12Converter : IDisposable
+public sealed class D3D11BgraToNv12Converter : IDisposable
 {
     private static readonly string Hlsl = LoadHlsl("bgra_to_nv12.hlsl");
 
@@ -31,6 +31,8 @@ internal sealed class D3D11BgraToNv12Converter : IDisposable
     private int _height;
     private bool _disposed;
 
+    /// <summary>Create the converter on the supplied D3D11 device (shared for zero-copy GPU conversion).</summary>
+    /// <param name="device">The D3D11 device the captured/decoded surfaces live on.</param>
     public D3D11BgraToNv12Converter(ID3D11Device device)
     {
         _device = device;
@@ -161,6 +163,7 @@ internal sealed class D3D11BgraToNv12Converter : IDisposable
         _height = height;
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

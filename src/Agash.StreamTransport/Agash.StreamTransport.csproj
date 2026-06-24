@@ -86,6 +86,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Agash.StreamTransport.Tests" />
+    <!-- Retained until the full GPU-transform lift (D3D11/Vulkan/Metal converters + precompiled shaders move
+         into this package as public API) and the white-box self-tests are relocated to the test project; at
+         that point the agent becomes a pure public-API reference and this can be removed. -->
     <InternalsVisibleTo Include="streamtransport-agent" />
   </ItemGroup>
 

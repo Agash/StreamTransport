@@ -13,14 +13,22 @@ namespace Agash.StreamTransport.Codecs;
 /// PipeWire-MemPtr); it is never the default for a GPU-surface source. (Mandate: handoff §0.)
 /// </summary>
 /// <summary>Packs a <c>W x H</c> BGRA frame into a <c>2W x H</c> colour|alpha frame for an opaque encoder.</summary>
-internal interface IAlphaPacker
+public interface IAlphaPacker
 {
+    /// <summary>Pack a <c>W x H</c> BGRA frame into a <c>2W x H</c> colour|alpha frame.</summary>
+    /// <param name="colourBgra">The source BGRA colour frame.</param>
+    /// <param name="presentationTimeNs">Presentation timestamp in nanoseconds.</param>
+    /// <returns>The packed double-width colour|alpha frame.</returns>
     VideoFrame PackAlpha(in VideoFrame colourBgra, long presentationTimeNs);
 }
 
 /// <summary>Splits a decoded <c>2W x H</c> colour|alpha frame back into a <c>W x H</c> BGRA frame.</summary>
-internal interface IAlphaUnpacker
+public interface IAlphaUnpacker
 {
+    /// <summary>Split a decoded <c>2W x H</c> colour|alpha frame back into a <c>W x H</c> BGRA frame.</summary>
+    /// <param name="packed">The decoded double-width colour|alpha frame.</param>
+    /// <param name="presentationTimeNs">Presentation timestamp in nanoseconds.</param>
+    /// <returns>The recomposited BGRA frame.</returns>
     VideoFrame UnpackAlpha(in VideoFrame packed, long presentationTimeNs);
 }
 
@@ -28,8 +36,12 @@ internal interface IAlphaUnpacker
 /// Converts a decoded NV12 surface to BGRA for an opaque publish - the colour-only counterpart to
 /// <see cref="IAlphaUnpacker"/> (a hardware decoder emits NV12; consumers such as OBS want BGRA).
 /// </summary>
-internal interface INv12ToBgra
+public interface INv12ToBgra
 {
+    /// <summary>Convert a decoded NV12 surface frame to a BGRA frame for an opaque publish.</summary>
+    /// <param name="nv12">The decoded NV12 frame.</param>
+    /// <param name="presentationTimeNs">Presentation timestamp in nanoseconds.</param>
+    /// <returns>The converted BGRA frame.</returns>
     VideoFrame Nv12ToBgra(in VideoFrame nv12, long presentationTimeNs);
 }
 

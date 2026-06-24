@@ -15,7 +15,7 @@ namespace Agash.StreamTransport.Codecs;
 /// and registered as the VPP context's render targets so any of them may be a copy destination.</para>
 /// </summary>
 /// <remarks>Linux/VAAPI only. Construct on a thread that holds no PipeWire loop lock; copies may run on the loop thread.</remarks>
-internal sealed unsafe class VaapiPresentationPool : IDisposable
+public sealed unsafe class VaapiPresentationPool : IDisposable
 {
     private readonly nint _display;
     private AVBufferRef* _device;
@@ -31,6 +31,10 @@ internal sealed unsafe class VaapiPresentationPool : IDisposable
     // Keep in step with DmaBufSurface's inline-array capacity (4); a flat NV12 export uses 2.
     private const int MaxPlanes = 4;
 
+    /// <summary>Allocate a VAAPI presentation pool of <paramref name="count"/> surfaces of the given size.</summary>
+    /// <param name="width">Surface width in pixels.</param>
+    /// <param name="height">Surface height in pixels.</param>
+    /// <param name="count">Number of render-target surfaces to allocate up front.</param>
     public VaapiPresentationPool(int width, int height, int count)
     {
         if (!OperatingSystem.IsLinux())
@@ -196,6 +200,7 @@ internal sealed unsafe class VaapiPresentationPool : IDisposable
         return new DmaBufSurface(modifier, VideoPixelFormat.Nv12, planes[..planeCount]);
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)
