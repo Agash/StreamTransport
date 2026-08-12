@@ -13,7 +13,7 @@ capture (camera / Spout / Syphon / PipeWire) -> HW H.265 -> WebRTC P2P -> HW H.2
 ```
 
 > ### ⚠️ Alpha, early and rough
-> This is an early `0.1.0-alpha`. The core works and is exercised by tests, but it is **largely untested in
+> This is an early `0.1.2-alpha`. The core works and is exercised by tests, but it is **largely untested in
 > the real world**, unpolished in places, and has lots of room to improve. Expect breaking changes and sharp
 > edges. Please try it and file issues, just don't ship it to production yet.
 
@@ -26,12 +26,21 @@ capture (camera / Spout / Syphon / PipeWire) -> HW H.265 -> WebRTC P2P -> HW H.2
 - **Resilience for real links**: SCReAM congestion control (RFC 8298 / 8888), sequence-aware H.265 reassembly,
   NACK/RTX and FlexFEC loss recovery, and ICE-restart / hot-standby mobility, selected by one media profile
   (`InteractiveP2P`, `ScreenShare`, `IrlContribution`).
+- **Transparency through an opaque codec**: side-by-side alpha packing carries a BGRA frame's alpha channel
+  as full-resolution luma in a `2W x H` frame, so it survives 4:2:0 encode crisply and needs no codec-level
+  alpha support. GPU implementations ship for all three platforms (D3D11 / Metal / Vulkan compute) with a CPU
+  reference that is byte-compatible with them, so a frame packed on one platform unpacks correctly on another.
+- **Per-link telemetry**: `MediaPublisher.PeerMetrics` gives a per-subscriber snapshot of loss, RTT, target
+  and pacing bitrate; `MediaSubscriber.CurrentHealth` / `CurrentLossStats` give the receive side.
 - **NativeAOT-friendly**: self-contained, trimmed binaries on Windows, Linux, and macOS.
 
 ## Two seams the host fills in
 
 - **Capture**, `IVideoFrameSource` / `IVideoFrameSink` / `IAudioFrameSource`. The transport never knows where
-  frames come from, so the GPU-interop libraries live in the consumer.
+  frames come from, so the GPU-interop libraries below live in the consumer. What the transport *does* ship is
+  the GPU **surface transforms** those consumers need — NV12 to BGRA and the side-by-side alpha pack/unpack,
+  in D3D11, Metal, and Vulkan compute. They used to live in the agent sample; keeping them here means every
+  consumer gets the same pixel-exact result instead of reimplementing the colour matrix.
 - **Signaling**, `ISignalingChannel`. The transport never knows how SDP/ICE are delivered (a WebSocket, a
   SignalR hub, a tunnel); the host owns reachability.
 
@@ -49,7 +58,7 @@ Zero-copy GPU sharing libraries that feed the capture seam, published separately
 
 | Package | What it is |
 |---|---|
-| `Agash.StreamTransport` | The transport: WebRTC + FFmpeg hardware codecs + room client. |
+| `Agash.StreamTransport` | The transport: WebRTC + FFmpeg hardware codecs + room client + GPU surface transforms. |
 | `Agash.StreamTransport.Abstractions` | Capture + signaling contracts. BCL only. |
 | `Agash.StreamTransport.WebRtc` | The WebRTC core: ICE, STUN, SRTP, RTP/RTCP, SDP, `PeerConnection`. |
 | `Agash.StreamTransport.WebRtc.Abstractions` | Seams for the WebRTC stack. |
@@ -78,6 +87,9 @@ dotnet run --project samples/StreamTransport.Relay                              
 dotnet run --project samples/StreamTransport.Agent -- send    --relay ws://localhost:8080/ws --room demo
 dotnet run --project samples/StreamTransport.Agent -- receive --relay ws://localhost:8080/ws --room demo
 ```
+
+The agent is a thin consumer now: the GPU alpha and colour-conversion compute it used to carry lives in
+`Agash.StreamTransport` (`Codecs/`), so the sample shows wiring rather than reimplementation.
 
 See [`samples/StreamTransport.Agent`](samples/StreamTransport.Agent) for capture setup (Spout / Syphon /
 PipeWire), device selection, and publishing into OBS.
