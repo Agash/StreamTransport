@@ -1,12 +1,17 @@
+﻿// The Vulkan SPIR-V shaders are embedded only in the base (non -windows) build of
+// Agash.StreamTransport -- the Linux compute path. On the -windows TFM the library ships the HLSL
+// equivalents instead, so there is nothing here to validate and the resources are legitimately absent.
+#if !WINDOWS_D3D11
 using System.Reflection;
 
 namespace Agash.StreamTransport.Tests;
 
 /// <summary>
 /// Validates the Linux GPU alpha pack/unpack compute shaders. The GLSL <c>.comp</c> sources are compiled to
-/// SPIR-V at build time by glslc (see the agent csproj's <c>CompileComputeShadersToSpirV</c> target) - a
-/// syntax or stage error fails the build there - and the runtime loads the precompiled <c>.spv</c> directly.
-/// This test confirms each embedded <c>.spv</c> is present and a well-formed SPIR-V module.
+/// SPIR-V at build time by glslc (see the <c>CompileComputeShadersToSpirV</c> target in
+/// <c>Agash.StreamTransport.csproj</c>) - a syntax or stage error fails the build there - and the runtime
+/// loads the precompiled <c>.spv</c> directly. This test confirms each <c>.spv</c> embedded in the shipping
+/// library is present and a well-formed SPIR-V module.
 ///
 /// <para>It deliberately does <b>not</b> run a runtime GLSL-&gt;SPIR-V compiler (shaderc): shaderc's bundled
 /// SPIRV-Tools collides with the Mesa VAAPI driver's SPIRV-Tools when both are loaded in one process (the VA
@@ -34,7 +39,9 @@ public sealed class AlphaShaderCompilationTests
 
     private static byte[] LoadEmbedded(string logicalName)
     {
-        Assembly assembly = typeof(AlphaShaderCompilationTests).Assembly;
+        // Read from the shipping library, not a test-local copy: this is the exact resource the
+        // Vulkan alpha codec loads at runtime, so the test cannot pass against a stale duplicate.
+        Assembly assembly = typeof(Codecs.AlphaPacking).Assembly;
         using Stream stream = assembly.GetManifestResourceStream(logicalName)
             ?? throw new InvalidOperationException($"Embedded shader '{logicalName}' not found in {assembly.GetName().Name}.");
         using var buffer = new MemoryStream();
@@ -42,3 +49,4 @@ public sealed class AlphaShaderCompilationTests
         return buffer.ToArray();
     }
 }
+#endif
