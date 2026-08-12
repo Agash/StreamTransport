@@ -6,7 +6,7 @@ using IOSurface;
 using Metal;
 using ObjCRuntime;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// Shared Metal device + the app's precompiled shader library (default.metallib, built from Shaders/*.metal by

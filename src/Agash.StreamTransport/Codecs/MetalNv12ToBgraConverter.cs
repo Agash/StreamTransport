@@ -1,13 +1,10 @@
-#if HAS_SYPHON
+#if MACOS_HEAD
 using System.Runtime.Versioning;
-using Agash.StreamTransport;
-using Agash.StreamTransport.Codecs;
 using IOSurface;
 using Metal;
 using ObjCRuntime;
-using Syphon.NET;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// Converts a decoded NV12 IOSurface to BGRA on the GPU via a Metal compute kernel (<see cref="MetalSurfaceCompute"/>,
@@ -19,7 +16,7 @@ namespace StreamTransport.Agent;
 /// until the next call. macOS-only.
 /// </summary>
 [SupportedOSPlatform("macos")]
-internal sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
+public sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
 {
     private readonly MetalSurfaceCompute _compute = new("nv12_to_bgra");
     private bool _disposed;
@@ -31,7 +28,7 @@ internal sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
     public VideoFrame Nv12ToBgra(in VideoFrame nv12, long presentationTimeNs)
     {
         IOSurface.IOSurface result = Convert(Wrap(nv12.Surface));
-        (int rw, int rh) = result.PixelSize();
+        (int rw, int rh) = ((int)result.Width, (int)result.Height);
         return VideoFrame.FromSurface(result.Handle.Handle, StreamInteropKind.Syphon, rw, rh, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
@@ -39,8 +36,9 @@ internal sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
     /// <summary>Convert a full-frame NV12 surface (Y plane 0, CbCr plane 1) to a <c>W x H</c> BGRA surface.</summary>
     public IOSurface.IOSurface Convert(IOSurface.IOSurface nv12)
     {
-        (int w, int h) = nv12.PixelSize();
-        (int cw, int ch, _) = nv12.PlaneInfo(1); // CbCr plane dims straight from the surface
+        (int w, int h) = ((int)nv12.Width, (int)nv12.Height);
+        // CbCr plane (index 1) dims straight from the surface.
+        (int cw, int ch) = ((int)nv12.GetWidth((nuint)1), (int)nv12.GetHeight((nuint)1));
         nint output = _compute.Run(w, h,
         [
             new MetalSurfaceCompute.Input(nv12.Handle.Handle, MTLPixelFormat.R8Unorm, 0, w, h),
@@ -49,6 +47,7 @@ internal sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
         return Wrap(output);
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

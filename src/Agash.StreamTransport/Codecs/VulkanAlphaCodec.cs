@@ -1,10 +1,9 @@
-#if HAS_VULKAN
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// Linux GPU side-by-side alpha pack/unpack for the PipeWire dmabuf path, built on <see cref="VulkanComputeContext"/>
@@ -20,7 +19,7 @@ namespace StreamTransport.Agent;
 /// to validate (WSL has no /dev/dri). HW-VERIFY marks the spots that can only be confirmed on a device.</para>
 /// </summary>
 [SupportedOSPlatform("linux")]
-internal sealed unsafe class VulkanAlphaCodec : IDisposable
+public sealed unsafe class VulkanAlphaCodec : IDisposable
 {
     private const VkFormat BgraFormat = VkFormat.B8G8R8A8Unorm;
     private const VkFormat R8Format = VkFormat.R8Unorm;     // NV12 luma plane.
@@ -35,6 +34,8 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
     private readonly VkDescriptorPool _descriptorPool;
     private bool _disposed;
 
+    /// <summary>Create the alpha codec on a standalone (dmabuf) <see cref="VulkanComputeContext"/>; builds the pack/unpack pipelines.</summary>
+    /// <param name="ctx">The standalone Vulkan compute context (its device must carry the dmabuf external-memory extensions).</param>
     public VulkanAlphaCodec(VulkanComputeContext ctx)
     {
         _ctx = ctx;
@@ -440,7 +441,8 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
         _api.vkFreeMemory(img.Memory, null);
     }
 
-    internal void DestroyExported(ExportedImage img)
+    /// <summary>Destroy a pool output image created by <see cref="CreateOutputImage"/> (view, image, memory).</summary>
+    public void DestroyExported(ExportedImage img)
     {
         _api.vkDestroyImageView(img.View, null);
         _api.vkDestroyImage(img.Image, null);
@@ -453,6 +455,7 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
     [DllImport("libc", SetLastError = true)]
     private static extern int dup(int fd);
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)
@@ -470,17 +473,23 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
 
     /// <summary>One plane of a decoded NV12 dmabuf surface: its fd plus the per-plane byte offset and row
     /// pitch. The two planes of a VAAPI export may share one fd at different offsets or use separate fds.</summary>
-    internal readonly record struct Nv12Plane(int Fd, ulong Offset, ulong RowPitch);
+    public readonly record struct Nv12Plane(int Fd, ulong Offset, ulong RowPitch);
 
     private readonly record struct ImportedImage(VkImage Image, VkDeviceMemory Memory, VkImageView View);
 
-    internal readonly record struct ExportedImage(VkImage Image, VkDeviceMemory Memory, VkImageView View, int Fd, ulong Offset, ulong RowPitch, ulong Modifier);
+    /// <summary>A GPU-resident image exported as a dmabuf (its fd, plane offset/row-pitch and DRM modifier).</summary>
+    public readonly record struct ExportedImage(VkImage Image, VkDeviceMemory Memory, VkImageView View, int Fd, ulong Offset, ulong RowPitch, ulong Modifier);
 
     /// <summary>A GPU-resident packed surface exported as a dmabuf for the encoder. Owns the exported fd.</summary>
-    internal readonly record struct DmaBufImage(ExportedImage Surface, int Width, int Height)
+    public readonly record struct DmaBufImage(ExportedImage Surface, int Width, int Height)
     {
+        /// <summary>The exported dmabuf file descriptor (owned by the caller).</summary>
         public int Fd => Surface.Fd;
+
+        /// <summary>The row pitch (bytes per row) of the exported surface's first plane.</summary>
         public ulong RowPitch => Surface.RowPitch;
+
+        /// <summary>The byte offset of the exported surface's first plane within the dmabuf.</summary>
         public ulong Offset => Surface.Offset;
     }
 
@@ -565,4 +574,3 @@ internal sealed unsafe class VulkanAlphaCodec : IDisposable
         }
     }
 }
-#endif

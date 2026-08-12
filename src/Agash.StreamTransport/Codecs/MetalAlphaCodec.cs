@@ -1,13 +1,10 @@
-#if HAS_SYPHON
+#if MACOS_HEAD
 using System.Runtime.Versioning;
-using Agash.StreamTransport;
-using Agash.StreamTransport.Codecs;
 using IOSurface;
 using Metal;
 using ObjCRuntime;
-using Syphon.NET;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// macOS GPU side-by-side alpha pack/unpack, run as Metal compute kernels driven directly through the Microsoft
@@ -18,7 +15,7 @@ namespace StreamTransport.Agent;
 /// of the same direction) - encode/publish it before packing/unpacking the next frame. macOS-only.
 /// </summary>
 [SupportedOSPlatform("macos")]
-internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
+public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
 {
     private readonly MetalSurfaceCompute _pack = new("alpha_pack");
     private MetalSurfaceCompute? _unpackNv12;
@@ -32,7 +29,7 @@ internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacke
     public VideoFrame PackAlpha(in VideoFrame colourBgra, long presentationTimeNs)
     {
         IOSurface.IOSurface packed = Pack(Wrap(colourBgra.Surface));
-        (int pw, int ph) = packed.PixelSize();
+        (int pw, int ph) = ((int)packed.Width, (int)packed.Height);
         return VideoFrame.FromSurface(packed.Handle.Handle, StreamInteropKind.Syphon, pw, ph, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
@@ -41,7 +38,7 @@ internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacke
     public VideoFrame UnpackAlpha(in VideoFrame packed, long presentationTimeNs)
     {
         IOSurface.IOSurface result = Unpack(Wrap(packed.Surface));
-        (int rw, int rh) = result.PixelSize();
+        (int rw, int rh) = ((int)result.Width, (int)result.Height);
         return VideoFrame.FromSurface(result.Handle.Handle, StreamInteropKind.Syphon, rw, rh, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
@@ -53,7 +50,7 @@ internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacke
     /// <summary>Pack a W x H BGRA surface into a 2W x H BGRA surface (left = colour, right = alpha-as-luma).</summary>
     public IOSurface.IOSurface Pack(IOSurface.IOSurface bgra)
     {
-        (int w, int h) = bgra.PixelSize();
+        (int w, int h) = ((int)bgra.Width, (int)bgra.Height);
         nint output = _pack.Run(w * 2, h,
         [
             new MetalSurfaceCompute.Input(bgra.Handle.Handle, MTLPixelFormat.BGRA8Unorm, 0, w, h),
@@ -64,11 +61,13 @@ internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacke
     /// <summary>Unpack a decoded 2W x H surface (NV12 from the hardware decoder, or BGRA) into W x H BGRA with alpha.</summary>
     public IOSurface.IOSurface Unpack(IOSurface.IOSurface packed)
     {
-        (int packedW, int packedH) = packed.PixelSize();
+        (int packedW, int packedH) = ((int)packed.Width, (int)packed.Height);
         int outW = packedW / 2;
-        if (packed.IsNv12())
+        // NV12 biplanar, either range: '420v' (video range) or '420f' (full range) - what a VideoToolbox decode emits.
+        if (packed.PixelFormat is 0x34323076 or 0x34323066)
         {
-            (int cw, int ch, _) = packed.PlaneInfo(1); // CbCr plane dims straight from the surface
+            // CbCr plane (index 1) dims straight from the surface.
+            (int cw, int ch) = ((int)packed.GetWidth((nuint)1), (int)packed.GetHeight((nuint)1));
             _unpackNv12 ??= new MetalSurfaceCompute("alpha_unpack_nv12");
             nint output = _unpackNv12.Run(outW, packedH,
             [
@@ -86,6 +85,7 @@ internal sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacke
         return Wrap(bgraOut);
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

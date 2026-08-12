@@ -7,6 +7,9 @@
          constraints. The same NativeAOT single-file publish then covers every non-Windows RID. -->
     <TargetFrameworks>net11.0</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+    <!-- macOS head: the GPU Metal surface transforms (Metal/IOSurface managed bindings) need the -macos TFM.
+         The rest of the macOS path (VideoToolbox/CoreVideo) stays on the base TFM via runtime P/Invoke. -->
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(TargetFrameworks);net11.0-macos</TargetFrameworks>
     <AssemblyName>Agash.StreamTransport</AssemblyName>
     <RootNamespace>Agash.StreamTransport</RootNamespace>
     <PackageId>Agash.StreamTransport</PackageId>
@@ -24,6 +27,12 @@
        unconditionally on the base TFM - the same as the VAAPI path - and is selected at runtime. -->
   <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
     <DefineConstants>$(DefineConstants);WINDOWS_HEAD</DefineConstants>
+  </PropertyGroup>
+
+  <!-- macOS-head compilation switch for the Metal GPU surface transforms (MS Metal/IOSurface bindings). -->
+  <PropertyGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <DefineConstants>$(DefineConstants);MACOS_HEAD</DefineConstants>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,6 +56,18 @@
        embedded so it ships in the assembly with no file dependency. -->
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
     <EmbeddedResource Include="Codecs/Shaders/bgra_to_nv12.hlsl" LogicalName="bgra_to_nv12.hlsl" />
+    <!-- Publish/decode-side D3D11 GPU surface transforms (lifted from the agent sample): NV12->BGRA for an
+         opaque publish, and the side-by-side alpha pack/unpack for the AvatarTransparent path. -->
+    <EmbeddedResource Include="Codecs/Shaders/nv12_to_bgra.hlsl" LogicalName="nv12_to_bgra.hlsl" />
+    <EmbeddedResource Include="Codecs/Shaders/alpha_pack.hlsl" LogicalName="alpha_pack.hlsl" />
+    <EmbeddedResource Include="Codecs/Shaders/alpha_unpack.hlsl" LogicalName="alpha_unpack.hlsl" />
+  </ItemGroup>
+
+  <!-- macOS head: the Metal alpha pack/unpack + NV12->BGRA compute kernels. The macOS SDK's default Metal
+       items compile each Codecs/Shaders/*.metal into default.metallib (Metal Toolchain), loaded at runtime via
+       MTLDevice.CreateDefaultLibrary - the macOS parallel to the Windows HLSL / Linux .comp->.spv shaders. -->
+  <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
+    <Metal Update="Codecs/Shaders/*.metal" />
   </ItemGroup>
 
   <!-- Linux Vulkan alpha pack/unpack compute (base TFM, run on Linux). The .comp GLSL is the editable source;

@@ -236,7 +236,7 @@ internal sealed partial class PipeWireVideoPublishSink : IVideoFrameSink, IAsync
                         _stagingIndex = 0;
                         _outWidth = frame.Width / 2;
                         _outHeight = frame.Height;
-                        _vk = new VulkanComputeContext();
+                        _vk = VulkanComputeContext.CreateStandalone();
                         _alphaCodec = new VulkanAlphaCodec(_vk);
                         // Let the driver pick a tiled (gst-importable) BGRA modifier; advertise the one it chose.
                         // radeonsi's GL/EGL import rejects LINEAR, so a LINEAR-only offer fails to negotiate.
@@ -281,7 +281,7 @@ internal sealed partial class PipeWireVideoPublishSink : IVideoFrameSink, IAsync
                         // vaGetImage/vaDeriveImage abort inside the radeonsi driver for these tiled surfaces).
                         if (_verifyTap is not null)
                         {
-                            _vk = new VulkanComputeContext();
+                            _vk = VulkanComputeContext.CreateStandalone();
                             _alphaCodec = new VulkanAlphaCodec(_vk);
                         }
 

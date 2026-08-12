@@ -1,13 +1,11 @@
 #if WINDOWS_HEAD
-using Agash.StreamTransport;
-using Agash.StreamTransport.Codecs;
 using Vortice.D3DCompiler;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// Packs a captured BGRA texture (which carries the source alpha) into a side-by-side <c>2W x H</c> BGRA
@@ -15,9 +13,9 @@ namespace StreamTransport.Agent;
 /// ordinary opaque HEVC encoder can carry transparency without any in-codec alpha support. Runs as a
 /// full-screen pixel shader on the capture device, so the alpha send path stays zero-copy: no CPU readback.
 /// The encoder's in-ASIC RGB->YUV maps the grey (a,a,a) right half to luma Y = 16 + 219/255*a, byte-identical
-/// to <see cref="Agash.StreamTransport.Codecs.AlphaPacking"/>, so GPU- and CPU-packed frames interchange.
+/// to <see cref="AlphaPacking"/>, so GPU- and CPU-packed frames interchange. Windows-only.
 /// </summary>
-internal sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
+public sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
 {
     private static readonly string Hlsl = EmbeddedShader.Load("alpha_pack.hlsl");
 
@@ -32,6 +30,8 @@ internal sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
     private int _height;
     private bool _disposed;
 
+    /// <summary>Create the packer on the supplied D3D11 device (shared for zero-copy GPU packing).</summary>
+    /// <param name="device">The D3D11 device the captured surfaces live on.</param>
     public D3D11AlphaPacker(ID3D11Device device)
     {
         _device = device;
@@ -130,6 +130,7 @@ internal sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
         _height = height;
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

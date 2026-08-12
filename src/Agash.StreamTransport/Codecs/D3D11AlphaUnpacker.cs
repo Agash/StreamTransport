@@ -1,22 +1,21 @@
 #if WINDOWS_HEAD
-using Agash.StreamTransport;
-using Agash.StreamTransport.Codecs;
 using Vortice.D3DCompiler;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// Splits a decoded side-by-side <c>2W x H</c> NV12 texture (left = colour, right = alpha-as-luma) back into
 /// a <c>W x H</c> BGRA texture with the alpha channel restored, on the GPU - no CPU readback - so the alpha
 /// publish path stays zero-copy. Colour uses the same BT.709 limited->full matrix as the plain NV12->BGRA
 /// converter; alpha is the right-half luma expanded from the 16..235 limited range used on pack. The inverse
-/// of <see cref="D3D11AlphaPacker"/> (and byte-compatible with <c>AlphaPacking</c>'s CPU unpack).
+/// of <see cref="D3D11AlphaPacker"/> (and byte-compatible with <see cref="AlphaPacking"/>'s CPU unpack).
+/// Windows-only.
 /// </summary>
-internal sealed class D3D11AlphaUnpacker : IDisposable, IAlphaUnpacker
+public sealed class D3D11AlphaUnpacker : IDisposable, IAlphaUnpacker
 {
     private static readonly string Hlsl = EmbeddedShader.Load("alpha_unpack.hlsl");
 
@@ -31,6 +30,8 @@ internal sealed class D3D11AlphaUnpacker : IDisposable, IAlphaUnpacker
     private int _height;
     private bool _disposed;
 
+    /// <summary>Create the unpacker on the supplied D3D11 device (shared for zero-copy GPU unpacking).</summary>
+    /// <param name="device">The D3D11 device the decoded surfaces live on.</param>
     public D3D11AlphaUnpacker(ID3D11Device device)
     {
         _device = device;
@@ -69,7 +70,6 @@ internal sealed class D3D11AlphaUnpacker : IDisposable, IAlphaUnpacker
         return blob;
     }
 
-    /// <summary>Unpack a <c>2W x H</c> NV12 texture into a reused <c>W x H</c> BGRA-with-alpha texture; returns its handle.</summary>
     /// <summary>Split a decoded 2W x H colour|alpha surface frame back into a W x H BGRA surface frame (zero-copy, GPU).</summary>
     public VideoFrame UnpackAlpha(in VideoFrame packed, long presentationTimeNs) =>
         VideoFrame.FromSurface(
@@ -137,6 +137,7 @@ internal sealed class D3D11AlphaUnpacker : IDisposable, IAlphaUnpacker
         _height = height;
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

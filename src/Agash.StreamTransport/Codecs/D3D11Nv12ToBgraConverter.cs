@@ -1,22 +1,20 @@
 #if WINDOWS_HEAD
-using Agash.StreamTransport;
-using Agash.StreamTransport.Codecs;
 using Vortice.D3DCompiler;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace StreamTransport.Agent;
+namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
 /// Converts a decoded NV12 D3D11 texture to BGRA on the GPU with a full-screen pixel shader, so the
 /// publish side (Spout, which downstream OBS expects in BGRA) stays on the GPU - no CPU readback. The
 /// decoder produces YUV (there is no in-ASIC RGB output on decode), so this conversion is unavoidable;
 /// doing it in a shader keeps it zero-copy and lets us pin the colour matrix (BT.709), matching the
-/// encode side. Output is a reusable BGRA render target.
+/// encode side. Output is a reusable BGRA render target. Windows-only (the GPU surface lives on D3D11).
 /// </summary>
-internal sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
+public sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
 {
     private static readonly string Hlsl = EmbeddedShader.Load("nv12_to_bgra.hlsl");
 
@@ -31,6 +29,8 @@ internal sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
     private int _height;
     private bool _disposed;
 
+    /// <summary>Create the converter on the supplied D3D11 device (shared for zero-copy GPU conversion).</summary>
+    /// <param name="device">The D3D11 device the decoded surfaces live on.</param>
     public D3D11Nv12ToBgraConverter(ID3D11Device device)
     {
         _device = device;
@@ -69,7 +69,6 @@ internal sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
         return blob;
     }
 
-    /// <summary>Convert <paramref name="nv12Texture"/> to a BGRA texture (reused across calls). Returns its handle.</summary>
     /// <summary>Convert a decoded NV12 surface frame to a BGRA surface frame for an opaque publish (zero-copy, GPU).</summary>
     public VideoFrame Nv12ToBgra(in VideoFrame nv12, long presentationTimeNs) =>
         VideoFrame.FromSurface(
@@ -136,6 +135,7 @@ internal sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
         _height = height;
     }
 
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

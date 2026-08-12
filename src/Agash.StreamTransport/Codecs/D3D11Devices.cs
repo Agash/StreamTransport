@@ -71,5 +71,19 @@ public static class D3D11Devices
             using var wrapper = new ID3D11Device(device);
         }
     }
+
+    /// <summary>
+    /// Probe whether <paramref name="encoderName"/> actually accepts a D3D11 surface of
+    /// <paramref name="inputFormat"/> on this machine - by opening the encoder and test-encoding one frame,
+    /// not by guessing from the GPU vendor. The result is cached. Use it to pick the native-format zero-copy
+    /// path where the silicon supports it (e.g. BGRA straight into the encoder) and fall back to a converted
+    /// format (via <see cref="D3D11BgraToNv12Converter"/>) where it does not. Capability varies by GPU
+    /// generation, driver, and FFmpeg build. This is the public capability gate for the zero-copy capture path.
+    /// </summary>
+    /// <param name="encoderName">The FFmpeg encoder name (e.g. <c>hevc_nvenc</c>, <c>hevc_amf</c>, <c>hevc_qsv</c>).</param>
+    /// <param name="inputFormat">The surface pixel format the caller would feed the encoder directly.</param>
+    /// <returns><see langword="true"/> if the encoder ingests that format directly on this machine.</returns>
+    public static bool SupportsEncoderInputFormat(string encoderName, VideoPixelFormat inputFormat) =>
+        D3D11VideoEncoder.SupportsInputFormat(encoderName, inputFormat);
 }
 #endif
