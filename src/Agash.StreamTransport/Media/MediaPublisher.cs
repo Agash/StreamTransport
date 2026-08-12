@@ -1,7 +1,18 @@
 using System.Collections.Concurrent;
+using Agash.StreamTransport.WebRtc;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport;
+
+/// <summary>
+/// A per-subscriber transport-metrics snapshot: which peer, its live link health (loss/RTT/bitrate), and its
+/// lifetime loss-recovery counters. Returned by <see cref="MediaPublisher.PeerMetrics"/> so a host can render
+/// the per-link uplink telemetry of every subscriber it is serving.
+/// </summary>
+/// <param name="Peer">The subscriber peer the sender targets.</param>
+/// <param name="Health">The live transport-health snapshot for that peer connection.</param>
+/// <param name="Loss">The lifetime loss-recovery counters for that peer connection.</param>
+public readonly record struct PeerTransportMetrics(PeerId Peer, TransportHealthMetrics Health, TransportLossStats Loss);
 
 /// <summary>
 /// Publishes one media stream to subscribers in a room. A subscriber joining spins up a
@@ -59,6 +70,29 @@ public sealed partial class MediaPublisher : IAsyncDisposable
         _videoSource = video;
         _audioSource = audio;
         _gpuDeviceHandle = gpuDeviceHandle;
+    }
+
+    /// <summary>
+    /// A point-in-time snapshot of the live transport metrics for every subscriber currently being served
+    /// (one entry per active sender). Empty before any subscriber connects. Poll it on a timer to drive
+    /// per-link telemetry; each entry's <see cref="PeerTransportMetrics.Health"/> is <see langword="default"/>
+    /// until that peer's connection reaches Connected.
+    /// </summary>
+    public IReadOnlyList<PeerTransportMetrics> PeerMetrics
+    {
+        get
+        {
+            var snapshot = new List<PeerTransportMetrics>(_senders.Count);
+            foreach (KeyValuePair<long, IMediaSender> entry in _senders)
+            {
+                if (entry.Value is WebRtcMediaSender sender)
+                {
+                    snapshot.Add(new PeerTransportMetrics(new PeerId(entry.Key), sender.CurrentHealth, sender.CurrentLossStats));
+                }
+            }
+
+            return snapshot;
+        }
     }
 
     /// <summary>Start serving subscribers: wire room events and attach to anyone already present.</summary>

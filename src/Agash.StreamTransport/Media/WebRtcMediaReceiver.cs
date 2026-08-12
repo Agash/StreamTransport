@@ -137,6 +137,16 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     /// <summary>The audio sink decoded frames are submitted to, or null for video-only.</summary>
     public IAudioFrameSink? AudioSink { get; }
 
+    /// <summary>
+    /// The live transport-health snapshot (loss rate, smoothed/base RTT, congestion-controlled target and
+    /// pacing bitrate, derived queue delay) for this peer connection, or <see langword="default"/> before it
+    /// connects. Poll it for the per-link downlink telemetry of the inbound stream.
+    /// </summary>
+    public TransportHealthMetrics CurrentHealth => _session?.Pc.CurrentHealth ?? default;
+
+    /// <summary>Lifetime loss-recovery counters (media/RTX packets, NACKs sent, RTX recovered, PLIs) for this peer connection.</summary>
+    public TransportLossStats CurrentLossStats => _session?.Pc.CurrentLossStats ?? default;
+
     /// <summary>Adopt the publisher's negotiated side-by-side-alpha setting (no-op for audio-only).</summary>
     public void SetPreserveAlpha(bool value)
     {

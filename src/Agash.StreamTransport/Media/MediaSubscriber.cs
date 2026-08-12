@@ -1,3 +1,4 @@
+using Agash.StreamTransport.WebRtc;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport;
@@ -66,6 +67,34 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
         _room = room;
         _videoSink = video;
         _audioSink = audio;
+    }
+
+    /// <summary>
+    /// The live transport-health snapshot (loss rate, smoothed/base RTT, congestion-controlled target and
+    /// pacing bitrate, derived queue delay) for the inbound publisher connection, or <see langword="default"/>
+    /// before it attaches/connects. Poll it for the per-link downlink telemetry of the stream being received.
+    /// </summary>
+    public TransportHealthMetrics CurrentHealth
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _receiver is WebRtcMediaReceiver receiver ? receiver.CurrentHealth : default;
+            }
+        }
+    }
+
+    /// <summary>Lifetime loss-recovery counters for the inbound publisher connection (default before attach).</summary>
+    public TransportLossStats CurrentLossStats
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _receiver is WebRtcMediaReceiver receiver ? receiver.CurrentLossStats : default;
+            }
+        }
     }
 
     /// <summary>Start receiving: attach to the publisher (present now or when it joins).</summary>
