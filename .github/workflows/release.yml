@@ -46,16 +46,21 @@ jobs:
         run: dotnet pack StreamTransport.slnx -c Release -o artifacts -p:PackAllTargets=true
 
       # Fail loudly rather than publish a package that is missing a platform head again.
+      # Matched by prefix, not exact name: the SDK normalises platform TFMs to carry an OS version
+      # (net11.0-macos becomes net11.0-macos<ver>), so an exact match would fail on a correct package.
       - name: Verify the package carries every target
         shell: bash
         run: |
           pkg=$(ls artifacts/Agash.StreamTransport.*.nupkg | grep -vE '\.(Abstractions|Signaling|Stun|WebRtc)' | head -1)
           echo "Inspecting $pkg"
           targets=$(unzip -Z1 "$pkg" 'lib/*' | cut -d/ -f2 | sort -u)
-          echo "$targets"
-          for want in net11.0 net11.0-windows10.0.19041.0 net11.0-macos; do
-            echo "$targets" | grep -qx "$want" || { echo "::error::$pkg is missing lib/$want"; exit 1; }
-          done
+          echo "Targets present:"
+          echo "$targets" | sed 's/^/  /'
+          fail=0
+          echo "$targets" | grep -qx 'net11.0'          || { echo "::error::$pkg is missing the base lib/net11.0";     fail=1; }
+          echo "$targets" | grep -q  '^net11\.0-windows' || { echo "::error::$pkg is missing a lib/net11.0-windows* head (D3D11)"; fail=1; }
+          echo "$targets" | grep -q  '^net11\.0-macos'   || { echo "::error::$pkg is missing a lib/net11.0-macos* head (Metal)";   fail=1; }
+          exit $fail
 
       # Trusted publishing: exchange the GitHub OIDC token for a short-lived NuGet.org key.
       - name: NuGet login (OIDC)
