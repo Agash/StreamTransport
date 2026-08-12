@@ -5,11 +5,25 @@
          P/Invoke (VideoToolbox/CoreVideo on macOS, VAAPI/PipeWire on Linux), gated by OperatingSystem
          checks - so neither needs a platform TFM, the Mono macOS app model, or its code-signing/JIT
          constraints. The same NativeAOT single-file publish then covers every non-Windows RID. -->
+    <!--
+      Platform heads are normally built only on their own OS, so a developer on one machine is not forced to
+      have the other platforms' SDKs. PackAllTargets overrides that: the release pack job sets it (on macOS,
+      the only host that can produce all three) so the shipped package actually carries every head.
+
+      This matters more than it looks. The pack job used to run on Linux, where both conditions were false,
+      so every published package contained lib/net11.0 and nothing else: the D3D11 types were never in any
+      package and no external consumer could use the Windows zero-copy path at all. Build the package
+      anywhere that cannot produce all three heads and you silently ship a crippled one, so keep the pack
+      job pinned to macOS.
+    -->
     <TargetFrameworks>net11.0</TargetFrameworks>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(PackAllTargets)' == 'true'">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
     <!-- macOS head: the GPU Metal surface transforms (Metal/IOSurface managed bindings) need the -macos TFM.
          The rest of the macOS path (VideoToolbox/CoreVideo) stays on the base TFM via runtime P/Invoke. -->
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(TargetFrameworks);net11.0-macos</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX')) or '$(PackAllTargets)' == 'true'">$(TargetFrameworks);net11.0-macos</TargetFrameworks>
+    <!-- Building the -windows head off Windows is ref-assembly only (no Windows SDK needed); the SDK refuses
+         without this opt-in. Harmless on Windows. -->
+    <EnableWindowsTargeting Condition="'$(PackAllTargets)' == 'true'">true</EnableWindowsTargeting>
     <AssemblyName>Agash.StreamTransport</AssemblyName>
     <RootNamespace>Agash.StreamTransport</RootNamespace>
     <PackageId>Agash.StreamTransport</PackageId>
