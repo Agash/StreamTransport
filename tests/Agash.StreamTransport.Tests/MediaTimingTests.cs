@@ -77,17 +77,13 @@ public sealed class MediaTimingTests
 
         const int width = 640;
         const int height = 480;
-        try
+        // Opening isn't enough, and neither is one non-throwing Encode: VideoToolbox on a virtualized/contended
+        // CI Mac opens, accepts frames, and returns nothing. Preflight a burst and require real output, so the
+        // test reports Inconclusive here rather than failing mid-pipeline. Real-hardware verification happens
+        // on our machines.
+        if (!HardwareEncoderTestSupport.TryPreflightEncoder(probe, width, height, out string preflightReason))
         {
-            using var preflight = TestEncoders.Open(probe, width, height, fps: 30, bitrate: 4_000_000);
-            // Opening isn't enough: VideoToolbox opens even when its HW is unavailable/contended (virtualized CI
-            // Mac) and only fails at the first encode (-542398533). Encode-probe here so the test reports
-            // Inconclusive rather than failing mid-pipeline. Real-hardware verification happens on our machines.
-            _ = TestEncoders.EncodeNv12(preflight, HardwareEncoderTestSupport.Nv12Pattern(width, height), width, height);
-        }
-        catch (Exception ex)
-        {
-            Assert.Inconclusive($"{probe} hardware encode is not available: {ex.Message}");
+            Assert.Inconclusive(preflightReason);
             return;
         }
 

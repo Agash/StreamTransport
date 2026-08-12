@@ -33,6 +33,53 @@ internal static class HardwareEncoderTestSupport
     }
 
     /// <summary>
+    /// Preflight a hardware encoder before a test drives a whole transport pipeline through it: open it and
+    /// push a short burst of frames, requiring at least one real access unit back.
+    /// </summary>
+    /// <remarks>
+    /// Opening is not evidence of a working encoder, and neither is a single <c>Encode</c> call that does not
+    /// throw. VideoToolbox on a virtualized/contended CI Mac opens happily, accepts frames, and returns no
+    /// output at all - the earlier probe encoded one frame and discarded the result, so it read that as
+    /// success and the test then failed 55 seconds later with "0 decoded frames". Hardware encoders also
+    /// legitimately buffer the first few frames, so one frame in cannot be expected to yield one frame out;
+    /// a burst is the smallest honest check.
+    /// <para>Returns the reason instead of asserting, so the caller decides between Inconclusive and failure.</para>
+    /// </remarks>
+    /// <param name="encoderName">The FFmpeg encoder to probe.</param>
+    /// <param name="width">Frame width to probe at.</param>
+    /// <param name="height">Frame height to probe at.</param>
+    /// <param name="reason">Why the encoder is unusable, when this returns <see langword="false"/>.</param>
+    /// <returns><see langword="true"/> when the encoder emitted at least one access unit.</returns>
+    public static bool TryPreflightEncoder(string encoderName, int width, int height, out string reason)
+    {
+        const int burst = 12;
+        try
+        {
+            using IVideoEncoderBackend preflight = TestEncoders.Open(encoderName, width, height, fps: 30, bitrate: 4_000_000);
+            byte[] pattern = Nv12Pattern(width, height);
+            for (int i = 0; i < burst; i++)
+            {
+                if (TestEncoders.EncodeNv12(preflight, pattern, width, height) is { Length: > 0 })
+                {
+                    reason = string.Empty;
+                    return true;
+                }
+            }
+
+            reason = $"{encoderName} opened but produced no access unit in {burst} frames "
+                + "(typical of VideoToolbox on a virtualized or contended CI host)";
+            return false;
+        }
+#pragma warning disable CA1031 // Any failure to open or encode means "no usable hardware here", which is the answer the caller wants.
+        catch (Exception ex)
+        {
+            reason = $"{encoderName} hardware encode is not available on this machine: {ex.Message}";
+            return false;
+        }
+#pragma warning restore CA1031
+    }
+
+    /// <summary>
     /// Verify that the named HEVC encoder produces a valid Annex-B access unit, or report inconclusive
     /// if the encoder or its hardware is unavailable.
     /// </summary>
