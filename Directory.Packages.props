@@ -3,20 +3,20 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-preview.5.26302.115" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.5.26302.115" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-preview.7.26381.103" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.7.26381.103" />
     <!-- DTLS 1.2 + use_srtp (RFC 5764) handshake engine - the ONLY third-party crypto dependency,
          confined to Agash.StreamTransport.WebRtc.Dtls. The BCL has no managed DTLS. -->
-    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.6.2" />
-    <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.2" />
+    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.5" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
-    <PackageVersion Include="MSTest.TestFramework" Version="4.2.3" />
-    <PackageVersion Include="MSTest.TestAdapter" Version="4.2.3" />
-    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.2.3" />
+    <PackageVersion Include="MSTest.TestFramework" Version="4.3.3" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="4.3.3" />
+    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.3.3" />
   </ItemGroup>
   <ItemGroup>
     <!-- Pure-managed Opus, driven directly for stereo. -->
@@ -31,13 +31,13 @@
     <PackageVersion Include="Vortice.Vulkan" Version="3.2.3" />
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
     <!-- Friendly console UX for the sample agent. -->
-    <PackageVersion Include="Spectre.Console" Version="0.56.0" />
+    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
     <!-- Windows real audio I/O for the agent: WASAPI render (playout) + capture (mic / loopback). Windows-only;
          referenced only from the agent's Windows head. The cross-platform analogue is PipeWire (Linux) and the
          macOS AudioUnit bindings (-macos TFM). -->
     <PackageVersion Include="NAudio" Version="3.0.0-preview.10" />
     <!-- Our DevTunnels CLI wrapper, for the agent's sender-hosted tunnel mode. -->
-    <PackageVersion Include="DevTunnels.Client" Version="1.1.0-dev1" />
+    <PackageVersion Include="DevTunnels.Client" Version="1.1.0" />
     <!-- Platform GPU capture/share libraries (the agent's zero-copy sources/sinks). -->
     <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha.1" />
     <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.4" />
