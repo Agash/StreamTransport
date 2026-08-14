@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- STUN binding server + ICE-server providers. Cross-platform (BCL UDP + first-party STUN codec);
          no platform heads. Native TURN relay is a separate, later package; this package already covers
@@ -14,7 +14,6 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 

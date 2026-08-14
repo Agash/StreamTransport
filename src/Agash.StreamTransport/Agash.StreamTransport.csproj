@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- Base TFMs run everywhere. Only Windows needs a platform head, for the D3D11/Vortice zero-copy path
          (genuine WinRT/COM interop). macOS and Linux carry their GPU interop on the base TFM as runtime
@@ -34,7 +34,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 

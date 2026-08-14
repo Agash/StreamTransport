@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!-- Transport-agnostic: depends only on the abstractions, no WebRTC/codec/ASP.NET. The standalone
          relay and StreamWeaver's SignalR hub both drive this same router. -->
@@ -13,7 +13,6 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
