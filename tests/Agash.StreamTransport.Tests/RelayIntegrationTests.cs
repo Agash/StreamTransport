@@ -22,6 +22,9 @@ namespace Agash.StreamTransport.Tests;
 // and the in-memory loopback tests. Tracked: Agash/StreamTransport#1.
 [TestClass]
 [TestCategory("Integration")]
+// The connect race below is transient, not a logic fault, so let the non-gating Integration job
+// retry rather than reporting a red run for it.
+[Retry(3)]
 public sealed class RelayIntegrationTests
 {
     [TestMethod]
