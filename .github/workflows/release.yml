@@ -22,6 +22,11 @@ jobs:
     # published before v0.1.3-alpha shipped without the D3D11 types and no consumer could use the Windows
     # zero-copy path. Do not move this job back to ubuntu.
     runs-on: macos-26
+    # Declaring an environment is what makes GitHub record a deployment, which is what
+    # surfaces the Deployments tab and the package link on the repo home page.
+    environment:
+      name: nuget.org
+      url: https://www.nuget.org/packages/Agash.StreamTransport
     permissions:
       id-token: write
       contents: read
