@@ -30,6 +30,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      # Signing the provenance statement for the packages this job produces.
+      attestations: write
     steps:
       - uses: actions/checkout@v7
 
@@ -66,6 +68,14 @@ jobs:
           echo "$targets" | grep -q  '^net11\.0-windows' || { echo "::error::$pkg is missing a lib/net11.0-windows* head (D3D11)"; fail=1; }
           echo "$targets" | grep -q  '^net11\.0-macos'   || { echo "::error::$pkg is missing a lib/net11.0-macos* head (Metal)";   fail=1; }
           exit $fail
+
+      - name: Attest build provenance
+        # Records, in a signed statement GitHub hosts, which workflow and which commit produced
+        # these exact package files, so a consumer can tell them from a republished copy. Attested
+        # before the push, so nothing reaches NuGet.org without a provenance record.
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: artifacts/*.nupkg
 
       # Trusted publishing: exchange the GitHub OIDC token for a short-lived NuGet.org key.
       - name: NuGet login (OIDC)
