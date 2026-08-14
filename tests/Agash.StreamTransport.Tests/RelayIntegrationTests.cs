@@ -15,16 +15,20 @@ namespace Agash.StreamTransport.Tests;
 /// CI. The DTLS handshake runs on a dedicated (non-pool) thread, so these no longer need to be serialized.
 /// </summary>
 // Categorized Integration: these drive the full real-socket stack (HttpListener relay + loopback ICE + DTLS +
-// SRTP + RTP), which is intermittently slow-or-stuck to establish under a loaded test host (a "fast or never"
-// connect race specific to rapid in-process loopback setup; cross-machine runs connect reliably). The default
-// CI gate excludes TestCategory=Integration and a separate non-gating job runs them, so a transient connect
-// flake never blocks the gate. The per-component logic is covered deterministically by the WebRtc unit tests
-// and the in-memory loopback tests. Tracked: Agash/StreamTransport#1.
+// SRTP + RTP). The default CI gate excludes TestCategory=Integration and a separate non-gating job runs them.
+// The per-component logic is covered deterministically by the WebRtc unit tests and the in-memory loopback
+// tests.
+//
+// Publisher_FansOutToTwoSubscribers_OverRealRelay fails every run, not intermittently. This was previously
+// described as a load-dependent connect race and papered over with a retry; both were wrong. Instrumenting
+// the body showed every step completes — both subscribers start and the publisher starts — and the test then
+// hangs past the point where its own 20s Task.Delay should have released the wait. The hang is therefore at
+// or after the assertion, in either the log dump or the async disposal of a second subscriber, not in
+// connect. Note also that nothing here ever ran in parallel: MSTest is sequential unless [assembly:
+// Parallelize] is present, and it is not, so the DoNotParallelize attributes across this suite are no-ops
+// and host load was never the explanation. Tracked: Agash/StreamTransport#1.
 [TestClass]
 [TestCategory("Integration")]
-// The connect race below is transient, not a logic fault, so let the non-gating Integration job
-// retry rather than reporting a red run for it.
-[Retry(3)]
 public sealed class RelayIntegrationTests
 {
     [TestMethod]
@@ -128,7 +132,19 @@ public sealed class RelayIntegrationTests
                     continue;
                 }
 
-                _ = HandlePeerAsync(context);
+                // Observed, not fire-and-forget: a peer whose handshake threw used to vanish silently,
+                // and the test then sat waiting for media that could never arrive until its timeout.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandlePeerAsync(context).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Relay peer handling failed: {ex}");
+                    }
+                });
             }
         }
 
@@ -136,8 +152,19 @@ public sealed class RelayIntegrationTests
         {
             HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null).ConfigureAwait(false);
             var transport = new WebSocketSignalingTransport(wsContext.WebSocket);
-            await using ISignalingSession session = _router.Connect(transport);
-            transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
+
+            // The session has to exist before the handler can forward to it, but the handler has to be
+            // attached before Connect returns: Connect can route a message to this transport as soon as
+            // it is registered, and anything raised before the subscription is dropped on the floor. The
+            // indirection lets the subscription go up first and be bound to the session a moment later.
+            ISignalingSession? session = null;
+            transport.MessageReceived += message => session is null
+                ? Task.CompletedTask
+                : session.ReceiveAsync(message).AsTask();
+
+            await using ISignalingSession connected = _router.Connect(transport);
+            session = connected;
+
             try
             {
                 await transport.RunAsync(_cts.Token).ConfigureAwait(false);
