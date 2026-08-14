@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>Agash.StreamTransport.WebRtc.Abstractions</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.Abstractions</PackageId>

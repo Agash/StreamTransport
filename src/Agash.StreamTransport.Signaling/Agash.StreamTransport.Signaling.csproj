@@ -3,6 +3,7 @@
     <!-- Transport-agnostic: depends only on the abstractions, no WebRTC/codec/ASP.NET. The standalone
          relay and StreamWeaver's SignalR hub both drive this same router. -->
     <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>Agash.StreamTransport.Signaling</AssemblyName>
     <RootNamespace>Agash.StreamTransport.Signaling</RootNamespace>
     <PackageId>Agash.StreamTransport.Signaling</PackageId>

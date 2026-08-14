@@ -4,6 +4,7 @@
          no platform heads. Native TURN relay is a separate, later package; this package already covers
          advertising an EXTERNAL TURN (e.g. self-hosted coturn) with ephemeral credentials. -->
     <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>Agash.StreamTransport.Stun</AssemblyName>
     <RootNamespace>Agash.StreamTransport.Stun</RootNamespace>
     <PackageId>Agash.StreamTransport.Stun</PackageId>

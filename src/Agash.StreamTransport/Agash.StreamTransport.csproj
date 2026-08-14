@@ -17,6 +17,7 @@
       job pinned to macOS.
     -->
     <TargetFrameworks>net11.0</TargetFrameworks>
+    <IsAotCompatible>true</IsAotCompatible>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(PackAllTargets)' == 'true'">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
     <!-- macOS head: the GPU Metal surface transforms (Metal/IOSurface managed bindings) need the -macos TFM.
          The rest of the macOS path (VideoToolbox/CoreVideo) stays on the base TFM via runtime P/Invoke. -->

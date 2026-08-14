@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>Agash.StreamTransport.WebRtc.Dtls</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc.Dtls</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.Dtls</PackageId>

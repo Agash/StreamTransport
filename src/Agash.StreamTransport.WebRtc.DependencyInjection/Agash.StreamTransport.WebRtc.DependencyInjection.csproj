@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>Agash.StreamTransport.WebRtc.DependencyInjection</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc.DependencyInjection</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.DependencyInjection</PackageId>
