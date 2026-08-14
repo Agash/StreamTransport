@@ -27,7 +27,7 @@ jobs:
           - { os: ubuntu-latest, rid: linux-x64 }
           - { os: ubuntu-24.04-arm, rid: linux-arm64 }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # The agent's net11.0-macos head links the Microsoft macOS bindings (and Syphon.NET) against the macOS 26.5
       # SDK; macos-26 ships Xcode 26.5 as the default, but pin it so a default bump can't regress the toolchain.
@@ -36,7 +36,7 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 11.0.x
           dotnet-quality: preview
