@@ -23,3 +23,6 @@ external/
 _ref/
 .matrix-logs/
 *.log
+
+# Test run output (coverage reports)
+TestResults/
