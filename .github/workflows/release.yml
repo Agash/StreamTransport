@@ -73,7 +73,7 @@ jobs:
         # Records, in a signed statement GitHub hosts, which workflow and which commit produced
         # these exact package files, so a consumer can tell them from a republished copy. Attested
         # before the push, so nothing reaches NuGet.org without a provenance record.
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: artifacts/*.nupkg
 
