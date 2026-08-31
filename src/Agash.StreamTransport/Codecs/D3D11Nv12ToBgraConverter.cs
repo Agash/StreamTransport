@@ -71,9 +71,9 @@ public sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
 
     /// <summary>Convert a decoded NV12 surface frame to a BGRA surface frame for an opaque publish (zero-copy, GPU).</summary>
     public VideoFrame Nv12ToBgra(in VideoFrame nv12, long presentationTimeNs) =>
-        VideoFrame.FromSurface(
+        VideoFrame.FromD3D11Texture(
             ConvertCore(nv12.Surface, nv12.Width, nv12.Height),
-            StreamInteropKind.Spout, nv12.Width, nv12.Height, presentationTimeNs)
+            nv12.Width, nv12.Height, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
 
     private nint ConvertCore(nint nv12Texture, int width, int height)

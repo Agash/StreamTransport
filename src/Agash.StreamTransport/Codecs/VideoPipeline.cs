@@ -93,9 +93,9 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         // CPU sources are normalised to NV12 (and side-by-side-packed when alpha) before encode; GPU-surface
         // frames already carry their native surface (pre-packed by the capture source when alpha). The
         // keyframe-on-demand request rides through the normalisation (a fresh NV12 frame is built).
-        VideoFrame prepared = frame.InteropKind == StreamInteropKind.None
-            ? PrepareCpuFrame(frame) with { ForceKeyframe = frame.ForceKeyframe }
-            : frame;
+        VideoFrame prepared = frame.IsGpuSurface
+            ? frame
+            : PrepareCpuFrame(frame) with { ForceKeyframe = frame.ForceKeyframe };
 
         // Create the codec backend lazily on the first frame, when dimensions are known: the encoder class
         // *is* the backend (no wrapper), constructed here at the prepared frame's size.
@@ -127,15 +127,19 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         return (uint)(deltaNs * ClockRate / 1_000_000_000L);
     }
 
-    private IVideoEncoderBackend CreateBackend(in VideoFrame frame) => frame.InteropKind switch
+    // Selection is on what kind of memory holds the frame, not on what produced it. A DMA-BUF from
+    // V4L2 and one from PipeWire are the same problem for an encoder, and were not distinguishable
+    // here while the discriminator named the producer.
+    private IVideoEncoderBackend CreateBackend(in VideoFrame frame) => frame.SurfaceKind switch
     {
 #if WINDOWS_HEAD
-        // The Spout texture's native format (BGRA) goes straight to the ASIC; gpuDeviceHandle is the shared device.
-        StreamInteropKind.Spout => new D3D11VideoEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, frame.PixelFormat, gpuDeviceHandle, profile),
+        // The texture's native format (BGRA) goes straight to the ASIC; gpuDeviceHandle is the shared device.
+        VideoSurfaceKind.D3D11Texture => new D3D11VideoEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, frame.PixelFormat, gpuDeviceHandle, profile),
 #endif
-        StreamInteropKind.Syphon => new VideoToolboxVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile),
-        StreamInteropKind.None => CreateCpuEncoderWithFallback(frame),
-        _ => throw new NotSupportedException($"Interop kind {frame.InteropKind} is not supported on this platform."),
+        VideoSurfaceKind.IOSurface => new VideoToolboxVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile),
+        VideoSurfaceKind.DmaBuf => new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile),
+        VideoSurfaceKind.Cpu => CreateCpuEncoderWithFallback(frame),
+        _ => throw new NotSupportedException($"Surface kind {frame.SurfaceKind} has no encoder on this platform."),
     };
 
     // CPU-input (None) path. A pinned encoder is honoured exactly (no silent substitution). Otherwise try the
@@ -202,7 +206,7 @@ internal sealed class VideoReceivePipeline : IVideoDecoder
     }
 
     /// <summary>True when frames are decoded into GPU surfaces (zero-copy), false for the CPU path.</summary>
-    public bool IsGpuOutput => _decoder.OutputSurfaceKind != StreamInteropKind.None;
+    public bool IsGpuOutput => _decoder.OutputSurfaceKind != VideoSurfaceKind.Cpu;
 
 
     /// <summary>The native device handle the GPU output surface lives on (ID3D11Device* on Windows), or 0.</summary>
@@ -224,7 +228,7 @@ internal sealed class VideoReceivePipeline : IVideoDecoder
 
         // CPU path + alpha: split the packed 2W x H colour|alpha frame back to W x H BGRA (last-resort CPU
         // transform). GPU-surface backends hand the packed surface to the publish sink, which unpacks on the GPU.
-        if (_decoder.OutputSurfaceKind == StreamInteropKind.None && _preserveAlpha)
+        if (_decoder.OutputSurfaceKind == VideoSurfaceKind.Cpu && _preserveAlpha)
         {
             return _cpuTransform.UnpackAlpha(frame, presentationTimeNs);
         }

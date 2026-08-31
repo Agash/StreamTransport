@@ -35,13 +35,13 @@ internal interface IVideoEncoderBackend : IDisposable
 /// <summary>
 /// A HEVC decode backend - implemented directly by each concrete decoder (<see cref="HevcDecoder"/>, the D3D11
 /// and VideoToolbox decoders). The decoder class <i>is</i> the backend (no wrapper). It reports the surface
-/// kind it decodes into: <see cref="StreamInteropKind.None"/> for CPU pixel frames, or a GPU surface kind for
+/// kind it decodes into: <see cref="VideoSurfaceKind.Cpu"/> for CPU pixel frames, or a GPU surface kind for
 /// a zero-copy publish. Alpha unpack / colour conversion are applied by the pipeline around the backend.
 /// </summary>
 internal interface IVideoDecoderBackend : IDisposable
 {
-    /// <summary>The surface kind decoded frames carry: <see cref="StreamInteropKind.None"/> = CPU pixels.</summary>
-    StreamInteropKind OutputSurfaceKind { get; }
+    /// <summary>The surface kind decoded frames carry.</summary>
+    VideoSurfaceKind OutputSurfaceKind { get; }
 
     /// <summary>The native device the GPU output surface lives on (ID3D11Device* on Windows), or 0 for CPU.</summary>
     nint NativeDevice { get; }

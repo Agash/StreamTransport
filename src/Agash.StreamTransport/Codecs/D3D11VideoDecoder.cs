@@ -18,7 +18,7 @@ namespace Agash.StreamTransport.Codecs;
 internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBackend
 {
     /// <summary>Decodes into a D3D11 NV12 texture for a zero-copy Spout publish.</summary>
-    public StreamInteropKind OutputSurfaceKind => StreamInteropKind.Spout;
+    public VideoSurfaceKind OutputSurfaceKind => VideoSurfaceKind.D3D11Texture;
 
     /// <inheritdoc/>
     public bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp)
@@ -29,7 +29,7 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
             return false;
         }
 
-        frame = VideoFrame.FromSurface(OutputTexture, StreamInteropKind.Spout, width, height, presentationTimeNs);
+        frame = VideoFrame.FromD3D11Texture(OutputTexture, width, height, presentationTimeNs);
         return true;
     }
 

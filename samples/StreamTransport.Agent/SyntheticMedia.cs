@@ -214,7 +214,7 @@ internal sealed class ReportingVideoSink(Action<string> log) : IVideoFrameSink
         int n = Interlocked.Increment(ref _count);
         if (n == 1 || n % 60 == 0)
         {
-            log($"video: {n} frames ({frame.Width}x{frame.Height}, {(frame.InteropKind == StreamInteropKind.None ? "cpu" : "gpu")})");
+            log($"video: {n} frames ({frame.Width}x{frame.Height}, {(frame.IsGpuSurface ? "gpu" : "cpu")})");
         }
     }
 }

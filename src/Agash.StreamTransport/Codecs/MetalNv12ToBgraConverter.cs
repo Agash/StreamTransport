@@ -29,7 +29,7 @@ public sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
     {
         IOSurface.IOSurface result = Convert(Wrap(nv12.Surface));
         (int rw, int rh) = ((int)result.Width, (int)result.Height);
-        return VideoFrame.FromSurface(result.Handle.Handle, StreamInteropKind.Syphon, rw, rh, presentationTimeNs)
+        return VideoFrame.FromIOSurface(result.Handle.Handle, rw, rh, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
 

@@ -28,8 +28,8 @@ internal struct DmaBufPlaneArray
 /// <summary>
 /// A Linux DMA-BUF video surface: a DRM format modifier plus the per-plane layout needed to import the
 /// frame zero-copy into a GPU (VAAPI via DRM-PRIME, or Vulkan via <c>VK_EXT_image_drm_format_modifier</c>).
-/// Carried by a <see cref="VideoFrame"/> whose <see cref="VideoFrame.InteropKind"/> is
-/// <see cref="StreamInteropKind.PipeWire"/>. A value type - no allocation per frame.
+/// Carried by a <see cref="VideoFrame"/> whose <see cref="VideoFrame.SurfaceKind"/> is
+/// <see cref="VideoSurfaceKind.DmaBuf"/>. A value type - no allocation per frame.
 /// </summary>
 public readonly struct DmaBufSurface
 {

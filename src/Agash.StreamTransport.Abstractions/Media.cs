@@ -33,20 +33,27 @@ public enum AudioSampleFormat
     F32,
 }
 
-/// <summary>The platform GPU texture-sharing mechanism a frame is captured from or published to.</summary>
-public enum StreamInteropKind
+/// <summary>
+/// Which memory domain holds a <see cref="VideoFrame"/>'s pixels, and therefore what an encoder has
+/// to be able to ingest to take it without a copy.
+/// </summary>
+/// <remarks>
+/// This is deliberately about storage, not provenance. A DMA-BUF is a DMA-BUF whether PipeWire, V4L2
+/// or a DRM plane produced it, and an encoder that can import one can import all three.
+/// </remarks>
+public enum VideoSurfaceKind
 {
-    /// <summary>No platform interop (raw frames).</summary>
-    None,
+    /// <summary>CPU pixel buffer, in <see cref="VideoFrame.PixelFormat"/>.</summary>
+    Cpu,
 
-    /// <summary>Spout (Windows, DirectX 11 shared texture).</summary>
-    Spout,
+    /// <summary>A Direct3D 11 texture (Windows). <see cref="VideoFrame.Surface"/> is an ID3D11Texture2D*.</summary>
+    D3D11Texture,
 
-    /// <summary>Syphon (macOS, IOSurface).</summary>
-    Syphon,
+    /// <summary>An IOSurface or CVPixelBuffer (macOS). <see cref="VideoFrame.Surface"/> is the CFTypeRef.</summary>
+    IOSurface,
 
-    /// <summary>PipeWire (Linux, DMA-BUF).</summary>
-    PipeWire,
+    /// <summary>A Linux DMA-BUF, described by <see cref="VideoFrame.DmaBuf"/>.</summary>
+    DmaBuf,
 }
 
 /// <summary>Pixel layout of a CPU <see cref="VideoFrame"/>.</summary>
@@ -63,20 +70,29 @@ public enum VideoPixelFormat
 }
 
 /// <summary>
-/// A video frame, either GPU-resident (a platform surface handle, for zero-copy hardware encode) or a
-/// CPU pixel buffer. When <see cref="InteropKind"/> is not <see cref="StreamInteropKind.None"/>,
-/// <see cref="Surface"/> is the GPU handle - a D3D11 texture (Spout), an IOSurface (Syphon), or a
-/// DMA-BUF (PipeWire). When it is <see cref="StreamInteropKind.None"/>, <see cref="Pixels"/> holds the
-/// CPU samples in <see cref="PixelFormat"/>.
+/// A video frame, either GPU-resident (a platform surface, for zero-copy hardware encode) or a CPU
+/// pixel buffer. <see cref="SurfaceKind"/> says which, and therefore which of
+/// <see cref="Surface"/>, <see cref="DmaBuf"/> and <see cref="Pixels"/> carries it.
 /// </summary>
 public readonly record struct VideoFrame
 {
-    /// <summary>Create a GPU-resident frame backed by a platform surface handle.</summary>
-    public static VideoFrame FromSurface(nint surface, StreamInteropKind interopKind, int width, int height, long presentationTimeNs) =>
+    /// <summary>Create a frame backed by a Direct3D 11 texture (Windows).</summary>
+    public static VideoFrame FromD3D11Texture(nint texture, int width, int height, long presentationTimeNs) =>
+        new()
+        {
+            Surface = texture,
+            SurfaceKind = VideoSurfaceKind.D3D11Texture,
+            Width = width,
+            Height = height,
+            PresentationTimeNs = presentationTimeNs,
+        };
+
+    /// <summary>Create a frame backed by an IOSurface or CVPixelBuffer (macOS).</summary>
+    public static VideoFrame FromIOSurface(nint surface, int width, int height, long presentationTimeNs) =>
         new()
         {
             Surface = surface,
-            InteropKind = interopKind,
+            SurfaceKind = VideoSurfaceKind.IOSurface,
             Width = width,
             Height = height,
             PresentationTimeNs = presentationTimeNs,
@@ -94,38 +110,41 @@ public readonly record struct VideoFrame
         };
 
     /// <summary>
-    /// Create a GPU-resident frame backed by a Linux DMA-BUF surface (<see cref="StreamInteropKind.PipeWire"/>).
-    /// The pixels stay on the GPU; the encoder imports the planes as a VAAPI surface (DRM-PRIME) and the
-    /// publish sink can hand them straight back to PipeWire - no CPU readback.
+    /// Create a frame backed by a Linux DMA-BUF, whatever produced it: PipeWire, V4L2, a DRM plane or
+    /// an SoC capture block. The pixels stay on the GPU; an encoder imports the planes (VAAPI via
+    /// DRM-PRIME, or Vulkan) and a publish sink can hand them straight back, with no CPU readback.
     /// </summary>
     public static VideoFrame FromDmaBuf(in DmaBufSurface surface, int width, int height, long presentationTimeNs) =>
         new()
         {
             DmaBuf = surface,
-            InteropKind = StreamInteropKind.PipeWire,
+            SurfaceKind = VideoSurfaceKind.DmaBuf,
             Width = width,
             Height = height,
             PresentationTimeNs = presentationTimeNs,
         };
 
     /// <summary>
-    /// The GPU surface handle for a single-handle interop (Spout D3D11 texture, Syphon IOSurface), valid
-    /// when <see cref="InteropKind"/> is <see cref="StreamInteropKind.Spout"/> or
-    /// <see cref="StreamInteropKind.Syphon"/>. For <see cref="StreamInteropKind.PipeWire"/> use <see cref="DmaBuf"/>.
+    /// The single-handle GPU surface, valid when <see cref="SurfaceKind"/> is
+    /// <see cref="VideoSurfaceKind.D3D11Texture"/> or <see cref="VideoSurfaceKind.IOSurface"/>.
+    /// A DMA-BUF is described by <see cref="DmaBuf"/> instead, because it has per-plane descriptors.
     /// </summary>
     public nint Surface { get; init; }
 
     /// <summary>
-    /// The DMA-BUF surface (per-plane fds + modifier) for a <see cref="StreamInteropKind.PipeWire"/> frame;
-    /// <see langword="null"/> otherwise. A value type, so this allocates nothing per frame.
+    /// The DMA-BUF surface (per-plane fds + modifier), valid when <see cref="SurfaceKind"/> is
+    /// <see cref="VideoSurfaceKind.DmaBuf"/>. A value type, so this allocates nothing per frame.
     /// </summary>
     public DmaBufSurface? DmaBuf { get; init; }
 
-    /// <summary>The platform interop kind, or <see cref="StreamInteropKind.None"/> for a CPU frame.</summary>
-    public StreamInteropKind InteropKind { get; init; }
+    /// <summary>Which memory domain holds this frame. Defaults to <see cref="VideoSurfaceKind.Cpu"/>.</summary>
+    public VideoSurfaceKind SurfaceKind { get; init; }
 
-    /// <summary>The CPU pixel buffer, valid when <see cref="InteropKind"/> is <see cref="StreamInteropKind.None"/>.</summary>
+    /// <summary>The CPU pixel buffer, valid when <see cref="SurfaceKind"/> is <see cref="VideoSurfaceKind.Cpu"/>.</summary>
     public ReadOnlyMemory<byte> Pixels { get; init; }
+
+    /// <summary>Whether this frame lives on the GPU, and so must not be read as <see cref="Pixels"/>.</summary>
+    public bool IsGpuSurface => SurfaceKind != VideoSurfaceKind.Cpu;
 
     /// <summary>The layout of <see cref="Pixels"/>.</summary>
     public VideoPixelFormat PixelFormat { get; init; }

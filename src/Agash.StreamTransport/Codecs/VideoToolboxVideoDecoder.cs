@@ -13,7 +13,7 @@ namespace Agash.StreamTransport.Codecs;
 internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecoderBackend
 {
     /// <summary>Decodes into a VideoToolbox IOSurface for a zero-copy Syphon publish.</summary>
-    public StreamInteropKind OutputSurfaceKind => StreamInteropKind.Syphon;
+    public VideoSurfaceKind OutputSurfaceKind => VideoSurfaceKind.IOSurface;
 
     /// <summary>VideoToolbox decode exposes no D3D11-style device handle.</summary>
     public nint NativeDevice => 0;
@@ -27,7 +27,7 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
             return false;
         }
 
-        frame = VideoFrame.FromSurface(OutputIOSurface, StreamInteropKind.Syphon, width, height, presentationTimeNs);
+        frame = VideoFrame.FromIOSurface(OutputIOSurface, width, height, presentationTimeNs);
         return true;
     }
 

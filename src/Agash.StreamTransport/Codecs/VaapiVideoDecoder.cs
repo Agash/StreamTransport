@@ -10,17 +10,17 @@ namespace Agash.StreamTransport.Codecs;
 /// <c>AV_PIX_FMT_VAAPI</c> - and each decoded surface is transferred down to a CPU NV12 buffer for the
 /// receive pipeline. This is the Linux mirror of the NVDEC/D3D11VA hardware decode paths; the hardware-first
 /// list in <see cref="HevcDecoder"/> only covers NVDEC/QSV/rkmpp, which leaves AMD Mesa (where VAAPI is the
-/// open path) on the software decoder. CPU-output backend (<see cref="StreamInteropKind.None"/>).
+/// open path) on the software decoder. CPU-output backend (<see cref="VideoSurfaceKind.Cpu"/>).
 /// </summary>
 /// <remarks>Compiles everywhere (FFmpeg.AutoGen); only functional on Linux with a VAAPI driver.</remarks>
 internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBackend
 {
     /// <summary>
     /// In GPU-surface mode the decoded VAAPI surface is exported as a DMA-BUF (DRM-PRIME) and surfaced as a
-    /// <see cref="StreamInteropKind.PipeWire"/> frame for zero-copy downstream (Vulkan import / PipeWire
-    /// republish); otherwise it is read back to CPU NV12 (<see cref="StreamInteropKind.None"/>).
+    /// <see cref="VideoSurfaceKind.DmaBuf"/> frame for zero-copy downstream (Vulkan import / PipeWire
+    /// republish); otherwise it is read back to CPU NV12 (<see cref="VideoSurfaceKind.Cpu"/>).
     /// </summary>
-    public StreamInteropKind OutputSurfaceKind => _gpuSurface ? StreamInteropKind.PipeWire : StreamInteropKind.None;
+    public VideoSurfaceKind OutputSurfaceKind => _gpuSurface ? VideoSurfaceKind.DmaBuf : VideoSurfaceKind.Cpu;
 
     /// <summary>No shared GPU device handle is surfaced (dmabuf carries its own fds).</summary>
     public nint NativeDevice => 0;
@@ -37,7 +37,7 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
     /// <param name="renderNode">Optional DRM render node (e.g. <c>/dev/dri/renderD129</c>); first node by default.</param>
     /// <param name="gpuSurface">
     /// When <see langword="true"/>, export each decoded surface as a DMA-BUF instead of reading it back to
-    /// CPU memory - the zero-copy path. Requires a downstream that consumes <see cref="StreamInteropKind.PipeWire"/>.
+    /// CPU memory - the zero-copy path. Requires a downstream that consumes <see cref="VideoSurfaceKind.DmaBuf"/>.
     /// </param>
     public VaapiVideoDecoder(string? renderNode = null, bool gpuSurface = false)
     {

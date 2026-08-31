@@ -26,7 +26,7 @@ internal static class SpoutSelfTest
         using ID3D11Texture2D nv12 = CreateNeutralGreyNv12(device, w, h);
 
         using var converter = new D3D11Nv12ToBgraConverter(device);
-        var nv12Frame = VideoFrame.FromSurface(nv12.NativePointer, StreamInteropKind.Spout, w, h, 0);
+        var nv12Frame = VideoFrame.FromD3D11Texture(nv12.NativePointer, w, h, 0);
         nint bgraHandle = converter.Nv12ToBgra(nv12Frame, 0).Surface;
 
         // Copy the BGRA output into a CPU-readable staging texture and inspect the centre pixel.
@@ -115,7 +115,7 @@ internal static class SpoutSelfTest
 
             for (int i = 0; i < 12; i++)
             {
-                nint packed = packer.PackAlpha(VideoFrame.FromSurface(bgraSrc.NativePointer, StreamInteropKind.Spout, w, h, 0), 0).Surface;
+                nint packed = packer.PackAlpha(VideoFrame.FromD3D11Texture(bgraSrc.NativePointer, w, h, 0), 0).Surface;
                 nint encodeTex = converter is null ? packed : converter.Convert(packed, packedW, h);
                 byte[]? au = encoder.EncodeTexture(encodeTex, 0);
                 if (au is not null)
@@ -154,7 +154,7 @@ internal static class SpoutSelfTest
             decDevice.AddRef();
             using var unpacker = new D3D11AlphaUnpacker(decDevice);
             // dw = 2W, dh = H -> output W x H.
-            nint bgraOut = unpacker.UnpackAlpha(VideoFrame.FromSurface(nv12, StreamInteropKind.Spout, dw, dh, 0), 0).Surface;
+            nint bgraOut = unpacker.UnpackAlpha(VideoFrame.FromD3D11Texture(nv12, dw, dh, 0), 0).Surface;
             int outW = dw / 2;
             (opaqueA, opaqueR) = SamplePixel(decDevice, bgraOut, outW, dh, outW / 4, dh / 2);       // left: opaque
             (transparentA, _) = SamplePixel(decDevice, bgraOut, outW, dh, (3 * outW) / 4, dh / 2);  // right: transparent

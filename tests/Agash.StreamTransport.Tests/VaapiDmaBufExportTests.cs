@@ -42,7 +42,7 @@ public sealed class VaapiDmaBufExportTests
         using (encoder)
         using (var decoder = new VaapiVideoDecoder(gpuSurface: true))
         {
-            Assert.AreEqual(StreamInteropKind.PipeWire, decoder.OutputSurfaceKind,
+            Assert.AreEqual(VideoSurfaceKind.DmaBuf, decoder.OutputSurfaceKind,
                 "GPU-surface decoder must surface PipeWire/DMA-BUF frames.");
 
             byte[] nv12 = HardwareEncoderTestSupport.Nv12Pattern(width, height);
@@ -63,7 +63,7 @@ public sealed class VaapiDmaBufExportTests
                 }
 
                 exported = true;
-                Assert.AreEqual(StreamInteropKind.PipeWire, decoded.InteropKind, "decoded frame must be a DMA-BUF surface");
+                Assert.AreEqual(VideoSurfaceKind.DmaBuf, decoded.SurfaceKind, "decoded frame must be a DMA-BUF surface");
                 Assert.AreEqual(width, decoded.Width);
                 Assert.AreEqual(height, decoded.Height);
                 Assert.IsTrue(decoded.Pixels.IsEmpty, "a GPU-surface frame carries no CPU pixels");
@@ -132,7 +132,7 @@ public sealed class VaapiDmaBufExportTests
                 }
 
                 sawSurface = true;
-                Assert.AreEqual(StreamInteropKind.PipeWire, surface.InteropKind);
+                Assert.AreEqual(VideoSurfaceKind.DmaBuf, surface.SurfaceKind);
 
                 // Re-encode the imported surface on the same (primed) encoder. A non-empty AU proves the
                 // zero-copy import worked: av_hwframe_map aliased the dmabuf as a VA surface and it encoded.

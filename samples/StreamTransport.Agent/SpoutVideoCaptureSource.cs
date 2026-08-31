@@ -84,7 +84,7 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         if (_alpha)
         {
             _packer ??= new D3D11AlphaPacker(_device);
-            var colour = VideoFrame.FromSurface(texture, StreamInteropKind.Spout, width, height, timeNs);
+            var colour = VideoFrame.FromD3D11Texture(texture, width, height, timeNs);
             texture = _packer.PackAlpha(colour, timeNs).Surface;
             encodeWidth = width * 2;
         }
@@ -93,7 +93,7 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         // conversion; nothing touches the CPU.
         if (_bgraDirect)
         {
-            frame = VideoFrame.FromSurface(texture, StreamInteropKind.Spout, encodeWidth, height, timeNs)
+            frame = VideoFrame.FromD3D11Texture(texture, encodeWidth, height, timeNs)
                 with { PixelFormat = VideoPixelFormat.Bgra };
             return true;
         }
@@ -106,7 +106,7 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
             {
                 _converter ??= new D3D11BgraToNv12Converter(_device);
                 nint nv12Texture = _converter.Convert(texture, encodeWidth, height);
-                frame = VideoFrame.FromSurface(nv12Texture, StreamInteropKind.Spout, encodeWidth, height, timeNs)
+                frame = VideoFrame.FromD3D11Texture(nv12Texture, encodeWidth, height, timeNs)
                     with { PixelFormat = VideoPixelFormat.Nv12 };
                 return true;
             }

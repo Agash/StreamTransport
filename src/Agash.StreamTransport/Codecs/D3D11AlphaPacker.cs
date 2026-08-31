@@ -72,9 +72,9 @@ public sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
 
     /// <summary>Pack a W x H BGRA surface frame into a 2W x H colour|alpha BGRA surface frame (zero-copy, GPU).</summary>
     public VideoFrame PackAlpha(in VideoFrame colourBgra, long presentationTimeNs) =>
-        VideoFrame.FromSurface(
+        VideoFrame.FromD3D11Texture(
             PackCore(colourBgra.Surface, colourBgra.Width, colourBgra.Height),
-            StreamInteropKind.Spout, colourBgra.Width * 2, colourBgra.Height, presentationTimeNs)
+            colourBgra.Width * 2, colourBgra.Height, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
 
     private nint PackCore(nint bgraTexture, int width, int height)

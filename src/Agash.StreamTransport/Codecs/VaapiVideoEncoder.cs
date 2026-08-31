@@ -21,7 +21,7 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
     {
         // Zero-copy path: a DMA-BUF surface (from PipeWire capture or a Vulkan pack) is imported straight
         // into a VAAPI surface and encoded - no CPU upload. Otherwise upload the CPU NV12 buffer.
-        if (frame.InteropKind == StreamInteropKind.PipeWire && frame.DmaBuf.HasValue)
+        if (frame.SurfaceKind == VideoSurfaceKind.DmaBuf && frame.DmaBuf.HasValue)
         {
             return EncodeDmaBuf(frame.DmaBuf.Value, frame.Width, frame.Height, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
         }

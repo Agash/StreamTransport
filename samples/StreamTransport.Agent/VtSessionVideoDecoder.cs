@@ -33,7 +33,7 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
 {
     private const int NalLengthSize = 4;
 
-    public StreamInteropKind OutputSurfaceKind => StreamInteropKind.Syphon;
+    public VideoSurfaceKind OutputSurfaceKind => VideoSurfaceKind.IOSurface;
     public nint NativeDevice => 0;
 
     private VTDecompressionSession? _session;
@@ -112,7 +112,7 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
             return false;
         }
 
-        frame = VideoFrame.FromSurface(_outSurface, StreamInteropKind.Syphon, _outWidth, _outHeight, presentationTimeNs)
+        frame = VideoFrame.FromIOSurface(_outSurface, _outWidth, _outHeight, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
         return true;
     }

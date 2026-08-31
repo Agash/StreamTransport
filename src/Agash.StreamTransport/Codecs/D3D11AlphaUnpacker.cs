@@ -72,9 +72,9 @@ public sealed class D3D11AlphaUnpacker : IDisposable, IAlphaUnpacker
 
     /// <summary>Split a decoded 2W x H colour|alpha surface frame back into a W x H BGRA surface frame (zero-copy, GPU).</summary>
     public VideoFrame UnpackAlpha(in VideoFrame packed, long presentationTimeNs) =>
-        VideoFrame.FromSurface(
+        VideoFrame.FromD3D11Texture(
             UnpackCore(packed.Surface, packed.Width, packed.Height),
-            StreamInteropKind.Spout, packed.Width / 2, packed.Height, presentationTimeNs)
+            packed.Width / 2, packed.Height, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
 
     private nint UnpackCore(nint packedNv12Texture, int packedWidth, int height)

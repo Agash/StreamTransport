@@ -30,7 +30,7 @@ public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
     {
         IOSurface.IOSurface packed = Pack(Wrap(colourBgra.Surface));
         (int pw, int ph) = ((int)packed.Width, (int)packed.Height);
-        return VideoFrame.FromSurface(packed.Handle.Handle, StreamInteropKind.Syphon, pw, ph, presentationTimeNs)
+        return VideoFrame.FromIOSurface(packed.Handle.Handle, pw, ph, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
 
@@ -39,7 +39,7 @@ public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
     {
         IOSurface.IOSurface result = Unpack(Wrap(packed.Surface));
         (int rw, int rh) = ((int)result.Width, (int)result.Height);
-        return VideoFrame.FromSurface(result.Handle.Handle, StreamInteropKind.Syphon, rw, rh, presentationTimeNs)
+        return VideoFrame.FromIOSurface(result.Handle.Handle, rw, rh, presentationTimeNs)
             with { PixelFormat = VideoPixelFormat.Bgra };
     }
 

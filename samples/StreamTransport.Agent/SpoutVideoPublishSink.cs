@@ -40,7 +40,7 @@ internal sealed class SpoutVideoPublishSink : IVideoFrameSink, IDisposable
 
     public void Submit(VideoFrame frame)
     {
-        if (frame.InteropKind != StreamInteropKind.Spout || frame.Surface == 0)
+        if (frame.SurfaceKind != VideoSurfaceKind.D3D11Texture || frame.Surface == 0)
         {
             return; // only GPU (zero-copy decode) frames publish through this path.
         }

@@ -86,12 +86,12 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
                 // GPU-pack the captured BGRA surface into a 2W x H colour|alpha surface and emit that;
                 // VideoToolbox then encodes it BGRA-direct. Driven through IAlphaPacker (same as the Spout
                 // source). Packing under the lock keeps the source surface alive for the sub-ms Metal pass.
-                var colour = VideoFrame.FromSurface(_surface, StreamInteropKind.Syphon, _width, _height, _timeNs);
+                var colour = VideoFrame.FromIOSurface(_surface, _width, _height, _timeNs);
                 frame = _alpha.PackAlpha(colour, _timeNs);
                 return true;
             }
 
-            frame = VideoFrame.FromSurface(_surface, StreamInteropKind.Syphon, _width, _height, _timeNs)
+            frame = VideoFrame.FromIOSurface(_surface, _width, _height, _timeNs)
                 with { PixelFormat = VideoPixelFormat.Bgra };
             return true;
         }
@@ -264,7 +264,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             return;
         }
 
-        if (frame.InteropKind == StreamInteropKind.Syphon && frame.Surface != 0)
+        if (frame.SurfaceKind == VideoSurfaceKind.IOSurface && frame.Surface != 0)
         {
             // Zero-copy GPU conversion before publish (the decoder yields NV12): for alpha, unpack the
             // packed 2W x H surface back to W x H BGRA; opaque NV12 is colour-converted to BGRA; an
@@ -317,7 +317,7 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             SyphonServer.PumpOnce();
             return;
         }
-        else if (frame.InteropKind == StreamInteropKind.None
+        else if (!frame.IsGpuSurface
             && frame.PixelFormat == VideoPixelFormat.Bgra
             && !frame.Pixels.IsEmpty)
         {

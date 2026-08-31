@@ -125,7 +125,7 @@ internal sealed partial class PipeWireVideoPublishSink : IVideoFrameSink, IAsync
         // GPU zero-copy path: a VAAPI DMA-BUF surface frame (the HW decoder kept it on the GPU). VPP-copy the
         // decoded surface into our staging surface now, while it is valid (the decoder recycles it on the next
         // decode). The PipeWire publish happens later from the staging surface (FillDmaBuf).
-        if (frame.InteropKind == StreamInteropKind.PipeWire && frame.DmaBuf is not null && !_gpuUnavailable)
+        if (frame.SurfaceKind == VideoSurfaceKind.DmaBuf && frame.DmaBuf is not null && !_gpuUnavailable)
         {
             SubmitGpu(frame);
             return;

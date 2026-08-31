@@ -13,7 +13,7 @@ namespace Agash.StreamTransport.Codecs;
 internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
 {
     /// <summary>CPU decode: frames carry pixels, not a GPU surface.</summary>
-    public StreamInteropKind OutputSurfaceKind => StreamInteropKind.None;
+    public VideoSurfaceKind OutputSurfaceKind => VideoSurfaceKind.Cpu;
 
     /// <summary>CPU decode has no GPU device.</summary>
     public nint NativeDevice => 0;
