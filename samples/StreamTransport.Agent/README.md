@@ -67,13 +67,14 @@ to the agent, or directly beside the executable.
 Or copy the shared libraries yourself next to the executable: `avcodec-62.dll`, `avformat-62.dll`,
 `avutil-60.dll`, `swscale-9.dll`, `swresample-6.dll` on Windows; the matching `libav*.so.*` on Linux.
 
-**macOS** - install via Homebrew (its build is VideoToolbox-enabled) and make sure it is the 8.x series, then
-either rely on the system path or, to be explicit, symlink the libraries next to the agent:
+**macOS** - install Homebrew's `ffmpeg@8` (VideoToolbox-enabled; the unversioned `ffmpeg` formula is 9.x, which
+these bindings cannot load). The agent probes its keg-only prefix on its own; to be explicit, symlink the
+libraries next to the agent:
 
 ```bash
-brew install ffmpeg
+brew install ffmpeg@8
 mkdir -p native/ffmpeg/osx-arm64
-ln -sf "$(brew --prefix ffmpeg)"/lib/*.dylib native/ffmpeg/osx-arm64/
+ln -sf "$(brew --prefix ffmpeg@8)"/lib/*.dylib native/ffmpeg/osx-arm64/
 ```
 
 The published macOS binary does not bundle FFmpeg, so a Homebrew (or hand-placed) 8.x build is required there.
