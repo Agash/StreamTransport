@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
@@ -84,11 +85,20 @@ public static class FFmpegLibrary
         }
 
         // macOS: Homebrew installs FFmpeg under a prefix that is not on the default dyld search path
-        // (/opt/homebrew/lib on Apple Silicon, /usr/local/lib on Intel), so a bare-name load would miss a
-        // `brew install ffmpeg`. Probe those prefixes so a Homebrew FFmpeg is picked up automatically.
+        // (/opt/homebrew on Apple Silicon, /usr/local on Intel), so a bare-name load would miss it. Homebrew's
+        // `ffmpeg` formula tracks the newest major; the pinned 8.x ships as the keg-only `ffmpeg@8`, which
+        // lives under opt/ffmpeg@8 and is never linked into lib, so probe that first.
         if (OperatingSystem.IsMacOS())
         {
-            foreach (string brewLib in (string[])["/opt/homebrew/lib", "/usr/local/lib"])
+            foreach (
+                string brewLib in (string[])
+                    [
+                        "/opt/homebrew/opt/ffmpeg@8/lib",
+                        "/usr/local/opt/ffmpeg@8/lib",
+                        "/opt/homebrew/lib",
+                        "/usr/local/lib",
+                    ]
+            )
             {
                 if (ContainsFFmpeg(brewLib))
                 {
@@ -100,13 +110,26 @@ public static class FFmpegLibrary
         return null;
     }
 
-    private static bool ContainsFFmpeg(string directory) =>
-        Directory.Exists(directory)
-        && Directory
-            .EnumerateFiles(directory)
-            // Match the avcodec shared library under every platform's naming: Windows "avcodec-62.dll",
-            // Linux "libavcodec.so.62", macOS "libavcodec.62.dylib".
-            .Any(f => Path.GetFileName(f).Contains("avcodec", StringComparison.OrdinalIgnoreCase));
+    // A directory only counts when it holds the avcodec major these bindings were generated for. Any other
+    // major fails to load, so skipping it lets the probe move on to a compatible install instead.
+    private static bool ContainsFFmpeg(string directory)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return false;
+        }
+
+        string major = ffmpeg.LibraryVersionMap["avcodec"].ToString(CultureInfo.InvariantCulture);
+        return Directory.EnumerateFiles(directory).Any(f => IsAvcodec(Path.GetFileName(f), major));
+    }
+
+    // The avcodec shared library under every platform's naming: Windows "avcodec-62.dll", Linux
+    // "libavcodec.so.62" (plus its full-version file), macOS "libavcodec.62.dylib" (likewise).
+    private static bool IsAvcodec(string fileName, string major) =>
+        fileName.Equals($"avcodec-{major}.dll", StringComparison.OrdinalIgnoreCase)
+        || fileName.Equals($"libavcodec.so.{major}", StringComparison.Ordinal)
+        || fileName.StartsWith($"libavcodec.so.{major}.", StringComparison.Ordinal)
+        || fileName.StartsWith($"libavcodec.{major}.", StringComparison.Ordinal);
 
     /// <summary>
     /// Load the native FFmpeg libraries from <paramref name="nativeDirectory"/>. Idempotent; the first
