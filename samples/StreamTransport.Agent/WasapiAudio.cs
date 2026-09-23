@@ -8,7 +8,7 @@ using AudioSampleFormat = Agash.StreamTransport.AudioSampleFormat;
 namespace StreamTransport.Agent;
 
 /// <summary>
-/// Windows audio playout (the Windows companion to <see cref="PipeWireAudioPublishSink"/>): renders decoded PCM
+/// Windows audio playout (the Windows companion to the Linux <c>PipeWireAudioPublishSink</c>): renders decoded PCM
 /// to the default WASAPI render device via NAudio, so OBS (Desktop / Application audio capture) and the rest of
 /// the system hear it. WASAPI's render thread <i>pulls</i> through <see cref="IWaveProvider.Read"/>, which drains
 /// the shared <see cref="PullAudioRingBuffer"/> (bounded backlog; underrun fills silence to keep the clock).
@@ -100,8 +100,8 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
 }
 
 /// <summary>
-/// Windows audio capture for the sender: the default microphone (<see cref="WasapiCapture"/>) or the system
-/// output loopback (<see cref="WasapiLoopbackCapture"/>, i.e. "what you hear" - the desktop-audio source for the
+/// Windows audio capture for the sender: the default microphone or the system output loopback
+/// (<see cref="WasapiRecorderBuilder.WithLoopbackCapture"/>, i.e. "what you hear" - the desktop-audio source for the
 /// Spout GPU scenario). Captured frames are converted to 48 kHz S16 and pulled by the engine via
 /// <see cref="TryGetFrame"/>. NAudio raises <c>DataAvailable</c> on its own thread; we queue and hand off.
 /// </summary>
@@ -128,7 +128,7 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
         _capture = builder.Build();
         _channels = _capture.WaveFormat.Channels;
         _sampleRate = _capture.WaveFormat.SampleRate;
-        _capture.DataAvailable += (buffer, _) => HandleCapturedData(buffer);
+        _capture.DataAvailable += (buffer, _, _, _) => HandleCapturedData(buffer);
         _capture.StartRecording();
     }
 

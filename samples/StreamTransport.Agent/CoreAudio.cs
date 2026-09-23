@@ -9,7 +9,8 @@ using AudioSampleFormat = Agash.StreamTransport.AudioSampleFormat;
 namespace StreamTransport.Agent;
 
 /// <summary>
-/// macOS audio playout (the macOS companion to <see cref="WasapiAudioPublishSink"/> / PipeWireAudioPublishSink):
+/// macOS audio playout (the macOS companion to the Windows <c>WasapiAudioPublishSink</c> and the Linux
+/// <c>PipeWireAudioPublishSink</c>):
 /// renders decoded PCM to the default output device via the CoreAudio default-output AudioUnit, so the system
 /// (and OBS desktop-audio capture) hears it. The AudioUnit's realtime thread <i>pulls</i> through a render
 /// callback that drains the shared <see cref="PullAudioRingBuffer"/> (bounded backlog; underrun fills silence to
