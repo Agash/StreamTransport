@@ -15,12 +15,18 @@ public sealed class SignalingRouterTests
         var transport = new CapturingTransport();
         await using ISignalingSession session = router.Connect(transport);
 
-        await session.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room));
+        await session.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room)
+        );
 
         WelcomeMessage welcome = transport.Single<WelcomeMessage>();
         Assert.AreEqual(Room, welcome.RoomState.Code);
         Assert.AreEqual(welcome.PeerId, session.PeerId);
-        Assert.AreEqual(0, welcome.RoomState.Peers.Count, "the publisher is the only peer and is not listed to itself.");
+        Assert.AreEqual(
+            0,
+            welcome.RoomState.Peers.Count,
+            "the publisher is the only peer and is not listed to itself."
+        );
     }
 
     [TestMethod]
@@ -30,7 +36,9 @@ public sealed class SignalingRouterTests
         var transport = new CapturingTransport();
         await using ISignalingSession session = router.Connect(transport);
 
-        await session.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room));
+        await session.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room)
+        );
 
         SignalingErrorMessage error = transport.Single<SignalingErrorMessage>();
         Assert.AreEqual(SignalingErrorCode.RoomNotFound, error.Code);
@@ -44,9 +52,14 @@ public sealed class SignalingRouterTests
         var transport = new CapturingTransport();
         await using ISignalingSession session = router.Connect(transport);
 
-        await session.ReceiveAsync(new HelloMessage(SignalingProtocol.Version + 1, PeerRole.Publisher, Room));
+        await session.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version + 1, PeerRole.Publisher, Room)
+        );
 
-        Assert.AreEqual(SignalingErrorCode.VersionMismatch, transport.Single<SignalingErrorMessage>().Code);
+        Assert.AreEqual(
+            SignalingErrorCode.VersionMismatch,
+            transport.Single<SignalingErrorMessage>().Code
+        );
     }
 
     [TestMethod]
@@ -58,8 +71,12 @@ public sealed class SignalingRouterTests
         await using ISignalingSession publisher = router.Connect(pubTransport);
         await using ISignalingSession subscriber = router.Connect(subTransport);
 
-        await publisher.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room));
-        await subscriber.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room));
+        await publisher.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room)
+        );
+        await subscriber.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room)
+        );
 
         // The subscriber's welcome lists the publisher.
         WelcomeMessage subWelcome = subTransport.Single<WelcomeMessage>();
@@ -82,8 +99,12 @@ public sealed class SignalingRouterTests
         await using ISignalingSession publisher = router.Connect(pubTransport);
         await using ISignalingSession subscriber = router.Connect(subTransport);
 
-        await publisher.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room));
-        await subscriber.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room));
+        await publisher.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room)
+        );
+        await subscriber.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room)
+        );
         PeerId subId = subscriber.PeerId!.Value;
         PeerId pubId = publisher.PeerId!.Value;
 
@@ -91,7 +112,11 @@ public sealed class SignalingRouterTests
 
         SdpMessage routed = subTransport.Single<SdpMessage>();
         Assert.AreEqual("sdp-body", routed.Sdp);
-        Assert.AreEqual(pubId, routed.From, "the router stamps From from the originating session, not the client.");
+        Assert.AreEqual(
+            pubId,
+            routed.From,
+            "the router stamps From from the originating session, not the client."
+        );
         Assert.AreEqual(subId, routed.To);
     }
 
@@ -104,8 +129,12 @@ public sealed class SignalingRouterTests
         await using ISignalingSession publisher = router.Connect(pubTransport);
         await using ISignalingSession subscriber = router.Connect(subTransport);
 
-        await publisher.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room));
-        await subscriber.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room));
+        await publisher.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room)
+        );
+        await subscriber.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room)
+        );
         PeerId subId = subscriber.PeerId!.Value;
         PeerId pubId = publisher.PeerId!.Value;
 
@@ -114,7 +143,11 @@ public sealed class SignalingRouterTests
         PeerControlMessage routed = subTransport.Single<PeerControlMessage>();
         Assert.AreEqual("stream.alpha", routed.Topic);
         Assert.AreEqual("1", routed.Payload);
-        Assert.AreEqual(pubId, routed.From, "the router stamps From from the originating session, not the client.");
+        Assert.AreEqual(
+            pubId,
+            routed.From,
+            "the router stamps From from the originating session, not the client."
+        );
         Assert.AreEqual(subId, routed.To);
     }
 
@@ -127,8 +160,12 @@ public sealed class SignalingRouterTests
         await using ISignalingSession publisher = router.Connect(pubTransport);
         await using ISignalingSession subscriber = router.Connect(subTransport);
 
-        await publisher.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room));
-        await subscriber.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room));
+        await publisher.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room)
+        );
+        await subscriber.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room)
+        );
         PeerId pubId = publisher.PeerId!.Value;
 
         await publisher.ReceiveAsync(new PeerControlMessage("room.note", "hi", To: null));
@@ -136,7 +173,10 @@ public sealed class SignalingRouterTests
         PeerControlMessage fanned = subTransport.Single<PeerControlMessage>();
         Assert.AreEqual("room.note", fanned.Topic);
         Assert.AreEqual(pubId, fanned.From);
-        Assert.IsFalse(pubTransport.Any<PeerControlMessage>(), "the sender does not receive its own broadcast.");
+        Assert.IsFalse(
+            pubTransport.Any<PeerControlMessage>(),
+            "the sender does not receive its own broadcast."
+        );
     }
 
     [TestMethod]
@@ -148,8 +188,12 @@ public sealed class SignalingRouterTests
         ISignalingSession publisher = router.Connect(pubTransport);
         await using ISignalingSession subscriber = router.Connect(subTransport);
 
-        await publisher.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room));
-        await subscriber.ReceiveAsync(new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room));
+        await publisher.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Publisher, Room)
+        );
+        await subscriber.ReceiveAsync(
+            new HelloMessage(SignalingProtocol.Version, PeerRole.Subscriber, Room)
+        );
         PeerId pubId = publisher.PeerId!.Value;
 
         await publisher.DisposeAsync();
@@ -163,7 +207,10 @@ public sealed class SignalingRouterTests
     {
         private readonly List<SignalingMessage> _sent = [];
 
-        public ValueTask SendAsync(SignalingMessage message, CancellationToken cancellationToken = default)
+        public ValueTask SendAsync(
+            SignalingMessage message,
+            CancellationToken cancellationToken = default
+        )
         {
             lock (_sent)
             {
@@ -173,7 +220,8 @@ public sealed class SignalingRouterTests
             return ValueTask.CompletedTask;
         }
 
-        public T Single<T>() where T : SignalingMessage
+        public T Single<T>()
+            where T : SignalingMessage
         {
             lock (_sent)
             {
@@ -181,7 +229,8 @@ public sealed class SignalingRouterTests
             }
         }
 
-        public bool Any<T>() where T : SignalingMessage
+        public bool Any<T>()
+            where T : SignalingMessage
         {
             lock (_sent)
             {

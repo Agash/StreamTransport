@@ -15,8 +15,8 @@ internal sealed class PullAudioRingBuffer(int maxBytes)
 {
     private readonly Lock _gate = new();
     private readonly Queue<byte[]> _chunks = new();
-    private int _headOffset;   // bytes already consumed from the chunk at the head of the queue
-    private int _queuedBytes;  // total bytes across queued chunks (including the consumed head prefix)
+    private int _headOffset; // bytes already consumed from the chunk at the head of the queue
+    private int _queuedBytes; // total bytes across queued chunks (including the consumed head prefix)
 
     /// <summary>Queue a copy of <paramref name="samples"/>, dropping the oldest chunks if over the byte cap.</summary>
     public void Write(ReadOnlySpan<byte> samples)

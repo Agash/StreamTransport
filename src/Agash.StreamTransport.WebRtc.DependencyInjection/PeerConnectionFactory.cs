@@ -7,7 +7,10 @@ namespace Agash.StreamTransport.WebRtc.DependencyInjection;
 /// this from the container rather than constructing a peer connection by hand, so the DTLS-SRTP engine and
 /// logger are wired consistently.
 /// </summary>
-public sealed class PeerConnectionFactory(IDtlsTransportFactory dtlsTransportFactory, ILoggerFactory? loggerFactory = null)
+public sealed class PeerConnectionFactory(
+    IDtlsTransportFactory dtlsTransportFactory,
+    ILoggerFactory? loggerFactory = null
+)
 {
     /// <summary>Creates a peer connection for the given media configuration.</summary>
     public PeerConnection Create(PeerConnectionOptions options) =>

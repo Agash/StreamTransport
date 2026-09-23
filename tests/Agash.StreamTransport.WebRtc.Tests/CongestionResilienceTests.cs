@@ -60,10 +60,14 @@ public sealed class CongestionResilienceTests
                     new PacketResult(seq++, 1200, now - 30_000, -1),
                     new PacketResult(seq++, 1200, now - 30_000, -1),
                 ],
-                now);
+                now
+            );
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps < peak, "the sustained loss spike must back the rate off.");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps < peak,
+            "the sustained loss spike must back the rate off."
+        );
 
         // Clean delivery resumes; count feedback intervals until it climbs back to 90% of the pre-spike rate.
         int intervals = 0;
@@ -75,9 +79,15 @@ public sealed class CongestionResilienceTests
             intervals++;
         }
 
-        Assert.IsTrue(intervals < max, $"should recover to 90% of peak; gave up after {intervals} intervals.");
+        Assert.IsTrue(
+            intervals < max,
+            $"should recover to 90% of peak; gave up after {intervals} intervals."
+        );
         // Documents the recovery speed: intervals * 20 ms.
-        Assert.IsTrue(intervals * IntervalMicros / 1000 < 10_000, $"recovery took {intervals * IntervalMicros / 1000} ms (> 10 s).");
+        Assert.IsTrue(
+            intervals * IntervalMicros / 1000 < 10_000,
+            $"recovery took {intervals * IntervalMicros / 1000} ms (> 10 s)."
+        );
     }
 
     [TestMethod]
@@ -101,16 +111,23 @@ public sealed class CongestionResilienceTests
             long sendTime = now - IntervalMicros;
             for (int i = 0; i < results.Length; i++)
             {
-                results[i] = i % 2 == 0
-                    ? new PacketResult(seq++, 1200, sendTime, sendTime + 10_000)
-                    : new PacketResult(seq++, 1200, sendTime, -1);
+                results[i] =
+                    i % 2 == 0
+                        ? new PacketResult(seq++, 1200, sendTime, sendTime + 10_000)
+                        : new PacketResult(seq++, 1200, sendTime, -1);
             }
 
             controller.OnFeedback(results, now);
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps < Options.MaxBitrateBps / 4, "sustained loss must collapse the rate.");
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps >= Options.MinBitrateBps, "the rate must never drop below the floor.");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps < Options.MaxBitrateBps / 4,
+            "sustained loss must collapse the rate."
+        );
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps >= Options.MinBitrateBps,
+            "the rate must never drop below the floor."
+        );
     }
 
     [TestMethod]
@@ -132,7 +149,10 @@ public sealed class CongestionResilienceTests
         now += 2_000_000;
         controller.OnProcessInterval(now);
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps < before, "feedback starvation must ease the rate off.");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps < before,
+            "feedback starvation must ease the rate off."
+        );
     }
 
     [TestMethod]
@@ -150,7 +170,10 @@ public sealed class CongestionResilienceTests
         }
 
         long rttMs = controller.CurrentEstimate.SmoothedRttMicros / 1000;
-        Assert.IsTrue(rttMs is > 20 and < 60, $"smoothed RTT should converge near 40 ms, got {rttMs} ms.");
+        Assert.IsTrue(
+            rttMs is > 20 and < 60,
+            $"smoothed RTT should converge near 40 ms, got {rttMs} ms."
+        );
         Assert.IsTrue(controller.CurrentEstimate.BaseRttMicros > 0, "base RTT should be set.");
     }
 }

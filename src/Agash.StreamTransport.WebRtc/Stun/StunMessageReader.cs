@@ -15,7 +15,8 @@ public readonly ref struct StunMessageReader
     {
         Raw = message;
         (StunMessageClass cls, StunMethod method) = StunHeader.DecodeType(
-            BinaryPrimitives.ReadUInt16BigEndian(message));
+            BinaryPrimitives.ReadUInt16BigEndian(message)
+        );
         Class = cls;
         Method = method;
     }
@@ -119,7 +120,10 @@ public readonly ref struct StunMessageReader
     public bool TryGetXorMappedAddress(out IPEndPoint endpoint)
     {
         endpoint = default!;
-        if (!TryFindAttribute(StunAttributeType.XorMappedAddress, out ReadOnlySpan<byte> value) || value.Length < 8)
+        if (
+            !TryFindAttribute(StunAttributeType.XorMappedAddress, out ReadOnlySpan<byte> value)
+            || value.Length < 8
+        )
         {
             return false;
         }
@@ -234,9 +238,10 @@ public readonly ref struct StunMessageReader
     {
         // CRC over the message with the length field set to (bodySoFar + 8). The body length is
         // (precedingMessage.Length - header) + 8.
-        Span<byte> buffer = precedingMessage.Length <= 512
-            ? stackalloc byte[precedingMessage.Length]
-            : new byte[precedingMessage.Length];
+        Span<byte> buffer =
+            precedingMessage.Length <= 512
+                ? stackalloc byte[precedingMessage.Length]
+                : new byte[precedingMessage.Length];
         precedingMessage.CopyTo(buffer);
         int adjustedBody = precedingMessage.Length - StunHeader.Length + 8;
         BinaryPrimitives.WriteUInt16BigEndian(buffer[2..], (ushort)adjustedBody);
@@ -249,7 +254,12 @@ public readonly ref struct StunMessageReader
     /// covers the message up to <paramref name="miStart"/> with the header length set to include the
     /// 24-byte attribute.
     /// </summary>
-    internal static void ComputeMessageIntegrity(ReadOnlySpan<byte> message, int miStart, ReadOnlySpan<byte> key, Span<byte> destination)
+    internal static void ComputeMessageIntegrity(
+        ReadOnlySpan<byte> message,
+        int miStart,
+        ReadOnlySpan<byte> key,
+        Span<byte> destination
+    )
     {
         Span<byte> buffer = miStart <= 512 ? stackalloc byte[miStart] : new byte[miStart];
         message[..miStart].CopyTo(buffer);

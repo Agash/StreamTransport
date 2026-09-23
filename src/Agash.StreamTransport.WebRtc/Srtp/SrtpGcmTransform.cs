@@ -27,7 +27,13 @@ public static class SrtpGcmTransform
     /// payload is encrypted, and the 16-octet tag is appended. <paramref name="packet"/> must have room for
     /// <paramref name="length"/> + <see cref="TagLength"/> bytes.
     /// </summary>
-    public static int ProtectRtp(ReadOnlySpan<byte> sessionKey, ReadOnlySpan<byte> sessionSalt, uint rolloverCounter, Span<byte> packet, int length)
+    public static int ProtectRtp(
+        ReadOnlySpan<byte> sessionKey,
+        ReadOnlySpan<byte> sessionSalt,
+        uint rolloverCounter,
+        Span<byte> packet,
+        int length
+    )
     {
         int headerLength = RtpHeaderLength(packet[..length]);
         uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
@@ -48,7 +54,14 @@ public static class SrtpGcmTransform
     /// recovered plaintext length to <paramref name="plaintextLength"/>. Returns <see langword="false"/>
     /// (without modifying the caller's view of validity) if authentication fails.
     /// </summary>
-    public static bool UnprotectRtp(ReadOnlySpan<byte> sessionKey, ReadOnlySpan<byte> sessionSalt, uint rolloverCounter, Span<byte> packet, int length, out int plaintextLength)
+    public static bool UnprotectRtp(
+        ReadOnlySpan<byte> sessionKey,
+        ReadOnlySpan<byte> sessionSalt,
+        uint rolloverCounter,
+        Span<byte> packet,
+        int length,
+        out int plaintextLength
+    )
     {
         plaintextLength = 0;
         if (length < TagLength)
@@ -92,7 +105,13 @@ public static class SrtpGcmTransform
     /// Encrypts an RTCP packet in place (RFC 7714 §9): the 8-octet header is authenticated, the rest is
     /// encrypted, then the 4-octet E-flag/SRTCP-index trailer and the 16-octet tag are appended.
     /// </summary>
-    public static int ProtectRtcp(ReadOnlySpan<byte> sessionKey, ReadOnlySpan<byte> sessionSalt, uint srtcpIndex, Span<byte> packet, int length)
+    public static int ProtectRtcp(
+        ReadOnlySpan<byte> sessionKey,
+        ReadOnlySpan<byte> sessionSalt,
+        uint srtcpIndex,
+        Span<byte> packet,
+        int length
+    )
     {
         uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
 
@@ -117,7 +136,13 @@ public static class SrtpGcmTransform
     /// recovered RTCP length to <paramref name="plaintextLength"/>. Returns <see langword="false"/> on
     /// authentication failure.
     /// </summary>
-    public static bool UnprotectRtcp(ReadOnlySpan<byte> sessionKey, ReadOnlySpan<byte> sessionSalt, Span<byte> packet, int length, out int plaintextLength)
+    public static bool UnprotectRtcp(
+        ReadOnlySpan<byte> sessionKey,
+        ReadOnlySpan<byte> sessionSalt,
+        Span<byte> packet,
+        int length,
+        out int plaintextLength
+    )
     {
         plaintextLength = 0;
         if (length < 8 + RtcpOverhead)
@@ -154,7 +179,12 @@ public static class SrtpGcmTransform
     }
 
     /// <summary>Forms the 12-octet AES-GCM SRTCP IV (RFC 7714 §9.1): <c>(00 00 || SSRC || 00 00 || index) XOR salt</c>.</summary>
-    internal static void FormRtcpIv(ReadOnlySpan<byte> salt, uint ssrc, uint srtcpIndex, Span<byte> iv)
+    internal static void FormRtcpIv(
+        ReadOnlySpan<byte> salt,
+        uint ssrc,
+        uint srtcpIndex,
+        Span<byte> iv
+    )
     {
         Span<byte> x = stackalloc byte[SaltLength];
         BinaryPrimitives.WriteUInt32BigEndian(x[2..], ssrc);
@@ -168,7 +198,13 @@ public static class SrtpGcmTransform
     /// <summary>
     /// Forms the 12-octet AES-GCM SRTP IV (RFC 7714 §8.1): <c>(00 00 || SSRC || ROC || SEQ) XOR salt</c>.
     /// </summary>
-    internal static void FormRtpIv(ReadOnlySpan<byte> salt, uint ssrc, uint roc, ushort seq, Span<byte> iv)
+    internal static void FormRtpIv(
+        ReadOnlySpan<byte> salt,
+        uint ssrc,
+        uint roc,
+        ushort seq,
+        Span<byte> iv
+    )
     {
         Span<byte> x = stackalloc byte[SaltLength];
         x[0] = 0;

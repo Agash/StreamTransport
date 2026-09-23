@@ -10,11 +10,27 @@ public sealed class RtxTests
     {
         byte[] payload = [0x01, 0x02, 0x03, 0x04, 0x05];
         byte[] original = new byte[64];
-        int originalLength = RtpPacket.Write(original, marker: true, payloadType: 96, sequenceNumber: 5000,
-            timestamp: 0x12345678, ssrc: 0xAAAA_BBBB, payload);
+        int originalLength = RtpPacket.Write(
+            original,
+            marker: true,
+            payloadType: 96,
+            sequenceNumber: 5000,
+            timestamp: 0x12345678,
+            ssrc: 0xAAAA_BBBB,
+            payload
+        );
 
         byte[] rtx = new byte[128];
-        Assert.IsTrue(RtxStream.TryWrap(original.AsSpan(0, originalLength), rtx, rtxPayloadType: 97, rtxSsrc: 0xAAAA_BBBC, rtxSequence: 10, out int rtxLength));
+        Assert.IsTrue(
+            RtxStream.TryWrap(
+                original.AsSpan(0, originalLength),
+                rtx,
+                rtxPayloadType: 97,
+                rtxSsrc: 0xAAAA_BBBC,
+                rtxSequence: 10,
+                out int rtxLength
+            )
+        );
 
         // The RTX packet carries the RTX PT/SSRC/seq.
         Assert.IsTrue(RtpPacket.TryParse(rtx.AsSpan(0, rtxLength), out RtpHeader rtxHeader, out _));
@@ -23,9 +39,23 @@ public sealed class RtxTests
         Assert.AreEqual(10, rtxHeader.SequenceNumber);
 
         byte[] recovered = new byte[64];
-        Assert.IsTrue(RtxStream.TryUnwrap(rtx.AsSpan(0, rtxLength), recovered, originalPayloadType: 96, originalSsrc: 0xAAAA_BBBB, out int recoveredLength));
+        Assert.IsTrue(
+            RtxStream.TryUnwrap(
+                rtx.AsSpan(0, rtxLength),
+                recovered,
+                originalPayloadType: 96,
+                originalSsrc: 0xAAAA_BBBB,
+                out int recoveredLength
+            )
+        );
 
-        Assert.IsTrue(RtpPacket.TryParse(recovered.AsSpan(0, recoveredLength), out RtpHeader header, out ReadOnlySpan<byte> recoveredPayload));
+        Assert.IsTrue(
+            RtpPacket.TryParse(
+                recovered.AsSpan(0, recoveredLength),
+                out RtpHeader header,
+                out ReadOnlySpan<byte> recoveredPayload
+            )
+        );
         Assert.AreEqual(96, header.PayloadType);
         Assert.AreEqual(0xAAAA_BBBBu, header.Ssrc);
         Assert.AreEqual(5000, header.SequenceNumber);

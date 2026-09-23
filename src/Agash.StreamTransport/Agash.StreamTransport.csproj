@@ -18,10 +18,13 @@
     -->
     <TargetFrameworks>net11.0</TargetFrameworks>
     <IsAotCompatible>true</IsAotCompatible>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(PackAllTargets)' == 'true'">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks
+      Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(PackAllTargets)' == 'true'"
+      >$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
     <!-- macOS head: the GPU Metal surface transforms (Metal/IOSurface managed bindings) need the -macos TFM.
          The rest of the macOS path (VideoToolbox/CoreVideo) stays on the base TFM via runtime P/Invoke. -->
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX')) or '$(PackAllTargets)' == 'true'">$(TargetFrameworks);net11.0-macos</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX')) or '$(PackAllTargets)' == 'true'"
+      >$(TargetFrameworks);net11.0-macos</TargetFrameworks>
     <!-- Building the -windows head off Windows is ref-assembly only (no Windows SDK needed); the SDK refuses
          without this opt-in. Harmless on Windows. -->
     <EnableWindowsTargeting Condition="'$(PackAllTargets)' == 'true'">true</EnableWindowsTargeting>
@@ -93,21 +96,42 @@
     <ComputeShaderSource Include="Codecs/Shaders/alpha_unpack_bgra.comp" />
     <None Include="@(ComputeShaderSource)" />
     <EmbeddedResource Include="Codecs/Shaders/alpha_pack.spv" LogicalName="alpha_pack.spv" />
-    <EmbeddedResource Include="Codecs/Shaders/alpha_unpack_nv12.spv" LogicalName="alpha_unpack_nv12.spv" />
-    <EmbeddedResource Include="Codecs/Shaders/alpha_unpack_bgra.spv" LogicalName="alpha_unpack_bgra.spv" />
+    <EmbeddedResource
+      Include="Codecs/Shaders/alpha_unpack_nv12.spv"
+      LogicalName="alpha_unpack_nv12.spv"
+    />
+    <EmbeddedResource
+      Include="Codecs/Shaders/alpha_unpack_bgra.spv"
+      LogicalName="alpha_unpack_bgra.spv"
+    />
   </ItemGroup>
 
-  <Target Name="CompileComputeShadersToSpirV" BeforeTargets="PrepareForBuild"
-          Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
-          Inputs="@(ComputeShaderSource)"
-          Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')">
-    <Exec Command="command -v glslc" ConsoleToMSBuild="true" ContinueOnError="true" IgnoreExitCode="true" StandardErrorImportance="low" StandardOutputImportance="low">
+  <Target
+    Name="CompileComputeShadersToSpirV"
+    BeforeTargets="PrepareForBuild"
+    Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
+    Inputs="@(ComputeShaderSource)"
+    Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')"
+  >
+    <Exec
+      Command="command -v glslc"
+      ConsoleToMSBuild="true"
+      ContinueOnError="true"
+      IgnoreExitCode="true"
+      StandardErrorImportance="low"
+      StandardOutputImportance="low"
+    >
       <Output TaskParameter="ExitCode" PropertyName="_GlslcExit" />
     </Exec>
-    <Message Condition="'$(_GlslcExit)' != '0'" Importance="high"
-             Text="glslc not found; using the committed SPIR-V (.spv) for the Vulkan compute shaders." />
-    <Exec Condition="'$(_GlslcExit)' == '0'"
-          Command="glslc -O &quot;%(ComputeShaderSource.FullPath)&quot; -o &quot;%(ComputeShaderSource.RootDir)%(ComputeShaderSource.Directory)%(ComputeShaderSource.Filename).spv&quot;" />
+    <Message
+      Condition="'$(_GlslcExit)' != '0'"
+      Importance="high"
+      Text="glslc not found; using the committed SPIR-V (.spv) for the Vulkan compute shaders."
+    />
+    <Exec
+      Condition="'$(_GlslcExit)' == '0'"
+      Command="glslc -O &quot;%(ComputeShaderSource.FullPath)&quot; -o &quot;%(ComputeShaderSource.RootDir)%(ComputeShaderSource.Directory)%(ComputeShaderSource.Filename).spv&quot;"
+    />
   </Target>
 
   <ItemGroup>
@@ -139,6 +163,11 @@
   -->
   <ItemGroup>
     <_FFmpegNative Include="..\..\native\ffmpeg\**\*.dll;..\..\native\ffmpeg\**\*.so*;..\..\native\ffmpeg\**\*.dylib" />
-    <None Include="@(_FFmpegNative)" Pack="true" PackagePath="runtimes\%(RecursiveDir)native\%(Filename)%(Extension)" Visible="false" />
+    <None
+      Include="@(_FFmpegNative)"
+      Pack="true"
+      PackagePath="runtimes\%(RecursiveDir)native\%(Filename)%(Extension)"
+      Visible="false"
+    />
   </ItemGroup>
 </Project>

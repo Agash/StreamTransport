@@ -17,7 +17,12 @@ public ref struct StunMessageWriter
     /// Writes the 20-byte STUN header into <paramref name="buffer"/> with a zero body length, which is
     /// kept current as attributes are appended.
     /// </summary>
-    public StunMessageWriter(Span<byte> buffer, StunMessageClass messageClass, StunMethod method, ReadOnlySpan<byte> transactionId)
+    public StunMessageWriter(
+        Span<byte> buffer,
+        StunMessageClass messageClass,
+        StunMethod method,
+        ReadOnlySpan<byte> transactionId
+    )
     {
         if (buffer.Length < StunHeader.Length)
         {

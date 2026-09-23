@@ -7,12 +7,18 @@ namespace StreamTransport.Agent;
 /// <summary>Publisher run loop: connect, capture, encode, fan out.</summary>
 internal sealed class Publish(AgentMediaFactory media)
 {
-    public async Task<int> RunAsync(AgentConfig config, MediaSessionFactory transport, CancellationToken cancellationToken)
+    public async Task<int> RunAsync(
+        AgentConfig config,
+        MediaSessionFactory transport,
+        CancellationToken cancellationToken
+    )
     {
         bool video = config.Video;
         if (video && !FfmpegReady())
         {
-            AnsiConsole.MarkupLine("[yellow]FFmpeg natives not found - falling back to audio-only.[/]");
+            AnsiConsole.MarkupLine(
+                "[yellow]FFmpeg natives not found - falling back to audio-only.[/]"
+            );
             video = false;
         }
 
@@ -67,9 +73,16 @@ internal sealed class Publish(AgentMediaFactory media)
             }
 #endif
 #if HAS_PIPEWIRE
-            else if (config.Source == VideoSourceKind.PipeWire && video && OperatingSystem.IsLinux())
+            else if (
+                config.Source == VideoSourceKind.PipeWire
+                && video
+                && OperatingSystem.IsLinux()
+            )
             {
-                var pw = await media.CreatePipeWireCaptureAsync(PipeWire.NET.PipeWireVideoCapture.AnyNode, config.Alpha);
+                var pw = await media.CreatePipeWireCaptureAsync(
+                    PipeWire.NET.PipeWireVideoCapture.AnyNode,
+                    config.Alpha
+                );
                 asyncSource = pw;
                 videoSource = pw;
                 encoderName ??= "hevc_vaapi"; // Linux Intel/AMD; override with --encoder for nvenc.
@@ -92,17 +105,29 @@ internal sealed class Publish(AgentMediaFactory media)
             {
                 if (config.Source == VideoSourceKind.Spout)
                 {
-                    AnsiConsole.MarkupLine("[yellow]Spout capture is only available in the Windows build; using the test pattern.[/]");
+                    AnsiConsole.MarkupLine(
+                        "[yellow]Spout capture is only available in the Windows build; using the test pattern.[/]"
+                    );
                 }
 
                 // --verify makes the synthetic source emit correlated A/V sync markers for the receiver.
-                videoSource = video ? new TestPatternVideoSource(config.Width, config.Height, config.Fps, config.Alpha, config.Verify) : null;
+                videoSource = video
+                    ? new TestPatternVideoSource(
+                        config.Width,
+                        config.Height,
+                        config.Fps,
+                        config.Alpha,
+                        config.Verify
+                    )
+                    : null;
                 audioSource = config.Audio ? new SineToneAudioSource(config.Verify) : null;
             }
 
             if (videoSource is null && audioSource is null)
             {
-                AnsiConsole.MarkupLine("[red]nothing to publish (no usable video or audio source).[/]");
+                AnsiConsole.MarkupLine(
+                    "[red]nothing to publish (no usable video or audio source).[/]"
+                );
                 return 1;
             }
 
@@ -115,7 +140,9 @@ internal sealed class Publish(AgentMediaFactory media)
                 connectUri = embedded.LocalWebSocketUri;
                 if (config.DevTunnel)
                 {
-                    AnsiConsole.MarkupLine("[grey]starting DevTunnel (this uses the authenticated devtunnel CLI)...[/]");
+                    AnsiConsole.MarkupLine(
+                        "[grey]starting DevTunnel (this uses the authenticated devtunnel CLI)...[/]"
+                    );
                     tunnel = await SignalingTunnel.StartAsync(embedded.Port, cancellationToken);
                     receiverRelay = tunnel.PublicWebSocketUri.ToString();
                 }
@@ -140,22 +167,37 @@ internal sealed class Publish(AgentMediaFactory media)
                 MaxVideoBFrames = config.BFrames > 0 ? config.BFrames : baseline.MaxVideoBFrames,
                 LocalAddressPreferences = config.Interfaces ?? [],
             };
-            AnsiConsole.MarkupLineInterpolated($"connecting to [teal]{connectUri}[/] as publisher...");
+            AnsiConsole.MarkupLineInterpolated(
+                $"connecting to [teal]{connectUri}[/] as publisher..."
+            );
             await using RoomClient room = await RoomClient.ConnectAsync(
-                connectUri, new RoomCode(config.Room), PeerRole.Publisher, cancellationToken);
+                connectUri,
+                new RoomCode(config.Room),
+                PeerRole.Publisher,
+                cancellationToken
+            );
 
-            await using MediaPublisher publisher = transport.CreatePublisher(options, room, videoSource, audioSource, gpuDevice);
+            await using MediaPublisher publisher = transport.CreatePublisher(
+                options,
+                room,
+                videoSource,
+                audioSource,
+                gpuDevice
+            );
             publisher.Start();
 
             AnsiConsole.Write(SessionPanel(config, room, videoSource, audioSource));
             AnsiConsole.MarkupLineInterpolated(
-                $"receivers run: [grey]receive --relay {receiverRelay} --room {config.Room}[/]");
+                $"receivers run: [grey]receive --relay {receiverRelay} --room {config.Room}[/]"
+            );
             AnsiConsole.MarkupLine("[grey]publishing; press Ctrl+C to stop.[/]");
             if (config.Verify)
             {
                 // Bounded run so the publisher disposes gracefully (and any sync diagnostics flush). Outlast
                 // the receiver's own --seconds window so it always has a peer for its whole measurement.
-                using var bounded = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                using var bounded = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken
+                );
                 bounded.CancelAfter(TimeSpan.FromSeconds(config.Seconds + 8));
                 await WaitAsync(bounded.Token);
             }
@@ -189,12 +231,20 @@ internal sealed class Publish(AgentMediaFactory media)
         }
     }
 
-    private static Panel SessionPanel(AgentConfig config, RoomClient room, IVideoFrameSource? v, IAudioFrameSource? a)
+    private static Panel SessionPanel(
+        AgentConfig config,
+        RoomClient room,
+        IVideoFrameSource? v,
+        IAudioFrameSource? a
+    )
     {
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[grey]room[/]", config.Room);
         grid.AddRow("[grey]peer id[/]", room.Self.ToString());
-        grid.AddRow("[grey]video[/]", v is null ? "off" : config.Source.ToString().ToLowerInvariant());
+        grid.AddRow(
+            "[grey]video[/]",
+            v is null ? "off" : config.Source.ToString().ToLowerInvariant()
+        );
         grid.AddRow("[grey]audio[/]", a is null ? "off" : "on (synced)");
         grid.AddRow("[grey]ice servers[/]", room.IceServers.Count.ToString());
         return new Panel(grid).Header("publishing").BorderColor(Color.Teal);
@@ -229,7 +279,11 @@ internal sealed class Publish(AgentMediaFactory media)
 /// <summary>Subscriber run loop: connect, attach to the publisher, decode into reporting sinks.</summary>
 internal sealed class Subscribe(AgentMediaFactory media)
 {
-    public async Task<int> RunAsync(AgentConfig config, MediaSessionFactory transport, CancellationToken cancellationToken)
+    public async Task<int> RunAsync(
+        AgentConfig config,
+        MediaSessionFactory transport,
+        CancellationToken cancellationToken
+    )
     {
         try
         {
@@ -237,7 +291,9 @@ internal sealed class Subscribe(AgentMediaFactory media)
         }
         catch (Exception)
         {
-            AnsiConsole.MarkupLine("[yellow]FFmpeg natives not found - video decode unavailable; audio only.[/]");
+            AnsiConsole.MarkupLine(
+                "[yellow]FFmpeg natives not found - video decode unavailable; audio only.[/]"
+            );
         }
 
         IDisposable? publishSink = null;
@@ -277,7 +333,9 @@ internal sealed class Subscribe(AgentMediaFactory media)
             // (so A/V sync is measured) rather than out to PipeWire.
             if (config.Audio && !config.Verify)
             {
-                pipeWireAudio = await media.CreatePipeWireAudioPublishAsync($"{config.PublishPipeWire} Audio");
+                pipeWireAudio = await media.CreatePipeWireAudioPublishAsync(
+                    $"{config.PublishPipeWire} Audio"
+                );
             }
         }
         else
@@ -311,7 +369,9 @@ internal sealed class Subscribe(AgentMediaFactory media)
         else
 #endif
         {
-            videoSink = config.Video ? new ReportingVideoSink(m => AnsiConsole.MarkupLineInterpolated($"[green]{m}[/]")) : null;
+            videoSink = config.Video
+                ? new ReportingVideoSink(m => AnsiConsole.MarkupLineInterpolated($"[green]{m}[/]"))
+                : null;
         }
 
         // --verify swaps in the verifying sinks: a CPU decode (so the sink sees pixels - alpha unpacks to
@@ -346,7 +406,10 @@ internal sealed class Subscribe(AgentMediaFactory media)
                 // Sync markers ride the NV12 luma so the BGRA readback leaves sync inconclusive (the CPU path
                 // is the A/V-sync proof); video flow + content + alpha are verified on the real GPU output.
                 var gpuVerify = new VerifyingVideoSink(report, usePresentationTime: true);
-                syphonVideoSink.EnableVerification(gpuVerify.Submit, report.RecordVideoPublishLatency);
+                syphonVideoSink.EnableVerification(
+                    gpuVerify.Submit,
+                    report.RecordVideoPublishLatency
+                );
             }
             else
 #endif
@@ -381,11 +444,18 @@ internal sealed class Subscribe(AgentMediaFactory media)
             PlayoutMode = config.Synced ? PlayoutMode.Synced : baseline.PlayoutMode,
             LocalAddressPreferences = config.Interfaces ?? [],
         };
-        AnsiConsole.MarkupLineInterpolated($"connecting to [teal]{config.Relay}[/] as subscriber of room [teal]{config.Room}[/]...");
+        AnsiConsole.MarkupLineInterpolated(
+            $"connecting to [teal]{config.Relay}[/] as subscriber of room [teal]{config.Room}[/]..."
+        );
         await using RoomClient room = await RoomClient.ConnectAsync(
-            config.Relay!, new RoomCode(config.Room), PeerRole.Subscriber, cancellationToken);
+            config.Relay!,
+            new RoomCode(config.Room),
+            PeerRole.Subscriber,
+            cancellationToken
+        );
 
-        IAudioFrameSink? audioSink = !config.Audio ? null
+        IAudioFrameSink? audioSink =
+            !config.Audio ? null
             : config.Verify ? new VerifyingAudioSink(report!)
 #if HAS_PIPEWIRE
             : pipeWireAudio is not null ? pipeWireAudio
@@ -409,7 +479,14 @@ internal sealed class Subscribe(AgentMediaFactory media)
 #if HAS_PIPEWIRE
         await using (pipeWireAudio)
 #endif
-        await using (MediaSubscriber subscriber = transport.CreateSubscriber(options, room, videoSink, audioSink))
+        await using (
+            MediaSubscriber subscriber = transport.CreateSubscriber(
+                options,
+                room,
+                videoSink,
+                audioSink
+            )
+        )
         {
             if (applyNegotiatedAlpha is not null)
             {
@@ -431,7 +508,8 @@ internal sealed class Subscribe(AgentMediaFactory media)
                 // --verify runs a fixed window then auto-prints the report and exits - scriptable, no Ctrl+C
                 // needed (Ctrl+C still ends it early). Robust for remotely orchestrated runs.
                 AnsiConsole.MarkupLineInterpolated(
-                    $"joined as peer [teal]{room.Self}[/]; --verify collecting for {config.Seconds}s (content + A/V sync)...");
+                    $"joined as peer [teal]{room.Self}[/]; --verify collecting for {config.Seconds}s (content + A/V sync)..."
+                );
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(config.Seconds), cancellationToken);
@@ -441,7 +519,11 @@ internal sealed class Subscribe(AgentMediaFactory media)
                     // Ctrl+C ends the window early.
                 }
 
-                report.Print(m => AnsiConsole.MarkupLineInterpolated($"[teal]{m}[/]"), config.Video, config.Audio);
+                report.Print(
+                    m => AnsiConsole.MarkupLineInterpolated($"[teal]{m}[/]"),
+                    config.Video,
+                    config.Audio
+                );
 
                 // The measurement window is done and the verdict is printed. Flush it and hard-exit instead of
                 // unwinding through sink disposal: native teardown (Syphon / CoreAudio / PipeWire) can block on
@@ -454,7 +536,9 @@ internal sealed class Subscribe(AgentMediaFactory media)
             }
             else
             {
-                AnsiConsole.MarkupLineInterpolated($"joined as peer [teal]{room.Self}[/]; {room.Peers.Count} peer(s) present. receiving; Ctrl+C to stop.");
+                AnsiConsole.MarkupLineInterpolated(
+                    $"joined as peer [teal]{room.Self}[/]; {room.Peers.Count} peer(s) present. receiving; Ctrl+C to stop."
+                );
                 await Publish.WaitAsync(cancellationToken);
             }
 
@@ -474,13 +558,13 @@ internal static class CameraCapture
 
     private static string VideoUrl(string device) =>
         OperatingSystem.IsWindows() ? $"video={device}"
-        : OperatingSystem.IsMacOS() ? device         // AVFoundation: index or name.
-        : device;                                     // v4l2: /dev/videoN.
+        : OperatingSystem.IsMacOS() ? device // AVFoundation: index or name.
+        : device; // v4l2: /dev/videoN.
 
     private static string AudioUrl(string device) =>
         OperatingSystem.IsWindows() ? $"audio={device}"
-        : OperatingSystem.IsMacOS() ? $":{device}"    // AVFoundation: ":audio".
-        : device;                                     // ALSA: device name.
+        : OperatingSystem.IsMacOS() ? $":{device}" // AVFoundation: ":audio".
+        : device; // ALSA: device name.
 
     private static Dictionary<string, string> VideoOptions() =>
         new() { ["framerate"] = "30", ["video_size"] = "1280x720" };

@@ -22,17 +22,30 @@ public sealed class DependencyInjectionTests
         var factory = provider.GetRequiredService<PeerConnectionFactory>();
         var options = new PeerConnectionOptions
         {
-            Media = [new MediaLine("0", SdpMediaKind.Audio, 0x1234, [new SdpCodec(111, "opus", 48000, 2, null, [])])],
+            Media =
+            [
+                new MediaLine(
+                    "0",
+                    SdpMediaKind.Audio,
+                    0x1234,
+                    [new SdpCodec(111, "opus", 48000, 2, null, [])]
+                ),
+            ],
         };
         await using var pc = factory.Create(options);
 
         SdpDescription offer = pc.CreateOffer();
         Assert.AreEqual(1, offer.Media.Count);
-        Assert.AreEqual(dtls.LocalFingerprint.ToSdpValue(), offer.Media[0].Fingerprint.ToSdpValue());
+        Assert.AreEqual(
+            dtls.LocalFingerprint.ToSdpValue(),
+            offer.Media[0].Fingerprint.ToSdpValue()
+        );
 
         var controller = provider.GetRequiredService<INetworkController>();
         Assert.IsInstanceOfType<ScreamCongestionController>(controller);
         Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps > 0);
-        Assert.IsTrue(controller.CurrentEstimate.PacingRateBps >= controller.CurrentEstimate.TargetBitrateBps);
+        Assert.IsTrue(
+            controller.CurrentEstimate.PacingRateBps >= controller.CurrentEstimate.TargetBitrateBps
+        );
     }
 }

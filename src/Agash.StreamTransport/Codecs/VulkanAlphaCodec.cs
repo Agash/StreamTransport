@@ -22,8 +22,8 @@ namespace Agash.StreamTransport.Codecs;
 public sealed unsafe class VulkanAlphaCodec : IDisposable
 {
     private const VkFormat BgraFormat = VkFormat.B8G8R8A8Unorm;
-    private const VkFormat R8Format = VkFormat.R8Unorm;     // NV12 luma plane.
-    private const VkFormat Rg8Format = VkFormat.R8G8Unorm;  // NV12 interleaved CbCr plane.
+    private const VkFormat R8Format = VkFormat.R8Unorm; // NV12 luma plane.
+    private const VkFormat Rg8Format = VkFormat.R8G8Unorm; // NV12 interleaved CbCr plane.
 
     private readonly VulkanComputeContext _ctx;
     private readonly VkDeviceApi _api;
@@ -68,13 +68,25 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
 
         // pack: binding 0 sampled colour+alpha, binding 1 storage packed output. Precompiled SPIR-V (see
         // VulkanComputeContext.CreateShaderModule for why it is built ahead of time, not via runtime shaderc).
-        _pack = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_pack.spv"), sampledInputs: 1);
+        _pack = ComputePipeline.Create(
+            _api,
+            ctx.CreateShaderModule("alpha_pack.spv"),
+            sampledInputs: 1
+        );
         // unpack_bgra: binding 0 sampled packed BGRA, binding 1 storage BGRA output.
-        _unpackBgra = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_unpack_bgra.spv"), sampledInputs: 1);
+        _unpackBgra = ComputePipeline.Create(
+            _api,
+            ctx.CreateShaderModule("alpha_unpack_bgra.spv"),
+            sampledInputs: 1
+        );
         // unpack_nv12: binding 0 sampled Y (R8), 1 sampled UV (R8G8), 2 storage BGRA. The common VAAPI/NVDEC
         // receive case - the hardware decoder emits the packed 2W x H frame as NV12, so we unpack from the two
         // luma/chroma planes directly rather than after a colour conversion.
-        _unpackNv12 = ComputePipeline.Create(_api, ctx.CreateShaderModule("alpha_unpack_nv12.spv"), sampledInputs: 2);
+        _unpackNv12 = ComputePipeline.Create(
+            _api,
+            ctx.CreateShaderModule("alpha_unpack_nv12.spv"),
+            sampledInputs: 2
+        );
     }
 
     /// <summary>
@@ -83,16 +95,44 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// new dmabuf fd ready to hand to the VAAPI/NVENC encoder. The returned <see cref="DmaBufImage.Fd"/> is
     /// owned by the caller (close it after encode). HW-VERIFY: import consumes <paramref name="srcFd"/>.
     /// </summary>
-    public DmaBufImage Pack(int srcFd, int width, int height, ulong srcOffset, ulong srcRowPitch, ulong srcModifier)
+    public DmaBufImage Pack(
+        int srcFd,
+        int width,
+        int height,
+        ulong srcOffset,
+        ulong srcRowPitch,
+        ulong srcModifier
+    )
     {
-        ImportedImage src = ImportImage(srcFd, BgraFormat, (uint)width, (uint)height, VkImageUsageFlags.Sampled, srcOffset, srcRowPitch, srcModifier);
-        ExportedImage dst = CreateExportableImage((uint)(width * 2), (uint)height, VkImageUsageFlags.Storage, default);
+        ImportedImage src = ImportImage(
+            srcFd,
+            BgraFormat,
+            (uint)width,
+            (uint)height,
+            VkImageUsageFlags.Sampled,
+            srcOffset,
+            srcRowPitch,
+            srcModifier
+        );
+        ExportedImage dst = CreateExportableImage(
+            (uint)(width * 2),
+            (uint)height,
+            VkImageUsageFlags.Storage,
+            default
+        );
 
         VkDescriptorSet set = AllocateSet(_pack.SetLayout);
         WriteSampledImage(set, binding: 0, src.View);
         WriteStorageImage(set, binding: 1, dst.View);
 
-        Dispatch(_pack, set, width, height, GroupCount((uint)(width * 2)), GroupCount((uint)height));
+        Dispatch(
+            _pack,
+            set,
+            width,
+            height,
+            GroupCount((uint)(width * 2)),
+            GroupCount((uint)height)
+        );
 
         DestroyImported(src);
         _api.vkFreeDescriptorSets(_descriptorPool, 1, &set).CheckResult();
@@ -110,9 +150,20 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// inverse of <see cref="Pack"/>. HW-VERIFY: importing a tiled VAAPI NV12 surface's planes as R8/R8G8
     /// Vulkan images under its DRM modifier.
     /// </summary>
-    public DmaBufImage Unpack(in Nv12Plane y, in Nv12Plane uv, int width, int height, ulong modifier)
+    public DmaBufImage Unpack(
+        in Nv12Plane y,
+        in Nv12Plane uv,
+        int width,
+        int height,
+        ulong modifier
+    )
     {
-        ExportedImage dst = CreateExportableImage((uint)width, (uint)height, VkImageUsageFlags.Storage, default);
+        ExportedImage dst = CreateExportableImage(
+            (uint)width,
+            (uint)height,
+            VkImageUsageFlags.Storage,
+            default
+        );
         UnpackInto(y, uv, width, height, modifier, dst);
         return new DmaBufImage(dst, width, height);
     }
@@ -125,8 +176,8 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// Copy a W x H output image's pixels back to a CPU BGRA buffer (GPU-&gt;host, for <c>--verify</c> content
     /// checks). Tightly packed (stride = W*4). Slow relative to the zero-copy path - use only in verify mode.
     /// </summary>
-    public byte[] ReadbackToBgra(in ExportedImage src, int width, int height)
-        => CopyImageToCpu(src.Image, width, height, 4);
+    public byte[] ReadbackToBgra(in ExportedImage src, int width, int height) =>
+        CopyImageToCpu(src.Image, width, height, 4);
 
     /// <summary>
     /// Read a decoded NV12 dmabuf surface (planes <paramref name="y"/> R8 + <paramref name="uv"/> R8G8, sharing
@@ -134,11 +185,35 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// opaque GPU path's <c>--verify</c> check. Uses Vulkan (not libva vaGetImage/vaDeriveImage, which abort
     /// inside the radeonsi driver for these tiled surfaces). For verify only; slow vs the zero-copy path.
     /// </summary>
-    public byte[] ReadbackNv12(in Nv12Plane y, in Nv12Plane uv, int width, int height, ulong modifier)
+    public byte[] ReadbackNv12(
+        in Nv12Plane y,
+        in Nv12Plane uv,
+        int width,
+        int height,
+        ulong modifier
+    )
     {
-        ImportedImage yImg = ImportImage(y.Fd, R8Format, (uint)width, (uint)height, VkImageUsageFlags.TransferSrc, y.Offset, y.RowPitch, modifier);
-        ImportedImage uvImg = ImportImage(uv.Fd, Rg8Format, (uint)(width / 2), (uint)(height / 2), VkImageUsageFlags.TransferSrc, uv.Offset, uv.RowPitch, modifier);
-        byte[] yBytes = CopyImageToCpu(yImg.Image, width, height, 1);          // R8 luma: W*H bytes
+        ImportedImage yImg = ImportImage(
+            y.Fd,
+            R8Format,
+            (uint)width,
+            (uint)height,
+            VkImageUsageFlags.TransferSrc,
+            y.Offset,
+            y.RowPitch,
+            modifier
+        );
+        ImportedImage uvImg = ImportImage(
+            uv.Fd,
+            Rg8Format,
+            (uint)(width / 2),
+            (uint)(height / 2),
+            VkImageUsageFlags.TransferSrc,
+            uv.Offset,
+            uv.RowPitch,
+            modifier
+        );
+        byte[] yBytes = CopyImageToCpu(yImg.Image, width, height, 1); // R8 luma: W*H bytes
         byte[] uvBytes = CopyImageToCpu(uvImg.Image, width / 2, height / 2, 2); // R8G8 chroma: (W/2)*(H/2)*2 = W*H/2 bytes
         DestroyImported(yImg);
         DestroyImported(uvImg);
@@ -165,7 +240,10 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
         VkMemoryAllocateInfo allocInfo = new()
         {
             allocationSize = reqs.size,
-            memoryTypeIndex = _ctx.FindMemoryType(reqs.memoryTypeBits, VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent),
+            memoryTypeIndex = _ctx.FindMemoryType(
+                reqs.memoryTypeBits,
+                VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent
+            ),
         };
         _api.vkAllocateMemory(&allocInfo, null, out VkDeviceMemory memory).CheckResult();
         _api.vkBindBufferMemory(buffer, memory, 0).CheckResult();
@@ -199,8 +277,8 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// hand those to the PipeWire <c>add_buffer</c> and reuse the image every <see cref="UnpackInto"/>. Free it
     /// with <see cref="DestroyExported"/> at teardown.
     /// </summary>
-    public ExportedImage CreateOutputImage(int width, int height, ReadOnlySpan<ulong> modifiers)
-        => CreateExportableImage((uint)width, (uint)height, VkImageUsageFlags.Storage, modifiers);
+    public ExportedImage CreateOutputImage(int width, int height, ReadOnlySpan<ulong> modifiers) =>
+        CreateExportableImage((uint)width, (uint)height, VkImageUsageFlags.Storage, modifiers);
 
     /// <summary>
     /// Unpack a decoded 2W x H NV12 dmabuf surface (planes <paramref name="y"/> R8 + <paramref name="uv"/>
@@ -209,24 +287,65 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// per-frame dmabuf is allocated. The two NV12 planes are imported and freed each call (cheap); only the
     /// reused <paramref name="dst"/> persists.
     /// </summary>
-    public void UnpackInto(in Nv12Plane y, in Nv12Plane uv, int width, int height, ulong modifier, in ExportedImage dst)
+    public void UnpackInto(
+        in Nv12Plane y,
+        in Nv12Plane uv,
+        int width,
+        int height,
+        ulong modifier,
+        in ExportedImage dst
+    )
     {
-        ImportedImage yImg = ImportImage(y.Fd, R8Format, (uint)(width * 2), (uint)height, VkImageUsageFlags.Sampled, y.Offset, y.RowPitch, modifier);
-        ImportedImage uvImg = ImportImage(uv.Fd, Rg8Format, (uint)width, (uint)(height / 2), VkImageUsageFlags.Sampled, uv.Offset, uv.RowPitch, modifier);
+        ImportedImage yImg = ImportImage(
+            y.Fd,
+            R8Format,
+            (uint)(width * 2),
+            (uint)height,
+            VkImageUsageFlags.Sampled,
+            y.Offset,
+            y.RowPitch,
+            modifier
+        );
+        ImportedImage uvImg = ImportImage(
+            uv.Fd,
+            Rg8Format,
+            (uint)width,
+            (uint)(height / 2),
+            VkImageUsageFlags.Sampled,
+            uv.Offset,
+            uv.RowPitch,
+            modifier
+        );
 
         VkDescriptorSet set = AllocateSet(_unpackNv12.SetLayout);
         WriteSampledImage(set, binding: 0, yImg.View);
         WriteSampledImage(set, binding: 1, uvImg.View);
         WriteStorageImage(set, binding: 2, dst.View);
 
-        Dispatch(_unpackNv12, set, width, height, GroupCount((uint)width), GroupCount((uint)height));
+        Dispatch(
+            _unpackNv12,
+            set,
+            width,
+            height,
+            GroupCount((uint)width),
+            GroupCount((uint)height)
+        );
 
         DestroyImported(yImg);
         DestroyImported(uvImg);
         _api.vkFreeDescriptorSets(_descriptorPool, 1, &set).CheckResult();
     }
 
-    private ImportedImage ImportImage(int fd, VkFormat format, uint width, uint height, VkImageUsageFlags usage, ulong offset, ulong rowPitch, ulong modifier)
+    private ImportedImage ImportImage(
+        int fd,
+        VkFormat format,
+        uint width,
+        uint height,
+        VkImageUsageFlags usage,
+        ulong offset,
+        ulong rowPitch,
+        ulong modifier
+    )
     {
         VkSubresourceLayout planeLayout = new() { offset = offset, rowPitch = rowPitch };
         VkImageDrmFormatModifierExplicitCreateInfoEXT modInfo = new()
@@ -288,10 +407,17 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
         return new ImportedImage(image, memory, view);
     }
 
-    private ExportedImage CreateExportableImage(uint width, uint height, VkImageUsageFlags usage, ReadOnlySpan<ulong> modifiers)
+    private ExportedImage CreateExportableImage(
+        uint width,
+        uint height,
+        VkImageUsageFlags usage,
+        ReadOnlySpan<ulong> modifiers
+    )
     {
         VkImage image;
-        ReadOnlySpan<ulong> mods = modifiers.IsEmpty ? [VulkanComputeContext.DrmFormatModLinear] : modifiers;
+        ReadOnlySpan<ulong> mods = modifiers.IsEmpty
+            ? [VulkanComputeContext.DrmFormatModLinear]
+            : modifiers;
         fixed (ulong* pMods = mods)
         {
             VkImageDrmFormatModifierListCreateInfoEXT modList = new()
@@ -336,7 +462,10 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
         {
             pNext = &exportInfo,
             allocationSize = reqs.size,
-            memoryTypeIndex = _ctx.FindMemoryType(reqs.memoryTypeBits, VkMemoryPropertyFlags.DeviceLocal),
+            memoryTypeIndex = _ctx.FindMemoryType(
+                reqs.memoryTypeBits,
+                VkMemoryPropertyFlags.DeviceLocal
+            ),
         };
         _api.vkAllocateMemory(&allocInfo, null, out VkDeviceMemory memory).CheckResult();
         _api.vkBindImageMemory(image, memory, 0).CheckResult();
@@ -355,7 +484,15 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
         _api.vkGetMemoryFdKHR(&getFd, &fd).CheckResult();
 
         VkImageView view = CreateView(image, BgraFormat);
-        return new ExportedImage(image, memory, view, fd, layout.offset, layout.rowPitch, chosenModifier);
+        return new ExportedImage(
+            image,
+            memory,
+            view,
+            fd,
+            layout.offset,
+            layout.rowPitch,
+            chosenModifier
+        );
     }
 
     private VkImageView CreateView(VkImage image, VkFormat format)
@@ -405,7 +542,11 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
 
     private void WriteStorageImage(VkDescriptorSet set, uint binding, VkImageView view)
     {
-        VkDescriptorImageInfo imageInfo = new() { imageView = view, imageLayout = VkImageLayout.General };
+        VkDescriptorImageInfo imageInfo = new()
+        {
+            imageView = view,
+            imageLayout = VkImageLayout.General,
+        };
         VkWriteDescriptorSet write = new()
         {
             dstSet = set,
@@ -417,13 +558,29 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
         _api.vkUpdateDescriptorSets(1, &write, 0, null);
     }
 
-    private void Dispatch(ComputePipeline pipeline, VkDescriptorSet set, int width, int height, uint groupsX, uint groupsY)
+    private void Dispatch(
+        ComputePipeline pipeline,
+        VkDescriptorSet set,
+        int width,
+        int height,
+        uint groupsX,
+        uint groupsY
+    )
     {
         _ctx.SubmitOneShot(cmd =>
         {
             VkDescriptorSet ds = set; // a lambda-local (not a captured var) so its address can be taken.
             _api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Compute, pipeline.Pipeline);
-            _api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Compute, pipeline.Layout, 0, 1, &ds, 0, null);
+            _api.vkCmdBindDescriptorSets(
+                cmd,
+                VkPipelineBindPoint.Compute,
+                pipeline.Layout,
+                0,
+                1,
+                &ds,
+                0,
+                null
+            );
             Span<int> push = [width, height];
             fixed (int* p = push)
             {
@@ -475,10 +632,22 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
     /// pitch. The two planes of a VAAPI export may share one fd at different offsets or use separate fds.</summary>
     public readonly record struct Nv12Plane(int Fd, ulong Offset, ulong RowPitch);
 
-    private readonly record struct ImportedImage(VkImage Image, VkDeviceMemory Memory, VkImageView View);
+    private readonly record struct ImportedImage(
+        VkImage Image,
+        VkDeviceMemory Memory,
+        VkImageView View
+    );
 
     /// <summary>A GPU-resident image exported as a dmabuf (its fd, plane offset/row-pitch and DRM modifier).</summary>
-    public readonly record struct ExportedImage(VkImage Image, VkDeviceMemory Memory, VkImageView View, int Fd, ulong Offset, ulong RowPitch, ulong Modifier);
+    public readonly record struct ExportedImage(
+        VkImage Image,
+        VkDeviceMemory Memory,
+        VkImageView View,
+        int Fd,
+        ulong Offset,
+        ulong RowPitch,
+        ulong Modifier
+    );
 
     /// <summary>A GPU-resident packed surface exported as a dmabuf for the encoder. Owns the exported fd.</summary>
     public readonly record struct DmaBufImage(ExportedImage Surface, int Width, int Height)
@@ -501,11 +670,16 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
         public required VkDescriptorSetLayout SetLayout { get; init; }
         public required VkShaderModule Module { get; init; }
 
-        public static ComputePipeline Create(VkDeviceApi api, VkShaderModule module, int sampledInputs)
+        public static ComputePipeline Create(
+            VkDeviceApi api,
+            VkShaderModule module,
+            int sampledInputs
+        )
         {
             // bindings: [0..sampledInputs) combined image samplers, then one storage image.
             int bindingCount = sampledInputs + 1;
-            Span<VkDescriptorSetLayoutBinding> bindings = stackalloc VkDescriptorSetLayoutBinding[bindingCount];
+            Span<VkDescriptorSetLayoutBinding> bindings =
+                stackalloc VkDescriptorSetLayoutBinding[bindingCount];
             for (int i = 0; i < sampledInputs; i++)
             {
                 bindings[i] = new VkDescriptorSetLayoutBinding
@@ -528,11 +702,20 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
             VkDescriptorSetLayout setLayout;
             fixed (VkDescriptorSetLayoutBinding* pb = bindings)
             {
-                VkDescriptorSetLayoutCreateInfo setInfo = new() { bindingCount = (uint)bindingCount, pBindings = pb };
+                VkDescriptorSetLayoutCreateInfo setInfo = new()
+                {
+                    bindingCount = (uint)bindingCount,
+                    pBindings = pb,
+                };
                 api.vkCreateDescriptorSetLayout(&setInfo, null, out setLayout).CheckResult();
             }
 
-            VkPushConstantRange pushRange = new() { stageFlags = VkShaderStageFlags.Compute, offset = 0, size = 8 };
+            VkPushConstantRange pushRange = new()
+            {
+                stageFlags = VkShaderStageFlags.Compute,
+                offset = 0,
+                size = 8,
+            };
             VkDescriptorSetLayout setLayoutLocal = setLayout;
             VkPipelineLayoutCreateInfo layoutInfo = new()
             {
@@ -541,7 +724,8 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
                 pushConstantRangeCount = 1,
                 pPushConstantRanges = &pushRange,
             };
-            api.vkCreatePipelineLayout(&layoutInfo, null, out VkPipelineLayout layout).CheckResult();
+            api.vkCreatePipelineLayout(&layoutInfo, null, out VkPipelineLayout layout)
+                .CheckResult();
 
             ReadOnlySpan<byte> entry = "main\0"u8;
             fixed (byte* pEntry = entry)
@@ -554,7 +738,8 @@ public sealed unsafe class VulkanAlphaCodec : IDisposable
                 };
                 VkComputePipelineCreateInfo pipelineInfo = new() { stage = stage, layout = layout };
                 VkPipeline pipeline;
-                api.vkCreateComputePipelines(VkPipelineCache.Null, 1, &pipelineInfo, &pipeline).CheckResult();
+                api.vkCreateComputePipelines(VkPipelineCache.Null, 1, &pipelineInfo, &pipeline)
+                    .CheckResult();
                 return new ComputePipeline
                 {
                     Pipeline = pipeline,

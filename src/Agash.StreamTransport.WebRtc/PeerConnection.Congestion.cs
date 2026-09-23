@@ -16,7 +16,7 @@ public sealed partial class PeerConnection
 {
     private readonly INetworkController? _controller;
     private readonly Lock _ccGate = new();
-    private readonly Dictionary<long, SentPacketInfo> _sentPackets = [];      // key = (ssrc << 16) | seq
+    private readonly Dictionary<long, SentPacketInfo> _sentPackets = []; // key = (ssrc << 16) | seq
     private readonly Dictionary<uint, Dictionary<ushort, ArrivalInfo>> _arrivals = []; // ssrc -> (seq -> arrival µs + ECN)
     private readonly List<PacketResult> _feedbackScratch = [];
     private readonly List<CcfbStreamReport> _ccfbScratch = [];
@@ -24,9 +24,9 @@ public sealed partial class PeerConnection
     private Timer? _processTimer;
     private double _lossRate;
 
-    private const int FeedbackIntervalMs = 50;   // how often the receiver emits CCFB
-    private const int ProcessIntervalMs = 25;     // how often the sender's controller self-adapts
-    private const int MaxReportRun = 256;         // cap a CCFB run so one packet stays small
+    private const int FeedbackIntervalMs = 50; // how often the receiver emits CCFB
+    private const int ProcessIntervalMs = 25; // how often the sender's controller self-adapts
+    private const int MaxReportRun = 256; // cap a CCFB run so one packet stays small
 
     /// <summary>
     /// Raised when the send-side congestion controller produces a new estimate (target bitrate + pacing rate).
@@ -51,12 +51,14 @@ public sealed partial class PeerConnection
     /// requests sent. The send-side counters are meaningful on a sender, the recover/request counters on a
     /// receiver. Logged as per-second deltas by the media layer to localise loss in the pipeline.
     /// </summary>
-    public TransportLossStats CurrentLossStats => new(
-        Volatile.Read(ref _mediaPacketsSent),
-        Volatile.Read(ref _rtxPacketsSent),
-        Volatile.Read(ref _nackSequencesRequested),
-        Volatile.Read(ref _rtxPacketsRecovered),
-        Volatile.Read(ref _keyframeRequestsSent));
+    public TransportLossStats CurrentLossStats =>
+        new(
+            Volatile.Read(ref _mediaPacketsSent),
+            Volatile.Read(ref _rtxPacketsSent),
+            Volatile.Read(ref _nackSequencesRequested),
+            Volatile.Read(ref _rtxPacketsRecovered),
+            Volatile.Read(ref _keyframeRequestsSent)
+        );
 
     /// <summary>
     /// The aggregated transport health (loss + RTT + rate). Meaningful on the sending side once feedback has
@@ -67,7 +69,13 @@ public sealed partial class PeerConnection
         get
         {
             BitrateEstimate e = CurrentBitrateEstimate;
-            return new TransportHealthMetrics(_lossRate, e.SmoothedRttMicros, e.BaseRttMicros, e.TargetBitrateBps, e.PacingRateBps);
+            return new TransportHealthMetrics(
+                _lossRate,
+                e.SmoothedRttMicros,
+                e.BaseRttMicros,
+                e.TargetBitrateBps,
+                e.PacingRateBps
+            );
         }
     }
 
@@ -87,7 +95,12 @@ public sealed partial class PeerConnection
             if (_sentPackets.Count > 4096)
             {
                 long cutoff = nowMicros - 2_000_000;
-                foreach (long k in _sentPackets.Where(kv => kv.Value.SendTimeMicros < cutoff).Select(kv => kv.Key).ToArray())
+                foreach (
+                    long k in _sentPackets
+                        .Where(kv => kv.Value.SendTimeMicros < cutoff)
+                        .Select(kv => kv.Key)
+                        .ToArray()
+                )
                 {
                     _sentPackets.Remove(k);
                 }
@@ -132,10 +145,16 @@ public sealed partial class PeerConnection
             },
             this,
             FeedbackIntervalMs,
-            FeedbackIntervalMs);
+            FeedbackIntervalMs
+        );
         if (_controller is not null)
         {
-            _processTimer ??= new Timer(static s => ((PeerConnection)s!).RunProcessInterval(), this, ProcessIntervalMs, ProcessIntervalMs);
+            _processTimer ??= new Timer(
+                static s => ((PeerConnection)s!).RunProcessInterval(),
+                this,
+                ProcessIntervalMs,
+                ProcessIntervalMs
+            );
         }
     }
 
@@ -182,7 +201,9 @@ public sealed partial class PeerConnection
                     if (perSsrc.TryGetValue(seq, out ArrivalInfo arrival))
                     {
                         long offset1024 = (now - arrival.Micros) * 1024 / 1_000_000;
-                        ushort ato = offset1024 is >= 0 and < Ccfb.ArrivalTimeUnknown ? (ushort)offset1024 : Ccfb.ArrivalTimeUnknown;
+                        ushort ato = offset1024 is >= 0 and < Ccfb.ArrivalTimeUnknown
+                            ? (ushort)offset1024
+                            : Ccfb.ArrivalTimeUnknown;
                         metrics[i] = new CcfbMetric(true, arrival.Ecn, ato);
                     }
                     else
@@ -253,10 +274,19 @@ public sealed partial class PeerConnection
                     {
                         // Receiver-frame arrival; the controller works on send-vs-arrival deltas, so the
                         // constant clock offset between peers cancels.
-                        recvMicros = reportMicros - ((long)metric.ArrivalTimeOffset * 1_000_000 / 1024);
+                        recvMicros =
+                            reportMicros - ((long)metric.ArrivalTimeOffset * 1_000_000 / 1024);
                     }
 
-                    _feedbackScratch.Add(new PacketResult(seq, sent.SizeBytes, sent.SendTimeMicros, recvMicros, metric.Ecn));
+                    _feedbackScratch.Add(
+                        new PacketResult(
+                            seq,
+                            sent.SizeBytes,
+                            sent.SendTimeMicros,
+                            recvMicros,
+                            metric.Ecn
+                        )
+                    );
                 }
             }
         }
@@ -279,7 +309,10 @@ public sealed partial class PeerConnection
         double sample = (double)lost / _feedbackScratch.Count;
         _lossRate = _lossRate <= 0 ? sample : (_lossRate * 0.8) + (sample * 0.2);
 
-        BitrateEstimate estimate = _controller.OnFeedback(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_feedbackScratch), NowMicros());
+        BitrateEstimate estimate = _controller.OnFeedback(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_feedbackScratch),
+            NowMicros()
+        );
         BitrateEstimateChanged?.Invoke(estimate);
     }
 

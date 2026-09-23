@@ -11,7 +11,8 @@ namespace Agash.StreamTransport.Codecs;
 internal static partial class CoreVideoInterop
 {
     private const string CoreVideo = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo";
-    private const string CoreFoundation = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
+    private const string CoreFoundation =
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
     /// <summary>Create a CVPixelBuffer backed by the given IOSurface (zero-copy). Returns the CVPixelBufferRef.</summary>
     public static nint CreatePixelBufferFromIOSurface(nint ioSurface)
@@ -19,7 +20,9 @@ internal static partial class CoreVideoInterop
         int result = CVPixelBufferCreateWithIOSurface(0, ioSurface, 0, out nint pixelBuffer);
         if (result != 0 || pixelBuffer == 0)
         {
-            throw new InvalidOperationException($"CVPixelBufferCreateWithIOSurface failed ({result}).");
+            throw new InvalidOperationException(
+                $"CVPixelBufferCreateWithIOSurface failed ({result})."
+            );
         }
 
         return pixelBuffer;
@@ -38,7 +41,12 @@ internal static partial class CoreVideoInterop
     }
 
     [LibraryImport(CoreVideo)]
-    private static partial int CVPixelBufferCreateWithIOSurface(nint allocator, nint surface, nint attributes, out nint pixelBufferOut);
+    private static partial int CVPixelBufferCreateWithIOSurface(
+        nint allocator,
+        nint surface,
+        nint attributes,
+        out nint pixelBufferOut
+    );
 
     [LibraryImport(CoreVideo)]
     private static partial nint CVPixelBufferGetIOSurface(nint pixelBuffer);

@@ -13,8 +13,15 @@ public sealed class SignalingProtocolTests
     {
         var welcome = new WelcomeMessage(
             new PeerId(7),
-            new RoomState(new RoomCode("abcdef"), [new PeerInfo(new PeerId(3), PeerRole.Publisher)],
-                [new IceServer(["stun:host:3478"]), new IceServer(["turn:host:3478"], "user", "cred")]));
+            new RoomState(
+                new RoomCode("abcdef"),
+                [new PeerInfo(new PeerId(3), PeerRole.Publisher)],
+                [
+                    new IceServer(["stun:host:3478"]),
+                    new IceServer(["turn:host:3478"], "user", "cred"),
+                ]
+            )
+        );
 
         string json = SignalingJson.Serialize(welcome);
         var back = SignalingJson.Deserialize(json) as WelcomeMessage;
@@ -30,7 +37,9 @@ public sealed class SignalingProtocolTests
     [TestMethod]
     public void SignalingJson_PeerIdIsNumber_RoomCodeIsString_DiscriminatorIsType()
     {
-        string json = SignalingJson.Serialize(new HelloMessage(1, PeerRole.Subscriber, new RoomCode("xyz")));
+        string json = SignalingJson.Serialize(
+            new HelloMessage(1, PeerRole.Subscriber, new RoomCode("xyz"))
+        );
 
         StringAssert.Contains(json, "\"type\":\"hello\"");
         StringAssert.Contains(json, "\"room\":\"xyz\"");
@@ -40,7 +49,9 @@ public sealed class SignalingProtocolTests
     [TestMethod]
     public void SignalingJson_RoundTrips_PeerControlMessage()
     {
-        string json = SignalingJson.Serialize(new PeerControlMessage("stream.alpha", "1", To: new PeerId(3)));
+        string json = SignalingJson.Serialize(
+            new PeerControlMessage("stream.alpha", "1", To: new PeerId(3))
+        );
         StringAssert.Contains(json, "\"type\":\"peer_control\"");
 
         var back = SignalingJson.Deserialize(json) as PeerControlMessage;
@@ -61,17 +72,24 @@ public sealed class SignalingProtocolTests
             turnUrls: ["turn:turn.example.com:3478?transport=udp"],
             sharedSecret: secret,
             credentialLifetime: TimeSpan.FromSeconds(600),
-            timeProvider: clock);
+            timeProvider: clock
+        );
 
         IReadOnlyList<IceServer> servers = provider.GetIceServersForPeer();
 
-        IceServer turn = servers.Single(s => s.Urls[0].StartsWith("turn:", StringComparison.Ordinal));
+        IceServer turn = servers.Single(s =>
+            s.Urls[0].StartsWith("turn:", StringComparison.Ordinal)
+        );
         Assert.AreEqual("1000600", turn.Username, "username is the unix expiry (now + lifetime).");
 
         string expected = Convert.ToBase64String(
-            HMACSHA1.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes("1000600")));
+            HMACSHA1.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes("1000600"))
+        );
         Assert.AreEqual(expected, turn.Credential);
-        Assert.IsTrue(servers.Any(s => s.Urls[0].StartsWith("stun:", StringComparison.Ordinal)), "STUN is advertised too.");
+        Assert.IsTrue(
+            servers.Any(s => s.Urls[0].StartsWith("stun:", StringComparison.Ordinal)),
+            "STUN is advertised too."
+        );
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider

@@ -37,7 +37,12 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
     private byte[] _nv12 = [];
     private bool _disposed;
 
-    public SpoutVideoCaptureSource(string? senderName, string encoderName, bool alpha = false, ILoggerFactory? loggerFactory = null)
+    public SpoutVideoCaptureSource(
+        string? senderName,
+        string encoderName,
+        bool alpha = false,
+        ILoggerFactory? loggerFactory = null
+    )
     {
         _alpha = alpha;
         // One device (refcount 1) shared with the encoder on the zero-copy path; also used for Spout
@@ -93,8 +98,10 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         // conversion; nothing touches the CPU.
         if (_bgraDirect)
         {
-            frame = VideoFrame.FromD3D11Texture(texture, encodeWidth, height, timeNs)
-                with { PixelFormat = VideoPixelFormat.Bgra };
+            frame = VideoFrame.FromD3D11Texture(texture, encodeWidth, height, timeNs) with
+            {
+                PixelFormat = VideoPixelFormat.Bgra,
+            };
             return true;
         }
 
@@ -106,8 +113,10 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
             {
                 _converter ??= new D3D11BgraToNv12Converter(_device);
                 nint nv12Texture = _converter.Convert(texture, encodeWidth, height);
-                frame = VideoFrame.FromD3D11Texture(nv12Texture, encodeWidth, height, timeNs)
-                    with { PixelFormat = VideoPixelFormat.Nv12 };
+                frame = VideoFrame.FromD3D11Texture(nv12Texture, encodeWidth, height, timeNs) with
+                {
+                    PixelFormat = VideoPixelFormat.Nv12,
+                };
                 return true;
             }
             catch (Exception)
@@ -116,7 +125,9 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
             }
         }
 
-        frame = _alpha ? ReadbackToBgra(width, height, timeNs) : ReadbackToNv12(width, height, timeNs);
+        frame = _alpha
+            ? ReadbackToBgra(width, height, timeNs)
+            : ReadbackToNv12(width, height, timeNs);
         return frame.Width > 0;
     }
 
@@ -130,7 +141,12 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         }
 
         byte[] bgra = new byte[width * height * 4];
-        MappedSubresource map = _context.Map(_staging!, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+        MappedSubresource map = _context.Map(
+            _staging!,
+            0,
+            MapMode.Read,
+            Vortice.Direct3D11.MapFlags.None
+        );
         try
         {
             unsafe
@@ -138,7 +154,9 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
                 byte* src = (byte*)map.DataPointer;
                 for (int y = 0; y < height; y++)
                 {
-                    new ReadOnlySpan<byte>(src + (y * (int)map.RowPitch), width * 4).CopyTo(bgra.AsSpan(y * width * 4));
+                    new ReadOnlySpan<byte>(src + (y * (int)map.RowPitch), width * 4).CopyTo(
+                        bgra.AsSpan(y * width * 4)
+                    );
                 }
             }
         }
@@ -159,7 +177,12 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
             _context.CopyResource(_staging!, source);
         }
 
-        MappedSubresource map = _context.Map(_staging!, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+        MappedSubresource map = _context.Map(
+            _staging!,
+            0,
+            MapMode.Read,
+            Vortice.Direct3D11.MapFlags.None
+        );
         try
         {
             BgraToNv12(map.DataPointer, (int)map.RowPitch, width, height, _nv12);
@@ -180,24 +203,32 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         }
 
         _staging?.Dispose();
-        _staging = _device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = (uint)width,
-            Height = (uint)height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.B8G8R8A8_UNorm,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Staging,
-            BindFlags = BindFlags.None,
-            CPUAccessFlags = CpuAccessFlags.Read,
-        });
+        _staging = _device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+            }
+        );
         _stagingWidth = width;
         _stagingHeight = height;
         _nv12 = new byte[width * height * 3 / 2];
     }
 
-    private static unsafe void BgraToNv12(nint bgra, int rowPitch, int width, int height, byte[] nv12)
+    private static unsafe void BgraToNv12(
+        nint bgra,
+        int rowPitch,
+        int width,
+        int height,
+        byte[] nv12
+    )
     {
         byte* src = (byte*)bgra;
         int uvOffset = width * height;
@@ -222,7 +253,8 @@ internal sealed class SpoutVideoCaptureSource : IVideoFrameSource, IDisposable
         }
     }
 
-    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     public void Dispose()
     {

@@ -43,7 +43,12 @@ internal sealed class RtpClockAligner
     }
 
     /// <summary>Record a stream's latest RTCP Sender Report (NTP wall time it was emitted, RTP timestamp at that instant).</summary>
-    public void RecordSenderReport(SyncStream stream, ulong ntpTimestamp, uint rtpTimestamp, int clockRate)
+    public void RecordSenderReport(
+        SyncStream stream,
+        ulong ntpTimestamp,
+        uint rtpTimestamp,
+        int clockRate
+    )
     {
         var anchor = new Anchor(NtpToNs(ntpTimestamp), rtpTimestamp, clockRate);
         lock (_gate)
@@ -63,7 +68,12 @@ internal sealed class RtpClockAligner
     /// Record an abs-capture-time observation: the absolute NTP capture time carried by a packet and that
     /// packet's RTP timestamp. Preferred over Sender Reports for mapping this stream's RTP onto wall time.
     /// </summary>
-    public void RecordAbsCaptureTime(SyncStream stream, ulong captureNtp, uint rtpTimestamp, int clockRate)
+    public void RecordAbsCaptureTime(
+        SyncStream stream,
+        ulong captureNtp,
+        uint rtpTimestamp,
+        int clockRate
+    )
     {
         var anchor = new Anchor(NtpToNs(captureNtp), rtpTimestamp, clockRate);
         lock (_gate)

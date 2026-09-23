@@ -19,11 +19,19 @@ public static class RtcpFeedback
     /// Builds a Transport-layer feedback Generic NACK (PT 205, FMT 1) requesting retransmission of the
     /// given sequence numbers, packing them into PID/BLP fields. Returns the bytes written.
     /// </summary>
-    public static int BuildNack(Span<byte> destination, uint senderSsrc, uint mediaSsrc, ReadOnlySpan<ushort> lostSequences)
+    public static int BuildNack(
+        Span<byte> destination,
+        uint senderSsrc,
+        uint mediaSsrc,
+        ReadOnlySpan<ushort> lostSequences
+    )
     {
         int fciOffset = 12;
         int i = 0;
-        Span<ushort> sorted = lostSequences.Length <= 256 ? stackalloc ushort[lostSequences.Length] : new ushort[lostSequences.Length];
+        Span<ushort> sorted =
+            lostSequences.Length <= 256
+                ? stackalloc ushort[lostSequences.Length]
+                : new ushort[lostSequences.Length];
         lostSequences.CopyTo(sorted);
         sorted.Sort();
 
@@ -52,17 +60,32 @@ public static class RtcpFeedback
             i = j;
         }
 
-        WriteFeedbackHeader(destination, RtcpPacketType.TransportFeedback, FmtNackOrPli, senderSsrc, mediaSsrc, fciOffset);
+        WriteFeedbackHeader(
+            destination,
+            RtcpPacketType.TransportFeedback,
+            FmtNackOrPli,
+            senderSsrc,
+            mediaSsrc,
+            fciOffset
+        );
         return fciOffset;
     }
 
     /// <summary>Parses a Generic NACK, appending the requested lost sequence numbers to <paramref name="lost"/>.</summary>
-    public static bool TryParseNack(ReadOnlySpan<byte> packet, out uint mediaSsrc, List<ushort> lost)
+    public static bool TryParseNack(
+        ReadOnlySpan<byte> packet,
+        out uint mediaSsrc,
+        List<ushort> lost
+    )
     {
         mediaSsrc = 0;
         foreach (RtcpElement element in RtcpCompound.Enumerate(packet))
         {
-            if (element.PacketType != RtcpPacketType.TransportFeedback || element.ReportCount != FmtNackOrPli || element.Body.Length < 8)
+            if (
+                element.PacketType != RtcpPacketType.TransportFeedback
+                || element.ReportCount != FmtNackOrPli
+                || element.Body.Length < 8
+            )
             {
                 continue;
             }
@@ -91,7 +114,14 @@ public static class RtcpFeedback
     /// <summary>Builds a Picture Loss Indication (PT 206, FMT 1). Returns the bytes written (12).</summary>
     public static int BuildPli(Span<byte> destination, uint senderSsrc, uint mediaSsrc)
     {
-        WriteFeedbackHeader(destination, RtcpPacketType.PayloadFeedback, FmtNackOrPli, senderSsrc, mediaSsrc, 12);
+        WriteFeedbackHeader(
+            destination,
+            RtcpPacketType.PayloadFeedback,
+            FmtNackOrPli,
+            senderSsrc,
+            mediaSsrc,
+            12
+        );
         return 12;
     }
 
@@ -101,7 +131,11 @@ public static class RtcpFeedback
         mediaSsrc = 0;
         foreach (RtcpElement element in RtcpCompound.Enumerate(packet))
         {
-            if (element.PacketType == RtcpPacketType.PayloadFeedback && element.ReportCount == FmtNackOrPli && element.Body.Length >= 8)
+            if (
+                element.PacketType == RtcpPacketType.PayloadFeedback
+                && element.ReportCount == FmtNackOrPli
+                && element.Body.Length >= 8
+            )
             {
                 mediaSsrc = BinaryPrimitives.ReadUInt32BigEndian(element.Body[4..]);
                 return true;
@@ -112,7 +146,12 @@ public static class RtcpFeedback
     }
 
     /// <summary>Builds a Full Intra Request (PT 206, FMT 4) for one media SSRC with a command sequence number.</summary>
-    public static int BuildFir(Span<byte> destination, uint senderSsrc, uint targetSsrc, byte commandSequence)
+    public static int BuildFir(
+        Span<byte> destination,
+        uint senderSsrc,
+        uint targetSsrc,
+        byte commandSequence
+    )
     {
         // FCI: target SSRC (4) + seq nr (1) + reserved (3).
         BinaryPrimitives.WriteUInt32BigEndian(destination[12..], targetSsrc);
@@ -120,11 +159,25 @@ public static class RtcpFeedback
         destination[17] = 0;
         destination[18] = 0;
         destination[19] = 0;
-        WriteFeedbackHeader(destination, RtcpPacketType.PayloadFeedback, FmtFir, senderSsrc, mediaSsrc: 0, 20);
+        WriteFeedbackHeader(
+            destination,
+            RtcpPacketType.PayloadFeedback,
+            FmtFir,
+            senderSsrc,
+            mediaSsrc: 0,
+            20
+        );
         return 20;
     }
 
-    private static void WriteFeedbackHeader(Span<byte> destination, RtcpPacketType type, int fmt, uint senderSsrc, uint mediaSsrc, int totalLength)
+    private static void WriteFeedbackHeader(
+        Span<byte> destination,
+        RtcpPacketType type,
+        int fmt,
+        uint senderSsrc,
+        uint mediaSsrc,
+        int totalLength
+    )
     {
         destination[0] = (byte)(0x80 | (fmt & 0x1F)); // V=2, P=0, FMT
         destination[1] = (byte)type;

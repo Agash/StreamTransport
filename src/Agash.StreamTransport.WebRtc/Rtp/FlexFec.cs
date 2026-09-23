@@ -9,7 +9,12 @@ namespace Agash.StreamTransport.WebRtc.Rtp;
 /// <param name="Timestamp">RTP timestamp.</param>
 /// <param name="BodyAfterHeader">Everything after the fixed 12-byte RTP header (CSRC/extensions/payload).</param>
 public readonly record struct FecSourcePacket(
-    ushort SequenceNumber, byte HeaderBits, byte PayloadType, uint Timestamp, ReadOnlyMemory<byte> BodyAfterHeader);
+    ushort SequenceNumber,
+    byte HeaderBits,
+    byte PayloadType,
+    uint Timestamp,
+    ReadOnlyMemory<byte> BodyAfterHeader
+);
 
 /// <summary>A FlexFEC-recovered source packet.</summary>
 /// <param name="SequenceNumber">Recovered RTP sequence number (SN base + mask position).</param>
@@ -18,7 +23,12 @@ public readonly record struct FecSourcePacket(
 /// <param name="Timestamp">Recovered RTP timestamp.</param>
 /// <param name="BodyAfterHeader">Recovered bytes after the fixed 12-byte RTP header.</param>
 public readonly record struct FecRecoveredPacket(
-    ushort SequenceNumber, byte HeaderBits, byte PayloadType, uint Timestamp, byte[] BodyAfterHeader);
+    ushort SequenceNumber,
+    byte HeaderBits,
+    byte PayloadType,
+    uint Timestamp,
+    byte[] BodyAfterHeader
+);
 
 /// <summary>
 /// FlexFEC (RFC 8627, flexfec-03) over a single source SSRC with a 15-bit flexible mask: builds a repair
@@ -44,7 +54,10 @@ public static class FlexFec
         ArgumentNullException.ThrowIfNull(sources);
         if (sources.Count is 0 or > MaxProtected)
         {
-            throw new ArgumentException($"FlexFEC protects 1..{MaxProtected} packets, got {sources.Count}.", nameof(sources));
+            throw new ArgumentException(
+                $"FlexFEC protects 1..{MaxProtected} packets, got {sources.Count}.",
+                nameof(sources)
+            );
         }
 
         ushort snBase = sources[0].SequenceNumber;
@@ -59,7 +72,10 @@ public static class FlexFec
             int offset = (ushort)(s.SequenceNumber - snBase);
             if (offset >= MaxProtected)
             {
-                throw new ArgumentException($"FlexFEC packet sequence span must be < {MaxProtected}; got offset {offset}.", nameof(sources));
+                throw new ArgumentException(
+                    $"FlexFEC packet sequence span must be < {MaxProtected}; got offset {offset}.",
+                    nameof(sources)
+                );
             }
 
             mask |= (ushort)(1 << (14 - offset)); // j=0 is the most significant of the 15-bit mask.
@@ -96,7 +112,10 @@ public static class FlexFec
     /// protected source packet by sequence number, or null if it was lost. Recovers when exactly one protected
     /// packet is missing; returns null otherwise (zero lost = nothing to do, two+ lost = unrecoverable here).
     /// </summary>
-    public static FecRecoveredPacket? TryRecover(ReadOnlySpan<byte> fecBody, Func<ushort, FecSourcePacket?> lookup)
+    public static FecRecoveredPacket? TryRecover(
+        ReadOnlySpan<byte> fecBody,
+        Func<ushort, FecSourcePacket?> lookup
+    )
     {
         ArgumentNullException.ThrowIfNull(lookup);
         if (fecBody.Length < HeaderLength || (fecBody[0] & 0xC0) != 0)
@@ -166,6 +185,12 @@ public static class FlexFec
             }
         }
 
-        return new FecRecoveredPacket(recoveredSeq, (byte)(headerBits & 0x3F), (byte)(pt & 0x7F), ts, body);
+        return new FecRecoveredPacket(
+            recoveredSeq,
+            (byte)(headerBits & 0x3F),
+            (byte)(pt & 0x7F),
+            ts,
+            body
+        );
     }
 }

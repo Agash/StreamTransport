@@ -21,7 +21,8 @@ internal sealed class InMemoryIceNetwork
     private Random? _lossRng;
 
     /// <summary>A socket factory that offers <paramref name="addresses"/> as this agent's local interfaces.</summary>
-    public IIceSocketFactory Factory(params IPAddress[] addresses) => new FakeFactory(this, addresses);
+    public IIceSocketFactory Factory(params IPAddress[] addresses) =>
+        new FakeFactory(this, addresses);
 
     /// <summary>Cut all traffic to and from <paramref name="address"/> (the path goes dark).</summary>
     public void Cut(IPAddress address)
@@ -93,7 +94,8 @@ internal sealed class InMemoryIceNetwork
         return endpoint;
     }
 
-    private sealed class FakeFactory(InMemoryIceNetwork network, IPAddress[] addresses) : IIceSocketFactory
+    private sealed class FakeFactory(InMemoryIceNetwork network, IPAddress[] addresses)
+        : IIceSocketFactory
     {
         public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback) => addresses;
 
@@ -107,8 +109,10 @@ internal sealed class InMemoryIceNetwork
     private sealed class FakeSocket : IIceSocket
     {
         private readonly InMemoryIceNetwork _network;
-        private readonly Channel<(IPEndPoint From, byte[] Data)> _rx =
-            Channel.CreateUnbounded<(IPEndPoint, byte[])>(new UnboundedChannelOptions { SingleReader = true });
+        private readonly Channel<(IPEndPoint From, byte[] Data)> _rx = Channel.CreateUnbounded<(
+            IPEndPoint,
+            byte[]
+        )>(new UnboundedChannelOptions { SingleReader = true });
 
         public FakeSocket(InMemoryIceNetwork network, IPAddress address)
         {
@@ -118,15 +122,24 @@ internal sealed class InMemoryIceNetwork
 
         public IPEndPoint LocalEndPoint { get; }
 
-        public ValueTask SendAsync(ReadOnlyMemory<byte> data, IPEndPoint destination, CancellationToken cancellationToken = default)
+        public ValueTask SendAsync(
+            ReadOnlyMemory<byte> data,
+            IPEndPoint destination,
+            CancellationToken cancellationToken = default
+        )
         {
             _network.Deliver(LocalEndPoint, destination, data.ToArray());
             return ValueTask.CompletedTask;
         }
 
-        public async ValueTask<IceReceiveResult> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken)
+        public async ValueTask<IceReceiveResult> ReceiveAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken
+        )
         {
-            (IPEndPoint from, byte[] data) = await _rx.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            (IPEndPoint from, byte[] data) = await _rx
+                .Reader.ReadAsync(cancellationToken)
+                .ConfigureAwait(false);
             data.CopyTo(buffer.Span);
             return new IceReceiveResult(data.Length, from);
         }

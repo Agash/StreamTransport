@@ -9,9 +9,12 @@ namespace StreamTransport.Agent;
 /// structured logging (from the transport library and the agent) shares the same styled console as the
 /// rest of the UI instead of the plain console logger.
 /// </summary>
-internal sealed class SpectreLoggerProvider(LogLevel minLevel = LogLevel.Information) : ILoggerProvider
+internal sealed class SpectreLoggerProvider(LogLevel minLevel = LogLevel.Information)
+    : ILoggerProvider
 {
-    private readonly ConcurrentDictionary<string, SpectreLogger> _loggers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SpectreLogger> _loggers = new(
+        StringComparer.Ordinal
+    );
 
     public ILogger CreateLogger(string categoryName) =>
         _loggers.GetOrAdd(categoryName, name => new SpectreLogger(name, minLevel));
@@ -25,11 +28,18 @@ internal sealed class SpectreLoggerProvider(LogLevel minLevel = LogLevel.Informa
             ? category[(category.LastIndexOf('.') + 1)..]
             : category;
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
 
         public bool IsEnabled(LogLevel logLevel) => logLevel >= minLevel;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter
+        )
         {
             if (!IsEnabled(logLevel))
             {
@@ -44,7 +54,9 @@ internal sealed class SpectreLoggerProvider(LogLevel minLevel = LogLevel.Informa
                 _ => "grey50",
             };
 
-            AnsiConsole.MarkupLineInterpolated($"[{colour}]{Tag(logLevel)} {_shortCategory}: {formatter(state, exception)}[/]");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[{colour}]{Tag(logLevel)} {_shortCategory}: {formatter(state, exception)}[/]"
+            );
             if (exception is not null)
             {
                 // Spectre's rich exception formatter uses dynamic code (not NativeAOT-safe); fall back to a
@@ -60,14 +72,15 @@ internal sealed class SpectreLoggerProvider(LogLevel minLevel = LogLevel.Informa
             }
         }
 
-        private static string Tag(LogLevel level) => level switch
-        {
-            LogLevel.Critical => "crit",
-            LogLevel.Error => "fail",
-            LogLevel.Warning => "warn",
-            LogLevel.Information => "info",
-            LogLevel.Debug => "dbug",
-            _ => "trce",
-        };
+        private static string Tag(LogLevel level) =>
+            level switch
+            {
+                LogLevel.Critical => "crit",
+                LogLevel.Error => "fail",
+                LogLevel.Warning => "warn",
+                LogLevel.Information => "info",
+                LogLevel.Debug => "dbug",
+                _ => "trce",
+            };
     }
 }

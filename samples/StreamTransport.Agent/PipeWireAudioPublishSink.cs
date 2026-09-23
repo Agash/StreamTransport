@@ -40,7 +40,10 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
     }
 
     /// <summary>Start the PipeWire loop and return a sink ready to publish under <paramref name="nodeName"/>.</summary>
-    public static async Task<PipeWireAudioPublishSink> CreateAsync(string nodeName, ILoggerFactory? loggerFactory = null)
+    public static async Task<PipeWireAudioPublishSink> CreateAsync(
+        string nodeName,
+        ILoggerFactory? loggerFactory = null
+    )
     {
         var context = new PipeWireContext("StreamTransport.Agent", loggerFactory);
         await context.StartAsync().ConfigureAwait(false);
@@ -66,7 +69,12 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
             if (_output is null)
             {
                 var output = new PipeWireAudioOutput(
-                    _context, _nodeName, frame.SampleRate, frame.Channels, MapFormat(frame.Format));
+                    _context,
+                    _nodeName,
+                    frame.SampleRate,
+                    frame.Channels,
+                    MapFormat(frame.Format)
+                );
                 output.FillSamples += OnFillSamples;
                 output.Connect();
                 _output = output;
@@ -78,15 +86,21 @@ internal sealed class PipeWireAudioPublishSink : IAudioFrameSink, IAsyncDisposab
 
     // PipeWire pulls PCM: fill as much of its buffer as the ring holds, return the byte count written (0 = let
     // it emit silence). Runs on the PipeWire loop thread.
-    private int OnFillSamples(PipeWireAudioOutput sender, Span<byte> dst, int sampleRate, int channels, PwAudioSampleFormat format)
-        => _ring.Read(dst);
+    private int OnFillSamples(
+        PipeWireAudioOutput sender,
+        Span<byte> dst,
+        int sampleRate,
+        int channels,
+        PwAudioSampleFormat format
+    ) => _ring.Read(dst);
 
-    private static PwAudioSampleFormat MapFormat(Agash.StreamTransport.AudioSampleFormat format) => format switch
-    {
-        Agash.StreamTransport.AudioSampleFormat.S16 => PwAudioSampleFormat.S16Le,
-        Agash.StreamTransport.AudioSampleFormat.F32 => PwAudioSampleFormat.F32Le,
-        _ => PwAudioSampleFormat.S16Le,
-    };
+    private static PwAudioSampleFormat MapFormat(Agash.StreamTransport.AudioSampleFormat format) =>
+        format switch
+        {
+            Agash.StreamTransport.AudioSampleFormat.S16 => PwAudioSampleFormat.S16Le,
+            Agash.StreamTransport.AudioSampleFormat.F32 => PwAudioSampleFormat.F32Le,
+            _ => PwAudioSampleFormat.S16Le,
+        };
 
     public async ValueTask DisposeAsync()
     {

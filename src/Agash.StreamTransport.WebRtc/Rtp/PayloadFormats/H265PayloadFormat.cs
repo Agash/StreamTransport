@@ -23,7 +23,11 @@ public static class H265Packetizer
     /// <param name="annexBAccessUnit">The encoded access unit, NAL units separated by Annex-B start codes.</param>
     /// <param name="writer">Reusable destination storage; it is reset before writing this frame's payloads.</param>
     /// <param name="maxPayloadSize">The maximum RTP payload size in bytes.</param>
-    public static void Packetize(ReadOnlySpan<byte> annexBAccessUnit, RtpPayloadWriter writer, int maxPayloadSize = 1100)
+    public static void Packetize(
+        ReadOnlySpan<byte> annexBAccessUnit,
+        RtpPayloadWriter writer,
+        int maxPayloadSize = 1100
+    )
     {
         writer.Reset();
 
@@ -31,7 +35,11 @@ public static class H265Packetizer
         int nalStart = -1;
         while (i + 2 < annexBAccessUnit.Length)
         {
-            if (annexBAccessUnit[i] == 0 && annexBAccessUnit[i + 1] == 0 && annexBAccessUnit[i + 2] == 1)
+            if (
+                annexBAccessUnit[i] == 0
+                && annexBAccessUnit[i + 1] == 0
+                && annexBAccessUnit[i + 2] == 1
+            )
             {
                 if (nalStart >= 0)
                 {
@@ -59,7 +67,11 @@ public static class H265Packetizer
         }
     }
 
-    private static void PacketizeNal(ReadOnlySpan<byte> nal, RtpPayloadWriter writer, int maxPayloadSize)
+    private static void PacketizeNal(
+        ReadOnlySpan<byte> nal,
+        RtpPayloadWriter writer,
+        int maxPayloadSize
+    )
     {
         if (nal.Length < PayloadHeaderSize)
         {
@@ -220,7 +232,9 @@ public sealed class H265Depacketizer : IDisposable
             return;
         }
 
-        byte[] grown = ArrayPool<byte>.Shared.Rent(Math.Max(_accessUnit.Length * 2, _accessUnitLength + additional));
+        byte[] grown = ArrayPool<byte>.Shared.Rent(
+            Math.Max(_accessUnit.Length * 2, _accessUnitLength + additional)
+        );
         _accessUnit.AsSpan(0, _accessUnitLength).CopyTo(grown);
         ArrayPool<byte>.Shared.Return(_accessUnit);
         _accessUnit = grown;
@@ -240,7 +254,10 @@ public sealed class H265Depacketizer : IDisposable
     {
         if (_fragmentLength + data.Length > _fragment.Length)
         {
-            Array.Resize(ref _fragment, Math.Max(_fragment.Length * 2, _fragmentLength + data.Length));
+            Array.Resize(
+                ref _fragment,
+                Math.Max(_fragment.Length * 2, _fragmentLength + data.Length)
+            );
         }
 
         data.CopyTo(_fragment.AsSpan(_fragmentLength));

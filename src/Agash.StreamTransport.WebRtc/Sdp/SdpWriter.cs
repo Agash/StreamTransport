@@ -13,7 +13,10 @@ public static class SdpWriter
         var sb = new StringBuilder();
 
         sb.Append("v=0\r\n");
-        sb.Append(CultureInfo.InvariantCulture, $"o=- {description.SessionId} 2 IN IP4 127.0.0.1\r\n");
+        sb.Append(
+            CultureInfo.InvariantCulture,
+            $"o=- {description.SessionId} 2 IN IP4 127.0.0.1\r\n"
+        );
         sb.Append("s=-\r\n");
         sb.Append("t=0 0\r\n");
         sb.Append("a=group:BUNDLE");
@@ -59,14 +62,20 @@ public static class SdpWriter
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-ufrag:{media.IceUfrag}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-pwd:{media.IcePwd}\r\n");
         sb.Append("a=ice-options:trickle\r\n");
-        sb.Append(CultureInfo.InvariantCulture, $"a=fingerprint:{media.Fingerprint.ToSdpValue()}\r\n");
+        sb.Append(
+            CultureInfo.InvariantCulture,
+            $"a=fingerprint:{media.Fingerprint.ToSdpValue()}\r\n"
+        );
         sb.Append(CultureInfo.InvariantCulture, $"a=setup:{SetupText(media.Setup)}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=mid:{media.Mid}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a={DirectionText(media.Direction)}\r\n");
 
         foreach (SdpCodec codec in media.Codecs)
         {
-            sb.Append(CultureInfo.InvariantCulture, $"a=rtpmap:{codec.PayloadType} {codec.EncodingName}/{codec.ClockRate}");
+            sb.Append(
+                CultureInfo.InvariantCulture,
+                $"a=rtpmap:{codec.PayloadType} {codec.EncodingName}/{codec.ClockRate}"
+            );
             if (codec.Channels is { } channels)
             {
                 sb.Append(CultureInfo.InvariantCulture, $"/{channels}");
@@ -75,33 +84,44 @@ public static class SdpWriter
             sb.Append("\r\n");
             foreach (string feedback in codec.RtcpFeedback)
             {
-                sb.Append(CultureInfo.InvariantCulture, $"a=rtcp-fb:{codec.PayloadType} {feedback}\r\n");
+                sb.Append(
+                    CultureInfo.InvariantCulture,
+                    $"a=rtcp-fb:{codec.PayloadType} {feedback}\r\n"
+                );
             }
 
             if (!string.IsNullOrEmpty(codec.FormatParameters))
             {
-                sb.Append(CultureInfo.InvariantCulture, $"a=fmtp:{codec.PayloadType} {codec.FormatParameters}\r\n");
+                sb.Append(
+                    CultureInfo.InvariantCulture,
+                    $"a=fmtp:{codec.PayloadType} {codec.FormatParameters}\r\n"
+                );
             }
         }
 
         if (media.Ssrc is { } ssrc)
         {
-            sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{ssrc} cname:{media.Cname ?? "streamtransport"}\r\n");
+            sb.Append(
+                CultureInfo.InvariantCulture,
+                $"a=ssrc:{ssrc} cname:{media.Cname ?? "streamtransport"}\r\n"
+            );
         }
     }
 
-    private static string SetupText(SdpSetup setup) => setup switch
-    {
-        SdpSetup.Active => "active",
-        SdpSetup.Passive => "passive",
-        _ => "actpass",
-    };
+    private static string SetupText(SdpSetup setup) =>
+        setup switch
+        {
+            SdpSetup.Active => "active",
+            SdpSetup.Passive => "passive",
+            _ => "actpass",
+        };
 
-    private static string DirectionText(SdpDirection direction) => direction switch
-    {
-        SdpDirection.SendOnly => "sendonly",
-        SdpDirection.RecvOnly => "recvonly",
-        SdpDirection.Inactive => "inactive",
-        _ => "sendrecv",
-    };
+    private static string DirectionText(SdpDirection direction) =>
+        direction switch
+        {
+            SdpDirection.SendOnly => "sendonly",
+            SdpDirection.RecvOnly => "recvonly",
+            SdpDirection.Inactive => "inactive",
+            _ => "sendrecv",
+        };
 }

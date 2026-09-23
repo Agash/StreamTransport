@@ -29,10 +29,14 @@ bool stunDisabled = Env("STREAMTRANSPORT_STUN_DISABLED") is "1" or "true";
 IIceServerProvider iceProvider = BuildIceProvider(stunUrl);
 
 builder.Services.AddSingleton(iceProvider);
-builder.Services.AddSingleton<ISignalingRouter>(sp => new SignalingRouter(sp.GetRequiredService<IIceServerProvider>()));
+builder.Services.AddSingleton<ISignalingRouter>(sp => new SignalingRouter(
+    sp.GetRequiredService<IIceServerProvider>()
+));
 if (!stunDisabled)
 {
-    builder.Services.AddSingleton(_ => new StunBindingServer(new IPEndPoint(IPAddress.Any, stunPort)));
+    builder.Services.AddSingleton(_ => new StunBindingServer(
+        new IPEndPoint(IPAddress.Any, stunPort)
+    ));
 }
 
 string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://0.0.0.0:8080";
@@ -57,36 +61,42 @@ app.MapGet("/health", () => Results.Ok("ok"));
 
 // Pre-mint a room code (e.g. for a UI to show before the publisher connects). Publishers may also just
 // pick a code and connect; the router creates it on the publisher's hello.
-app.MapGet("/api/new-room", (ISignalingRouter router) => Results.Ok(new { code = router.CreateRoom().Value }));
+app.MapGet(
+    "/api/new-room",
+    (ISignalingRouter router) => Results.Ok(new { code = router.CreateRoom().Value })
+);
 
 // The signaling endpoint. One WebSocket per peer; the room router does the routing.
-app.Map("/ws", async (HttpContext context, ISignalingRouter router, ILoggerFactory loggerFactory) =>
-{
-    if (!context.WebSockets.IsWebSocketRequest)
+app.Map(
+    "/ws",
+    async (HttpContext context, ISignalingRouter router, ILoggerFactory loggerFactory) =>
     {
-        context.Response.StatusCode = StatusCodes.Status400BadRequest;
-        return;
-    }
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
 
-    ILogger logger = loggerFactory.CreateLogger("Signaling");
-    using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
-    var transport = new WebSocketSignalingTransport(socket);
-    await using ISignalingSession session = router.Connect(transport);
-    transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
+        ILogger logger = loggerFactory.CreateLogger("Signaling");
+        using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
+        var transport = new WebSocketSignalingTransport(socket);
+        await using ISignalingSession session = router.Connect(transport);
+        transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
 
-    try
-    {
-        await transport.RunAsync(context.RequestAborted);
+        try
+        {
+            await transport.RunAsync(context.RequestAborted);
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected; fall through to cleanup.
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "signaling socket faulted");
+        }
     }
-    catch (OperationCanceledException)
-    {
-        // Client disconnected; fall through to cleanup.
-    }
-    catch (Exception ex)
-    {
-        logger.LogDebug(ex, "signaling socket faulted");
-    }
-});
+);
 
 app.Logger.LogInformation("StreamTransport relay listening on {Urls}", urls);
 await app.RunAsync();
@@ -108,6 +118,9 @@ static IIceServerProvider BuildIceProvider(string stunUrl)
     }
 
     // Bring-your-own external coturn: advertise STUN + TURN with ephemeral credentials.
-    string[] urls = turnUrls.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    string[] urls = turnUrls.Split(
+        ',',
+        StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+    );
     return new CoturnSharedSecretIceServerProvider([stunUrl], urls, turnSecret);
 }

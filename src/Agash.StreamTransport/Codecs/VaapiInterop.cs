@@ -27,8 +27,8 @@ internal static unsafe class VaapiInterop
     [StructLayout(LayoutKind.Sequential)]
     public struct VACopyObject
     {
-        public int ObjType;     // VACopyObjectType
-        public uint Id;         // union { VASurfaceID surface_id; VABufferID buffer_id; }
+        public int ObjType; // VACopyObjectType
+        public uint Id; // union { VASurfaceID surface_id; VABufferID buffer_id; }
         public uint Reserved0;
         public uint Reserved1;
         public uint Reserved2;
@@ -44,7 +44,12 @@ internal static unsafe class VaapiInterop
     /// Returns <c>VA_STATUS_SUCCESS</c> (0) on success.
     /// </summary>
     [DllImport(LibVa, EntryPoint = "vaCopy")]
-    public static extern int vaCopy(nint display, VACopyObject* dst, VACopyObject* src, uint option);
+    public static extern int vaCopy(
+        nint display,
+        VACopyObject* dst,
+        VACopyObject* src,
+        uint option
+    );
 
     /// <summary>Blocks until all pending operations on <paramref name="surface"/> complete (<c>vaSyncSurface</c>).</summary>
     [DllImport(LibVa, EntryPoint = "vaSyncSurface")]
@@ -74,19 +79,43 @@ internal static unsafe class VaapiInterop
     public const int ProcPipelineParameterBufferSize = 224;
 
     [DllImport(LibVa, EntryPoint = "vaCreateConfig")]
-    public static extern int vaCreateConfig(nint display, int profile, int entrypoint, void* attribs, int numAttribs, out uint configId);
+    public static extern int vaCreateConfig(
+        nint display,
+        int profile,
+        int entrypoint,
+        void* attribs,
+        int numAttribs,
+        out uint configId
+    );
 
     [DllImport(LibVa, EntryPoint = "vaDestroyConfig")]
     public static extern int vaDestroyConfig(nint display, uint configId);
 
     [DllImport(LibVa, EntryPoint = "vaCreateContext")]
-    public static extern int vaCreateContext(nint display, uint configId, int pictureWidth, int pictureHeight, int flag, uint* renderTargets, int numRenderTargets, out uint contextId);
+    public static extern int vaCreateContext(
+        nint display,
+        uint configId,
+        int pictureWidth,
+        int pictureHeight,
+        int flag,
+        uint* renderTargets,
+        int numRenderTargets,
+        out uint contextId
+    );
 
     [DllImport(LibVa, EntryPoint = "vaDestroyContext")]
     public static extern int vaDestroyContext(nint display, uint contextId);
 
     [DllImport(LibVa, EntryPoint = "vaCreateBuffer")]
-    public static extern int vaCreateBuffer(nint display, uint contextId, int type, uint size, uint numElements, void* data, out uint bufferId);
+    public static extern int vaCreateBuffer(
+        nint display,
+        uint contextId,
+        int type,
+        uint size,
+        uint numElements,
+        void* data,
+        out uint bufferId
+    );
 
     [DllImport(LibVa, EntryPoint = "vaDestroyBuffer")]
     public static extern int vaDestroyBuffer(nint display, uint bufferId);
@@ -95,7 +124,12 @@ internal static unsafe class VaapiInterop
     public static extern int vaBeginPicture(nint display, uint contextId, uint renderTarget);
 
     [DllImport(LibVa, EntryPoint = "vaRenderPicture")]
-    public static extern int vaRenderPicture(nint display, uint contextId, uint* buffers, int numBuffers);
+    public static extern int vaRenderPicture(
+        nint display,
+        uint contextId,
+        uint* buffers,
+        int numBuffers
+    );
 
     [DllImport(LibVa, EntryPoint = "vaEndPicture")]
     public static extern int vaEndPicture(nint display, uint contextId);
@@ -147,11 +181,25 @@ internal static unsafe class VaapiInterop
 
     /// <summary>Allocate a standalone image in a chosen format (<c>vaCreateImage</c>) for <see cref="vaGetImage"/>.</summary>
     [DllImport(LibVa, EntryPoint = "vaCreateImage")]
-    public static extern int vaCreateImage(nint display, VAImageFormat* format, int width, int height, VAImage* image);
+    public static extern int vaCreateImage(
+        nint display,
+        VAImageFormat* format,
+        int width,
+        int height,
+        VAImage* image
+    );
 
     /// <summary>Copy a surface's pixels into a linear image, detiling/converting as needed (<c>vaGetImage</c>).</summary>
     [DllImport(LibVa, EntryPoint = "vaGetImage")]
-    public static extern int vaGetImage(nint display, uint surface, int x, int y, uint width, uint height, uint image);
+    public static extern int vaGetImage(
+        nint display,
+        uint surface,
+        int x,
+        int y,
+        uint width,
+        uint height,
+        uint image
+    );
 
     /// <summary>Map an image's buffer to a CPU pointer (<c>vaMapBuffer</c>).</summary>
     [DllImport(LibVa, EntryPoint = "vaMapBuffer")]

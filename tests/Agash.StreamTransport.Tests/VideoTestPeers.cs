@@ -24,7 +24,13 @@ internal sealed class PatternVideoSource(int width, int height) : IVideoFrameSou
 
         _nextEmitTicks = now + s_frameTicks;
         long presentationTimeNs = now * (1_000_000_000L / Stopwatch.Frequency);
-        frame = VideoFrame.FromPixels(_nv12, VideoPixelFormat.Nv12, width, height, presentationTimeNs);
+        frame = VideoFrame.FromPixels(
+            _nv12,
+            VideoPixelFormat.Nv12,
+            width,
+            height,
+            presentationTimeNs
+        );
         return true;
     }
 }
@@ -71,7 +77,13 @@ internal sealed class StructuredVideoSource : IVideoFrameSource
 
         _nextEmitTicks = now + s_frameTicks;
         long presentationTimeNs = now * (1_000_000_000L / Stopwatch.Frequency);
-        frame = VideoFrame.FromPixels(_nv12, VideoPixelFormat.Nv12, _width, _height, presentationTimeNs);
+        frame = VideoFrame.FromPixels(
+            _nv12,
+            VideoPixelFormat.Nv12,
+            _width,
+            _height,
+            presentationTimeNs
+        );
         return true;
     }
 }
@@ -79,7 +91,9 @@ internal sealed class StructuredVideoSource : IVideoFrameSource
 /// <summary>A test <see cref="IVideoFrameSink"/> that counts decoded frames and signals when a target is reached.</summary>
 internal sealed class CollectingVideoSink(int target) : IVideoFrameSink
 {
-    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _reached = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
     private readonly Lock _gate = new();
     private byte[]? _lastPixels;
     private int _count;

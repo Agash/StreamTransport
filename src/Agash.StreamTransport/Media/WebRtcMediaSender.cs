@@ -74,7 +74,8 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         IAudioFrameSource? audio = null,
         nint gpuDeviceHandle = 0,
         INetworkController? controller = null,
-        MobilityEngine? mobility = null)
+        MobilityEngine? mobility = null
+    )
     {
         if (video is null && audio is null)
         {
@@ -87,7 +88,9 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<WebRtcMediaSender>();
         _controller = controller;
-        _pacer = controller is null ? null : new PacingBudget(controller.CurrentEstimate.PacingRateBps);
+        _pacer = controller is null
+            ? null
+            : new PacingBudget(controller.CurrentEstimate.PacingRateBps);
         _mobility = mobility;
         _gpuDeviceHandle = gpuDeviceHandle;
         VideoSource = video;
@@ -111,11 +114,24 @@ public sealed partial class WebRtcMediaSender : IMediaSender
     public TransportLossStats CurrentLossStats => _session?.Pc.CurrentLossStats ?? default;
 
     /// <inheritdoc/>
-    public async Task StartAsync(ISignalingChannel signaling, CancellationToken cancellationToken = default)
+    public async Task StartAsync(
+        ISignalingChannel signaling,
+        CancellationToken cancellationToken = default
+    )
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _session = new RtcSession(
-            signaling, MediaConfig.Build(_registry, _options, AudioSource is not null, VideoSource is not null), _dtlsFactory, _loggerFactory, _controller);
+            signaling,
+            MediaConfig.Build(
+                _registry,
+                _options,
+                AudioSource is not null,
+                VideoSource is not null
+            ),
+            _dtlsFactory,
+            _loggerFactory,
+            _controller
+        );
         PeerConnection pc = _session.Pc;
 
         // Congestion control: the controller's estimate retunes the encoder and the pacer live.
@@ -167,21 +183,38 @@ public sealed partial class WebRtcMediaSender : IMediaSender
             }
 
             WebRtc.Sdp.SdpCodec codec = media.Codecs[0];
-            if (media.Kind == WebRtc.Sdp.SdpMediaKind.Video && VideoSource is not null && _videoEncoder is null
-                && _registry.FindVideo(codec.EncodingName) is { } videoCodec)
+            if (
+                media.Kind == WebRtc.Sdp.SdpMediaKind.Video
+                && VideoSource is not null
+                && _videoEncoder is null
+                && _registry.FindVideo(codec.EncodingName) is { } videoCodec
+            )
             {
                 // Start the encoder at the controller's initial estimate (so the encoder and BWE agree from
                 // the first frame and ramp together); fall back to the fixed default with no controller.
                 long startBitrate = _controller?.CurrentEstimate.TargetBitrateBps ?? VideoBitrate;
                 _videoEncoder = videoCodec.CreateEncoder(
-                    new VideoEncoderSettings(_options.VideoFps, startBitrate, _options.VideoEncoderName, _gpuDeviceHandle, _options.PreserveAlpha, _options.MaxVideoBFrames, _options.Profile));
+                    new VideoEncoderSettings(
+                        _options.VideoFps,
+                        startBitrate,
+                        _options.VideoEncoderName,
+                        _gpuDeviceHandle,
+                        _options.PreserveAlpha,
+                        _options.MaxVideoBFrames,
+                        _options.Profile
+                    )
+                );
                 _videoPacketizer = videoCodec.CreatePacketizer();
                 _videoPayloadType = (byte)codec.PayloadType;
                 _videoSsrc = media.LocalSsrc;
                 LogNegotiated("video", codec.EncodingName, codec.PayloadType);
             }
-            else if (media.Kind == WebRtc.Sdp.SdpMediaKind.Audio && AudioSource is not null && _audioEncoder is null
-                && _registry.FindAudio(codec.EncodingName) is { } audioCodec)
+            else if (
+                media.Kind == WebRtc.Sdp.SdpMediaKind.Audio
+                && AudioSource is not null
+                && _audioEncoder is null
+                && _registry.FindAudio(codec.EncodingName) is { } audioCodec
+            )
             {
                 _audioEncoder = audioCodec.CreateEncoder();
                 _audioPayloadType = (byte)codec.PayloadType;
@@ -203,12 +236,28 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         // when the rate is capped; a rising queueDelay is real congestion. baseRtt is the link's floor RTT.
         double baseRttMs = health.BaseRttMicros / 1000.0;
         double rttMs = estimate.SmoothedRttMicros / 1000.0;
-        LogHealth(estimate.TargetBitrateBps / 1000, estimate.PacingRateBps / 1000, rttMs, baseRttMs,
-            Math.Max(0, rttMs - baseRttMs), health.LossRate * 100);
+        LogHealth(
+            estimate.TargetBitrateBps / 1000,
+            estimate.PacingRateBps / 1000,
+            rttMs,
+            baseRttMs,
+            Math.Max(0, rttMs - baseRttMs),
+            health.LossRate * 100
+        );
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Congestion: target {TargetKbps} kbps, pacing {PacingKbps} kbps, rtt {RttMs:F1} ms (base {BaseRttMs:F1}, queue {QueueMs:F1}), loss {LossPercent:F1}%.")]
-    private partial void LogHealth(long targetKbps, long pacingKbps, double rttMs, double baseRttMs, double queueMs, double lossPercent);
+    [LoggerMessage(
+        Level = LogLevel.Debug,
+        Message = "Congestion: target {TargetKbps} kbps, pacing {PacingKbps} kbps, rtt {RttMs:F1} ms (base {BaseRttMs:F1}, queue {QueueMs:F1}), loss {LossPercent:F1}%."
+    )]
+    private partial void LogHealth(
+        long targetKbps,
+        long pacingKbps,
+        double rttMs,
+        double baseRttMs,
+        double queueMs,
+        double lossPercent
+    );
 
     // Flush the send-side pipeline telemetry once a second: encode rate + access-unit size, and the per-second
     // delta of the transport's packets-sent / RTX-served counters. Called per encoded video frame (cheap).
@@ -228,10 +277,17 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         long rtxSent = s.RtxPacketsSent - _lastTxStats.RtxPacketsSent;
         LogTx(fps, _keyframesForced, auKb, pktsSent, rtxSent);
 
-        _framesEncoded = 0; _keyframesForced = 0; _auBytes = 0; _txWindowStartMs = nowMs; _lastTxStats = s;
+        _framesEncoded = 0;
+        _keyframesForced = 0;
+        _auBytes = 0;
+        _txWindowStartMs = nowMs;
+        _lastTxStats = s;
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Network tx: {Fps} fps encoded, {ForcedKf} forced-kf, {AuKb} KB/frame; sent {PktsSent} pkts, {RtxSent} rtx (last 1s).")]
+    [LoggerMessage(
+        Level = LogLevel.Debug,
+        Message = "Network tx: {Fps} fps encoded, {ForcedKf} forced-kf, {AuKb} KB/frame; sent {PktsSent} pkts, {RtxSent} rtx (last 1s)."
+    )]
     private partial void LogTx(int fps, int forcedKf, long auKb, long pktsSent, long rtxSent);
 
     // Pace one packet onto the link: block briefly while the budget is short, so a bursty intra frame is
@@ -256,13 +312,19 @@ public sealed partial class WebRtcMediaSender : IMediaSender
 
     private static long NowMicros() => Stopwatch.GetTimestamp() * 1_000_000L / Stopwatch.Frequency;
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Sender starting (audio={Audio}, video={Video}).")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Sender starting (audio={Audio}, video={Video})."
+    )]
     private partial void LogStarting(bool audio, bool video);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Sender peer connection state: {State}.")]
     private partial void LogStateChanged(PeerConnectionState state);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Sender negotiated {Kind} codec {Codec} (PT {PayloadType}).")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Sender negotiated {Kind} codec {Codec} (PT {PayloadType})."
+    )]
     private partial void LogNegotiated(string kind, string codec, int payloadType);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Sender stopped.")]
@@ -276,7 +338,16 @@ public sealed partial class WebRtcMediaSender : IMediaSender
             {
                 EncodedAudioPacket encoded = _audioEncoder!.Encode(frame);
                 _audioRtpTimestamp += encoded.DurationRtpUnits;
-                await pc.SendRtp(_audioPayloadType, _audioSsrc, _audioRtpTimestamp, marker: false, encoded.Payload, MediaConfig.CaptureNsToNtp(frame.PresentationTimeNs), cancellationToken).ConfigureAwait(false);
+                await pc.SendRtp(
+                        _audioPayloadType,
+                        _audioSsrc,
+                        _audioRtpTimestamp,
+                        marker: false,
+                        encoded.Payload,
+                        MediaConfig.CaptureNsToNtp(frame.PresentationTimeNs),
+                        cancellationToken
+                    )
+                    .ConfigureAwait(false);
             }
             else if (!await DelayAsync(5, cancellationToken).ConfigureAwait(false))
             {
@@ -302,7 +373,10 @@ public sealed partial class WebRtcMediaSender : IMediaSender
                 {
                     _framesEncoded++;
                     _auBytes += encoded.AccessUnit.Length;
-                    if (forced) { _keyframesForced++; }
+                    if (forced)
+                    {
+                        _keyframesForced++;
+                    }
                     LogTxStats(pc);
                     // The RTP timestamp is each frame's absolute sampling instant mapped to the 90 kHz clock -
                     // NOT an accumulated delta. With B-frames the encoder emits access units in decode order
@@ -313,7 +387,11 @@ public sealed partial class WebRtcMediaSender : IMediaSender
                         _videoBaseCaptureNs = encoded.CaptureNs;
                     }
 
-                    uint videoRtpTimestamp = (uint)((encoded.CaptureNs - _videoBaseCaptureNs) * MediaConfig.VideoClockRate / 1_000_000_000L);
+                    uint videoRtpTimestamp = (uint)(
+                        (encoded.CaptureNs - _videoBaseCaptureNs)
+                        * MediaConfig.VideoClockRate
+                        / 1_000_000_000L
+                    );
                     ulong captureNtp = MediaConfig.CaptureNsToNtp(encoded.CaptureNs);
                     int count = _videoPacketizer!.Packetize(encoded.AccessUnit);
                     for (int i = 0; i < count; i++)
@@ -322,8 +400,16 @@ public sealed partial class WebRtcMediaSender : IMediaSender
                         bool isLast = i == count - 1;
                         await PaceAsync(payload.Length, cancellationToken).ConfigureAwait(false);
                         // abs-capture-time on the first packet of the access unit only.
-                        await pc.SendRtp(_videoPayloadType, _videoSsrc, videoRtpTimestamp,
-                            marker: isLast, payload, i == 0 ? captureNtp : 0, cancellationToken).ConfigureAwait(false);
+                        await pc.SendRtp(
+                                _videoPayloadType,
+                                _videoSsrc,
+                                videoRtpTimestamp,
+                                marker: isLast,
+                                payload,
+                                i == 0 ? captureNtp : 0,
+                                cancellationToken
+                            )
+                            .ConfigureAwait(false);
                     }
                 }
             }
@@ -334,7 +420,10 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         }
     }
 
-    private static async Task<bool> DelayAsync(int milliseconds, CancellationToken cancellationToken)
+    private static async Task<bool> DelayAsync(
+        int milliseconds,
+        CancellationToken cancellationToken
+    )
     {
         try
         {
@@ -361,7 +450,11 @@ public sealed partial class WebRtcMediaSender : IMediaSender
         {
             if (loop is not null)
             {
-                try { await loop.ConfigureAwait(false); } catch (OperationCanceledException) { }
+                try
+                {
+                    await loop.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { }
             }
         }
 

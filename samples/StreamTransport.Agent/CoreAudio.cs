@@ -61,7 +61,8 @@ internal sealed class CoreAudioPublishSink : IAudioFrameSink, IDisposable
             ComponentSubType = AudioUnitSubType.DefaultOutput,
             ComponentManufacturer = AudioComponentManufacturerType.Apple,
         };
-        AudioComponent comp = AudioComponent.FindComponent(ref desc)
+        AudioComponent comp =
+            AudioComponent.FindComponent(ref desc)
             ?? throw new InvalidOperationException("No default output AudioComponent found.");
         AudioUnit.AudioUnit unit = comp.CreateAudioUnit();
 
@@ -85,8 +86,13 @@ internal sealed class CoreAudioPublishSink : IAudioFrameSink, IDisposable
 
     // Pull adapter: CoreAudio asks for `numberFrames`; drain the ring into the output buffer and zero-fill any
     // shortfall so playback stays continuous. Runs on the realtime audio thread.
-    private unsafe AudioUnitStatus Render(AudioUnitRenderActionFlags actionFlags, AudioTimeStamp timeStamp,
-        uint busNumber, uint numberFrames, AudioBuffers data)
+    private unsafe AudioUnitStatus Render(
+        AudioUnitRenderActionFlags actionFlags,
+        AudioTimeStamp timeStamp,
+        uint busNumber,
+        uint numberFrames,
+        AudioBuffers data
+    )
     {
         int count = (int)numberFrames * 2 * _channels;
         var dst = new Span<byte>((void*)data[0].Data, count);
@@ -117,7 +123,13 @@ internal sealed class CoreAudioPublishSink : IAudioFrameSink, IDisposable
 
         if (unit is not null)
         {
-            try { unit.Stop(); } catch { /* already stopped */ }
+            try
+            {
+                unit.Stop();
+            }
+            catch
+            { /* already stopped */
+            }
             unit.Dispose();
         }
     }

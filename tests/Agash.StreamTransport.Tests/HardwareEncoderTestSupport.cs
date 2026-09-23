@@ -50,12 +50,23 @@ internal static class HardwareEncoderTestSupport
     /// <param name="height">Frame height to probe at.</param>
     /// <param name="reason">Why the encoder is unusable, when this returns <see langword="false"/>.</param>
     /// <returns><see langword="true"/> when the encoder emitted at least one access unit.</returns>
-    public static bool TryPreflightEncoder(string encoderName, int width, int height, out string reason)
+    public static bool TryPreflightEncoder(
+        string encoderName,
+        int width,
+        int height,
+        out string reason
+    )
     {
         const int burst = 12;
         try
         {
-            using IVideoEncoderBackend preflight = TestEncoders.Open(encoderName, width, height, fps: 30, bitrate: 4_000_000);
+            using IVideoEncoderBackend preflight = TestEncoders.Open(
+                encoderName,
+                width,
+                height,
+                fps: 30,
+                bitrate: 4_000_000
+            );
             byte[] pattern = Nv12Pattern(width, height);
             for (int i = 0; i < burst; i++)
             {
@@ -66,14 +77,16 @@ internal static class HardwareEncoderTestSupport
                 }
             }
 
-            reason = $"{encoderName} opened but produced no access unit in {burst} frames "
+            reason =
+                $"{encoderName} opened but produced no access unit in {burst} frames "
                 + "(typical of VideoToolbox on a virtualized or contended CI host)";
             return false;
         }
 #pragma warning disable CA1031 // Any failure to open or encode means "no usable hardware here", which is the answer the caller wants.
         catch (Exception ex)
         {
-            reason = $"{encoderName} hardware encode is not available on this machine: {ex.Message}";
+            reason =
+                $"{encoderName} hardware encode is not available on this machine: {ex.Message}";
             return false;
         }
 #pragma warning restore CA1031
@@ -108,20 +121,31 @@ internal static class HardwareEncoderTestSupport
         {
             // hevc_vaapi only encodes VAAPI surfaces, so it has its own backend that owns the device + frames
             // pool and uploads NV12; the other vendors take system-memory NV12 directly via HardwareHevcEncoder.
-            encoder = encoderName == "hevc_vaapi"
-                ? new VaapiVideoEncoder(width, height, fps: 30, bitrate: 4_000_000)
-                : new HardwareHevcEncoder(encoderName, width, height, fps: 30, bitrate: 4_000_000);
+            encoder =
+                encoderName == "hevc_vaapi"
+                    ? new VaapiVideoEncoder(width, height, fps: 30, bitrate: 4_000_000)
+                    : new HardwareHevcEncoder(
+                        encoderName,
+                        width,
+                        height,
+                        fps: 30,
+                        bitrate: 4_000_000
+                    );
         }
         catch (HardwareEncoderUnavailableException ex)
         {
-            Assert.Inconclusive($"{encoderName} hardware is not available on this machine: {ex.Message}");
+            Assert.Inconclusive(
+                $"{encoderName} hardware is not available on this machine: {ex.Message}"
+            );
             return;
         }
         catch (Exception ex) when (encoderName == "hevc_vaapi")
         {
             // VaapiVideoEncoder surfaces a missing/unusable VAAPI driver as an FFmpeg error from device/context
             // setup; treat that like any other absent hardware so the suite stays green where VAAPI is unavailable.
-            Assert.Inconclusive($"hevc_vaapi hardware is not available on this machine: {ex.Message}");
+            Assert.Inconclusive(
+                $"hevc_vaapi hardware is not available on this machine: {ex.Message}"
+            );
             return;
         }
 
@@ -141,15 +165,20 @@ internal static class HardwareEncoderTestSupport
                 // Some encoders open even when no GPU is present and only fail at the first encode - notably
                 // VideoToolbox on a headless CI runner (error -542398533, "encoder not available now"). Treat that
                 // like absent hardware (skip) rather than a failure; a host with real hardware still encodes + passes.
-                Assert.Inconclusive($"{encoderName} hardware encode is not available on this machine: {ex.Message}");
+                Assert.Inconclusive(
+                    $"{encoderName} hardware encode is not available on this machine: {ex.Message}"
+                );
                 return;
             }
 
             Assert.IsNotNull(accessUnit, $"Expected an HEVC access unit from {encoderName}.");
             Assert.IsTrue(accessUnit.Length > 4, "Access unit should carry payload.");
             Assert.IsTrue(
-                accessUnit[0] == 0 && accessUnit[1] == 0 && (accessUnit[2] == 1 || (accessUnit[2] == 0 && accessUnit[3] == 1)),
-                "Access unit should begin with an Annex-B start code.");
+                accessUnit[0] == 0
+                    && accessUnit[1] == 0
+                    && (accessUnit[2] == 1 || (accessUnit[2] == 0 && accessUnit[3] == 1)),
+                "Access unit should begin with an Annex-B start code."
+            );
         }
     }
 }

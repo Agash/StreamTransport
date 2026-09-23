@@ -27,7 +27,9 @@ internal static unsafe class VulkanDevice
             EnsureCreated();
             if (s_device is null)
             {
-                throw new NotSupportedException("No usable Vulkan device is available on this machine.");
+                throw new NotSupportedException(
+                    "No usable Vulkan device is available on this machine."
+                );
             }
 
             return ffmpeg.av_buffer_ref(s_device);
@@ -45,13 +47,43 @@ internal static unsafe class VulkanDevice
     }
 
     /// <summary>The <c>VkInstance</c> FFmpeg created (0 until <see cref="IsAvailable"/> is true).</summary>
-    public static nint Instance { get { lock (s_gate) { EnsureCreated(); return Head(out var h) ? h->inst : 0; } } }
+    public static nint Instance
+    {
+        get
+        {
+            lock (s_gate)
+            {
+                EnsureCreated();
+                return Head(out var h) ? h->inst : 0;
+            }
+        }
+    }
 
     /// <summary>The <c>VkPhysicalDevice</c> FFmpeg selected.</summary>
-    public static nint PhysicalDevice { get { lock (s_gate) { EnsureCreated(); return Head(out var h) ? h->phys_dev : 0; } } }
+    public static nint PhysicalDevice
+    {
+        get
+        {
+            lock (s_gate)
+            {
+                EnsureCreated();
+                return Head(out var h) ? h->phys_dev : 0;
+            }
+        }
+    }
 
     /// <summary>The <c>VkDevice</c> FFmpeg created. Borrow it to run compute on the decoder's images.</summary>
-    public static nint Device { get { lock (s_gate) { EnsureCreated(); return Head(out var h) ? h->act_dev : 0; } } }
+    public static nint Device
+    {
+        get
+        {
+            lock (s_gate)
+            {
+                EnsureCreated();
+                return Head(out var h) ? h->act_dev : 0;
+            }
+        }
+    }
 
     private static void EnsureCreated()
     {
@@ -64,10 +96,17 @@ internal static unsafe class VulkanDevice
         FfmpegLog.InstallIfRequested();
 
         AVBufferRef* device = null;
-        int created = ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_VULKAN, null, null, 0);
+        int created = ffmpeg.av_hwdevice_ctx_create(
+            &device,
+            AVHWDeviceType.AV_HWDEVICE_TYPE_VULKAN,
+            null,
+            null,
+            0
+        );
         if (created < 0 || device is null)
         {
-            if (device is not null) ffmpeg.av_buffer_unref(&device);
+            if (device is not null)
+                ffmpeg.av_buffer_unref(&device);
             return;
         }
 
@@ -78,7 +117,9 @@ internal static unsafe class VulkanDevice
     // are read, so we never depend on the exact size of the embedded VkPhysicalDeviceFeatures2 that follows.
     private static bool Head(out AVVulkanDeviceContextHead* head)
     {
-        head = s_device is null ? null : (AVVulkanDeviceContextHead*)((AVHWDeviceContext*)s_device->data)->hwctx;
+        head = s_device is null
+            ? null
+            : (AVVulkanDeviceContextHead*)((AVHWDeviceContext*)s_device->data)->hwctx;
         return head is not null;
     }
 
@@ -89,10 +130,10 @@ internal static unsafe class VulkanDevice
     [StructLayout(LayoutKind.Sequential)]
     private struct AVVulkanDeviceContextHead
     {
-        public nint alloc;          // const VkAllocationCallbacks*
-        public nint get_proc_addr;  // PFN_vkGetInstanceProcAddr
-        public nint inst;           // VkInstance
-        public nint phys_dev;       // VkPhysicalDevice
-        public nint act_dev;        // VkDevice
+        public nint alloc; // const VkAllocationCallbacks*
+        public nint get_proc_addr; // PFN_vkGetInstanceProcAddr
+        public nint inst; // VkInstance
+        public nint phys_dev; // VkPhysicalDevice
+        public nint act_dev; // VkDevice
     }
 }

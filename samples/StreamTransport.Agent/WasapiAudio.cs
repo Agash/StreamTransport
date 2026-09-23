@@ -80,7 +80,8 @@ internal sealed class WasapiAudioPublishSink : IAudioFrameSink, IDisposable
 
     // Pull adapter: WASAPI asks for `count` bytes; drain the ring and zero-fill any shortfall so playback stays
     // continuous (returning < count would stop the stream). Always reports the full count as produced.
-    private sealed class RingWaveProvider(PullAudioRingBuffer ring, WaveFormat format) : IWaveProvider
+    private sealed class RingWaveProvider(PullAudioRingBuffer ring, WaveFormat format)
+        : IWaveProvider
     {
         public WaveFormat WaveFormat => format;
 
@@ -159,7 +160,9 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
 
         byte[] pcm = new byte[floatCount * 2];
         Span<short> dst = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, short>(pcm);
-        ReadOnlySpan<float> src = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(buffer);
+        ReadOnlySpan<float> src = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(
+            buffer
+        );
         for (int i = 0; i < floatCount; i++)
         {
             dst[i] = (short)Math.Clamp(src[i] * 32767f, short.MinValue, short.MaxValue);
@@ -181,7 +184,9 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
         }
     }
 
-    private static long NowNs() => System.Diagnostics.Stopwatch.GetTimestamp() * (1_000_000_000L / System.Diagnostics.Stopwatch.Frequency);
+    private static long NowNs() =>
+        System.Diagnostics.Stopwatch.GetTimestamp()
+        * (1_000_000_000L / System.Diagnostics.Stopwatch.Frequency);
 
     public void Dispose()
     {
@@ -190,7 +195,13 @@ internal sealed class WasapiAudioCaptureSource : IAudioFrameSource, IDisposable
             _disposed = true;
         }
 
-        try { _capture.StopRecording(); } catch { /* already stopped */ }
+        try
+        {
+            _capture.StopRecording();
+        }
+        catch
+        { /* already stopped */
+        }
         _capture.Dispose(); // releases the DataAvailable handler with the recorder.
     }
 }

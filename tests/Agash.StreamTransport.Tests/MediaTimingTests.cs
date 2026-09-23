@@ -40,8 +40,11 @@ public sealed class MediaTimingTests
             total += duration;
         }
 
-        Assert.AreEqual(frames * SamplesPerChannel, total,
-            $"{channels}-channel audio must advance the RTP clock at 48 kHz (1 s = 48000 units), not drift.");
+        Assert.AreEqual(
+            frames * SamplesPerChannel,
+            total,
+            $"{channels}-channel audio must advance the RTP clock at 48 kHz (1 s = 48000 units), not drift."
+        );
     }
 
     /// <summary>
@@ -88,7 +91,14 @@ public sealed class MediaTimingTests
         // CI Mac opens, accepts frames, and returns nothing. Preflight a burst and require real output, so the
         // test reports Inconclusive here rather than failing mid-pipeline. Real-hardware verification happens
         // on our machines.
-        if (!HardwareEncoderTestSupport.TryPreflightEncoder(probe, width, height, out string preflightReason))
+        if (
+            !HardwareEncoderTestSupport.TryPreflightEncoder(
+                probe,
+                width,
+                height,
+                out string preflightReason
+            )
+        )
         {
             Assert.Inconclusive(preflightReason);
             return;
@@ -99,11 +109,24 @@ public sealed class MediaTimingTests
         senderSignaling.Peer = receiverSignaling;
         receiverSignaling.Peer = senderSignaling;
 
-        var videoSink = new CollectingVideoSink(target: 15);   // ~0.5 s of video.
-        var audioSink = new CollectingAudioSink(target: 25);    // ~0.5 s of audio.
-        await using var receiver = new WebRtcMediaReceiver(new MediaTransportOptions(), TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, video: videoSink, audio: audioSink);
+        var videoSink = new CollectingVideoSink(target: 15); // ~0.5 s of video.
+        var audioSink = new CollectingAudioSink(target: 25); // ~0.5 s of audio.
+        await using var receiver = new WebRtcMediaReceiver(
+            new MediaTransportOptions(),
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            video: videoSink,
+            audio: audioSink
+        );
         await using var sender = new WebRtcMediaSender(
-            new MediaTransportOptions(), TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, video: new StructuredVideoSource(width, height), audio: new ToneAudioSource());
+            new MediaTransportOptions(),
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            video: new StructuredVideoSource(width, height),
+            audio: new ToneAudioSource()
+        );
 
         await receiver.StartAsync(receiverSignaling);
         try
@@ -125,14 +148,22 @@ public sealed class MediaTimingTests
         await senderSignaling.DisposeAsync();
         await receiverSignaling.DisposeAsync();
 
-        Assert.AreSame(both, finished, $"both streams should deliver (video {videoSink.Count}, audio {audioSink.Count}).");
-        Assert.IsTrue(videoSink.Count >= 15 && audioSink.Count >= 25,
-            $"expected both streams flowing; video {videoSink.Count}, audio {audioSink.Count}.");
+        Assert.AreSame(
+            both,
+            finished,
+            $"both streams should deliver (video {videoSink.Count}, audio {audioSink.Count})."
+        );
+        Assert.IsTrue(
+            videoSink.Count >= 15 && audioSink.Count >= 25,
+            $"expected both streams flowing; video {videoSink.Count}, audio {audioSink.Count}."
+        );
 
         // Audio (20 ms cadence, no startup latency) should never be outpaced by video (~33 ms + encoder
         // warm-up). If video led, a stream would be mis-paced.
-        Assert.IsTrue(audioSink.Count >= videoSink.Count,
-            $"audio ({audioSink.Count}) should not be outpaced by video ({videoSink.Count}).");
+        Assert.IsTrue(
+            audioSink.Count >= videoSink.Count,
+            $"audio ({audioSink.Count}) should not be outpaced by video ({videoSink.Count})."
+        );
     }
 
     private static AudioFrame Sine(int perChannel, int channels, int frameIndex)
@@ -140,13 +171,21 @@ public sealed class MediaTimingTests
         short[] pcm = new short[perChannel * channels];
         for (int i = 0; i < perChannel; i++)
         {
-            short s = (short)(Math.Sin(2 * Math.PI * 440 * (i + (frameIndex * perChannel)) / SampleRate) * 8000);
+            short s = (short)(
+                Math.Sin(2 * Math.PI * 440 * (i + (frameIndex * perChannel)) / SampleRate) * 8000
+            );
             for (int c = 0; c < channels; c++)
             {
                 pcm[(i * channels) + c] = s;
             }
         }
 
-        return new AudioFrame(MemoryMarshal.AsBytes(pcm.AsSpan()).ToArray(), AudioSampleFormat.S16, SampleRate, channels, 0);
+        return new AudioFrame(
+            MemoryMarshal.AsBytes(pcm.AsSpan()).ToArray(),
+            AudioSampleFormat.S16,
+            SampleRate,
+            channels,
+            0
+        );
     }
 }

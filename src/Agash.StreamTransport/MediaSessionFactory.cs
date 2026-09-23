@@ -16,14 +16,14 @@ public sealed class MediaSessionFactory(IMediaTransport transport, ILoggerFactor
         IMediaRoom room,
         IVideoFrameSource? video = null,
         IAudioFrameSource? audio = null,
-        nint gpuDeviceHandle = 0) =>
-        new(options, transport, loggerFactory, room, video, audio, gpuDeviceHandle);
+        nint gpuDeviceHandle = 0
+    ) => new(options, transport, loggerFactory, room, video, audio, gpuDeviceHandle);
 
     /// <summary>Create a subscriber over a room joined as <see cref="PeerRole.Subscriber"/>.</summary>
     public MediaSubscriber CreateSubscriber(
         MediaTransportOptions options,
         IMediaRoom room,
         IVideoFrameSink? video = null,
-        IAudioFrameSink? audio = null) =>
-        new(options, transport, loggerFactory, room, video, audio);
+        IAudioFrameSink? audio = null
+    ) => new(options, transport, loggerFactory, room, video, audio);
 }

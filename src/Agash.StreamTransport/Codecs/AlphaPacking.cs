@@ -20,7 +20,13 @@ internal static class AlphaPacking
     /// Pack a BGRA frame into a <c>2W x H</c> NV12 buffer: left half colour, right half alpha-as-luma with
     /// neutral chroma. <paramref name="packedNv12"/> must be <see cref="PackedNv12Length"/> bytes.
     /// </summary>
-    public static void PackBgraToNv12(ReadOnlySpan<byte> bgra, int stride, int width, int height, Span<byte> packedNv12)
+    public static void PackBgraToNv12(
+        ReadOnlySpan<byte> bgra,
+        int stride,
+        int width,
+        int height,
+        Span<byte> packedNv12
+    )
     {
         int packedW = width * 2;
         int lumaSize = packedW * height;
@@ -49,9 +55,9 @@ internal static class AlphaPacking
                 {
                     byte cb = (byte)((((-26 * r) - (87 * g) + (112 * b)) >> 8) + 128);
                     byte cr = (byte)((((112 * r) - (102 * g) - (10 * b)) >> 8) + 128);
-                    packedNv12[uvRow + x] = cb;          // colour chroma (left)
+                    packedNv12[uvRow + x] = cb; // colour chroma (left)
                     packedNv12[uvRow + x + 1] = cr;
-                    packedNv12[uvRow + width + x] = 128;  // neutral chroma over the alpha half (right)
+                    packedNv12[uvRow + width + x] = 128; // neutral chroma over the alpha half (right)
                     packedNv12[uvRow + width + x + 1] = 128;
                 }
             }
@@ -62,7 +68,12 @@ internal static class AlphaPacking
     /// Unpack a <c>2W x H</c> NV12 buffer produced by <see cref="PackBgraToNv12"/> (and round-tripped
     /// through the codec) back into a tightly-packed <c>W x H</c> BGRA buffer (4 bytes/pixel, alpha set).
     /// </summary>
-    public static void UnpackNv12ToBgra(ReadOnlySpan<byte> packedNv12, int packedWidth, int height, Span<byte> bgra)
+    public static void UnpackNv12ToBgra(
+        ReadOnlySpan<byte> packedNv12,
+        int packedWidth,
+        int height,
+        Span<byte> bgra
+    )
     {
         int width = packedWidth / 2;
         int lumaSize = packedWidth * height;
@@ -93,5 +104,10 @@ internal static class AlphaPacking
         }
     }
 
-    private static byte Clamp(int v) => (byte)(v < 0 ? 0 : v > 255 ? 255 : v);
+    private static byte Clamp(int v) =>
+        (byte)(
+            v < 0 ? 0
+            : v > 255 ? 255
+            : v
+        );
 }

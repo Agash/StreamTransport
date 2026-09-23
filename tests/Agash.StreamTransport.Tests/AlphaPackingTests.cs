@@ -21,7 +21,11 @@ public sealed class AlphaPackingTests
 
         byte[] packed = new byte[AlphaPacking.PackedNv12Length(width, height)];
         AlphaPacking.PackBgraToNv12(bgra, width * 4, width, height, packed);
-        Assert.AreEqual(width * 2 * height * 3 / 2, packed.Length, "Packed frame should be 2W x H NV12.");
+        Assert.AreEqual(
+            width * 2 * height * 3 / 2,
+            packed.Length,
+            "Packed frame should be 2W x H NV12."
+        );
 
         byte[] outBgra = new byte[width * height * 4];
         AlphaPacking.UnpackNv12ToBgra(packed, width * 2, height, outBgra);
@@ -35,12 +39,18 @@ public sealed class AlphaPackingTests
             maxAlphaErr = Math.Max(maxAlphaErr, Math.Abs(bgra[(i * 4) + 3] - outBgra[(i * 4) + 3]));
             for (int c = 0; c < 3; c++)
             {
-                maxColourErr = Math.Max(maxColourErr, Math.Abs(bgra[(i * 4) + c] - outBgra[(i * 4) + c]));
+                maxColourErr = Math.Max(
+                    maxColourErr,
+                    Math.Abs(bgra[(i * 4) + c] - outBgra[(i * 4) + c])
+                );
             }
         }
 
         Assert.IsTrue(maxAlphaErr <= 3, $"Alpha round-trip error {maxAlphaErr} exceeds tolerance.");
-        Assert.IsTrue(maxColourErr <= 6, $"Colour round-trip error {maxColourErr} exceeds tolerance.");
+        Assert.IsTrue(
+            maxColourErr <= 6,
+            $"Colour round-trip error {maxColourErr} exceeds tolerance."
+        );
     }
 
     /// <summary>Auto-selected hardware encoder (NVENC/AMF/QSV/VideoToolbox/rkmpp).</summary>
@@ -60,7 +70,9 @@ public sealed class AlphaPackingTests
         string? bin = TestNative.FindFFmpegBin();
         if (bin is null)
         {
-            Assert.Inconclusive("No bundled FFmpeg native build found; skipping alpha hardware round-trip.");
+            Assert.Inconclusive(
+                "No bundled FFmpeg native build found; skipping alpha hardware round-trip."
+            );
             return;
         }
 
@@ -100,15 +112,19 @@ public sealed class AlphaPackingTests
             // Decode with the backend that pairs with the encoder, mirroring production (the receive factory
             // uses VAAPI decode on Mesa). Decoding VAAPI output with the hardware-first HevcDecoder instead would
             // exercise its NVDEC/QSV-then-software fallback, which a non-NVIDIA box doesn't use for this stream.
-            using IVideoDecoderBackend decoder = selected == "hevc_vaapi"
-                ? new VaapiVideoDecoder()
-                : new HevcDecoder();
+            using IVideoDecoderBackend decoder =
+                selected == "hevc_vaapi" ? new VaapiVideoDecoder() : new HevcDecoder();
             byte[]? outBgra = null;
             try
             {
                 for (int frame = 0; frame < 30 && outBgra is null; frame++)
                 {
-                    byte[]? accessUnit = TestEncoders.EncodeNv12(encoder, packed, width * 2, height);
+                    byte[]? accessUnit = TestEncoders.EncodeNv12(
+                        encoder,
+                        packed,
+                        width * 2,
+                        height
+                    );
                     if (accessUnit is null)
                     {
                         continue;
@@ -116,9 +132,18 @@ public sealed class AlphaPackingTests
 
                     if (decoder.TryDecode(accessUnit, 0, 0, out VideoFrame decoded, out _))
                     {
-                        Assert.AreEqual(width * 2, decoded.Width, "Decoded width should be the packed 2W.");
+                        Assert.AreEqual(
+                            width * 2,
+                            decoded.Width,
+                            "Decoded width should be the packed 2W."
+                        );
                         byte[] tmp = new byte[width * height * 4];
-                        AlphaPacking.UnpackNv12ToBgra(decoded.Pixels.ToArray(), decoded.Width, decoded.Height, tmp);
+                        AlphaPacking.UnpackNv12ToBgra(
+                            decoded.Pixels.ToArray(),
+                            decoded.Width,
+                            decoded.Height,
+                            tmp
+                        );
                         outBgra = tmp;
                     }
                 }
@@ -127,11 +152,16 @@ public sealed class AlphaPackingTests
             {
                 // A HW encoder that opens but can't encode on this host - VideoToolbox on a headless/contended CI
                 // runner (-542398533) - is reported as absent hardware, not a failure. Verified on real machines.
-                Assert.Inconclusive($"{selected} hardware encode is not available on this machine: {ex.Message}");
+                Assert.Inconclusive(
+                    $"{selected} hardware encode is not available on this machine: {ex.Message}"
+                );
                 return;
             }
 
-            Assert.IsNotNull(outBgra, "Expected at least one decoded frame from the alpha round-trip.");
+            Assert.IsNotNull(
+                outBgra,
+                "Expected at least one decoded frame from the alpha round-trip."
+            );
 
             // The opaque region must stay opaque and the transparent region transparent through lossy HEVC.
             byte aOpaque = outBgra[(((height / 2) * width) + (width / 4)) * 4 + 3];
@@ -149,10 +179,10 @@ public sealed class AlphaPackingTests
             for (int x = 0; x < width; x++)
             {
                 int p = ((y * width) + x) * 4;
-                bgra[p] = 128;                  // B
-                bgra[p + 1] = (byte)(y * 4);    // G
-                bgra[p + 2] = (byte)x;          // R
-                bgra[p + 3] = (byte)x;          // A: horizontal 0..255 gradient
+                bgra[p] = 128; // B
+                bgra[p + 1] = (byte)(y * 4); // G
+                bgra[p + 2] = (byte)x; // R
+                bgra[p + 3] = (byte)x; // A: horizontal 0..255 gradient
             }
         }
 

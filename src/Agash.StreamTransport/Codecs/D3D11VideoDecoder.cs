@@ -21,7 +21,13 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
     public VideoSurfaceKind OutputSurfaceKind => VideoSurfaceKind.D3D11Texture;
 
     /// <inheritdoc/>
-    public bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp)
+    public bool TryDecode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out VideoFrame frame,
+        out uint frameRtpTimestamp
+    )
     {
         if (!Decode(accessUnit, rtpTimestamp, out int width, out int height, out frameRtpTimestamp))
         {
@@ -52,7 +58,8 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
         }
 
         AVBufferRef* device = null;
-        ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA, null, null, 0)
+        ffmpeg
+            .av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA, null, null, 0)
             .ThrowOnError("create D3D11VA device");
         _hwDevice = device;
 
@@ -72,7 +79,9 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
         _context->pkt_timebase = new AVRational { num = 1, den = 90_000 };
         _context->get_format = new AVCodecContext_get_format_func
         {
-            Pointer = (nint)(delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)&GetD3D11Format,
+            Pointer = (nint)
+                (delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)
+                    &GetD3D11Format,
         };
 
         ffmpeg.avcodec_open2(_context, codec, null).ThrowOnError("open D3D11 HEVC decoder");
@@ -104,7 +113,13 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
     /// Decode one access unit. When a frame is produced, copies it into the stable output texture and
     /// returns true with the dimensions; <see cref="OutputTexture"/> then holds the NV12 GPU frame.
     /// </summary>
-    public bool Decode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, out int width, out int height, out uint frameRtpTimestamp)
+    public bool Decode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        out int width,
+        out int height,
+        out uint frameRtpTimestamp
+    )
     {
         width = 0;
         height = 0;
@@ -140,7 +155,9 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
 
         if ((AVPixelFormat)_frame->format != AVPixelFormat.AV_PIX_FMT_D3D11)
         {
-            throw new InvalidOperationException("Hardware decoder did not produce a D3D11 surface.");
+            throw new InvalidOperationException(
+                "Hardware decoder did not produce a D3D11 surface."
+            );
         }
 
         if (_frame->pts != ffmpeg.AV_NOPTS_VALUE)
@@ -156,7 +173,15 @@ internal sealed unsafe class D3D11VideoDecoder : IDisposable, IVideoDecoderBacke
         int poolIndex = (int)_frame->data[1];
         using var source = new D3D11Texture2D(poolTexture);
         source.AddRef();
-        _immediateContext.CopySubresourceRegion(_outputTexture!, 0, 0, 0, 0, source, (uint)poolIndex);
+        _immediateContext.CopySubresourceRegion(
+            _outputTexture!,
+            0,
+            0,
+            0,
+            0,
+            source,
+            (uint)poolIndex
+        );
         return true;
     }
 

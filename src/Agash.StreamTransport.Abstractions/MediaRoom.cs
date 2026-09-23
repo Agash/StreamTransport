@@ -40,5 +40,10 @@ public interface IMediaRoom : IAsyncDisposable
     /// <summary>
     /// Send a control message, addressed to <paramref name="to"/> when given, otherwise fanned out to the room.
     /// </summary>
-    Task SendControlAsync(string topic, string payload, PeerId? to = null, CancellationToken cancellationToken = default);
+    Task SendControlAsync(
+        string topic,
+        string payload,
+        PeerId? to = null,
+        CancellationToken cancellationToken = default
+    );
 }

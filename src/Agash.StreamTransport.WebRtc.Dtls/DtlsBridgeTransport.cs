@@ -49,7 +49,8 @@ internal sealed class DtlsBridgeTransport(DtlsRecordSender send) : DatagramTrans
 
     // BouncyCastle's DatagramReceiver contract: waitMillis == 0 means an infinite wait. BlockingCollection
     // treats 0 as "don't block", the opposite, so map it to Timeout.Infinite (-1).
-    private static int NormalizeWait(int waitMillis) => waitMillis == 0 ? Timeout.Infinite : waitMillis;
+    private static int NormalizeWait(int waitMillis) =>
+        waitMillis == 0 ? Timeout.Infinite : waitMillis;
 
     public void Send(byte[] buf, int off, int len) => send(buf.AsMemory(off, len).ToArray());
 

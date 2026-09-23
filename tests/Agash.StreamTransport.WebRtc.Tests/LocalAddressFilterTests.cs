@@ -26,7 +26,10 @@ public sealed class LocalAddressFilterTests
     {
         Assert.IsTrue(LocalAddressFilter.Includes(["ipv4"], "eth0", "id", "desc", V4));
         Assert.IsFalse(LocalAddressFilter.Includes(["ipv4"], "eth0", "id", "desc", V6));
-        Assert.IsTrue(LocalAddressFilter.Includes(["IPv6"], "eth0", "id", "desc", V6), "keyword is case-insensitive");
+        Assert.IsTrue(
+            LocalAddressFilter.Includes(["IPv6"], "eth0", "id", "desc", V6),
+            "keyword is case-insensitive"
+        );
         Assert.IsFalse(LocalAddressFilter.Includes(["ipv6"], "eth0", "id", "desc", V4));
     }
 
@@ -43,23 +46,41 @@ public sealed class LocalAddressFilterTests
         // The IRL field-uplink case: keep only the two modems, drop Wi-Fi.
         string[] modems = ["modem1", "modem2"];
         Assert.IsTrue(LocalAddressFilter.Includes(modems, "modem1", "id1", "Cellular 1", V4));
-        Assert.IsTrue(LocalAddressFilter.Includes(modems, "MODEM2", "id2", "Cellular 2", V6), "NIC match is case-insensitive");
+        Assert.IsTrue(
+            LocalAddressFilter.Includes(modems, "MODEM2", "id2", "Cellular 2", V6),
+            "NIC match is case-insensitive"
+        );
         Assert.IsFalse(LocalAddressFilter.Includes(modems, "Wi-Fi", "idw", "Intel Wi-Fi", V4));
     }
 
     [TestMethod]
     public void NicIdOrDescription_AlsoMatch()
     {
-        Assert.IsTrue(LocalAddressFilter.Includes(["{GUID-ID}"], "eth0", "{GUID-ID}", "desc", V4), "matches NIC id");
-        Assert.IsTrue(LocalAddressFilter.Includes(["Intel Wi-Fi 6E"], "wlan0", "id", "Intel Wi-Fi 6E", V4), "matches NIC description");
+        Assert.IsTrue(
+            LocalAddressFilter.Includes(["{GUID-ID}"], "eth0", "{GUID-ID}", "desc", V4),
+            "matches NIC id"
+        );
+        Assert.IsTrue(
+            LocalAddressFilter.Includes(["Intel Wi-Fi 6E"], "wlan0", "id", "Intel Wi-Fi 6E", V4),
+            "matches NIC description"
+        );
     }
 
     [TestMethod]
     public void MultipleSelectors_MatchIsUnion()
     {
         string[] sel = ["ipv4", "modem2"];
-        Assert.IsTrue(LocalAddressFilter.Includes(sel, "wlan0", "id", "desc", V4), "matched by family");
-        Assert.IsTrue(LocalAddressFilter.Includes(sel, "modem2", "id", "desc", V6), "matched by NIC name");
-        Assert.IsFalse(LocalAddressFilter.Includes(sel, "wlan0", "id", "desc", V6), "matches neither");
+        Assert.IsTrue(
+            LocalAddressFilter.Includes(sel, "wlan0", "id", "desc", V4),
+            "matched by family"
+        );
+        Assert.IsTrue(
+            LocalAddressFilter.Includes(sel, "modem2", "id", "desc", V6),
+            "matched by NIC name"
+        );
+        Assert.IsFalse(
+            LocalAddressFilter.Includes(sel, "wlan0", "id", "desc", V6),
+            "matches neither"
+        );
     }
 }

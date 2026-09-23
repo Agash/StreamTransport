@@ -27,7 +27,8 @@ internal sealed partial class RtcSession : IAsyncDisposable
         PeerConnectionOptions peerOptions,
         IDtlsTransportFactory dtlsFactory,
         ILoggerFactory loggerFactory,
-        INetworkController? controller = null)
+        INetworkController? controller = null
+    )
     {
         _signaling = signaling;
         _logger = loggerFactory.CreateLogger<RtcSession>();
@@ -50,7 +51,12 @@ internal sealed partial class RtcSession : IAsyncDisposable
     {
         SdpDescription offer = Pc.CreateOffer();
         LogOfferSent();
-        await _signaling.SendAsync(new SessionDescription(SdpKind.Offer, SdpWriter.Write(offer)), cancellationToken).ConfigureAwait(false);
+        await _signaling
+            .SendAsync(
+                new SessionDescription(SdpKind.Offer, SdpWriter.Write(offer)),
+                cancellationToken
+            )
+            .ConfigureAwait(false);
     }
 
     private async Task OnRemoteDescriptionAsync(SessionDescription description)
@@ -61,14 +67,19 @@ internal sealed partial class RtcSession : IAsyncDisposable
             return;
         }
 
-        Pc.SetRemoteDescription(parsed, description.Kind == SdpKind.Offer ? SdpType.Offer : SdpType.Answer);
+        Pc.SetRemoteDescription(
+            parsed,
+            description.Kind == SdpKind.Offer ? SdpType.Offer : SdpType.Answer
+        );
         LogRemoteDescription(description.Kind);
 
         if (description.Kind == SdpKind.Offer)
         {
             SdpDescription answer = Pc.CreateAnswer();
             LogAnswerSent();
-            await _signaling.SendAsync(new SessionDescription(SdpKind.Answer, SdpWriter.Write(answer))).ConfigureAwait(false);
+            await _signaling
+                .SendAsync(new SessionDescription(SdpKind.Answer, SdpWriter.Write(answer)))
+                .ConfigureAwait(false);
         }
     }
 
@@ -81,7 +92,10 @@ internal sealed partial class RtcSession : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Debug, Message = "Applied remote {Kind} description.")]
     private partial void LogRemoteDescription(SdpKind kind);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Discarded unparsable remote {Kind} description.")]
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Discarded unparsable remote {Kind} description."
+    )]
     private partial void LogUnparsableDescription(SdpKind kind);
 
     private Task OnRemoteIceCandidateAsync(IceCandidate candidate)
@@ -95,7 +109,13 @@ internal sealed partial class RtcSession : IAsyncDisposable
     }
 
     private void OnLocalIceCandidate(WebRtcIceCandidate candidate) =>
-        _ = _signaling.SendAsync(new IceCandidate(candidate.ToSdp(), candidate.ComponentId.ToString(System.Globalization.CultureInfo.InvariantCulture), 0));
+        _ = _signaling.SendAsync(
+            new IceCandidate(
+                candidate.ToSdp(),
+                candidate.ComponentId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                0
+            )
+        );
 
     public async ValueTask DisposeAsync()
     {

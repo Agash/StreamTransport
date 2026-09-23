@@ -65,7 +65,8 @@ public readonly record struct SdpCodec(
     int ClockRate,
     int? Channels,
     string? FormatParameters,
-    IReadOnlyList<string> RtcpFeedback);
+    IReadOnlyList<string> RtcpFeedback
+);
 
 /// <summary>
 /// One <c>m=</c> media section of a WebRTC session description, carrying the ICE credentials, DTLS

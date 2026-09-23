@@ -9,7 +9,8 @@
     <OutputType>Exe</OutputType>
     <TargetFrameworks>net11.0</TargetFrameworks>
     <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX'))">net11.0-macos</TargetFrameworks>
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+      >$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
     <RootNamespace>StreamTransport.Agent</RootNamespace>
     <AssemblyName>streamtransport-agent</AssemblyName>
     <IsPackable>false</IsPackable>
@@ -95,5 +96,4 @@
   <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
     <Metal Update="Shaders/*.metal" />
   </ItemGroup>
-
 </Project>

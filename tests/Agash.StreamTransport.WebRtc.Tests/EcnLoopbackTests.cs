@@ -26,7 +26,9 @@ public sealed class EcnLoopbackTests
     {
         if (!EcnInterop.NativeReceiveSupported)
         {
-            Assert.Inconclusive("The OS/socket stack did not expose a native ECN receive API (expected on Windows).");
+            Assert.Inconclusive(
+                "The OS/socket stack did not expose a native ECN receive API (expected on Windows)."
+            );
         }
 
         IPAddress loopback = ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;
@@ -47,11 +49,21 @@ public sealed class EcnLoopbackTests
         tx.SendTo(payload, rx.LocalEndPoint);
 
         byte[] buffer = new byte[2048];
-        IceReceiveResult result = await rx.ReceiveAsync(buffer, CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        IceReceiveResult result = await rx.ReceiveAsync(buffer, CancellationToken.None)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.AreEqual(payload.Length, result.Length);
         CollectionAssert.AreEqual(payload, buffer.AsSpan(0, result.Length).ToArray());
-        Assert.AreEqual(((IPEndPoint)tx.LocalEndPoint!).Port, result.RemoteEndPoint.Port, "source port from the parsed sockaddr");
-        Assert.AreEqual(codepoint, result.Ecn, $"expected ECN codepoint 0b{Convert.ToString(codepoint, 2).PadLeft(2, '0')} read back from the cmsg");
+        Assert.AreEqual(
+            ((IPEndPoint)tx.LocalEndPoint!).Port,
+            result.RemoteEndPoint.Port,
+            "source port from the parsed sockaddr"
+        );
+        Assert.AreEqual(
+            codepoint,
+            result.Ecn,
+            $"expected ECN codepoint 0b{Convert.ToString(codepoint, 2).PadLeft(2, '0')} read back from the cmsg"
+        );
     }
 }

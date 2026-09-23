@@ -17,7 +17,14 @@ internal sealed class H265VideoCodecDescriptor : IVideoCodecDescriptor
     {
         ArgumentNullException.ThrowIfNull(settings);
         return new VideoSendPipeline(
-            settings.Fps, settings.Bitrate, settings.EncoderName, settings.GpuDeviceHandle, settings.PreserveAlpha, settings.MaxBFrames, settings.Profile);
+            settings.Fps,
+            settings.Bitrate,
+            settings.EncoderName,
+            settings.GpuDeviceHandle,
+            settings.PreserveAlpha,
+            settings.MaxBFrames,
+            settings.Profile
+        );
     }
 
     public IVideoDecoder CreateDecoder(VideoDecoderSettings settings)
@@ -27,6 +34,7 @@ internal sealed class H265VideoCodecDescriptor : IVideoCodecDescriptor
     }
 
     public IRtpPacketizer CreatePacketizer() => new H265RtpPacketizer();
+
     public IRtpDepacketizer CreateDepacketizer() => new H265RtpDepacketizer();
 }
 
@@ -43,7 +51,10 @@ internal sealed class OpusAudioCodecDescriptor : IAudioCodecDescriptor
     public int Preference => 10;
 
     public IAudioEncoder CreateEncoder() => new AudioPipeline(AudioCodec.Opus);
+
     public IAudioDecoder CreateDecoder() => new AudioPipeline(AudioCodec.Opus);
+
     public IRtpPacketizer CreatePacketizer() => new PassthroughPacketizer();
+
     public IRtpDepacketizer CreateDepacketizer() => new PassthroughDepacketizer();
 }

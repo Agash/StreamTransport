@@ -30,7 +30,11 @@ public sealed class VulkanDeviceTests
         }
 
         Assert.AreNotEqual(nint.Zero, VulkanDevice.Instance, "VkInstance must be non-null");
-        Assert.AreNotEqual(nint.Zero, VulkanDevice.PhysicalDevice, "VkPhysicalDevice must be non-null");
+        Assert.AreNotEqual(
+            nint.Zero,
+            VulkanDevice.PhysicalDevice,
+            "VkPhysicalDevice must be non-null"
+        );
         Assert.AreNotEqual(nint.Zero, VulkanDevice.Device, "VkDevice must be non-null");
     }
 
@@ -82,8 +86,15 @@ public sealed class VulkanDeviceTests
                 {
                     Assert.AreEqual(1280, w);
                     Assert.AreEqual(720, h);
-                    Assert.AreNotEqual(nint.Zero, decoder.Image0, "decoded Vulkan frame must expose a VkImage");
-                    if (Environment.GetEnvironmentVariable("STX_DMABUF_DEBUG") is { Length: > 0 } dbg2)
+                    Assert.AreNotEqual(
+                        nint.Zero,
+                        decoder.Image0,
+                        "decoded Vulkan frame must expose a VkImage"
+                    );
+                    if (
+                        Environment.GetEnvironmentVariable("STX_DMABUF_DEBUG") is
+                        { Length: > 0 } dbg2
+                    )
                     {
                         File.AppendAllText(dbg2, $"[vk-decode] ImageCount={decoder.ImageCount}\n");
                     }
@@ -92,7 +103,10 @@ public sealed class VulkanDeviceTests
                 }
             }
 
-            Assert.IsTrue(decoded, "decoder should have produced a Vulkan image from the HEVC stream");
+            Assert.IsTrue(
+                decoded,
+                "decoder should have produced a Vulkan image from the HEVC stream"
+            );
         }
     }
 
@@ -116,8 +130,10 @@ public sealed class VulkanDeviceTests
 
         // The load-bearing check for the mpv-inverted model: Vortice can drive the VkDevice FFmpeg created,
         // find a compute queue, and create a command pool on it.
-        Assert.IsTrue(VulkanComputeContext.TryCreate(out VulkanComputeContext? ctx),
-            "should build a compute context on FFmpeg's Vulkan device");
+        Assert.IsTrue(
+            VulkanComputeContext.TryCreate(out VulkanComputeContext? ctx),
+            "should build a compute context on FFmpeg's Vulkan device"
+        );
         using (ctx)
         {
             Assert.IsNotNull(ctx);

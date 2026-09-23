@@ -16,8 +16,9 @@ public sealed class RoomClient : IMediaRoom
     private readonly bool _ownsTransport;
     private readonly ConcurrentDictionary<long, PeerSignalingChannel> _channels = new();
     private readonly ConcurrentDictionary<long, PeerInfo> _peers = new();
-    private readonly TaskCompletionSource<WelcomeMessage> _welcome =
-        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<WelcomeMessage> _welcome = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
     private readonly CancellationTokenSource _cts = new();
     private Task? _pump;
 
@@ -58,7 +59,11 @@ public sealed class RoomClient : IMediaRoom
     /// common case; the client owns and closes the socket.
     /// </summary>
     public static async Task<RoomClient> ConnectAsync(
-        Uri relayWebSocketUrl, RoomCode room, PeerRole role, CancellationToken cancellationToken = default)
+        Uri relayWebSocketUrl,
+        RoomCode room,
+        PeerRole role,
+        CancellationToken cancellationToken = default
+    )
     {
         var socket = new ClientWebSocket();
         try
@@ -83,20 +88,31 @@ public sealed class RoomClient : IMediaRoom
     /// lifetime; disposing this client does not dispose the supplied transport.
     /// </summary>
     public static Task<RoomClient> ConnectAsync(
-        IDuplexSignalingTransport transport, RoomCode room, PeerRole role, CancellationToken cancellationToken = default)
+        IDuplexSignalingTransport transport,
+        RoomCode room,
+        PeerRole role,
+        CancellationToken cancellationToken = default
+    )
     {
         var client = new RoomClient(transport, ownsTransport: false);
         return client.StartAsync(room, role, cancellationToken);
     }
 
-    private async Task<RoomClient> StartAsync(RoomCode room, PeerRole role, CancellationToken cancellationToken)
+    private async Task<RoomClient> StartAsync(
+        RoomCode room,
+        PeerRole role,
+        CancellationToken cancellationToken
+    )
     {
         _pump = _transport.RunAsync(_cts.Token);
-        await _transport.SendAsync(new HelloMessage(SignalingProtocol.Version, role, room), cancellationToken)
+        await _transport
+            .SendAsync(new HelloMessage(SignalingProtocol.Version, role, room), cancellationToken)
             .ConfigureAwait(false);
 
         using CancellationTokenRegistration _ = cancellationToken.Register(
-            static state => ((TaskCompletionSource<WelcomeMessage>)state!).TrySetCanceled(), _welcome);
+            static state => ((TaskCompletionSource<WelcomeMessage>)state!).TrySetCanceled(),
+            _welcome
+        );
         WelcomeMessage welcome = await _welcome.Task.ConfigureAwait(false);
         Self = welcome.PeerId;
         State = welcome.RoomState;
@@ -119,18 +135,32 @@ public sealed class RoomClient : IMediaRoom
     /// pass it to a <see cref="WebRtcMediaSender"/> or <see cref="WebRtcMediaReceiver"/>.
     /// </summary>
     public ISignalingChannel ChannelFor(PeerId peer) =>
-        _channels.GetOrAdd(peer.Value, static (id, self) => new PeerSignalingChannel(self, new PeerId(id)), this);
+        _channels.GetOrAdd(
+            peer.Value,
+            static (id, self) => new PeerSignalingChannel(self, new PeerId(id)),
+            this
+        );
 
-    internal ValueTask SendToAsync(PeerId target, SignalingMessage message, CancellationToken cancellationToken) =>
-        _transport.SendAsync(message, cancellationToken);
+    internal ValueTask SendToAsync(
+        PeerId target,
+        SignalingMessage message,
+        CancellationToken cancellationToken
+    ) => _transport.SendAsync(message, cancellationToken);
 
     /// <summary>
     /// Send a generic control message over the signaling link. Addressed to <paramref name="to"/> when given,
     /// otherwise fanned out to the rest of the room by the router. Ordered relative to SDP/ICE on the same
     /// link, so a control message sent before an offer is observed before that offer on the far side.
     /// </summary>
-    public Task SendControlAsync(string topic, string payload, PeerId? to = null, CancellationToken cancellationToken = default) =>
-        _transport.SendAsync(new PeerControlMessage(topic, payload, To: to), cancellationToken).AsTask();
+    public Task SendControlAsync(
+        string topic,
+        string payload,
+        PeerId? to = null,
+        CancellationToken cancellationToken = default
+    ) =>
+        _transport
+            .SendAsync(new PeerControlMessage(topic, payload, To: to), cancellationToken)
+            .AsTask();
 
     private async Task OnMessageAsync(SignalingMessage message)
     {
@@ -154,11 +184,14 @@ public sealed class RoomClient : IMediaRoom
                 break;
             case SdpMessage { From: { } from } sdp:
                 await ((PeerSignalingChannel)ChannelFor(from))
-                    .DispatchDescriptionAsync(new SessionDescription(sdp.Kind, sdp.Sdp)).ConfigureAwait(false);
+                    .DispatchDescriptionAsync(new SessionDescription(sdp.Kind, sdp.Sdp))
+                    .ConfigureAwait(false);
                 break;
             case IceMessage { From: { } from } ice:
                 await ((PeerSignalingChannel)ChannelFor(from))
-                    .DispatchIceAsync(new IceCandidate(ice.Candidate, ice.SdpMid, ice.SdpMLineIndex))
+                    .DispatchIceAsync(
+                        new IceCandidate(ice.Candidate, ice.SdpMid, ice.SdpMLineIndex)
+                    )
                     .ConfigureAwait(false);
                 break;
             case PeerControlMessage control:
@@ -166,7 +199,8 @@ public sealed class RoomClient : IMediaRoom
                 break;
             case SignalingErrorMessage error:
                 _welcome.TrySetException(
-                    new InvalidOperationException($"Signaling error {error.Code}: {error.Detail}"));
+                    new InvalidOperationException($"Signaling error {error.Code}: {error.Detail}")
+                );
                 break;
             default:
                 break;
@@ -273,14 +307,29 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         }
     }
 
-    public Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default) =>
-        room.SendToAsync(peer, new SdpMessage(description.Kind, description.Sdp, To: peer), cancellationToken).AsTask();
+    public Task SendAsync(
+        SessionDescription description,
+        CancellationToken cancellationToken = default
+    ) =>
+        room.SendToAsync(
+                peer,
+                new SdpMessage(description.Kind, description.Sdp, To: peer),
+                cancellationToken
+            )
+            .AsTask();
 
     public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
         room.SendToAsync(
-            peer,
-            new IceMessage(candidate.Candidate, candidate.SdpMid, candidate.SdpMLineIndex, To: peer),
-            cancellationToken).AsTask();
+                peer,
+                new IceMessage(
+                    candidate.Candidate,
+                    candidate.SdpMid,
+                    candidate.SdpMLineIndex,
+                    To: peer
+                ),
+                cancellationToken
+            )
+            .AsTask();
 
     internal Task DispatchDescriptionAsync(SessionDescription description)
     {

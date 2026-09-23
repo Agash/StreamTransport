@@ -25,7 +25,10 @@ public sealed class RtpClockAlignerTests
         Assert.IsFalse(aligner.BothAligned);
 
         aligner.RecordSenderReport(SyncStream.Video, Ntp(1000), 0, VideoClock);
-        Assert.IsFalse(aligner.BothAligned, "one stream's SR is not enough for cross-stream alignment.");
+        Assert.IsFalse(
+            aligner.BothAligned,
+            "one stream's SR is not enough for cross-stream alignment."
+        );
 
         aligner.RecordSenderReport(SyncStream.Audio, Ntp(1000), 0, AudioClock);
         Assert.IsTrue(aligner.BothAligned);
@@ -61,11 +64,19 @@ public sealed class RtpClockAlignerTests
         aligner.RecordSenderReport(SyncStream.Audio, Ntp(5000), 7_777_000, AudioClock);
 
         // A frame captured 0.5 s after the SR instant on each stream: video advances 45000 ticks, audio 24000.
-        Assert.IsTrue(aligner.TryToSenderWallNs(SyncStream.Video, 1_000_000 + 45_000, out long videoWall));
-        Assert.IsTrue(aligner.TryToSenderWallNs(SyncStream.Audio, 7_777_000 + 24_000, out long audioWall));
+        Assert.IsTrue(
+            aligner.TryToSenderWallNs(SyncStream.Video, 1_000_000 + 45_000, out long videoWall)
+        );
+        Assert.IsTrue(
+            aligner.TryToSenderWallNs(SyncStream.Audio, 7_777_000 + 24_000, out long audioWall)
+        );
 
         // The two map to the same sender wall time (within 1 ns) - that is what makes them comparable.
-        Assert.AreEqual(videoWall, audioWall, "correlated capture instants must align on one wall clock.");
+        Assert.AreEqual(
+            videoWall,
+            audioWall,
+            "correlated capture instants must align on one wall clock."
+        );
         Assert.AreEqual((5000L * 1_000_000_000L) + 500_000_000L, videoWall);
     }
 

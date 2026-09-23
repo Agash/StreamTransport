@@ -13,7 +13,11 @@ internal sealed class BouncyCastleDtlsTransport : IDtlsTransport
     private readonly DtlsCertificate _certificate;
     private readonly DtlsBridgeTransport _bridge;
 
-    public BouncyCastleDtlsTransport(DtlsRole role, DtlsRecordSender send, DtlsCertificate certificate)
+    public BouncyCastleDtlsTransport(
+        DtlsRole role,
+        DtlsRecordSender send,
+        DtlsCertificate certificate
+    )
     {
         Role = role;
         _certificate = certificate;
@@ -38,7 +42,8 @@ internal sealed class BouncyCastleDtlsTransport : IDtlsTransport
             () => Role == DtlsRole.Client ? Connect() : Accept(),
             cancellationToken,
             TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
+            TaskScheduler.Default
+        );
 
     private SrtpKeyingMaterial Connect()
     {

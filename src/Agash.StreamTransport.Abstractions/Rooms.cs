@@ -66,7 +66,8 @@ public readonly record struct RoomCode(string Value)
 public readonly record struct PeerId(long Value)
 {
     /// <inheritdoc/>
-    public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public override string ToString() =>
+        Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>A snapshot of one peer in a room.</summary>
@@ -85,7 +86,8 @@ public readonly record struct PeerInfo(PeerId PeerId, PeerRole Role);
 public sealed record IceServer(
     IReadOnlyList<string> Urls,
     string? Username = null,
-    string? Credential = null);
+    string? Credential = null
+);
 
 /// <summary>
 /// The room state the router hands a peer on join: who else is present and which ICE servers to use
@@ -97,7 +99,8 @@ public sealed record IceServer(
 public sealed record RoomState(
     RoomCode Code,
     IReadOnlyList<PeerInfo> Peers,
-    IReadOnlyList<IceServer> IceServers);
+    IReadOnlyList<IceServer> IceServers
+);
 
 /// <summary>
 /// Supplies the ICE servers a joining peer should use. The STUN-only implementation advertises the
@@ -130,7 +133,8 @@ public abstract record SignalingMessage;
 /// <param name="ProtocolVersion">The client's <see cref="SignalingProtocol.Version"/>.</param>
 /// <param name="Role">The role the peer wants to play.</param>
 /// <param name="Room">The room code to join.</param>
-public sealed record HelloMessage(int ProtocolVersion, PeerRole Role, RoomCode Room) : SignalingMessage;
+public sealed record HelloMessage(int ProtocolVersion, PeerRole Role, RoomCode Room)
+    : SignalingMessage;
 
 /// <summary>The router's acknowledgement of <see cref="HelloMessage"/>: the assigned id and room state.</summary>
 /// <param name="PeerId">The id the router minted for this peer.</param>
@@ -145,7 +149,8 @@ public sealed record WelcomeMessage(PeerId PeerId, RoomState RoomState) : Signal
 /// <param name="Sdp">The SDP payload.</param>
 /// <param name="From">Set by the router when forwarding; null when a client sends.</param>
 /// <param name="To">Set by the client; the router routes by this field.</param>
-public sealed record SdpMessage(SdpKind Kind, string Sdp, PeerId? From = null, PeerId? To = null) : SignalingMessage;
+public sealed record SdpMessage(SdpKind Kind, string Sdp, PeerId? From = null, PeerId? To = null)
+    : SignalingMessage;
 
 /// <summary>A trickled ICE candidate routed peer-to-peer through the router.</summary>
 /// <param name="Candidate">The candidate line.</param>
@@ -154,7 +159,12 @@ public sealed record SdpMessage(SdpKind Kind, string Sdp, PeerId? From = null, P
 /// <param name="From">Set by the router when forwarding; null when a client sends.</param>
 /// <param name="To">Set by the client; the router routes by this field.</param>
 public sealed record IceMessage(
-    string Candidate, string? SdpMid, int? SdpMLineIndex, PeerId? From = null, PeerId? To = null) : SignalingMessage;
+    string Candidate,
+    string? SdpMid,
+    int? SdpMLineIndex,
+    PeerId? From = null,
+    PeerId? To = null
+) : SignalingMessage;
 
 /// <summary>The router notifies the other peers when someone joins.</summary>
 /// <param name="Peer">The peer that joined.</param>
@@ -176,13 +186,18 @@ public sealed record PeerLeftMessage(PeerId PeerId) : SignalingMessage;
 /// <param name="Payload">An opaque, caller-encoded payload (a scalar, or JSON for structured data).</param>
 /// <param name="From">Set by the router when forwarding; null when a client sends.</param>
 /// <param name="To">Target peer set by the client; when null the router fans the message out to the room.</param>
-public sealed record PeerControlMessage(string Topic, string Payload, PeerId? From = null, PeerId? To = null)
-    : SignalingMessage;
+public sealed record PeerControlMessage(
+    string Topic,
+    string Payload,
+    PeerId? From = null,
+    PeerId? To = null
+) : SignalingMessage;
 
 /// <summary>A connection-level error from the router.</summary>
 /// <param name="Code">The error code.</param>
 /// <param name="Detail">A human-readable detail.</param>
-public sealed record SignalingErrorMessage(SignalingErrorCode Code, string Detail) : SignalingMessage;
+public sealed record SignalingErrorMessage(SignalingErrorCode Code, string Detail)
+    : SignalingMessage;
 
 /// <summary>
 /// One peer's outbound link as seen by the router: the router calls this to push a message down to that
@@ -252,19 +267,31 @@ public interface ISignalingRouter
 /// <summary>Serializes <see cref="RoomCode"/> as a bare JSON string.</summary>
 internal sealed class RoomCodeJsonConverter : JsonConverter<RoomCode>
 {
-    public override RoomCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        new(reader.GetString() ?? string.Empty);
+    public override RoomCode Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    ) => new(reader.GetString() ?? string.Empty);
 
-    public override void Write(Utf8JsonWriter writer, RoomCode value, JsonSerializerOptions options) =>
-        writer.WriteStringValue(value.Value);
+    public override void Write(
+        Utf8JsonWriter writer,
+        RoomCode value,
+        JsonSerializerOptions options
+    ) => writer.WriteStringValue(value.Value);
 }
 
 /// <summary>Serializes <see cref="PeerId"/> as a bare JSON number.</summary>
 internal sealed class PeerIdJsonConverter : JsonConverter<PeerId>
 {
-    public override PeerId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        new(reader.GetInt64());
+    public override PeerId Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options
+    ) => new(reader.GetInt64());
 
-    public override void Write(Utf8JsonWriter writer, PeerId value, JsonSerializerOptions options) =>
-        writer.WriteNumberValue(value.Value);
+    public override void Write(
+        Utf8JsonWriter writer,
+        PeerId value,
+        JsonSerializerOptions options
+    ) => writer.WriteNumberValue(value.Value);
 }

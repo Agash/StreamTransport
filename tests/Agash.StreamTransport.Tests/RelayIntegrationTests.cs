@@ -38,21 +38,42 @@ public sealed class RelayIntegrationTests
         await using var relay = InProcessRelay.Start();
         var room = new RoomCode("itroom");
 
-        await using RoomClient publisherRoom = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Publisher);
-        await using RoomClient subscriberRoom = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Subscriber);
+        await using RoomClient publisherRoom = await RoomClient.ConnectAsync(
+            relay.WebSocketUri,
+            room,
+            PeerRole.Publisher
+        );
+        await using RoomClient subscriberRoom = await RoomClient.ConnectAsync(
+            relay.WebSocketUri,
+            room,
+            PeerRole.Subscriber
+        );
 
         var sink = new CollectingAudioSink(target: 10);
-        await using var subscriber = new MediaSubscriber(new MediaTransportOptions(), TestMedia.Transport, TestMedia.Loggers, subscriberRoom, audio: sink);
+        await using var subscriber = new MediaSubscriber(
+            new MediaTransportOptions(),
+            TestMedia.Transport,
+            TestMedia.Loggers,
+            subscriberRoom,
+            audio: sink
+        );
         await subscriber.StartAsync();
 
-        await using var publisher = new MediaPublisher(new MediaTransportOptions(), TestMedia.Transport, TestMedia.Loggers, publisherRoom, audio: new ToneAudioSource());
+        await using var publisher = new MediaPublisher(
+            new MediaTransportOptions(),
+            TestMedia.Transport,
+            TestMedia.Loggers,
+            publisherRoom,
+            audio: new ToneAudioSource()
+        );
         publisher.Start();
 
         Task finished = await Task.WhenAny(sink.Reached, Task.Delay(50_000));
 
         Assert.IsTrue(
             ReferenceEquals(finished, sink.Reached) && sink.Count >= 10,
-            $"Expected >=10 decoded audio frames through the relay, got {sink.Count}.");
+            $"Expected >=10 decoded audio frames through the relay, got {sink.Count}."
+        );
     }
 
     [TestMethod]
@@ -62,27 +83,58 @@ public sealed class RelayIntegrationTests
         await using var relay = InProcessRelay.Start();
         var room = new RoomCode("fanout");
 
-        await using RoomClient publisherRoom = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Publisher);
-        await using RoomClient sub1Room = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Subscriber);
-        await using RoomClient sub2Room = await RoomClient.ConnectAsync(relay.WebSocketUri, room, PeerRole.Subscriber);
+        await using RoomClient publisherRoom = await RoomClient.ConnectAsync(
+            relay.WebSocketUri,
+            room,
+            PeerRole.Publisher
+        );
+        await using RoomClient sub1Room = await RoomClient.ConnectAsync(
+            relay.WebSocketUri,
+            room,
+            PeerRole.Subscriber
+        );
+        await using RoomClient sub2Room = await RoomClient.ConnectAsync(
+            relay.WebSocketUri,
+            room,
+            PeerRole.Subscriber
+        );
 
         IMediaTransport transport = TestMedia.CreateCapturing(out CapturingLoggerFactory log);
         var sink1 = new CollectingAudioSink(target: 10);
         var sink2 = new CollectingAudioSink(target: 10);
-        await using var sub1 = new MediaSubscriber(new MediaTransportOptions(), transport, log, sub1Room, audio: sink1);
-        await using var sub2 = new MediaSubscriber(new MediaTransportOptions(), transport, log, sub2Room, audio: sink2);
+        await using var sub1 = new MediaSubscriber(
+            new MediaTransportOptions(),
+            transport,
+            log,
+            sub1Room,
+            audio: sink1
+        );
+        await using var sub2 = new MediaSubscriber(
+            new MediaTransportOptions(),
+            transport,
+            log,
+            sub2Room,
+            audio: sink2
+        );
         await sub1.StartAsync();
         await sub2.StartAsync();
 
         // One publisher fans out to both subscribers.
-        await using var publisher = new MediaPublisher(new MediaTransportOptions(), transport, log, publisherRoom, audio: new ToneAudioSource());
+        await using var publisher = new MediaPublisher(
+            new MediaTransportOptions(),
+            transport,
+            log,
+            publisherRoom,
+            audio: new ToneAudioSource()
+        );
         publisher.Start();
 
         _ = await Task.WhenAny(Task.WhenAll(sink1.Reached, sink2.Reached), Task.Delay(20_000));
 
         Assert.IsTrue(
             sink1.Count >= 10 && sink2.Count >= 10,
-            $"Expected >=10 decoded audio frames at each subscriber, got {sink1.Count} and {sink2.Count}.\n=== handshake log ===\n{log.Dump()}");
+            $"Expected >=10 decoded audio frames at each subscriber, got {sink1.Count} and {sink2.Count}.\n=== handshake log ===\n{log.Dump()}"
+        );
     }
 
     /// <summary>A minimal WebSocket signaling relay over <see cref="HttpListener"/>, backed by the room router.</summary>
@@ -150,7 +202,9 @@ public sealed class RelayIntegrationTests
 
         private async Task HandlePeerAsync(HttpListenerContext context)
         {
-            HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null).ConfigureAwait(false);
+            HttpListenerWebSocketContext wsContext = await context
+                .AcceptWebSocketAsync(null)
+                .ConfigureAwait(false);
             var transport = new WebSocketSignalingTransport(wsContext.WebSocket);
 
             // The session has to exist before the handler can forward to it, but the handler has to be
@@ -158,9 +212,8 @@ public sealed class RelayIntegrationTests
             // it is registered, and anything raised before the subscription is dropped on the floor. The
             // indirection lets the subscription go up first and be bound to the session a moment later.
             ISignalingSession? session = null;
-            transport.MessageReceived += message => session is null
-                ? Task.CompletedTask
-                : session.ReceiveAsync(message).AsTask();
+            transport.MessageReceived += message =>
+                session is null ? Task.CompletedTask : session.ReceiveAsync(message).AsTask();
 
             await using ISignalingSession connected = _router.Connect(transport);
             session = connected;

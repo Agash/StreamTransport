@@ -22,7 +22,7 @@ public sealed class PeerConnectionTests
 {
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
+    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task OfferAnswer_ConnectsAndDeliversEncryptedRtp()
     {
         var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
@@ -44,13 +44,32 @@ public sealed class PeerConnectionTests
         offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
         answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
 
-        var offererConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var answererConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        offerer.StateChanged += s => { if (s == PeerConnectionState.Connected) { offererConnected.TrySetResult(); } };
-        answerer.StateChanged += s => { if (s == PeerConnectionState.Connected) { answererConnected.TrySetResult(); } };
+        var offererConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        var answererConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        offerer.StateChanged += s =>
+        {
+            if (s == PeerConnectionState.Connected)
+            {
+                offererConnected.TrySetResult();
+            }
+        };
+        answerer.StateChanged += s =>
+        {
+            if (s == PeerConnectionState.Connected)
+            {
+                answererConnected.TrySetResult();
+            }
+        };
 
-        var received = new TaskCompletionSource<(RtpHeader Header, byte[] Payload)>(TaskCreationOptions.RunContinuationsAsynchronously);
-        answerer.RtpReceived += (header, payload) => received.TrySetResult((header, payload.ToArray()));
+        var received = new TaskCompletionSource<(RtpHeader Header, byte[] Payload)>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        answerer.RtpReceived += (header, payload) =>
+            received.TrySetResult((header, payload.ToArray()));
 
         // Offer / answer exchange.
         SdpDescription offer = offerer.CreateOffer();
@@ -58,14 +77,22 @@ public sealed class PeerConnectionTests
         SdpDescription answer = answerer.CreateAnswer();
         offerer.SetRemoteDescription(answer, SdpType.Answer);
 
-        await Task.WhenAll(offererConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(60));
+        await Task.WhenAll(offererConnected.Task, answererConnected.Task)
+            .WaitAsync(TimeSpan.FromSeconds(60));
         Assert.AreEqual(PeerConnectionState.Connected, offerer.State);
         Assert.AreEqual(PeerConnectionState.Connected, answerer.State);
 
         // Send an encrypted RTP packet offerer -> answerer with abs-capture-time.
         const ulong captureNtp = 0xE5_00_00_00_80_00_00_00;
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE, 0x10, 0x20];
-        await offerer.SendRtp(payloadType: 111, ssrc: 0x1111_1111, rtpTimestamp: 160, marker: true, payload, captureNtp);
+        await offerer.SendRtp(
+            payloadType: 111,
+            ssrc: 0x1111_1111,
+            rtpTimestamp: 160,
+            marker: true,
+            payload,
+            captureNtp
+        );
 
         (RtpHeader header, byte[] got) = await received.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.AreEqual(111, header.PayloadType);
@@ -78,7 +105,7 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
+    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task Mobility_Recovery_ReconnectsAndPreservesSrtpSession()
     {
         // Connect, then force a mobility recovery on the sender. A packet sent AFTER recovery must still
@@ -102,11 +129,27 @@ public sealed class PeerConnectionTests
         offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
         answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
 
-        var firstConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        offerer.StateChanged += s => { if (s == PeerConnectionState.Connected) { firstConnected.TrySetResult(); } };
+        var firstConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        offerer.StateChanged += s =>
+        {
+            if (s == PeerConnectionState.Connected)
+            {
+                firstConnected.TrySetResult();
+            }
+        };
 
-        var answererConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        answerer.StateChanged += s => { if (s == PeerConnectionState.Connected) { answererConnected.TrySetResult(); } };
+        var answererConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        answerer.StateChanged += s =>
+        {
+            if (s == PeerConnectionState.Connected)
+            {
+                answererConnected.TrySetResult();
+            }
+        };
 
         var received = new ConcurrentDictionary<uint, byte>();
         answerer.RtpReceived += (header, _) => received.TryAdd(header.Timestamp, 0);
@@ -116,12 +159,16 @@ public sealed class PeerConnectionTests
         SdpDescription answer = answerer.CreateAnswer();
         offerer.SetRemoteDescription(answer, SdpType.Answer);
 
-        await Task.WhenAll(firstConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(60));
+        await Task.WhenAll(firstConnected.Task, answererConnected.Task)
+            .WaitAsync(TimeSpan.FromSeconds(60));
 
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE];
         await offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 1000, marker: true, payload);
         await PollAsync(() => received.ContainsKey(1000), TimeSpan.FromSeconds(5));
-        Assert.IsTrue(received.ContainsKey(1000), "the first packet should arrive before recovery.");
+        Assert.IsTrue(
+            received.ContainsKey(1000),
+            "the first packet should arrive before recovery."
+        );
 
         // Force the path recovery. The PeerConnection stays Connected (DTLS/SRTP never drop - the whole point);
         // only ICE re-probes underneath. Re-send the post-recovery packet until ICE re-nominates and it lands
@@ -133,12 +180,15 @@ public sealed class PeerConnectionTests
             await Task.Delay(100);
         }
 
-        Assert.IsTrue(received.ContainsKey(2000), "a packet sent after recovery must still decrypt (SRTP preserved).");
+        Assert.IsTrue(
+            received.ContainsKey(2000),
+            "a packet sent after recovery must still decrypt (SRTP preserved)."
+        );
     }
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
+    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task IceRestart_RotatesCredentials_AndPreservesSrtpSession()
     {
         var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
@@ -159,10 +209,26 @@ public sealed class PeerConnectionTests
         offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
         answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
 
-        var firstConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        offerer.StateChanged += s => { if (s == PeerConnectionState.Connected) { firstConnected.TrySetResult(); } };
-        var answererConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        answerer.StateChanged += s => { if (s == PeerConnectionState.Connected) { answererConnected.TrySetResult(); } };
+        var firstConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        offerer.StateChanged += s =>
+        {
+            if (s == PeerConnectionState.Connected)
+            {
+                firstConnected.TrySetResult();
+            }
+        };
+        var answererConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        answerer.StateChanged += s =>
+        {
+            if (s == PeerConnectionState.Connected)
+            {
+                answererConnected.TrySetResult();
+            }
+        };
 
         var received = new ConcurrentDictionary<uint, byte>();
         answerer.RtpReceived += (header, _) => received.TryAdd(header.Timestamp, 0);
@@ -170,7 +236,8 @@ public sealed class PeerConnectionTests
         SdpDescription offer = offerer.CreateOffer();
         answerer.SetRemoteDescription(offer, SdpType.Offer);
         offerer.SetRemoteDescription(answerer.CreateAnswer(), SdpType.Answer);
-        await Task.WhenAll(firstConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(60));
+        await Task.WhenAll(firstConnected.Task, answererConnected.Task)
+            .WaitAsync(TimeSpan.FromSeconds(60));
 
         string ufragBefore = offer.Media[0].IceUfrag;
         byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF];
@@ -180,7 +247,11 @@ public sealed class PeerConnectionTests
 
         // Full ICE restart: fresh credentials + re-gather, re-offered; the answerer restarts on the new ufrag.
         SdpDescription restartOffer = offerer.RestartIce();
-        Assert.AreNotEqual(ufragBefore, restartOffer.Media[0].IceUfrag, "the restart must rotate the ICE ufrag.");
+        Assert.AreNotEqual(
+            ufragBefore,
+            restartOffer.Media[0].IceUfrag,
+            "the restart must rotate the ICE ufrag."
+        );
         answerer.SetRemoteDescription(restartOffer, SdpType.Offer);
         offerer.SetRemoteDescription(answerer.CreateAnswer(), SdpType.Answer);
 
@@ -191,7 +262,10 @@ public sealed class PeerConnectionTests
             await Task.Delay(100);
         }
 
-        Assert.IsTrue(received.ContainsKey(2000), "a packet after the ICE restart must still decrypt (SRTP preserved).");
+        Assert.IsTrue(
+            received.ContainsKey(2000),
+            "a packet after the ICE restart must still decrypt (SRTP preserved)."
+        );
         Assert.AreEqual(PeerConnectionState.Connected, offerer.State);
     }
 
@@ -226,13 +300,19 @@ public sealed class PeerConnectionTests
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xDDDD_0001, [videoCodec])],
         };
 
-        await using var sender = new PeerConnection(senderOptions, new DtlsTransportFactory(), controller: new ScreamCongestionController());
+        await using var sender = new PeerConnection(
+            senderOptions,
+            new DtlsTransportFactory(),
+            controller: new ScreamCongestionController()
+        );
         await using var receiver = new PeerConnection(receiverOptions, new DtlsTransportFactory());
 
         sender.LocalIceCandidate += c => receiver.AddRemoteIceCandidate(c);
         receiver.LocalIceCandidate += c => sender.AddRemoteIceCandidate(c);
 
-        var bothConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bothConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         int connected = 0;
         void OnState(PeerConnectionState s)
         {
@@ -245,7 +325,9 @@ public sealed class PeerConnectionTests
         sender.StateChanged += OnState;
         receiver.StateChanged += OnState;
 
-        var estimate = new TaskCompletionSource<BitrateEstimate>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var estimate = new TaskCompletionSource<BitrateEstimate>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         sender.BitrateEstimateChanged += e => estimate.TrySetResult(e);
 
         SdpDescription offer = sender.CreateOffer();
@@ -264,8 +346,14 @@ public sealed class PeerConnectionTests
         }
 
         BitrateEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        Assert.IsTrue(got.TargetBitrateBps > 0, "the controller should produce a positive target bitrate.");
-        Assert.IsTrue(got.PacingRateBps >= got.TargetBitrateBps, "pacing rate should not be below the target.");
+        Assert.IsTrue(
+            got.TargetBitrateBps > 0,
+            "the controller should produce a positive target bitrate."
+        );
+        Assert.IsTrue(
+            got.PacingRateBps >= got.TargetBitrateBps,
+            "pacing rate should not be below the target."
+        );
     }
 
     [TestMethod]
@@ -303,16 +391,27 @@ public sealed class PeerConnectionTests
         offerer.SetRemoteDescription(answer, SdpType.Answer);
         NegotiatedMediaInfo offererVideo = offerer.NegotiatedMedia.Single();
         Assert.AreEqual("H265", offererVideo.Codecs[0].EncodingName);
-        Assert.AreEqual(0xAAAA_0001u, offererVideo.LocalSsrc, "the offerer sends with its own SSRC.");
+        Assert.AreEqual(
+            0xAAAA_0001u,
+            offererVideo.LocalSsrc,
+            "the offerer sends with its own SSRC."
+        );
         await Task.CompletedTask;
     }
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")]  // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
+    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task Receiver_RequestKeyframe_ReachesSenderAsRtcpPli()
     {
-        var videoCodec = new SdpCodec(96, "H264", 90000, null, "packetization-mode=1", ["nack", "nack pli"]);
+        var videoCodec = new SdpCodec(
+            96,
+            "H264",
+            90000,
+            null,
+            "packetization-mode=1",
+            ["nack", "nack pli"]
+        );
         var senderOptions = new PeerConnectionOptions
         {
             IncludeLoopback = true,
@@ -330,11 +429,16 @@ public sealed class PeerConnectionTests
         sender.LocalIceCandidate += c => receiver.AddRemoteIceCandidate(c);
         receiver.LocalIceCandidate += c => sender.AddRemoteIceCandidate(c);
 
-        var bothConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bothConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         int connectedCount = 0;
         void OnState(PeerConnectionState s)
         {
-            if (s == PeerConnectionState.Connected && Interlocked.Increment(ref connectedCount) == 2)
+            if (
+                s == PeerConnectionState.Connected
+                && Interlocked.Increment(ref connectedCount) == 2
+            )
             {
                 bothConnected.TrySetResult();
             }
@@ -343,7 +447,9 @@ public sealed class PeerConnectionTests
         sender.StateChanged += OnState;
         receiver.StateChanged += OnState;
 
-        var keyframeRequested = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var keyframeRequested = new TaskCompletionSource<uint>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         sender.KeyframeRequested += ssrc => keyframeRequested.TrySetResult(ssrc);
 
         SdpDescription offer = sender.CreateOffer();

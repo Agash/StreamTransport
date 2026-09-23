@@ -43,7 +43,8 @@ public readonly record struct DtlsFingerprint(string Algorithm, ReadOnlyMemory<b
                     bytes[i].TryFormat(dst[pos..], out _, "X2");
                     pos += 2;
                 }
-            });
+            }
+        );
     }
 }
 
@@ -66,7 +67,8 @@ public readonly record struct SrtpKeyingMaterial(
     ReadOnlyMemory<byte> ClientMasterKey,
     ReadOnlyMemory<byte> ClientMasterSalt,
     ReadOnlyMemory<byte> ServerMasterKey,
-    ReadOnlyMemory<byte> ServerMasterSalt);
+    ReadOnlyMemory<byte> ServerMasterSalt
+);
 
 /// <summary>
 /// Creates a <see cref="DtlsFingerprint"/> over the supplied DER-encoded certificate using SHA-256, the

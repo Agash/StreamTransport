@@ -94,9 +94,7 @@ internal static unsafe class EcnInterop
             };
             NativeSetSocketOption(socket.Handle, level, option, 1);
         }
-        catch (SocketException)
-        {
-        }
+        catch (SocketException) { }
     }
 
     private static void NativeSetSocketOption(nint handle, int level, int option, int value)
@@ -112,29 +110,46 @@ internal static unsafe class EcnInterop
     }
 
     [DllImport("libc", EntryPoint = "setsockopt", SetLastError = true)]
-    private static extern int unix_setsockopt(int socket, int level, int optionName, byte* optionValue, uint optionLength);
+    private static extern int unix_setsockopt(
+        int socket,
+        int level,
+        int optionName,
+        byte* optionValue,
+        uint optionLength
+    );
 
     /// <summary>
     /// Blocking receive of one datagram, returning the byte count, the 2-bit ECN mark and the source endpoint.
     /// Returns -1 (with <paramref name="remote"/> null) on error - e.g. the socket was closed during shutdown.
     /// </summary>
-    public static int Receive(nint handle, byte[] buffer, bool ipv6, out byte ecn, out IPEndPoint? remote)
-        => UnixReceive((int)handle, buffer, ipv6, out ecn, out remote);
+    public static int Receive(
+        nint handle,
+        byte[] buffer,
+        bool ipv6,
+        out byte ecn,
+        out IPEndPoint? remote
+    ) => UnixReceive((int)handle, buffer, ipv6, out ecn, out remote);
 
     // ---- Unix (Linux + macOS): recvmsg ----
 
     [DllImport("libc", SetLastError = true)]
     private static extern nint recvmsg(int sockfd, byte* msg, int flags);
 
-    private static int UnixReceive(int fd, byte[] buffer, bool ipv6, out byte ecn, out IPEndPoint? remote)
+    private static int UnixReceive(
+        int fd,
+        byte[] buffer,
+        bool ipv6,
+        out byte ecn,
+        out IPEndPoint? remote
+    )
     {
         ecn = 0;
         remote = null;
 
         Span<byte> name = stackalloc byte[128];
         Span<byte> control = stackalloc byte[128];
-        Span<byte> hdr = stackalloc byte[64];   // msghdr (56 bytes used) zero-filled
-        Span<byte> iov = stackalloc byte[16];   // iovec
+        Span<byte> hdr = stackalloc byte[64]; // msghdr (56 bytes used) zero-filled
+        Span<byte> iov = stackalloc byte[16]; // iovec
         hdr.Clear();
 
         fixed (byte* pBuf = buffer)
@@ -188,7 +203,9 @@ internal static unsafe class EcnInterop
         int offset = 0;
         while (offset + headerSize <= controlLen)
         {
-            ulong cmsgLen = IsMacOS ? *(uint*)Ptr(control, offset) : (ulong)*(nuint*)Ptr(control, offset);
+            ulong cmsgLen = IsMacOS
+                ? *(uint*)Ptr(control, offset)
+                : (ulong)*(nuint*)Ptr(control, offset);
             int level = *(int*)Ptr(control, offset + (IsMacOS ? 4 : 8));
             int type = *(int*)Ptr(control, offset + (IsMacOS ? 8 : 12));
             if (cmsgLen < (ulong)headerSize || offset + (int)cmsgLen > controlLen)
@@ -245,8 +262,8 @@ internal static unsafe class EcnInterop
         return new IPEndPoint(v6, port);
     }
 
-    private static byte* Ptr(ReadOnlySpan<byte> span, int offset)
-        => (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span)) + offset;
+    private static byte* Ptr(ReadOnlySpan<byte> span, int offset) =>
+        (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span)) + offset;
 
     private static int Align(int len, int align) => (len + (align - 1)) & ~(align - 1);
 }

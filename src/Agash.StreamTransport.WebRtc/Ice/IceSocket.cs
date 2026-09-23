@@ -16,11 +16,21 @@ public readonly record struct IceReceiveResult(int Length, IPEndPoint RemoteEndP
 /// <param name="CheckRto">Per-check retransmit timeout.</param>
 /// <param name="ConsentInterval">How often consent (and hot-standby keep-warm) pings are sent.</param>
 /// <param name="ConsentTimeout">How long without a response before the selected pair is declared dead.</param>
-public sealed record IceTimings(TimeSpan Ta, TimeSpan CheckRto, TimeSpan ConsentInterval, TimeSpan ConsentTimeout)
+public sealed record IceTimings(
+    TimeSpan Ta,
+    TimeSpan CheckRto,
+    TimeSpan ConsentInterval,
+    TimeSpan ConsentTimeout
+)
 {
     /// <summary>The production timing (RFC defaults): 50 ms pacing, 500 ms RTO, 5 s consent, 30 s timeout.</summary>
-    public static IceTimings Default { get; } = new(
-        TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+    public static IceTimings Default { get; } =
+        new(
+            TimeSpan.FromMilliseconds(50),
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(30)
+        );
 }
 
 /// <summary>
@@ -34,10 +44,17 @@ public interface IIceSocket : IDisposable
     IPEndPoint LocalEndPoint { get; }
 
     /// <summary>Send a datagram to <paramref name="destination"/>.</summary>
-    ValueTask SendAsync(ReadOnlyMemory<byte> data, IPEndPoint destination, CancellationToken cancellationToken = default);
+    ValueTask SendAsync(
+        ReadOnlyMemory<byte> data,
+        IPEndPoint destination,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Receive the next datagram into <paramref name="buffer"/>.</summary>
-    ValueTask<IceReceiveResult> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken);
+    ValueTask<IceReceiveResult> ReceiveAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken
+    );
 }
 
 /// <summary>Enumerates local addresses and binds <see cref="IIceSocket"/>s for ICE host-candidate gathering.</summary>
@@ -56,9 +73,8 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
     private readonly IReadOnlyList<string> _preferences;
 
     /// <summary>Gather on every usable local address.</summary>
-    public UdpIceSocketFactory() : this([])
-    {
-    }
+    public UdpIceSocketFactory()
+        : this([]) { }
 
     /// <summary>Gather only on local addresses matching <paramref name="localAddressPreferences"/> (see
     /// <see cref="LocalAddressFilter"/>). An empty list gathers everything.</summary>
@@ -84,12 +100,17 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
             foreach (UnicastIPAddressInformation info in nic.GetIPProperties().UnicastAddresses)
             {
                 IPAddress a = info.Address;
-                if (a.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
+                if (
+                    a.AddressFamily
+                    is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6)
+                )
                 {
                     continue;
                 }
 
-                if (!LocalAddressFilter.Includes(_preferences, nic.Name, nic.Id, nic.Description, a))
+                if (
+                    !LocalAddressFilter.Includes(_preferences, nic.Name, nic.Id, nic.Description, a)
+                )
                 {
                     continue;
                 }
@@ -111,7 +132,9 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
             raw.Bind(new IPEndPoint(address, 0));
             // Prefer the native ECN-reading socket on POSIX; Windows has no reliable per-datagram ECN path (see
             // EcnInterop), so it uses the managed socket there - matching libwebrtc, which gates ECN on WEBRTC_POSIX.
-            socket = EcnInterop.NativeReceiveSupported ? new EcnUdpSocket(raw) : new UdpIceSocket(raw);
+            socket = EcnInterop.NativeReceiveSupported
+                ? new EcnUdpSocket(raw)
+                : new UdpIceSocket(raw);
             return true;
         }
         catch (SocketException)
@@ -131,21 +154,36 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
             _socket = socket;
             LocalEndPoint = (IPEndPoint)socket.LocalEndPoint!;
             _receiveFrom = new IPEndPoint(
-                LocalEndPoint.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any, 0);
+                LocalEndPoint.AddressFamily == AddressFamily.InterNetworkV6
+                    ? IPAddress.IPv6Any
+                    : IPAddress.Any,
+                0
+            );
         }
 
         public IPEndPoint LocalEndPoint { get; }
 
-        public async ValueTask SendAsync(ReadOnlyMemory<byte> data, IPEndPoint destination, CancellationToken cancellationToken = default) =>
-            await _socket.SendToAsync(data, SocketFlags.None, destination, cancellationToken).ConfigureAwait(false);
+        public async ValueTask SendAsync(
+            ReadOnlyMemory<byte> data,
+            IPEndPoint destination,
+            CancellationToken cancellationToken = default
+        ) =>
+            await _socket
+                .SendToAsync(data, SocketFlags.None, destination, cancellationToken)
+                .ConfigureAwait(false);
 
         // The managed Socket API does not surface the received IP TOS/Traffic-Class byte (ReceiveMessageFrom
         // exposes only IPPacketInformation, never the cmsg control buffer where ECN lives), so a real socket
         // reports Ecn=0. Reading L4S ECN-CE on hardware needs per-platform recvmsg/cmsg P/Invoke; the rest of
         // the congestion loop already consumes IceReceiveResult.Ecn, so an ECN-capable source drops straight in.
-        public async ValueTask<IceReceiveResult> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken)
+        public async ValueTask<IceReceiveResult> ReceiveAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken
+        )
         {
-            SocketReceiveFromResult result = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, _receiveFrom, cancellationToken).ConfigureAwait(false);
+            SocketReceiveFromResult result = await _socket
+                .ReceiveFromAsync(buffer, SocketFlags.None, _receiveFrom, cancellationToken)
+                .ConfigureAwait(false);
             return new IceReceiveResult(result.ReceivedBytes, (IPEndPoint)result.RemoteEndPoint);
         }
 
@@ -163,7 +201,12 @@ public static class LocalAddressFilter
     /// <summary>True if <paramref name="address"/> on the given NIC should be gathered under <paramref name="selectors"/>
     /// (empty selectors include everything; otherwise a match on family keyword, literal IP, or NIC name/id/description).</summary>
     public static bool Includes(
-        IReadOnlyList<string> selectors, string nicName, string nicId, string nicDescription, IPAddress address)
+        IReadOnlyList<string> selectors,
+        string nicName,
+        string nicId,
+        string nicDescription,
+        IPAddress address
+    )
     {
         if (selectors.Count == 0)
         {
@@ -197,9 +240,11 @@ public static class LocalAddressFilter
                 return true;
             }
 
-            if (nicName.Equals(selector, StringComparison.OrdinalIgnoreCase)
+            if (
+                nicName.Equals(selector, StringComparison.OrdinalIgnoreCase)
                 || nicId.Equals(selector, StringComparison.OrdinalIgnoreCase)
-                || nicDescription.Equals(selector, StringComparison.OrdinalIgnoreCase))
+                || nicDescription.Equals(selector, StringComparison.OrdinalIgnoreCase)
+            )
             {
                 return true;
             }

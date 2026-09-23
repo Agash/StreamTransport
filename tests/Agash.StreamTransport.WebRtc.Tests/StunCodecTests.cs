@@ -18,7 +18,10 @@ public sealed class StunCodecTests
     public void EncodeType_BindingRequestAndSuccess_RoundTrip()
     {
         ushort request = StunHeader.EncodeType(StunMessageClass.Request, StunMethod.Binding);
-        ushort success = StunHeader.EncodeType(StunMessageClass.SuccessResponse, StunMethod.Binding);
+        ushort success = StunHeader.EncodeType(
+            StunMessageClass.SuccessResponse,
+            StunMethod.Binding
+        );
 
         Assert.AreEqual(0x0001, request);
         Assert.AreEqual(0x0101, success);
@@ -33,13 +36,17 @@ public sealed class StunCodecTests
     {
         // RFC 5769 §2.2 "Sample IPv4 Response".
         byte[] message = Hex(
-            "010100 3c" +
-            "2112a442" +
-            "b7e7a701bc34d686fa87dfae" +
-            "8022000b 7465737420766563746f7220" +   // SOFTWARE "test vector" + 0x20 pad
-            "00200008 0001a147 e112a643" +           // XOR-MAPPED-ADDRESS 192.0.2.1:32853
-            "00080014 2b91f599fd9e90c38c7489f92af9ba53f06be7d7" + // MESSAGE-INTEGRITY
-            "80280004 c07d4c96");                     // FINGERPRINT
+            "010100 3c"
+                + "2112a442"
+                + "b7e7a701bc34d686fa87dfae"
+                + "8022000b 7465737420766563746f7220"
+                + // SOFTWARE "test vector" + 0x20 pad
+                "00200008 0001a147 e112a643"
+                + // XOR-MAPPED-ADDRESS 192.0.2.1:32853
+                "00080014 2b91f599fd9e90c38c7489f92af9ba53f06be7d7"
+                + // MESSAGE-INTEGRITY
+                "80280004 c07d4c96"
+        ); // FINGERPRINT
 
         Assert.IsTrue(StunMessageReader.TryParse(message, out StunMessageReader reader));
         Assert.AreEqual(StunMessageClass.SuccessResponse, reader.Class);
@@ -58,13 +65,16 @@ public sealed class StunCodecTests
     {
         // RFC 5769 §2.3 "Sample IPv6 Response".
         byte[] message = Hex(
-            "01010048" +
-            "2112a442" +
-            "b7e7a701bc34d686fa87dfae" +
-            "8022000b 7465737420766563746f7220" +   // SOFTWARE "test vector" + 0x20 pad
-            "00200014 0002a147 0113a9faa5d3f179bc25f4b5bed2b9d9" + // XOR-MAPPED-ADDRESS
-            "00080014 a382954e4be67bf11784c97c8292c275bfe3ed41" +
-            "80280004 c8fb0b4c");
+            "01010048"
+                + "2112a442"
+                + "b7e7a701bc34d686fa87dfae"
+                + "8022000b 7465737420766563746f7220"
+                + // SOFTWARE "test vector" + 0x20 pad
+                "00200014 0002a147 0113a9faa5d3f179bc25f4b5bed2b9d9"
+                + // XOR-MAPPED-ADDRESS
+                "00080014 a382954e4be67bf11784c97c8292c275bfe3ed41"
+                + "80280004 c8fb0b4c"
+        );
 
         Assert.IsTrue(StunMessageReader.TryParse(message, out StunMessageReader reader));
         Assert.IsTrue(reader.TryGetXorMappedAddress(out IPEndPoint endpoint));
@@ -78,20 +88,28 @@ public sealed class StunCodecTests
     {
         // RFC 5769 §2.1 "Sample Request".
         byte[] message = Hex(
-            "00010058" +
-            "2112a442" +
-            "b7e7a701bc34d686fa87dfae" +
-            "80220010 5354554e207465737420636c69656e74" + // SOFTWARE "STUN test client"
-            "00240004 6e0001ff" +                          // PRIORITY
-            "80290008 932ff9b151263b36" +                  // ICE-CONTROLLED
-            "00060009 6576746a3a683676 59202020" +         // USERNAME "evtj:h6vY"
-            "00080014 9aeaa70cbfd8cb56781ef2b5b2d3f249c1b571a2" + // MESSAGE-INTEGRITY
-            "80280004 e57a3bcf");                           // FINGERPRINT
+            "00010058"
+                + "2112a442"
+                + "b7e7a701bc34d686fa87dfae"
+                + "80220010 5354554e207465737420636c69656e74"
+                + // SOFTWARE "STUN test client"
+                "00240004 6e0001ff"
+                + // PRIORITY
+                "80290008 932ff9b151263b36"
+                + // ICE-CONTROLLED
+                "00060009 6576746a3a683676 59202020"
+                + // USERNAME "evtj:h6vY"
+                "00080014 9aeaa70cbfd8cb56781ef2b5b2d3f249c1b571a2"
+                + // MESSAGE-INTEGRITY
+                "80280004 e57a3bcf"
+        ); // FINGERPRINT
 
         Assert.IsTrue(StunMessageReader.TryParse(message, out StunMessageReader reader));
         Assert.AreEqual(StunMessageClass.Request, reader.Class);
 
-        Assert.IsTrue(reader.TryFindAttribute(StunAttributeType.Username, out ReadOnlySpan<byte> username));
+        Assert.IsTrue(
+            reader.TryFindAttribute(StunAttributeType.Username, out ReadOnlySpan<byte> username)
+        );
         Assert.AreEqual("evtj:h6vY", Encoding.UTF8.GetString(username));
 
         Assert.IsTrue(reader.VerifyMessageIntegrity(ShortTermKey));
@@ -119,8 +137,16 @@ public sealed class StunCodecTests
         byte[] txId = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         byte[] buffer = new byte[128];
 
-        var writer = new StunMessageWriter(buffer, StunMessageClass.Request, StunMethod.Binding, txId);
-        writer.AddAttribute(StunAttributeType.Software, Encoding.UTF8.GetBytes("Agash.StreamTransport"));
+        var writer = new StunMessageWriter(
+            buffer,
+            StunMessageClass.Request,
+            StunMethod.Binding,
+            txId
+        );
+        writer.AddAttribute(
+            StunAttributeType.Software,
+            Encoding.UTF8.GetBytes("Agash.StreamTransport")
+        );
         writer.AddMessageIntegrity(ShortTermKey);
         writer.AddFingerprint();
 
@@ -139,15 +165,30 @@ public sealed class StunCodecTests
         byte[] txId = [0xb7, 0xe7, 0xa7, 0x01, 0xbc, 0x34, 0xd6, 0x86, 0xfa, 0x87, 0xdf, 0xae];
         byte[] buffer = new byte[64];
 
-        var writer = new StunMessageWriter(buffer, StunMessageClass.SuccessResponse, StunMethod.Binding, txId);
+        var writer = new StunMessageWriter(
+            buffer,
+            StunMessageClass.SuccessResponse,
+            StunMethod.Binding,
+            txId
+        );
         writer.AddXorMappedAddress(new IPEndPoint(IPAddress.Parse("192.0.2.1"), 32853));
 
-        Assert.IsTrue(StunMessageReader.TryParse(buffer.AsSpan(0, writer.Length), out StunMessageReader reader));
+        Assert.IsTrue(
+            StunMessageReader.TryParse(
+                buffer.AsSpan(0, writer.Length),
+                out StunMessageReader reader
+            )
+        );
         Assert.IsTrue(reader.TryGetXorMappedAddress(out IPEndPoint endpoint));
         Assert.AreEqual(IPAddress.Parse("192.0.2.1"), endpoint.Address);
         Assert.AreEqual(32853, endpoint.Port);
 
-        Assert.IsTrue(reader.TryFindAttribute(StunAttributeType.XorMappedAddress, out ReadOnlySpan<byte> value));
+        Assert.IsTrue(
+            reader.TryFindAttribute(
+                StunAttributeType.XorMappedAddress,
+                out ReadOnlySpan<byte> value
+            )
+        );
         CollectionAssert.AreEqual(Hex("0001a147e112a643"), value.ToArray());
     }
 

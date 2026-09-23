@@ -29,8 +29,10 @@ public sealed class AlphaShaderCompilationTests
     {
         byte[] spirv = LoadEmbedded(logicalName);
 
-        Assert.IsTrue(spirv.Length >= 20 && spirv.Length % 4 == 0,
-            $"SPIR-V should be a non-trivial 4-byte-aligned blob; got {spirv.Length} bytes.");
+        Assert.IsTrue(
+            spirv.Length >= 20 && spirv.Length % 4 == 0,
+            $"SPIR-V should be a non-trivial 4-byte-aligned blob; got {spirv.Length} bytes."
+        );
 
         // SPIR-V modules begin with the magic word 0x07230203.
         uint magic = BitConverter.ToUInt32(spirv, 0);
@@ -42,8 +44,11 @@ public sealed class AlphaShaderCompilationTests
         // Read from the shipping library, not a test-local copy: this is the exact resource the
         // Vulkan alpha codec loads at runtime, so the test cannot pass against a stale duplicate.
         Assembly assembly = typeof(Codecs.AlphaPacking).Assembly;
-        using Stream stream = assembly.GetManifestResourceStream(logicalName)
-            ?? throw new InvalidOperationException($"Embedded shader '{logicalName}' not found in {assembly.GetName().Name}.");
+        using Stream stream =
+            assembly.GetManifestResourceStream(logicalName)
+            ?? throw new InvalidOperationException(
+                $"Embedded shader '{logicalName}' not found in {assembly.GetName().Name}."
+            );
         using var buffer = new MemoryStream();
         stream.CopyTo(buffer);
         return buffer.ToArray();

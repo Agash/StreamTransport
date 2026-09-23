@@ -7,7 +7,10 @@ namespace Agash.StreamTransport;
 /// </summary>
 internal sealed class MediaCodecRegistry : IMediaCodecRegistry
 {
-    public MediaCodecRegistry(IEnumerable<IVideoCodecDescriptor> videoCodecs, IEnumerable<IAudioCodecDescriptor> audioCodecs)
+    public MediaCodecRegistry(
+        IEnumerable<IVideoCodecDescriptor> videoCodecs,
+        IEnumerable<IAudioCodecDescriptor> audioCodecs
+    )
     {
         ArgumentNullException.ThrowIfNull(videoCodecs);
         ArgumentNullException.ThrowIfNull(audioCodecs);
@@ -19,8 +22,12 @@ internal sealed class MediaCodecRegistry : IMediaCodecRegistry
     public IReadOnlyList<IAudioCodecDescriptor> AudioCodecs { get; }
 
     public IVideoCodecDescriptor? FindVideo(string rtpName) =>
-        VideoCodecs.FirstOrDefault(c => string.Equals(c.RtpName, rtpName, StringComparison.OrdinalIgnoreCase));
+        VideoCodecs.FirstOrDefault(c =>
+            string.Equals(c.RtpName, rtpName, StringComparison.OrdinalIgnoreCase)
+        );
 
     public IAudioCodecDescriptor? FindAudio(string rtpName) =>
-        AudioCodecs.FirstOrDefault(c => string.Equals(c.RtpName, rtpName, StringComparison.OrdinalIgnoreCase));
+        AudioCodecs.FirstOrDefault(c =>
+            string.Equals(c.RtpName, rtpName, StringComparison.OrdinalIgnoreCase)
+        );
 }

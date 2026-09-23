@@ -77,7 +77,12 @@ public enum VideoPixelFormat
 public readonly record struct VideoFrame
 {
     /// <summary>Create a frame backed by a Direct3D 11 texture (Windows).</summary>
-    public static VideoFrame FromD3D11Texture(nint texture, int width, int height, long presentationTimeNs) =>
+    public static VideoFrame FromD3D11Texture(
+        nint texture,
+        int width,
+        int height,
+        long presentationTimeNs
+    ) =>
         new()
         {
             Surface = texture,
@@ -88,7 +93,12 @@ public readonly record struct VideoFrame
         };
 
     /// <summary>Create a frame backed by an IOSurface or CVPixelBuffer (macOS).</summary>
-    public static VideoFrame FromIOSurface(nint surface, int width, int height, long presentationTimeNs) =>
+    public static VideoFrame FromIOSurface(
+        nint surface,
+        int width,
+        int height,
+        long presentationTimeNs
+    ) =>
         new()
         {
             Surface = surface,
@@ -99,7 +109,13 @@ public readonly record struct VideoFrame
         };
 
     /// <summary>Create a CPU frame backed by a pixel buffer.</summary>
-    public static VideoFrame FromPixels(ReadOnlyMemory<byte> pixels, VideoPixelFormat pixelFormat, int width, int height, long presentationTimeNs) =>
+    public static VideoFrame FromPixels(
+        ReadOnlyMemory<byte> pixels,
+        VideoPixelFormat pixelFormat,
+        int width,
+        int height,
+        long presentationTimeNs
+    ) =>
         new()
         {
             Pixels = pixels,
@@ -114,7 +130,12 @@ public readonly record struct VideoFrame
     /// an SoC capture block. The pixels stay on the GPU; an encoder imports the planes (VAAPI via
     /// DRM-PRIME, or Vulkan) and a publish sink can hand them straight back, with no CPU readback.
     /// </summary>
-    public static VideoFrame FromDmaBuf(in DmaBufSurface surface, int width, int height, long presentationTimeNs) =>
+    public static VideoFrame FromDmaBuf(
+        in DmaBufSurface surface,
+        int width,
+        int height,
+        long presentationTimeNs
+    ) =>
         new()
         {
             DmaBuf = surface,
@@ -176,7 +197,12 @@ public readonly record struct VideoFrame
 /// Capture time in nanoseconds from the same monotonic clock as video, used for A/V sync.
 /// </param>
 public readonly record struct AudioFrame(
-    ReadOnlyMemory<byte> Samples, AudioSampleFormat Format, int SampleRate, int Channels, long PresentationTimeNs);
+    ReadOnlyMemory<byte> Samples,
+    AudioSampleFormat Format,
+    int SampleRate,
+    int Channels,
+    long PresentationTimeNs
+);
 
 /// <summary>Produces video frames for the sender to encode (adapted over a platform capture source).</summary>
 public interface IVideoFrameSource
@@ -223,7 +249,8 @@ public sealed record MediaTransportOptions
     public MediaProfile Profile { get; init; } = MediaProfile.InteractiveP2P;
 
     /// <summary>Video codecs to offer, in preference order. The first mutually-supported one is used.</summary>
-    public IReadOnlyList<VideoCodec> VideoCodecs { get; init; } = [VideoCodec.H265, VideoCodec.H264];
+    public IReadOnlyList<VideoCodec> VideoCodecs { get; init; } =
+    [VideoCodec.H265, VideoCodec.H264];
 
     /// <summary>
     /// Optional explicit hardware H.265 encoder name (e.g. "hevc_nvenc", "hevc_amf", "hevc_qsv"). When

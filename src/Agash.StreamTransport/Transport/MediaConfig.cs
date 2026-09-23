@@ -26,7 +26,12 @@ internal static class MediaConfig
     /// line, each advertising every registered codec (ordered by the profile's preference for video) with a
     /// distinct dynamic payload type. The peer's answer selects the mutually-supported codec.
     /// </summary>
-    public static PeerConnectionOptions Build(IMediaCodecRegistry registry, MediaTransportOptions options, bool audio, bool video)
+    public static PeerConnectionOptions Build(
+        IMediaCodecRegistry registry,
+        MediaTransportOptions options,
+        bool audio,
+        bool video
+    )
     {
         var lines = new List<MediaLine>(2);
 
@@ -36,7 +41,9 @@ internal static class MediaConfig
             var codecs = new List<SdpCodec>(registry.AudioCodecs.Count);
             foreach (IAudioCodecDescriptor a in registry.AudioCodecs)
             {
-                codecs.Add(new SdpCodec(pt++, a.RtpName, a.ClockRate, a.Channels, a.FormatParameters, []));
+                codecs.Add(
+                    new SdpCodec(pt++, a.RtpName, a.ClockRate, a.Channels, a.FormatParameters, [])
+                );
             }
 
             lines.Add(new MediaLine("0", SdpMediaKind.Audio, AudioSsrc, codecs));
@@ -46,21 +53,34 @@ internal static class MediaConfig
         {
             int pt = FirstDynamicPayloadType;
             var codecs = new List<SdpCodec>(registry.VideoCodecs.Count);
-            foreach (IVideoCodecDescriptor v in OrderVideo(registry.VideoCodecs, options.VideoCodecs))
+            foreach (
+                IVideoCodecDescriptor v in OrderVideo(registry.VideoCodecs, options.VideoCodecs)
+            )
             {
                 if (pt == VideoRtxPayloadType)
                 {
                     pt++; // reserve 97 for RTX.
                 }
 
-                codecs.Add(new SdpCodec(pt++, v.RtpName, v.ClockRate, null, v.FormatParameters, v.RtcpFeedback));
+                codecs.Add(
+                    new SdpCodec(
+                        pt++,
+                        v.RtpName,
+                        v.ClockRate,
+                        null,
+                        v.FormatParameters,
+                        v.RtcpFeedback
+                    )
+                );
             }
 
-            lines.Add(new MediaLine("1", SdpMediaKind.Video, VideoSsrc, codecs)
-            {
-                RtxSsrc = VideoRtxSsrc,
-                RtxPayloadType = VideoRtxPayloadType,
-            });
+            lines.Add(
+                new MediaLine("1", SdpMediaKind.Video, VideoSsrc, codecs)
+                {
+                    RtxSsrc = VideoRtxSsrc,
+                    RtxPayloadType = VideoRtxPayloadType,
+                }
+            );
         }
 
         // Loopback candidates let two agents on one host connect for the local comparison; harmless across machines.
@@ -79,7 +99,9 @@ internal static class MediaConfig
     // descriptor's own Preference. Codecs not named in the preference list still follow, so a registered codec
     // is always offered - the preference is a hint, not a filter (custom codecs have no VideoCodec enum value).
     private static IEnumerable<IVideoCodecDescriptor> OrderVideo(
-        IReadOnlyList<IVideoCodecDescriptor> available, IReadOnlyList<VideoCodec> preference)
+        IReadOnlyList<IVideoCodecDescriptor> available,
+        IReadOnlyList<VideoCodec> preference
+    )
     {
         if (preference.Count == 0)
         {
@@ -90,19 +112,23 @@ internal static class MediaConfig
         return available
             .OrderBy(c =>
             {
-                int index = Array.FindIndex(preferred, n => string.Equals(n, c.RtpName, StringComparison.OrdinalIgnoreCase));
+                int index = Array.FindIndex(
+                    preferred,
+                    n => string.Equals(n, c.RtpName, StringComparison.OrdinalIgnoreCase)
+                );
                 return index < 0 ? int.MaxValue : index;
             })
             .ThenBy(c => c.Preference);
     }
 
-    private static string RtpNameOf(VideoCodec codec) => codec switch
-    {
-        VideoCodec.H264 => "H264",
-        VideoCodec.H265 => "H265",
-        VideoCodec.Av1 => "AV1",
-        _ => string.Empty,
-    };
+    private static string RtpNameOf(VideoCodec codec) =>
+        codec switch
+        {
+            VideoCodec.H264 => "H264",
+            VideoCodec.H265 => "H265",
+            VideoCodec.Av1 => "AV1",
+            _ => string.Empty,
+        };
 
     private static IReadOnlyList<IPEndPoint> ResolveStun(IReadOnlyList<string> stunUrls)
     {
@@ -115,7 +141,9 @@ internal static class MediaConfig
         foreach (string url in stunUrls)
         {
             // Accept "stun:host:port" or "host:port"; default to the STUN port if none.
-            string hostPort = url.StartsWith("stun:", StringComparison.OrdinalIgnoreCase) ? url[5..] : url;
+            string hostPort = url.StartsWith("stun:", StringComparison.OrdinalIgnoreCase)
+                ? url[5..]
+                : url;
             int colon = hostPort.LastIndexOf(':');
             if (colon <= 0)
             {
@@ -131,7 +159,8 @@ internal static class MediaConfig
                     endpoints.Add(new IPEndPoint(address, port));
                 }
             }
-            catch (Exception ex) when (ex is System.Net.Sockets.SocketException or ArgumentException)
+            catch (Exception ex)
+                when (ex is System.Net.Sockets.SocketException or ArgumentException)
             {
                 // Unresolvable STUN host - skip it; host candidates still allow LAN/direct connectivity.
             }

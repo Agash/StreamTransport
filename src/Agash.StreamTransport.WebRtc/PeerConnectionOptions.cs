@@ -8,7 +8,12 @@ namespace Agash.StreamTransport.WebRtc;
 /// <param name="Kind">Audio or video.</param>
 /// <param name="LocalSsrc">The SSRC this endpoint sends with on this line.</param>
 /// <param name="Codecs">The codecs to offer, in preference order.</param>
-public sealed record MediaLine(string Mid, SdpMediaKind Kind, uint LocalSsrc, IReadOnlyList<SdpCodec> Codecs)
+public sealed record MediaLine(
+    string Mid,
+    SdpMediaKind Kind,
+    uint LocalSsrc,
+    IReadOnlyList<SdpCodec> Codecs
+)
 {
     /// <summary>
     /// The RTX SSRC for retransmissions of this line (RFC 4588). Required to serve NACKs: SRTP forbids
@@ -26,7 +31,12 @@ public sealed record MediaLine(string Mid, SdpMediaKind Kind, uint LocalSsrc, IR
 /// payload-type space) plus the local SSRC this endpoint sends that media with. The media layer reads this
 /// to pick the negotiated encoder/decoder + payload type, rather than assuming a fixed codec.
 /// </summary>
-public sealed record NegotiatedMediaInfo(SdpMediaKind Kind, string Mid, uint LocalSsrc, IReadOnlyList<SdpCodec> Codecs);
+public sealed record NegotiatedMediaInfo(
+    SdpMediaKind Kind,
+    string Mid,
+    uint LocalSsrc,
+    IReadOnlyList<SdpCodec> Codecs
+);
 
 /// <summary>Configuration for a <see cref="PeerConnection"/>.</summary>
 public sealed class PeerConnectionOptions

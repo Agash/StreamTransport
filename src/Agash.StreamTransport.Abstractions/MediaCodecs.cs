@@ -61,7 +61,11 @@ public readonly struct PooledBuffer : IDisposable, IEquatable<PooledBuffer>
 /// <param name="DurationRtpUnits">RTP timestamp advance for this access unit, in the 90 kHz video clock.</param>
 /// <param name="AccessUnit">The encoded HEVC/AVC/AV1 access unit (Annex B or length-prefixed per codec).</param>
 /// <param name="CaptureNs">Capture time, in nanoseconds, of the frame this access unit encodes.</param>
-public readonly record struct EncodedVideoAccessUnit(uint DurationRtpUnits, byte[] AccessUnit, long CaptureNs);
+public readonly record struct EncodedVideoAccessUnit(
+    uint DurationRtpUnits,
+    byte[] AccessUnit,
+    long CaptureNs
+);
 
 /// <summary>
 /// An encoded audio packet plus its RTP duration (samples per channel in the track clock). The codec↔transport
@@ -80,8 +84,14 @@ public readonly record struct EncodedAudioPacket(uint DurationRtpUnits, byte[] P
 /// <param name="MaxBFrames">Maximum consecutive B-frames (compression vs. reorder latency).</param>
 /// <param name="Profile">The active use-case profile, so the encoder can tune latency vs. loss-resilience (VBV depth, intra-refresh).</param>
 public sealed record VideoEncoderSettings(
-    int Fps, long Bitrate, string? EncoderName = null, nint GpuDeviceHandle = 0, bool PreserveAlpha = false, int MaxBFrames = 0,
-    MediaProfile Profile = MediaProfile.InteractiveP2P);
+    int Fps,
+    long Bitrate,
+    string? EncoderName = null,
+    nint GpuDeviceHandle = 0,
+    bool PreserveAlpha = false,
+    int MaxBFrames = 0,
+    MediaProfile Profile = MediaProfile.InteractiveP2P
+);
 
 /// <summary>Settings for an <see cref="IVideoDecoder"/>, fixed for the lifetime of one receive session.</summary>
 /// <param name="PreferGpuOutput">Decode straight into GPU surfaces for a zero-copy publish (Windows D3D11).</param>
@@ -126,7 +136,12 @@ public interface IVideoDecoder : IDisposable
     /// <param name="nowNs">The current time in nanoseconds, used to stamp the produced frame.</param>
     /// <param name="frameRtpTimestamp">The RTP timestamp of the frame actually emitted.</param>
     /// <returns>The decoded frame, or null when the decoder buffered the access unit.</returns>
-    VideoFrame? Decode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long nowNs, out uint frameRtpTimestamp);
+    VideoFrame? Decode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long nowNs,
+        out uint frameRtpTimestamp
+    );
 }
 
 /// <summary>Encodes <see cref="AudioFrame"/>s to a compressed audio bitstream.</summary>

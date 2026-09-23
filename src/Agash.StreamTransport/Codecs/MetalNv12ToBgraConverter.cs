@@ -29,8 +29,10 @@ public sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
     {
         IOSurface.IOSurface result = Convert(Wrap(nv12.Surface));
         (int rw, int rh) = ((int)result.Width, (int)result.Height);
-        return VideoFrame.FromIOSurface(result.Handle.Handle, rw, rh, presentationTimeNs)
-            with { PixelFormat = VideoPixelFormat.Bgra };
+        return VideoFrame.FromIOSurface(result.Handle.Handle, rw, rh, presentationTimeNs) with
+        {
+            PixelFormat = VideoPixelFormat.Bgra,
+        };
     }
 
     /// <summary>Convert a full-frame NV12 surface (Y plane 0, CbCr plane 1) to a <c>W x H</c> BGRA surface.</summary>
@@ -39,11 +41,20 @@ public sealed class MetalNv12ToBgraConverter : IDisposable, INv12ToBgra
         (int w, int h) = ((int)nv12.Width, (int)nv12.Height);
         // CbCr plane (index 1) dims straight from the surface.
         (int cw, int ch) = ((int)nv12.GetWidth((nuint)1), (int)nv12.GetHeight((nuint)1));
-        nint output = _compute.Run(w, h,
-        [
-            new MetalSurfaceCompute.Input(nv12.Handle.Handle, MTLPixelFormat.R8Unorm, 0, w, h),
-            new MetalSurfaceCompute.Input(nv12.Handle.Handle, MTLPixelFormat.RG8Unorm, 1, cw, ch),
-        ]);
+        nint output = _compute.Run(
+            w,
+            h,
+            [
+                new MetalSurfaceCompute.Input(nv12.Handle.Handle, MTLPixelFormat.R8Unorm, 0, w, h),
+                new MetalSurfaceCompute.Input(
+                    nv12.Handle.Handle,
+                    MTLPixelFormat.RG8Unorm,
+                    1,
+                    cw,
+                    ch
+                ),
+            ]
+        );
         return Wrap(output);
     }
 

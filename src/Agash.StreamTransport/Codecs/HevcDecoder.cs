@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
-using FFmpeg.AutoGen;
 using Agash.StreamTransport;
+using FFmpeg.AutoGen;
 
 namespace Agash.StreamTransport.Codecs;
 
@@ -19,9 +19,25 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
     public nint NativeDevice => 0;
 
     /// <inheritdoc/>
-    public bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp)
+    public bool TryDecode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out VideoFrame frame,
+        out uint frameRtpTimestamp
+    )
     {
-        if (!Decode(accessUnit, rtpTimestamp, out int width, out int height, out byte[] pixels, out VideoPixelFormat format, out frameRtpTimestamp))
+        if (
+            !Decode(
+                accessUnit,
+                rtpTimestamp,
+                out int width,
+                out int height,
+                out byte[] pixels,
+                out VideoPixelFormat format,
+                out frameRtpTimestamp
+            )
+        )
         {
             frame = default;
             return false;
@@ -69,7 +85,9 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
 
         if (!TryOpenSoftware())
         {
-            throw new NotSupportedException("No HEVC decoder (hardware or software) could be opened.");
+            throw new NotSupportedException(
+                "No HEVC decoder (hardware or software) could be opened."
+            );
         }
     }
 
@@ -98,7 +116,9 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
 
         if (!TryOpenSoftware())
         {
-            throw new NotSupportedException("The hardware HEVC decoder produced no frames and the software fallback could not be opened.");
+            throw new NotSupportedException(
+                "The hardware HEVC decoder produced no frames and the software fallback could not be opened."
+            );
         }
     }
 
@@ -128,7 +148,15 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
     }
 
     /// <summary>Decode one access unit. Returns true and fills the output when a frame is produced.</summary>
-    public bool Decode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, out int width, out int height, out byte[] pixels, out VideoPixelFormat format, out uint frameRtpTimestamp)
+    public bool Decode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        out int width,
+        out int height,
+        out byte[] pixels,
+        out VideoPixelFormat format,
+        out uint frameRtpTimestamp
+    )
     {
         frameRtpTimestamp = rtpTimestamp;
         ffmpeg.av_packet_unref(_packet);
@@ -144,7 +172,14 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
         {
             try
             {
-                return DecodeCore(rtpTimestamp, out width, out height, out pixels, out format, out frameRtpTimestamp);
+                return DecodeCore(
+                    rtpTimestamp,
+                    out width,
+                    out height,
+                    out pixels,
+                    out format,
+                    out frameRtpTimestamp
+                );
             }
             catch (Exception) when (_isHardware)
             {
@@ -157,10 +192,24 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
             }
         }
 
-        return DecodeCore(rtpTimestamp, out width, out height, out pixels, out format, out frameRtpTimestamp);
+        return DecodeCore(
+            rtpTimestamp,
+            out width,
+            out height,
+            out pixels,
+            out format,
+            out frameRtpTimestamp
+        );
     }
 
-    private bool DecodeCore(uint rtpTimestamp, out int width, out int height, out byte[] pixels, out VideoPixelFormat format, out uint frameRtpTimestamp)
+    private bool DecodeCore(
+        uint rtpTimestamp,
+        out int width,
+        out int height,
+        out byte[] pixels,
+        out VideoPixelFormat format,
+        out uint frameRtpTimestamp
+    )
     {
         frameRtpTimestamp = rtpTimestamp;
 
@@ -214,9 +263,10 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
         width = _frame->width;
         height = _frame->height;
         var pixelFormat = (AVPixelFormat)_frame->format;
-        (pixels, format) = pixelFormat == AVPixelFormat.AV_PIX_FMT_NV12
-            ? (ExtractNv12(_frame, width, height), VideoPixelFormat.Nv12)
-            : (ExtractI420(_frame, width, height), VideoPixelFormat.I420);
+        (pixels, format) =
+            pixelFormat == AVPixelFormat.AV_PIX_FMT_NV12
+                ? (ExtractNv12(_frame, width, height), VideoPixelFormat.Nv12)
+                : (ExtractI420(_frame, width, height), VideoPixelFormat.I420);
         return true;
     }
 
@@ -239,7 +289,14 @@ internal sealed unsafe class HevcDecoder : IDisposable, IVideoDecoderBackend
         return output;
     }
 
-    private static void CopyPlane(byte* source, int stride, int planeWidth, int planeHeight, byte[] destination, ref int offset)
+    private static void CopyPlane(
+        byte* source,
+        int stride,
+        int planeWidth,
+        int planeHeight,
+        byte[] destination,
+        ref int offset
+    )
     {
         for (int row = 0; row < planeHeight; row++)
         {

@@ -17,8 +17,11 @@ internal sealed class AgentMediaFactory(ILoggerFactory loggerFactory)
     public ILoggerFactory LoggerFactory { get; } = loggerFactory;
 
 #if WINDOWS_HEAD
-    public SpoutVideoCaptureSource CreateSpoutCapture(string? senderName, string encoderName, bool alpha) =>
-        new(senderName, encoderName, alpha, LoggerFactory);
+    public SpoutVideoCaptureSource CreateSpoutCapture(
+        string? senderName,
+        string encoderName,
+        bool alpha
+    ) => new(senderName, encoderName, alpha, LoggerFactory);
 
     public SpoutVideoPublishSink CreateSpoutPublish(string senderName, bool alpha) =>
         new(senderName, alpha, LoggerFactory);
@@ -30,12 +33,17 @@ internal sealed class AgentMediaFactory(ILoggerFactory loggerFactory)
 
 #if HAS_PIPEWIRE
     [SupportedOSPlatform("linux")]
-    public Task<PipeWireVideoCaptureSource> CreatePipeWireCaptureAsync(uint targetNodeId, bool alpha) =>
-        PipeWireVideoCaptureSource.CreateAsync(targetNodeId, alpha, LoggerFactory);
+    public Task<PipeWireVideoCaptureSource> CreatePipeWireCaptureAsync(
+        uint targetNodeId,
+        bool alpha
+    ) => PipeWireVideoCaptureSource.CreateAsync(targetNodeId, alpha, LoggerFactory);
 
     [SupportedOSPlatform("linux")]
-    public Task<PipeWireVideoPublishSink> CreatePipeWirePublishAsync(string nodeName, bool alpha, int frameRate = 30) =>
-        PipeWireVideoPublishSink.CreateAsync(nodeName, alpha, frameRate, LoggerFactory);
+    public Task<PipeWireVideoPublishSink> CreatePipeWirePublishAsync(
+        string nodeName,
+        bool alpha,
+        int frameRate = 30
+    ) => PipeWireVideoPublishSink.CreateAsync(nodeName, alpha, frameRate, LoggerFactory);
 
     [SupportedOSPlatform("linux")]
     public Task<PipeWireAudioPublishSink> CreatePipeWireAudioPublishAsync(string nodeName) =>

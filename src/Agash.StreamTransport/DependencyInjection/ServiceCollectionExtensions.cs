@@ -20,7 +20,8 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddStreamTransport(
         this IServiceCollection services,
-        Action<ScreamOptions>? configureCongestionControl = null)
+        Action<ScreamOptions>? configureCongestionControl = null
+    )
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddStreamTransportCore();
@@ -50,8 +51,12 @@ public static class ServiceCollectionExtensions
 
         // Built-in codecs: HEVC video + Opus audio. TryAddEnumerable so they register once even if
         // AddStreamTransport is called more than once, and so a host's own descriptors add alongside them.
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IVideoCodecDescriptor, H265VideoCodecDescriptor>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAudioCodecDescriptor, OpusAudioCodecDescriptor>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoCodecDescriptor, H265VideoCodecDescriptor>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioCodecDescriptor, OpusAudioCodecDescriptor>()
+        );
         return services;
     }
 
@@ -59,7 +64,9 @@ public static class ServiceCollectionExtensions
     /// Register an additional video codec. Its descriptor is added to the <see cref="IMediaCodecRegistry"/>,
     /// so it is offered in SDP and selectable by a peer with no edits to the negotiation code.
     /// </summary>
-    public static IServiceCollection AddVideoCodec<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this IServiceCollection services)
+    public static IServiceCollection AddVideoCodec<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T
+    >(this IServiceCollection services)
         where T : class, IVideoCodecDescriptor
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -68,7 +75,9 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>Register an additional audio codec (the audio counterpart of <see cref="AddVideoCodec{T}"/>).</summary>
-    public static IServiceCollection AddAudioCodec<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this IServiceCollection services)
+    public static IServiceCollection AddAudioCodec<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T
+    >(this IServiceCollection services)
         where T : class, IAudioCodecDescriptor
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -83,13 +92,16 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddWebRtcMediaTransport(
         this IServiceCollection services,
-        Action<ScreamOptions>? configureCongestionControl = null)
+        Action<ScreamOptions>? configureCongestionControl = null
+    )
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddStreamTransportWebRtc(configureCongestionControl);
 
         // A factory so each WebRTC sender resolves its own per-connection congestion controller (transient).
-        services.TryAddSingleton<Func<INetworkController>>(sp => sp.GetRequiredService<INetworkController>);
+        services.TryAddSingleton<Func<INetworkController>>(sp =>
+            sp.GetRequiredService<INetworkController>
+        );
         services.TryAddSingleton<IMediaTransport, WebRtcMediaTransport>();
         return services;
     }

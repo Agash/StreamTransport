@@ -59,7 +59,8 @@ public sealed class StunBindingServer : IAsyncDisposable
             {
                 try
                 {
-                    await _udp.SendAsync(response, response.Length, received.RemoteEndPoint).ConfigureAwait(false);
+                    await _udp.SendAsync(response, response.Length, received.RemoteEndPoint)
+                        .ConfigureAwait(false);
                 }
                 catch (SocketException)
                 {
@@ -71,15 +72,22 @@ public sealed class StunBindingServer : IAsyncDisposable
 
     private static byte[]? TryBuildBindingResponse(byte[] datagram, IPEndPoint from)
     {
-        if (!StunMessageReader.TryParse(datagram, out StunMessageReader request)
+        if (
+            !StunMessageReader.TryParse(datagram, out StunMessageReader request)
             || request.Class != StunMessageClass.Request
-            || request.Method != StunMethod.Binding)
+            || request.Method != StunMethod.Binding
+        )
         {
             return null;
         }
 
         byte[] response = new byte[64];
-        var writer = new StunMessageWriter(response, StunMessageClass.SuccessResponse, StunMethod.Binding, request.TransactionId);
+        var writer = new StunMessageWriter(
+            response,
+            StunMessageClass.SuccessResponse,
+            StunMethod.Binding,
+            request.TransactionId
+        );
         writer.AddXorMappedAddress(from);
         // No message-integrity key; append a FINGERPRINT so clients can validate the response.
         writer.AddFingerprint();

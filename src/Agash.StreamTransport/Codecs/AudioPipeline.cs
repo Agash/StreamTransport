@@ -1,5 +1,5 @@
-using Agash.StreamTransport;
 using System.Runtime.InteropServices;
+using Agash.StreamTransport;
 using Concentus;
 using Concentus.Enums;
 
@@ -52,7 +52,11 @@ internal sealed class AudioPipeline : IAudioEncoder, IAudioDecoder
 
         if (_encoder is null || _encoderChannels != channels)
         {
-            _encoder = OpusCodecFactory.CreateEncoder(SampleRate, channels, OpusApplication.OPUS_APPLICATION_AUDIO);
+            _encoder = OpusCodecFactory.CreateEncoder(
+                SampleRate,
+                channels,
+                OpusApplication.OPUS_APPLICATION_AUDIO
+            );
             _encoderChannels = channels;
         }
 
@@ -67,7 +71,12 @@ internal sealed class AudioPipeline : IAudioEncoder, IAudioDecoder
         _decoder ??= OpusCodecFactory.CreateDecoder(SampleRate, DecoderChannels);
 
         float[] pcm = new float[MaxDecodeSamplesPerChannel * DecoderChannels];
-        int samplesPerChannel = _decoder.Decode(payload, pcm.AsSpan(), MaxDecodeSamplesPerChannel, false);
+        int samplesPerChannel = _decoder.Decode(
+            payload,
+            pcm.AsSpan(),
+            MaxDecodeSamplesPerChannel,
+            false
+        );
 
         int total = samplesPerChannel * DecoderChannels;
         byte[] bytes = new byte[total * sizeof(short)];
@@ -77,7 +86,13 @@ internal sealed class AudioPipeline : IAudioEncoder, IAudioDecoder
             samples[i] = (short)Math.Clamp(pcm[i] * 32767f, short.MinValue, short.MaxValue);
         }
 
-        return new AudioFrame(bytes, AudioSampleFormat.S16, SampleRate, DecoderChannels, presentationTimeNs);
+        return new AudioFrame(
+            bytes,
+            AudioSampleFormat.S16,
+            SampleRate,
+            DecoderChannels,
+            presentationTimeNs
+        );
     }
 
     public void Dispose()

@@ -31,7 +31,11 @@ internal sealed class Room(RoomCode code)
     public IReadOnlyList<PeerInfo> Snapshot() => [.. _peers.Values.Select(static p => p.Info)];
 
     /// <summary>Send a message to every peer except <paramref name="except"/>.</summary>
-    public async ValueTask BroadcastExceptAsync(PeerId except, SignalingMessage message, CancellationToken cancellationToken)
+    public async ValueTask BroadcastExceptAsync(
+        PeerId except,
+        SignalingMessage message,
+        CancellationToken cancellationToken
+    )
     {
         foreach (Peer peer in _peers.Values)
         {
@@ -111,9 +115,10 @@ internal sealed class RoomRegistry
         Span<char> chars = stackalloc char[6];
         for (int i = 0; i < chars.Length; i++)
         {
-            chars[i] = (i % 2 == 0)
-                ? consonants[bytes[i] % consonants.Length]
-                : vowels[bytes[i] % vowels.Length];
+            chars[i] =
+                (i % 2 == 0)
+                    ? consonants[bytes[i] % consonants.Length]
+                    : vowels[bytes[i] % vowels.Length];
         }
 
         return new RoomCode(new string(chars));

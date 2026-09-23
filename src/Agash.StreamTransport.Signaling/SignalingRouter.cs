@@ -42,7 +42,8 @@ public sealed class SignalingRouter : ISignalingRouter
 internal sealed class RouterSession(
     RoomRegistry rooms,
     IIceServerProvider iceServers,
-    ISignalingPeerTransport transport) : ISignalingSession
+    ISignalingPeerTransport transport
+) : ISignalingSession
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Room? _room;
@@ -50,7 +51,10 @@ internal sealed class RouterSession(
 
     public PeerId? PeerId { get; private set; }
 
-    public async ValueTask ReceiveAsync(SignalingMessage message, CancellationToken cancellationToken = default)
+    public async ValueTask ReceiveAsync(
+        SignalingMessage message,
+        CancellationToken cancellationToken = default
+    )
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -69,20 +73,38 @@ internal sealed class RouterSession(
             switch (message)
             {
                 case SdpMessage sdp:
-                    await RouteAsync(sdp.To, sdp with { From = PeerId }, cancellationToken).ConfigureAwait(false);
+                    await RouteAsync(sdp.To, sdp with { From = PeerId }, cancellationToken)
+                        .ConfigureAwait(false);
                     break;
                 case IceMessage ice:
-                    await RouteAsync(ice.To, ice with { From = PeerId }, cancellationToken).ConfigureAwait(false);
+                    await RouteAsync(ice.To, ice with { From = PeerId }, cancellationToken)
+                        .ConfigureAwait(false);
                     break;
                 case PeerControlMessage control:
                     // Addressed control goes to the one peer; an unaddressed one fans out to the rest of the room.
                     if (control.To is not null)
                     {
-                        await RouteAsync(control.To, control with { From = PeerId }, cancellationToken).ConfigureAwait(false);
+                        await RouteAsync(
+                                control.To,
+                                control with
+                                {
+                                    From = PeerId,
+                                },
+                                cancellationToken
+                            )
+                            .ConfigureAwait(false);
                     }
                     else if (_room is not null)
                     {
-                        await _room.BroadcastExceptAsync(PeerId.Value, control with { From = PeerId }, cancellationToken)
+                        await _room
+                            .BroadcastExceptAsync(
+                                PeerId.Value,
+                                control with
+                                {
+                                    From = PeerId,
+                                },
+                                cancellationToken
+                            )
                             .ConfigureAwait(false);
                     }
 
@@ -98,36 +120,56 @@ internal sealed class RouterSession(
         }
     }
 
-    private async ValueTask HandleHelloAsync(SignalingMessage message, CancellationToken cancellationToken)
+    private async ValueTask HandleHelloAsync(
+        SignalingMessage message,
+        CancellationToken cancellationToken
+    )
     {
         if (message is not HelloMessage hello)
         {
-            await transport.SendAsync(
-                new SignalingErrorMessage(SignalingErrorCode.InvalidMessage, "expected a hello message first"),
-                cancellationToken).ConfigureAwait(false);
+            await transport
+                .SendAsync(
+                    new SignalingErrorMessage(
+                        SignalingErrorCode.InvalidMessage,
+                        "expected a hello message first"
+                    ),
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
             return;
         }
 
         if (hello.ProtocolVersion != SignalingProtocol.Version)
         {
-            await transport.SendAsync(
-                new SignalingErrorMessage(
-                    SignalingErrorCode.VersionMismatch,
-                    $"router speaks v{SignalingProtocol.Version}, client sent v{hello.ProtocolVersion}"),
-                cancellationToken).ConfigureAwait(false);
+            await transport
+                .SendAsync(
+                    new SignalingErrorMessage(
+                        SignalingErrorCode.VersionMismatch,
+                        $"router speaks v{SignalingProtocol.Version}, client sent v{hello.ProtocolVersion}"
+                    ),
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
             return;
         }
 
         // Publishers create-or-join their room; subscribers may only join an existing one.
-        Room? room = hello.Role == PeerRole.Publisher
-            ? rooms.GetOrCreate(hello.Room)
-            : rooms.Get(hello.Room);
+        Room? room =
+            hello.Role == PeerRole.Publisher
+                ? rooms.GetOrCreate(hello.Room)
+                : rooms.Get(hello.Room);
 
         if (room is null)
         {
-            await transport.SendAsync(
-                new SignalingErrorMessage(SignalingErrorCode.RoomNotFound, $"no room with code {hello.Room.Value}"),
-                cancellationToken).ConfigureAwait(false);
+            await transport
+                .SendAsync(
+                    new SignalingErrorMessage(
+                        SignalingErrorCode.RoomNotFound,
+                        $"no room with code {hello.Room.Value}"
+                    ),
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
             return;
         }
 
@@ -137,15 +179,24 @@ internal sealed class RouterSession(
 
         var welcome = new WelcomeMessage(
             id,
-            new RoomState(room.Code, room.Snapshot(), iceServers.GetIceServersForPeer()));
+            new RoomState(room.Code, room.Snapshot(), iceServers.GetIceServersForPeer())
+        );
         await transport.SendAsync(welcome, cancellationToken).ConfigureAwait(false);
 
         room.Add(new Peer(id, hello.Role, transport));
-        await room.BroadcastExceptAsync(id, new PeerJoinedMessage(new PeerInfo(id, hello.Role)), cancellationToken)
+        await room.BroadcastExceptAsync(
+                id,
+                new PeerJoinedMessage(new PeerInfo(id, hello.Role)),
+                cancellationToken
+            )
             .ConfigureAwait(false);
     }
 
-    private async ValueTask RouteAsync(PeerId? target, SignalingMessage message, CancellationToken cancellationToken)
+    private async ValueTask RouteAsync(
+        PeerId? target,
+        SignalingMessage message,
+        CancellationToken cancellationToken
+    )
     {
         if (target is null || _room is null)
         {
@@ -182,7 +233,8 @@ internal sealed class RouterSession(
             if (PeerId is { } id && _room is { } room)
             {
                 room.Remove(id);
-                await room.BroadcastExceptAsync(id, new PeerLeftMessage(id), CancellationToken.None).ConfigureAwait(false);
+                await room.BroadcastExceptAsync(id, new PeerLeftMessage(id), CancellationToken.None)
+                    .ConfigureAwait(false);
                 rooms.RemoveIfEmpty(room.Code);
             }
         }

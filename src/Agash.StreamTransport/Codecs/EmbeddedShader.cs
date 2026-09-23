@@ -32,6 +32,7 @@ internal static class EmbeddedShader
         Assembly assembly = typeof(EmbeddedShader).Assembly;
         return assembly.GetManifestResourceStream(logicalName)
             ?? throw new InvalidOperationException(
-                $"Embedded shader '{logicalName}' was not found in {assembly.GetName().Name}.");
+                $"Embedded shader '{logicalName}' was not found in {assembly.GetName().Name}."
+            );
     }
 }

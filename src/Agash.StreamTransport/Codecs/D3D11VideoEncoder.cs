@@ -20,7 +20,13 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
 {
     /// <inheritdoc/>
     public byte[]? Encode(in VideoFrame frame, out long capturePtsNs) =>
-        EncodeTexture(frame.Surface, subresourceIndex: 0, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
+        EncodeTexture(
+            frame.Surface,
+            subresourceIndex: 0,
+            frame.PresentationTimeNs,
+            frame.ForceKeyframe,
+            out capturePtsNs
+        );
 
     private readonly int _width;
     private readonly int _height;
@@ -55,7 +61,8 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         VideoPixelFormat inputFormat = VideoPixelFormat.Nv12,
         nint externalDevice = 0,
         MediaProfile profile = MediaProfile.InteractiveP2P,
-        bool debug = false)
+        bool debug = false
+    )
     {
         _width = width;
         _height = height;
@@ -64,16 +71,23 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         {
             VideoPixelFormat.Nv12 => AVPixelFormat.AV_PIX_FMT_NV12,
             VideoPixelFormat.Bgra => AVPixelFormat.AV_PIX_FMT_BGRA,
-            _ => throw new NotSupportedException($"Pixel format {inputFormat} is not a valid D3D11 surface format."),
+            _ => throw new NotSupportedException(
+                $"Pixel format {inputFormat} is not a valid D3D11 surface format."
+            ),
         };
 
         AVCodec* codec = ffmpeg.avcodec_find_encoder_by_name(encoderName);
         if (codec is null)
         {
-            throw new NotSupportedException($"Hardware encoder '{encoderName}' was not found in the FFmpeg build.");
+            throw new NotSupportedException(
+                $"Hardware encoder '{encoderName}' was not found in the FFmpeg build."
+            );
         }
 
-        _hwDevice = externalDevice != 0 ? WrapExternalDevice(externalDevice) : CreateOwnedDevice(encoderName, debug);
+        _hwDevice =
+            externalDevice != 0
+                ? WrapExternalDevice(externalDevice)
+                : CreateOwnedDevice(encoderName, debug);
 
         var deviceContext = (AVHWDeviceContext*)_hwDevice->data;
         var d3d11Context = (AVD3D11VADeviceContext*)deviceContext->hwctx;
@@ -96,9 +110,18 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
             if (_infoQueue is not null)
             {
                 // Capture messages instead of letting the debug layer DebugBreak (which crashes us here).
-                _infoQueue.SetBreakOnSeverity(Vortice.Direct3D11.Debug.MessageSeverity.Corruption, false);
-                _infoQueue.SetBreakOnSeverity(Vortice.Direct3D11.Debug.MessageSeverity.Error, false);
-                _infoQueue.SetBreakOnSeverity(Vortice.Direct3D11.Debug.MessageSeverity.Warning, false);
+                _infoQueue.SetBreakOnSeverity(
+                    Vortice.Direct3D11.Debug.MessageSeverity.Corruption,
+                    false
+                );
+                _infoQueue.SetBreakOnSeverity(
+                    Vortice.Direct3D11.Debug.MessageSeverity.Error,
+                    false
+                );
+                _infoQueue.SetBreakOnSeverity(
+                    Vortice.Direct3D11.Debug.MessageSeverity.Warning,
+                    false
+                );
             }
         }
 
@@ -114,9 +137,11 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         // BIND_DECODER; BGRA encode-input surfaces use render-target/shader-resource binds so the encoder
         // can sample them.
         var d3d11Frames = (AVD3D11VAFramesContext*)frames->hwctx;
-        d3d11Frames->BindFlags = (uint)(_swFormat == AVPixelFormat.AV_PIX_FMT_NV12
-            ? D3D11_BIND_DECODER
-            : D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+        d3d11Frames->BindFlags = (uint)(
+            _swFormat == AVPixelFormat.AV_PIX_FMT_NV12
+                ? D3D11_BIND_DECODER
+                : D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE
+        );
         ffmpeg.av_hwframe_ctx_init(_hwFrames).ThrowOnError("init D3D11 frames pool");
 
         _context = ffmpeg.avcodec_alloc_context3(codec);
@@ -165,7 +190,10 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         // Place the D3D11 device on the adapter that backs this encoder's GPU vendor, so a multi-GPU
         // machine (e.g. NVIDIA discrete + AMD/Intel integrated) feeds the texture to the right encoder.
         int adapterIndex = GpuVendorMap.FindAdapterIndex(GpuVendorMap.ForEncoder(encoderName));
-        string? deviceString = adapterIndex >= 0 ? adapterIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        string? deviceString =
+            adapterIndex >= 0
+                ? adapterIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : null;
 
         AVBufferRef* device = null;
         AVDictionary* deviceOptions = null;
@@ -175,7 +203,13 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
             ffmpeg.av_dict_set(&deviceOptions, "debug", "1", 0);
         }
 
-        int created = ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA, deviceString, deviceOptions, 0);
+        int created = ffmpeg.av_hwdevice_ctx_create(
+            &device,
+            AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA,
+            deviceString,
+            deviceOptions,
+            0
+        );
         ffmpeg.av_dict_free(&deviceOptions);
         created.ThrowOnError("create D3D11VA device");
         return device;
@@ -183,10 +217,14 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
 
     private static AVBufferRef* WrapExternalDevice(nint externalDevice)
     {
-        AVBufferRef* hwdevice = ffmpeg.av_hwdevice_ctx_alloc(AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA);
+        AVBufferRef* hwdevice = ffmpeg.av_hwdevice_ctx_alloc(
+            AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA
+        );
         if (hwdevice is null)
         {
-            throw new InvalidOperationException("av_hwdevice_ctx_alloc for the external D3D11 device failed.");
+            throw new InvalidOperationException(
+                "av_hwdevice_ctx_alloc for the external D3D11 device failed."
+            );
         }
 
         var deviceContext = (AVHWDeviceContext*)hwdevice->data;
@@ -206,7 +244,13 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
     private void ConfigureQsvFrames(int width, int height)
     {
         AVBufferRef* qsvDevice = null;
-        ffmpeg.av_hwdevice_ctx_create_derived(&qsvDevice, AVHWDeviceType.AV_HWDEVICE_TYPE_QSV, _hwDevice, 0)
+        ffmpeg
+            .av_hwdevice_ctx_create_derived(
+                &qsvDevice,
+                AVHWDeviceType.AV_HWDEVICE_TYPE_QSV,
+                _hwDevice,
+                0
+            )
             .ThrowOnError("derive QSV device from D3D11");
         _qsvDevice = qsvDevice;
 
@@ -234,7 +278,14 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         try
         {
             _immediateContext.CopySubresourceRegion(
-                destination, (uint)poolIndex, 0, 0, 0, source, (uint)sourceIndex);
+                destination,
+                (uint)poolIndex,
+                0,
+                0,
+                0,
+                source,
+                (uint)sourceIndex
+            );
         }
         finally
         {
@@ -261,8 +312,11 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         for (ulong i = 0; i < count; i++)
         {
             Vortice.Direct3D11.Debug.Message message = _infoQueue.GetMessage(i);
-            if (message.Severity is Vortice.Direct3D11.Debug.MessageSeverity.Error
-                or Vortice.Direct3D11.Debug.MessageSeverity.Corruption)
+            if (
+                message.Severity
+                is Vortice.Direct3D11.Debug.MessageSeverity.Error
+                    or Vortice.Direct3D11.Debug.MessageSeverity.Corruption
+            )
             {
                 builder.Append(message.Severity).Append(": ").AppendLine(message.Description);
             }
@@ -271,7 +325,9 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         _infoQueue.ClearStoredMessages();
         if (builder.Length > 0)
         {
-            throw new InvalidOperationException("D3D11 debug layer reported errors during texture copy:\n" + builder);
+            throw new InvalidOperationException(
+                "D3D11 debug layer reported errors during texture copy:\n" + builder
+            );
         }
     }
 
@@ -279,7 +335,9 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
     {
         AVFrame* qsvFrame = ffmpeg.av_frame_alloc();
         ffmpeg.av_hwframe_get_buffer(_qsvFrames, qsvFrame, 0).ThrowOnError("acquire QSV frame");
-        ffmpeg.av_hwframe_map(qsvFrame, d3d11Frame, (int)AV_HWFRAME_MAP_DIRECT).ThrowOnError("map D3D11 frame to QSV");
+        ffmpeg
+            .av_hwframe_map(qsvFrame, d3d11Frame, (int)AV_HWFRAME_MAP_DIRECT)
+            .ThrowOnError("map D3D11 frame to QSV");
         qsvFrame->pts = d3d11Frame->pts;
         return qsvFrame;
     }
@@ -318,13 +376,21 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
     public byte[]? EncodeTexture(nint texture, int subresourceIndex) =>
         EncodeTexture(texture, subresourceIndex, 0, forceKeyframe: false, out _);
 
-    public byte[]? EncodeTexture(nint texture, int subresourceIndex, long capturePtsNs, bool forceKeyframe, out long producedPtsNs)
+    public byte[]? EncodeTexture(
+        nint texture,
+        int subresourceIndex,
+        long capturePtsNs,
+        bool forceKeyframe,
+        out long producedPtsNs
+    )
     {
         producedPtsNs = 0;
         AVFrame* hwFrame = ffmpeg.av_frame_alloc();
         try
         {
-            ffmpeg.av_hwframe_get_buffer(_hwFrames, hwFrame, 0).ThrowOnError("acquire D3D11 pool frame");
+            ffmpeg
+                .av_hwframe_get_buffer(_hwFrames, hwFrame, 0)
+                .ThrowOnError("acquire D3D11 pool frame");
 
             // Copy the source texture into the pool texture entirely on the GPU, holding FFmpeg's lock
             // so the copy does not race nvenc's own use of the shared immediate context.
@@ -335,7 +401,9 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
             hwFrame->pts = capturePtsNs;
             // Force an IDR when requested (keyframe-on-PLI): pict_type I makes nvenc/amf/qsv emit a key frame
             // for this input regardless of the GOP cadence. NONE leaves the encoder's own decision.
-            hwFrame->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
+            hwFrame->pict_type = forceKeyframe
+                ? AVPictureType.AV_PICTURE_TYPE_I
+                : AVPictureType.AV_PICTURE_TYPE_NONE;
             AVFrame* encodeFrame = _isQsv ? MapToQsv(hwFrame) : hwFrame;
             if (_isQsv)
             {
@@ -344,7 +412,9 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
 
             try
             {
-                ffmpeg.avcodec_send_frame(_context, encodeFrame).ThrowOnError("send frame to encoder");
+                ffmpeg
+                    .avcodec_send_frame(_context, encodeFrame)
+                    .ThrowOnError("send frame to encoder");
             }
             finally
             {
@@ -374,7 +444,10 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
         }
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> s_formatSupport = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<
+        string,
+        bool
+    > s_formatSupport = new();
 
     /// <summary>
     /// Probe whether <paramref name="encoderName"/> actually accepts a D3D11 surface of
@@ -384,13 +457,23 @@ internal sealed unsafe class D3D11VideoEncoder : IDisposable, IVideoEncoderBacke
     /// a converted format where it does not. Capability varies by GPU generation, driver, and FFmpeg build.
     /// </summary>
     public static bool SupportsInputFormat(string encoderName, VideoPixelFormat inputFormat) =>
-        s_formatSupport.GetOrAdd($"{encoderName}:{inputFormat}", _ => Probe(encoderName, inputFormat));
+        s_formatSupport.GetOrAdd(
+            $"{encoderName}:{inputFormat}",
+            _ => Probe(encoderName, inputFormat)
+        );
 
     private static bool Probe(string encoderName, VideoPixelFormat inputFormat)
     {
         try
         {
-            using var probe = new D3D11VideoEncoder(encoderName, 256, 256, 30, 1_000_000, inputFormat);
+            using var probe = new D3D11VideoEncoder(
+                encoderName,
+                256,
+                256,
+                30,
+                1_000_000,
+                inputFormat
+            );
             return probe.TestEncode();
         }
         catch (Exception)

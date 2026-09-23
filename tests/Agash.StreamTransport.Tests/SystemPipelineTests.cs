@@ -33,8 +33,20 @@ public sealed class SystemPipelineTests
         receiverSignaling.Peer = senderSignaling;
 
         var sink = new CollectingVideoSink(target: 5);
-        await using var receiver = new WebRtcMediaReceiver(new MediaTransportOptions(), registry, dtls, loggers, video: sink);
-        await using var sender = new WebRtcMediaSender(new MediaTransportOptions(), registry, dtls, loggers, video: new PatternVideoSource(width, height));
+        await using var receiver = new WebRtcMediaReceiver(
+            new MediaTransportOptions(),
+            registry,
+            dtls,
+            loggers,
+            video: sink
+        );
+        await using var sender = new WebRtcMediaSender(
+            new MediaTransportOptions(),
+            registry,
+            dtls,
+            loggers,
+            video: new PatternVideoSource(width, height)
+        );
 
         await receiver.StartAsync(receiverSignaling);
         await sender.StartAsync(senderSignaling);
@@ -46,8 +58,16 @@ public sealed class SystemPipelineTests
         await senderSignaling.DisposeAsync();
         await receiverSignaling.DisposeAsync();
 
-        Assert.AreSame(sink.Reached, finished, $"expected >=5 frames through the full pipeline, got {sink.Count}.");
-        Assert.AreEqual(width, sink.LastWidth, "frame width must survive the whole encode/transport/decode round trip.");
+        Assert.AreSame(
+            sink.Reached,
+            finished,
+            $"expected >=5 frames through the full pipeline, got {sink.Count}."
+        );
+        Assert.AreEqual(
+            width,
+            sink.LastWidth,
+            "frame width must survive the whole encode/transport/decode round trip."
+        );
         Assert.AreEqual(height, sink.LastHeight);
     }
 }

@@ -15,7 +15,11 @@ public sealed class PlayoutSchedulerTests
     [TestMethod]
     public void Timeline_MapsCorrelatedInstantsToSameRelease()
     {
-        var timeline = new PlayoutTimeline(minDelayNs: 200_000_000, maxDelayNs: 200_000_000, marginNs: 0);
+        var timeline = new PlayoutTimeline(
+            minDelayNs: 200_000_000,
+            maxDelayNs: 200_000_000,
+            marginNs: 0
+        );
         Assert.IsFalse(timeline.IsAnchored);
 
         // First frame establishes the offset: sender 5_000 ms, arrives local 6_000 ms -> offset 1_000 ms.
@@ -32,7 +36,11 @@ public sealed class PlayoutSchedulerTests
     [TestMethod]
     public void Timeline_RejectsLatencyTransientsButFollowsALowerPath()
     {
-        var timeline = new PlayoutTimeline(minDelayNs: 200_000_000, maxDelayNs: 200_000_000, marginNs: 0);
+        var timeline = new PlayoutTimeline(
+            minDelayNs: 200_000_000,
+            maxDelayNs: 200_000_000,
+            marginNs: 0
+        );
 
         // Steady offset ~1_000 ms (capture 5_000 ms -> arrive 6_000 ms).
         timeline.ReleaseLocalNs(senderWallNs: 5_000_000_000, localNowNs: 6_000_000_000);
@@ -40,12 +48,18 @@ public sealed class PlayoutSchedulerTests
         // A transient: a frame that arrives 200 ms late (jitter spike / cold start) must NOT push the offset up,
         // so a normal frame right after still maps on the minimum offset (~1_000 ms), not the inflated one.
         timeline.ReleaseLocalNs(senderWallNs: 5_100_000_000, localNowNs: 6_300_000_000); // 200 ms late
-        long rNormal = timeline.ReleaseLocalNs(senderWallNs: 5_200_000_000, localNowNs: 6_200_000_000);
+        long rNormal = timeline.ReleaseLocalNs(
+            senderWallNs: 5_200_000_000,
+            localNowNs: 6_200_000_000
+        );
         Assert.AreEqual(5_200_000_000 + 1_000_000_000 + 200_000_000, rNormal, delta: 1_000_000);
 
         // A genuinely lower-latency path is adopted immediately (offset drops to it).
         timeline.ReleaseLocalNs(senderWallNs: 5_300_000_000, localNowNs: 6_240_000_000); // offset now ~940 ms
-        long rLower = timeline.ReleaseLocalNs(senderWallNs: 5_400_000_000, localNowNs: 6_400_000_000);
+        long rLower = timeline.ReleaseLocalNs(
+            senderWallNs: 5_400_000_000,
+            localNowNs: 6_400_000_000
+        );
         Assert.AreEqual(5_400_000_000 + 940_000_000 + 200_000_000, rLower, delta: 1_000_000);
     }
 
@@ -64,11 +78,14 @@ public sealed class PlayoutSchedulerTests
         {
             int captured = i;
             Interlocked.Exchange(ref now, 1_000_000_000 + (i * 1_000_000L)); // arrival advances with capture
-            scheduler.Schedule(i * 1_000_000L, () =>
-            {
-                order.Enqueue(captured);
-                done.Signal();
-            });
+            scheduler.Schedule(
+                i * 1_000_000L,
+                () =>
+                {
+                    order.Enqueue(captured);
+                    done.Signal();
+                }
+            );
         }
 
         Interlocked.Exchange(ref now, 1_000_000_000 + 100_000_000); // 100 ms later: all due.
@@ -87,7 +104,10 @@ public sealed class PlayoutSchedulerTests
         scheduler.Schedule(senderWallNs: 0, () => released.Set());
 
         // The fake clock has not advanced, so within a real window the frame must NOT present early.
-        Assert.IsFalse(released.Wait(TimeSpan.FromMilliseconds(300)), "frame presented before its scheduled time.");
+        Assert.IsFalse(
+            released.Wait(TimeSpan.FromMilliseconds(300)),
+            "frame presented before its scheduled time."
+        );
 
         Interlocked.Exchange(ref now, 1_000_000_000 + 500_000_000); // advance to the release time.
         Assert.IsTrue(released.Wait(TimeSpan.FromSeconds(5)), "frame should present once due.");
@@ -106,6 +126,9 @@ public sealed class PlayoutSchedulerTests
 
         // Disposing must flush the still-queued frame rather than drop it.
         await scheduler.DisposeAsync();
-        Assert.IsTrue(released.Wait(TimeSpan.FromSeconds(1)), "dispose should drain queued frames.");
+        Assert.IsTrue(
+            released.Wait(TimeSpan.FromSeconds(1)),
+            "dispose should drain queued frames."
+        );
     }
 }

@@ -22,7 +22,8 @@ public sealed class PacingBudget
     }
 
     /// <summary>Updates the pacing rate (from the congestion controller's pacing rate).</summary>
-    public void SetRate(long pacingRateBps) => _rateBytesPerSecond = Math.Max(1, pacingRateBps / 8.0);
+    public void SetRate(long pacingRateBps) =>
+        _rateBytesPerSecond = Math.Max(1, pacingRateBps / 8.0);
 
     /// <summary>
     /// Refills the budget for the elapsed time and returns the number of bytes that may be sent now,

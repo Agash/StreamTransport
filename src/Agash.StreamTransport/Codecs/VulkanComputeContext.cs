@@ -128,7 +128,9 @@ public sealed unsafe class VulkanComputeContext : IDisposable
             enabledExtensionCount = extensions.Length,
             ppEnabledExtensionNames = extensions,
         };
-        _instanceApi.vkCreateDevice(physicalDevice, &deviceInfo, null, out VkDevice device).CheckResult();
+        _instanceApi
+            .vkCreateDevice(physicalDevice, &deviceInfo, null, out VkDevice device)
+            .CheckResult();
         Device = device;
         Api = GetApi(_instance, device);
 
@@ -198,8 +200,9 @@ public sealed unsafe class VulkanComputeContext : IDisposable
         }
 
         throw new InvalidOperationException(
-            "No Vulkan device supports compute + the dmabuf external-memory extensions " +
-            $"({string.Join(", ", s_dmaBufDeviceExtensions)}).");
+            "No Vulkan device supports compute + the dmabuf external-memory extensions "
+                + $"({string.Join(", ", s_dmaBufDeviceExtensions)})."
+        );
     }
 
     private bool HasRequiredExtensions(VkPhysicalDevice device)
@@ -258,7 +261,9 @@ public sealed unsafe class VulkanComputeContext : IDisposable
         byte[] spirv = EmbeddedShader.LoadBytes(logicalName);
         if (spirv.Length < 20 || spirv.Length % 4 != 0)
         {
-            throw new InvalidOperationException($"Embedded SPIR-V '{logicalName}' is not a valid module ({spirv.Length} bytes).");
+            throw new InvalidOperationException(
+                $"Embedded SPIR-V '{logicalName}' is not a valid module ({spirv.Length} bytes)."
+            );
         }
 
         fixed (byte* code = spirv)
@@ -327,7 +332,10 @@ public sealed unsafe class VulkanComputeContext : IDisposable
     /// </summary>
     public uint FindMemoryType(uint typeBits, VkMemoryPropertyFlags properties)
     {
-        _instanceApi.vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, out VkPhysicalDeviceMemoryProperties memProps);
+        _instanceApi.vkGetPhysicalDeviceMemoryProperties(
+            PhysicalDevice,
+            out VkPhysicalDeviceMemoryProperties memProps
+        );
         for (uint i = 0; i < memProps.memoryTypeCount; i++)
         {
             bool typeOk = (typeBits & (1u << (int)i)) != 0;
@@ -346,7 +354,10 @@ public sealed unsafe class VulkanComputeContext : IDisposable
     {
         Api.vkAllocateCommandBuffer(_commandPool, out VkCommandBuffer cmd).CheckResult();
 
-        VkCommandBufferBeginInfo beginInfo = new() { flags = VkCommandBufferUsageFlags.OneTimeSubmit };
+        VkCommandBufferBeginInfo beginInfo = new()
+        {
+            flags = VkCommandBufferUsageFlags.OneTimeSubmit,
+        };
         Api.vkBeginCommandBuffer(cmd, &beginInfo).CheckResult();
         record(cmd);
         Api.vkEndCommandBuffer(cmd).CheckResult();

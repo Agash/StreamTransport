@@ -33,7 +33,11 @@ public sealed unsafe class VaapiCopyTests
         }
 
         nint display = VaapiDevice.Display;
-        Assert.AreNotEqual(nint.Zero, display, "VADisplay must be readable from the shared device.");
+        Assert.AreNotEqual(
+            nint.Zero,
+            display,
+            "VADisplay must be readable from the shared device."
+        );
 
         AVBufferRef* device = VaapiDevice.AcquireRef();
         AVBufferRef* framesRef = ffmpeg.av_hwframe_ctx_alloc(device);
@@ -62,7 +66,9 @@ public sealed unsafe class VaapiCopyTests
             int status = VaapiInterop.vaCopy(display, &d, &s, 0);
             if (status != 0)
             {
-                Assert.Inconclusive($"vaCopy is not implemented/usable on this driver (VAStatus={status}); the republish must use scale_vaapi instead.");
+                Assert.Inconclusive(
+                    $"vaCopy is not implemented/usable on this driver (VAStatus={status}); the republish must use scale_vaapi instead."
+                );
                 return;
             }
 
@@ -111,7 +117,9 @@ public sealed unsafe class VaapiCopyTests
 
         AVFrame* src = ffmpeg.av_frame_alloc();
         AVFrame* dst = ffmpeg.av_frame_alloc();
-        uint config = 0, context = 0, paramBuf = 0;
+        uint config = 0,
+            context = 0,
+            paramBuf = 0;
         try
         {
             ffmpeg.av_hwframe_get_buffer(framesRef, src, 0).ThrowOnError("get src surface");
@@ -119,22 +127,51 @@ public sealed unsafe class VaapiCopyTests
             uint srcId = (uint)(nuint)src->data[3];
             uint dstId = (uint)(nuint)dst->data[3];
 
-            int cfg = VaapiInterop.vaCreateConfig(display, VaapiInterop.VAProfileNone, VaapiInterop.VAEntrypointVideoProc, null, 0, out config);
+            int cfg = VaapiInterop.vaCreateConfig(
+                display,
+                VaapiInterop.VAProfileNone,
+                VaapiInterop.VAEntrypointVideoProc,
+                null,
+                0,
+                out config
+            );
             if (cfg != 0)
             {
-                Assert.Inconclusive($"VAEntrypointVideoProc not supported on this driver (VAStatus={cfg}).");
+                Assert.Inconclusive(
+                    $"VAEntrypointVideoProc not supported on this driver (VAStatus={cfg})."
+                );
                 return;
             }
 
             uint renderTarget = dstId;
-            VaapiInterop.vaCreateContext(display, config, 64, 64, VaapiInterop.VA_PROGRESSIVE, &renderTarget, 1, out context).ThrowOnError("vaCreateContext (VPP)");
+            VaapiInterop
+                .vaCreateContext(
+                    display,
+                    config,
+                    64,
+                    64,
+                    VaapiInterop.VA_PROGRESSIVE,
+                    &renderTarget,
+                    1,
+                    out context
+                )
+                .ThrowOnError("vaCreateContext (VPP)");
 
             // Whole-surface copy: zero the 224-byte pipeline param, set only the source surface (offset 0).
             byte* param = stackalloc byte[VaapiInterop.ProcPipelineParameterBufferSize];
             new Span<byte>(param, VaapiInterop.ProcPipelineParameterBufferSize).Clear();
             *(uint*)param = srcId;
-            VaapiInterop.vaCreateBuffer(display, context, VaapiInterop.VAProcPipelineParameterBufferType,
-                VaapiInterop.ProcPipelineParameterBufferSize, 1, param, out paramBuf).ThrowOnError("vaCreateBuffer");
+            VaapiInterop
+                .vaCreateBuffer(
+                    display,
+                    context,
+                    VaapiInterop.VAProcPipelineParameterBufferType,
+                    VaapiInterop.ProcPipelineParameterBufferSize,
+                    1,
+                    param,
+                    out paramBuf
+                )
+                .ThrowOnError("vaCreateBuffer");
 
             VaapiInterop.vaBeginPicture(display, context, dstId).ThrowOnError("vaBeginPicture");
             uint b = paramBuf;
@@ -146,9 +183,12 @@ public sealed unsafe class VaapiCopyTests
         }
         finally
         {
-            if (paramBuf != 0) VaapiInterop.vaDestroyBuffer(display, paramBuf);
-            if (context != 0) VaapiInterop.vaDestroyContext(display, context);
-            if (config != 0) VaapiInterop.vaDestroyConfig(display, config);
+            if (paramBuf != 0)
+                VaapiInterop.vaDestroyBuffer(display, paramBuf);
+            if (context != 0)
+                VaapiInterop.vaDestroyContext(display, context);
+            if (config != 0)
+                VaapiInterop.vaDestroyConfig(display, config);
             ffmpeg.av_frame_free(&src);
             ffmpeg.av_frame_free(&dst);
             ffmpeg.av_buffer_unref(&framesRef);
@@ -180,11 +220,20 @@ public sealed unsafe class VaapiCopyTests
         for (int i = 0; i < pool.Count; i++)
         {
             DmaBufSurface planes = pool.Planes(i);
-            Assert.IsTrue(planes.PlaneCount is 1 or 2, $"surface {i} should export 1-2 NV12 planes, got {planes.PlaneCount}.");
+            Assert.IsTrue(
+                planes.PlaneCount is 1 or 2,
+                $"surface {i} should export 1-2 NV12 planes, got {planes.PlaneCount}."
+            );
             for (int p = 0; p < planes.PlaneCount; p++)
             {
-                Assert.IsTrue(planes[p].Fd > 0, $"surface {i} plane {p} must have a valid dmabuf fd.");
-                Assert.IsTrue(planes[p].Stride > 0, $"surface {i} plane {p} must have a positive stride.");
+                Assert.IsTrue(
+                    planes[p].Fd > 0,
+                    $"surface {i} plane {p} must have a valid dmabuf fd."
+                );
+                Assert.IsTrue(
+                    planes[p].Stride > 0,
+                    $"surface {i} plane {p} must have a positive stride."
+                );
             }
 
             Assert.AreNotEqual(0u, pool.SurfaceId(i));
