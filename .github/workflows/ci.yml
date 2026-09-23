@@ -87,7 +87,7 @@ jobs:
       # (cross-machine runs connect reliably; the per-component logic is covered by the WebRtc unit + loopback
       # tests here). Keeping them off the gate stops a transient flake from blocking every build. (#1)
       - name: Test
-        run: dotnet test StreamTransport.slnx -c Release --no-build --filter "TestCategory!=Integration" -- --coverage --coverage-settings coverage.settings.xml --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
+        run: dotnet test --solution StreamTransport.slnx -c Release --no-build --filter "TestCategory!=Integration" -- --coverage --coverage-settings coverage.settings.xml --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
 
       # Non-gating: exercise the real-socket E2E integration tests once (Linux, most reliable loopback) so they
       # still get coverage, but a transient connect flake is reported, not fatal.
@@ -144,4 +144,4 @@ jobs:
       - name: Integration tests (non-gating)
         if: matrix.rid == 'linux-x64'
         continue-on-error: true
-        run: dotnet test StreamTransport.slnx -c Release --no-build --filter "TestCategory=Integration"
+        run: dotnet test --solution StreamTransport.slnx -c Release --no-build --filter "TestCategory=Integration"
