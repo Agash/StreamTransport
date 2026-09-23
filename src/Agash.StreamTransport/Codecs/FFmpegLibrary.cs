@@ -60,7 +60,8 @@ public static class FFmpegLibrary
     private static string Rid => RuntimeInformation.RuntimeIdentifier;
 
     // The avcodec ABI major the bindings were generated for. Any other major fails to load.
-    private static string AvcodecMajor => ffmpeg.LibraryVersionMap["avcodec"].ToString(CultureInfo.InvariantCulture);
+    private static string AvcodecMajor =>
+        ffmpeg.LibraryVersionMap["avcodec"].ToString(CultureInfo.InvariantCulture);
 
     private static string? ResolveNativeDirectory()
     {

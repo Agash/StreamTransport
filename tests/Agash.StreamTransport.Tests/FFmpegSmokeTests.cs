@@ -33,7 +33,9 @@ public sealed class FFmpegSmokeTests
         string expectedMajor = FFmpeg.AutoGen.ffmpeg.LibraryVersionMap["avcodec"] switch
         {
             63 => "9.",
-            int other => throw new AssertFailedException($"No FFmpeg release mapped for avcodec {other}."),
+            int other => throw new AssertFailedException(
+                $"No FFmpeg release mapped for avcodec {other}."
+            ),
         };
         Assert.Contains(
             expectedMajor,
