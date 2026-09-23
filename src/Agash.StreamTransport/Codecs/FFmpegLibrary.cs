@@ -47,9 +47,11 @@ public static class FFmpegLibrary
         catch (DllNotFoundException ex)
         {
             throw new DllNotFoundException(
-                $"Could not locate FFmpeg. Expected the bundled 8.1 build under runtimes/{Rid}/native, the " +
-                $"application directory, or native/ffmpeg/{Rid}, and no compatible system FFmpeg (avcodec-62) " +
-                "was found on the OS default library search path.", ex);
+                $"Could not locate FFmpeg. Expected the bundled 8.1 build under runtimes/{Rid}/native, the "
+                    + $"application directory, or native/ffmpeg/{Rid}, and no compatible system FFmpeg (avcodec-62) "
+                    + "was found on the OS default library search path.",
+                ex
+            );
         }
     }
 
@@ -58,11 +60,7 @@ public static class FFmpegLibrary
     private static string? ResolveNativeDirectory()
     {
         string baseDir = AppContext.BaseDirectory;
-        string[] candidates =
-        [
-            Path.Combine(baseDir, "runtimes", Rid, "native"),
-            baseDir,
-        ];
+        string[] candidates = [Path.Combine(baseDir, "runtimes", Rid, "native"), baseDir];
 
         foreach (string candidate in candidates)
         {
@@ -104,7 +102,8 @@ public static class FFmpegLibrary
 
     private static bool ContainsFFmpeg(string directory) =>
         Directory.Exists(directory)
-        && Directory.EnumerateFiles(directory)
+        && Directory
+            .EnumerateFiles(directory)
             // Match the avcodec shared library under every platform's naming: Windows "avcodec-62.dll",
             // Linux "libavcodec.so.62", macOS "libavcodec.62.dylib".
             .Any(f => Path.GetFileName(f).Contains("avcodec", StringComparison.OrdinalIgnoreCase));
@@ -132,8 +131,10 @@ public static class FFmpegLibrary
             catch (Exception ex)
             {
                 throw new DllNotFoundException(
-                    $"Could not load FFmpeg shared libraries from '{nativeDirectory}'. Ensure the FFmpeg 8.1 " +
-                    "shared build (avcodec-62, avutil-60, ...) is present and loadable.", ex);
+                    $"Could not load FFmpeg shared libraries from '{nativeDirectory}'. Ensure the FFmpeg 8.1 "
+                        + "shared build (avcodec-62, avutil-60, ...) is present and loadable.",
+                    ex
+                );
             }
 
             s_loaded = true;
@@ -141,8 +142,10 @@ public static class FFmpegLibrary
     }
 
     /// <summary>True if an encoder with the given name (e.g. "hevc_nvenc") is available in the loaded build.</summary>
-    public static unsafe bool HasEncoder(string name) => ffmpeg.avcodec_find_encoder_by_name(name) is not null;
+    public static unsafe bool HasEncoder(string name) =>
+        ffmpeg.avcodec_find_encoder_by_name(name) is not null;
 
     /// <summary>True if a decoder with the given name (e.g. "hevc_cuvid") is available in the loaded build.</summary>
-    public static unsafe bool HasDecoder(string name) => ffmpeg.avcodec_find_decoder_by_name(name) is not null;
+    public static unsafe bool HasDecoder(string name) =>
+        ffmpeg.avcodec_find_decoder_by_name(name) is not null;
 }

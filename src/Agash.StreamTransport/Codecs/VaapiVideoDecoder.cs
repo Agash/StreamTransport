@@ -20,7 +20,8 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
     /// <see cref="VideoSurfaceKind.DmaBuf"/> frame for zero-copy downstream (Vulkan import / PipeWire
     /// republish); otherwise it is read back to CPU NV12 (<see cref="VideoSurfaceKind.Cpu"/>).
     /// </summary>
-    public VideoSurfaceKind OutputSurfaceKind => _gpuSurface ? VideoSurfaceKind.DmaBuf : VideoSurfaceKind.Cpu;
+    public VideoSurfaceKind OutputSurfaceKind =>
+        _gpuSurface ? VideoSurfaceKind.DmaBuf : VideoSurfaceKind.Cpu;
 
     /// <summary>No shared GPU device handle is surfaced (dmabuf carries its own fds).</summary>
     public nint NativeDevice => 0;
@@ -67,7 +68,9 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         _context->pkt_timebase = new AVRational { num = 1, den = 90_000 };
         _context->get_format = new AVCodecContext_get_format_func
         {
-            Pointer = (nint)(delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)&GetVaapiFormat,
+            Pointer = (nint)
+                (delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)
+                    &GetVaapiFormat,
         };
 
         int open = ffmpeg.avcodec_open2(_context, codec, null);
@@ -113,7 +116,13 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
     }
 
     /// <inheritdoc/>
-    public bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp)
+    public bool TryDecode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out VideoFrame frame,
+        out uint frameRtpTimestamp
+    )
     {
         frame = default;
         frameRtpTimestamp = rtpTimestamp;
@@ -141,7 +150,9 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
 
         if (resend)
         {
-            ffmpeg.avcodec_send_packet(_context, _packet).ThrowOnError("re-send packet to VAAPI decoder");
+            ffmpeg
+                .avcodec_send_packet(_context, _packet)
+                .ThrowOnError("re-send packet to VAAPI decoder");
         }
 
         if (_frame->pts != ffmpeg.AV_NOPTS_VALUE)
@@ -155,8 +166,11 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         // Zero-copy path: export the decoded VAAPI surface as a DMA-BUF (DRM-PRIME) and surface its planes
         // directly, no CPU readback. The map holds the surface alive until the next decode unrefs it, so the
         // frame must be consumed before TryDecode is called again (single frame in flight - the pull pipeline).
-        if (_gpuSurface && (AVPixelFormat)_frame->format == AVPixelFormat.AV_PIX_FMT_VAAPI
-            && TryExportDmaBuf(width, height, presentationTimeNs, out frame))
+        if (
+            _gpuSurface
+            && (AVPixelFormat)_frame->format == AVPixelFormat.AV_PIX_FMT_VAAPI
+            && TryExportDmaBuf(width, height, presentationTimeNs, out frame)
+        )
         {
             return true;
         }
@@ -168,7 +182,9 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         if ((AVPixelFormat)_frame->format == AVPixelFormat.AV_PIX_FMT_VAAPI)
         {
             ffmpeg.av_frame_unref(_swFrame);
-            ffmpeg.av_hwframe_transfer_data(_swFrame, _frame, 0).ThrowOnError("transfer VAAPI surface to system memory");
+            ffmpeg
+                .av_hwframe_transfer_data(_swFrame, _frame, 0)
+                .ThrowOnError("transfer VAAPI surface to system memory");
             output = _swFrame;
         }
         else
@@ -177,9 +193,10 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         }
 
         var pixelFormat = (AVPixelFormat)output->format;
-        (byte[] pixels, VideoPixelFormat format) = pixelFormat == AVPixelFormat.AV_PIX_FMT_NV12
-            ? (HevcDecoder.ExtractNv12(output, width, height), VideoPixelFormat.Nv12)
-            : (HevcDecoder.ExtractI420(output, width, height), VideoPixelFormat.I420);
+        (byte[] pixels, VideoPixelFormat format) =
+            pixelFormat == AVPixelFormat.AV_PIX_FMT_NV12
+                ? (HevcDecoder.ExtractNv12(output, width, height), VideoPixelFormat.Nv12)
+                : (HevcDecoder.ExtractI420(output, width, height), VideoPixelFormat.I420);
 
         frame = VideoFrame.FromPixels(pixels, format, width, height, presentationTimeNs);
         return true;
@@ -189,13 +206,21 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
     // a flat DmaBufSurface (one DmaBufPlane per layer-plane, resolving each plane's fd via its object). The
     // modifier is taken from the first object (uniform across a surface in practice). Returns false (so the
     // caller falls back to CPU readback) if the driver cannot map to DRM-PRIME.
-    private bool TryExportDmaBuf(int width, int height, long presentationTimeNs, out VideoFrame frame)
+    private bool TryExportDmaBuf(
+        int width,
+        int height,
+        long presentationTimeNs,
+        out VideoFrame frame
+    )
     {
         frame = default;
 
         ffmpeg.av_frame_unref(_drmFrame);
         _drmFrame->format = (int)AVPixelFormat.AV_PIX_FMT_DRM_PRIME;
-        if (ffmpeg.av_hwframe_map(_drmFrame, _frame, (int)DrmPrime.HwframeMapRead) < 0 || _drmFrame->data[0] is null)
+        if (
+            ffmpeg.av_hwframe_map(_drmFrame, _frame, (int)DrmPrime.HwframeMapRead) < 0
+            || _drmFrame->data[0] is null
+        )
         {
             return false;
         }
@@ -210,10 +235,14 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
         if (!string.IsNullOrEmpty(dbg))
         {
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"[dmabuf-export] nb_objects={desc.nb_objects} nb_layers={desc.nb_layers}");
+            sb.AppendLine(
+                $"[dmabuf-export] nb_objects={desc.nb_objects} nb_layers={desc.nb_layers}"
+            );
             for (int o = 0; o < desc.nb_objects && o < DrmPrime.MaxPlanes; o++)
             {
-                sb.AppendLine($"  object[{o}] fd={desc.objects[o].fd} modifier=0x{desc.objects[o].format_modifier:x16} size={desc.objects[o].size}");
+                sb.AppendLine(
+                    $"  object[{o}] fd={desc.objects[o].fd} modifier=0x{desc.objects[o].format_modifier:x16} size={desc.objects[o].size}"
+                );
             }
             for (int l = 0; l < desc.nb_layers && l < DrmPrime.MaxPlanes; l++)
             {
@@ -221,7 +250,9 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
                 sb.AppendLine($"  layer[{l}] fourcc=0x{ly.format:x8} nb_planes={ly.nb_planes}");
                 for (int p = 0; p < ly.nb_planes && p < DrmPrime.MaxPlanes; p++)
                 {
-                    sb.AppendLine($"    plane[{p}] object={ly.planes[p].object_index} offset={ly.planes[p].offset} pitch={ly.planes[p].pitch}");
+                    sb.AppendLine(
+                        $"    plane[{p}] object={ly.planes[p].object_index} offset={ly.planes[p].offset} pitch={ly.planes[p].pitch}"
+                    );
                 }
             }
 
@@ -240,7 +271,12 @@ internal sealed unsafe class VaapiVideoDecoder : IDisposable, IVideoDecoderBacke
                 int fd = desc.objects[plane.object_index].fd;
                 // Carry the layer's DRM fourcc verbatim (e.g. R8 for the Y layer, GR88 for UV) so the
                 // consumer rebuilds the producer's exact descriptor without guessing the driver's convention.
-                planes[planeCount++] = new DmaBufPlane(fd, (uint)plane.offset, (uint)plane.pitch, layer.format);
+                planes[planeCount++] = new DmaBufPlane(
+                    fd,
+                    (uint)plane.offset,
+                    (uint)plane.pitch,
+                    layer.format
+                );
             }
         }
 

@@ -14,17 +14,22 @@ public static class CaptureBackend
 {
     /// <summary>The libavdevice input-format name for camera capture on this OS.</summary>
     public static string VideoInputFormat =>
-        OperatingSystem.IsWindows() ? "dshow" : OperatingSystem.IsMacOS() ? "avfoundation" : "v4l2";
+        OperatingSystem.IsWindows() ? "dshow"
+        : OperatingSystem.IsMacOS() ? "avfoundation"
+        : "v4l2";
 
     /// <summary>The libavdevice input-format name for audio capture on this OS.</summary>
     public static string AudioInputFormat =>
-        OperatingSystem.IsWindows() ? "dshow" : OperatingSystem.IsMacOS() ? "avfoundation" : "alsa";
+        OperatingSystem.IsWindows() ? "dshow"
+        : OperatingSystem.IsMacOS() ? "avfoundation"
+        : "alsa";
 
     /// <summary>
     /// Whether one input can carry both video and audio on this OS. dshow and AVFoundation expose a
     /// combined device URL; v4l2/ALSA need two separate inputs.
     /// </summary>
-    public static bool SupportsCombinedInput => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+    public static bool SupportsCombinedInput =>
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
 }
 
 /// <summary>
@@ -67,7 +72,10 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
     /// to the device (e.g. <c>framerate</c>, <c>video_size</c>, <c>pixel_format</c>).
     /// </summary>
     public static FFmpegCaptureDevice Open(
-        string inputFormat, string url, IReadOnlyDictionary<string, string>? options = null)
+        string inputFormat,
+        string url,
+        IReadOnlyDictionary<string, string>? options = null
+    )
     {
         FFmpegLibrary.EnsureLoaded();
         ffmpeg.avdevice_register_all();
@@ -75,7 +83,9 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
         AVInputFormat* format = ffmpeg.av_find_input_format(inputFormat);
         if (format is null)
         {
-            throw new NotSupportedException($"libavdevice input format '{inputFormat}' is not available in this FFmpeg build.");
+            throw new NotSupportedException(
+                $"libavdevice input format '{inputFormat}' is not available in this FFmpeg build."
+            );
         }
 
         AVDictionary* opts = null;
@@ -92,7 +102,9 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
         ffmpeg.av_dict_free(&opts);
         if (open < 0)
         {
-            throw new InvalidOperationException($"Could not open capture device '{url}' (FFmpeg error {open}).");
+            throw new InvalidOperationException(
+                $"Could not open capture device '{url}' (FFmpeg error {open})."
+            );
         }
 
         if (ffmpeg.avformat_find_stream_info(ctx, null) < 0)
@@ -120,7 +132,9 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
         if (video is null && audio is null)
         {
             ffmpeg.avformat_close_input(&ctx);
-            throw new InvalidOperationException($"Capture device '{url}' exposed no decodable audio or video stream.");
+            throw new InvalidOperationException(
+                $"Capture device '{url}' exposed no decodable audio or video stream."
+            );
         }
 
         var device = new FFmpegCaptureDevice(ctx, video, audio);
@@ -163,7 +177,8 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
         }
     }
 
-    internal static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    internal static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     /// <summary>Stop the reader and release the device, decoders, and resampler.</summary>
     public void Dispose()
@@ -256,8 +271,18 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
             int width = frame->width;
             int height = frame->height;
             _sws = ffmpeg.sws_getCachedContext(
-                _sws, width, height, (AVPixelFormat)frame->format,
-                width, height, AVPixelFormat.AV_PIX_FMT_NV12, (int)SwsFlags.SWS_BILINEAR, null, null, null);
+                _sws,
+                width,
+                height,
+                (AVPixelFormat)frame->format,
+                width,
+                height,
+                AVPixelFormat.AV_PIX_FMT_NV12,
+                (int)SwsFlags.SWS_BILINEAR,
+                null,
+                null,
+                null
+            );
             if (_sws is null)
             {
                 return;
@@ -296,7 +321,13 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
                 }
 
                 _hasNew = false;
-                frame = VideoFrame.FromPixels(_latest, VideoPixelFormat.Nv12, _width, _height, _timeNs);
+                frame = VideoFrame.FromPixels(
+                    _latest,
+                    VideoPixelFormat.Nv12,
+                    _width,
+                    _height,
+                    _timeNs
+                );
                 return true;
             }
         }
@@ -373,9 +404,13 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
                 return;
             }
 
-            int outSamples = (int)ffmpeg.av_rescale_rnd(
-                ffmpeg.swr_get_delay(_swr, frame->sample_rate) + frame->nb_samples,
-                OutRate, frame->sample_rate, AVRounding.AV_ROUND_UP);
+            int outSamples = (int)
+                ffmpeg.av_rescale_rnd(
+                    ffmpeg.swr_get_delay(_swr, frame->sample_rate) + frame->nb_samples,
+                    OutRate,
+                    frame->sample_rate,
+                    AVRounding.AV_ROUND_UP
+                );
             if (outSamples <= 0)
             {
                 return;
@@ -386,7 +421,13 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
             fixed (byte* dst = pcm)
             {
                 byte* outPtr = dst;
-                converted = ffmpeg.swr_convert(_swr, &outPtr, outSamples, frame->extended_data, frame->nb_samples);
+                converted = ffmpeg.swr_convert(
+                    _swr,
+                    &outPtr,
+                    outSamples,
+                    frame->extended_data,
+                    frame->nb_samples
+                );
             }
 
             if (converted <= 0)
@@ -396,7 +437,9 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
 
             int bytes = converted * _channels * 2;
             byte[] trimmed = bytes == pcm.Length ? pcm : pcm[..bytes];
-            _queue.Enqueue(new AudioFrame(trimmed, AudioSampleFormat.S16, OutRate, _channels, NowNs()));
+            _queue.Enqueue(
+                new AudioFrame(trimmed, AudioSampleFormat.S16, OutRate, _channels, NowNs())
+            );
         }
 
         private void EnsureResampler(AVFrame* frame)
@@ -412,9 +455,15 @@ public sealed unsafe class FFmpegCaptureDevice : IDisposable
             SwrContext* swr = null;
             int rc = ffmpeg.swr_alloc_set_opts2(
                 &swr,
-                &outLayout, AVSampleFormat.AV_SAMPLE_FMT_S16, OutRate,
-                &inLayout, (AVSampleFormat)frame->format, frame->sample_rate,
-                0, null);
+                &outLayout,
+                AVSampleFormat.AV_SAMPLE_FMT_S16,
+                OutRate,
+                &inLayout,
+                (AVSampleFormat)frame->format,
+                frame->sample_rate,
+                0,
+                null
+            );
             if (rc < 0 || swr is null || ffmpeg.swr_init(swr) < 0)
             {
                 return;

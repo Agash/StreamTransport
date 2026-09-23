@@ -45,7 +45,9 @@ internal sealed class ToneAudioSource : IAudioFrameSource
 /// <summary>A test <see cref="IAudioFrameSink"/> that counts frames and signals when a target is reached.</summary>
 internal sealed class CollectingAudioSink(int target) : IAudioFrameSink
 {
-    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _reached = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
     private int _count;
 
     public int Count => Volatile.Read(ref _count);

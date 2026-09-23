@@ -10,15 +10,22 @@ namespace Agash.StreamTransport.WebRtc.Dtls;
 internal static class SrtpProfiles
 {
     /// <summary>Profiles we offer, most preferred first: AES-256-GCM then AES-128-GCM (AEAD only).</summary>
-    public static readonly int[] Offered = [BcSrtp.SRTP_AEAD_AES_256_GCM, BcSrtp.SRTP_AEAD_AES_128_GCM];
+    public static readonly int[] Offered =
+    [
+        BcSrtp.SRTP_AEAD_AES_256_GCM,
+        BcSrtp.SRTP_AEAD_AES_128_GCM,
+    ];
 
     /// <summary>The (key, salt) octet lengths for a profile.</summary>
-    public static (int Key, int Salt) Lengths(int bcProfile) => bcProfile switch
-    {
-        BcSrtp.SRTP_AEAD_AES_128_GCM => (16, 12),
-        BcSrtp.SRTP_AEAD_AES_256_GCM => (32, 12),
-        _ => throw new NotSupportedException($"Unsupported SRTP protection profile 0x{bcProfile:X4}."),
-    };
+    public static (int Key, int Salt) Lengths(int bcProfile) =>
+        bcProfile switch
+        {
+            BcSrtp.SRTP_AEAD_AES_128_GCM => (16, 12),
+            BcSrtp.SRTP_AEAD_AES_256_GCM => (32, 12),
+            _ => throw new NotSupportedException(
+                $"Unsupported SRTP protection profile 0x{bcProfile:X4}."
+            ),
+        };
 
     /// <summary>The keying material length to export: client+server keys and salts (RFC 5764 §4.2).</summary>
     public static int KeyingMaterialLength(int bcProfile)
@@ -28,12 +35,15 @@ internal static class SrtpProfiles
     }
 
     /// <summary>Translates a BouncyCastle profile code point to the abstraction enum.</summary>
-    public static SrtpProtectionProfile ToProfile(int bcProfile) => bcProfile switch
-    {
-        BcSrtp.SRTP_AEAD_AES_128_GCM => SrtpProtectionProfile.AeadAes128Gcm,
-        BcSrtp.SRTP_AEAD_AES_256_GCM => SrtpProtectionProfile.AeadAes256Gcm,
-        _ => throw new NotSupportedException($"Unsupported SRTP protection profile 0x{bcProfile:X4}."),
-    };
+    public static SrtpProtectionProfile ToProfile(int bcProfile) =>
+        bcProfile switch
+        {
+            BcSrtp.SRTP_AEAD_AES_128_GCM => SrtpProtectionProfile.AeadAes128Gcm,
+            BcSrtp.SRTP_AEAD_AES_256_GCM => SrtpProtectionProfile.AeadAes256Gcm,
+            _ => throw new NotSupportedException(
+                $"Unsupported SRTP protection profile 0x{bcProfile:X4}."
+            ),
+        };
 
     /// <summary>
     /// Splits exported DTLS-SRTP keying material into the client/server master keys and salts, the layout
@@ -43,10 +53,19 @@ internal static class SrtpProfiles
     {
         (int key, int salt) = Lengths(bcProfile);
         int o = 0;
-        byte[] clientKey = keyingMaterial.Slice(o, key).ToArray(); o += key;
-        byte[] serverKey = keyingMaterial.Slice(o, key).ToArray(); o += key;
-        byte[] clientSalt = keyingMaterial.Slice(o, salt).ToArray(); o += salt;
+        byte[] clientKey = keyingMaterial.Slice(o, key).ToArray();
+        o += key;
+        byte[] serverKey = keyingMaterial.Slice(o, key).ToArray();
+        o += key;
+        byte[] clientSalt = keyingMaterial.Slice(o, salt).ToArray();
+        o += salt;
         byte[] serverSalt = keyingMaterial.Slice(o, salt).ToArray();
-        return new SrtpKeyingMaterial(ToProfile(bcProfile), clientKey, clientSalt, serverKey, serverSalt);
+        return new SrtpKeyingMaterial(
+            ToProfile(bcProfile),
+            clientKey,
+            clientSalt,
+            serverKey,
+            serverSalt
+        );
     }
 }

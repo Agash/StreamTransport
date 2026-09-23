@@ -12,7 +12,11 @@ namespace Agash.StreamTransport;
 /// <param name="Peer">The subscriber peer the sender targets.</param>
 /// <param name="Health">The live transport-health snapshot for that peer connection.</param>
 /// <param name="Loss">The lifetime loss-recovery counters for that peer connection.</param>
-public readonly record struct PeerTransportMetrics(PeerId Peer, TransportHealthMetrics Health, TransportLossStats Loss);
+public readonly record struct PeerTransportMetrics(
+    PeerId Peer,
+    TransportHealthMetrics Health,
+    TransportLossStats Loss
+);
 
 /// <summary>
 /// Publishes one media stream to subscribers in a room. A subscriber joining spins up a
@@ -56,7 +60,8 @@ public sealed partial class MediaPublisher : IAsyncDisposable
         IMediaRoom room,
         IVideoFrameSource? video = null,
         IAudioFrameSource? audio = null,
-        nint gpuDeviceHandle = 0)
+        nint gpuDeviceHandle = 0
+    )
     {
         if (video is null && audio is null)
         {
@@ -87,7 +92,13 @@ public sealed partial class MediaPublisher : IAsyncDisposable
             {
                 if (entry.Value is WebRtcMediaSender sender)
                 {
-                    snapshot.Add(new PeerTransportMetrics(new PeerId(entry.Key), sender.CurrentHealth, sender.CurrentLossStats));
+                    snapshot.Add(
+                        new PeerTransportMetrics(
+                            new PeerId(entry.Key),
+                            sender.CurrentHealth,
+                            sender.CurrentLossStats
+                        )
+                    );
                 }
             }
 
@@ -126,18 +137,32 @@ public sealed partial class MediaPublisher : IAsyncDisposable
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Subscriber {PeerId} joined; starting a sender.")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Subscriber {PeerId} joined; starting a sender."
+    )]
     private partial void LogSubscriberJoined(long peerId);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Subscriber {PeerId} left; tearing down its sender.")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Subscriber {PeerId} left; tearing down its sender."
+    )]
     private partial void LogSubscriberLeft(long peerId);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Sender for subscriber {PeerId} failed to start.")]
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Sender for subscriber {PeerId} failed to start."
+    )]
     private partial void LogSenderFailed(long peerId, Exception exception);
 
     private async Task AddSubscriberAsync(PeerId peer)
     {
-        IMediaSender sender = _transport.CreateSender(_options, _videoSource, _audioSource, _gpuDeviceHandle);
+        IMediaSender sender = _transport.CreateSender(
+            _options,
+            _videoSource,
+            _audioSource,
+            _gpuDeviceHandle
+        );
 
         // Claim the peer atomically so a subscriber that appears in both the live roster and a PeerJoined
         // event is only offered to once.
@@ -151,7 +176,13 @@ public sealed partial class MediaPublisher : IAsyncDisposable
 
         // Advertise whether this stream carries side-by-side alpha BEFORE the offer, on the same ordered
         // link, so the subscriber adopts it without a flag of its own and has it set before any frame decodes.
-        await _room.SendControlAsync(MediaControlTopics.Alpha, _options.PreserveAlpha ? "1" : "0", peer, _cts.Token)
+        await _room
+            .SendControlAsync(
+                MediaControlTopics.Alpha,
+                _options.PreserveAlpha ? "1" : "0",
+                peer,
+                _cts.Token
+            )
             .ConfigureAwait(false);
 
         try
@@ -168,8 +199,13 @@ public sealed partial class MediaPublisher : IAsyncDisposable
         }
     }
 
-    private static IReadOnlyList<IceServer> MergeIce(MediaTransportOptions options, IMediaRoom room) =>
-        options.IceServers.Count == 0 ? room.IceServers : [.. options.IceServers, .. room.IceServers];
+    private static IReadOnlyList<IceServer> MergeIce(
+        MediaTransportOptions options,
+        IMediaRoom room
+    ) =>
+        options.IceServers.Count == 0
+            ? room.IceServers
+            : [.. options.IceServers, .. room.IceServers];
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()

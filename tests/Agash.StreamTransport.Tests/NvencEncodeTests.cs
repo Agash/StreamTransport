@@ -19,7 +19,8 @@ public sealed class HardwareEncoderTests
     public void Qsv_EncodesHevc() => HardwareEncoderTestSupport.AssertEncodesHevc("hevc_qsv");
 
     [TestMethod]
-    public void Videotoolbox_EncodesHevc() => HardwareEncoderTestSupport.AssertEncodesHevc("hevc_videotoolbox");
+    public void Videotoolbox_EncodesHevc() =>
+        HardwareEncoderTestSupport.AssertEncodesHevc("hevc_videotoolbox");
 
     // VAAPI (Linux Intel/AMD). Goes through VaapiVideoEncoder - which uploads NV12 into a VAAPI surface, since
     // hevc_vaapi only encodes surfaces - and is Inconclusive where no VAAPI device exists (Windows, macOS, a

@@ -35,7 +35,8 @@ public readonly record struct RtcpReportBlock(
     uint ExtendedHighestSequence,
     uint InterarrivalJitter,
     uint LastSenderReport,
-    uint DelaySinceLastSenderReport)
+    uint DelaySinceLastSenderReport
+)
 {
     internal const int Length = 24;
 
@@ -52,14 +53,16 @@ public readonly record struct RtcpReportBlock(
         BinaryPrimitives.WriteUInt32BigEndian(destination[20..], DelaySinceLastSenderReport);
     }
 
-    internal static RtcpReportBlock Read(ReadOnlySpan<byte> source) => new(
-        BinaryPrimitives.ReadUInt32BigEndian(source),
-        source[4],
-        (source[5] << 16) | (source[6] << 8) | source[7],
-        BinaryPrimitives.ReadUInt32BigEndian(source[8..]),
-        BinaryPrimitives.ReadUInt32BigEndian(source[12..]),
-        BinaryPrimitives.ReadUInt32BigEndian(source[16..]),
-        BinaryPrimitives.ReadUInt32BigEndian(source[20..]));
+    internal static RtcpReportBlock Read(ReadOnlySpan<byte> source) =>
+        new(
+            BinaryPrimitives.ReadUInt32BigEndian(source),
+            source[4],
+            (source[5] << 16) | (source[6] << 8) | source[7],
+            BinaryPrimitives.ReadUInt32BigEndian(source[8..]),
+            BinaryPrimitives.ReadUInt32BigEndian(source[12..]),
+            BinaryPrimitives.ReadUInt32BigEndian(source[16..]),
+            BinaryPrimitives.ReadUInt32BigEndian(source[20..])
+        );
 }
 
 /// <summary>
@@ -73,7 +76,8 @@ public readonly record struct RtcpSenderReport(
     uint RtpTimestamp,
     uint SenderPacketCount,
     uint SenderOctetCount,
-    IReadOnlyList<RtcpReportBlock> ReportBlocks)
+    IReadOnlyList<RtcpReportBlock> ReportBlocks
+)
 {
     /// <summary>Serializes the sender report, returning the number of bytes written.</summary>
     public int Write(Span<byte> destination)
@@ -109,7 +113,11 @@ public readonly record struct RtcpSenderReport(
 
             ReadOnlySpan<byte> body = element.Body;
             var blocks = new RtcpReportBlock[element.ReportCount];
-            for (int i = 0; i < blocks.Length && 24 + ((i + 1) * RtcpReportBlock.Length) <= body.Length; i++)
+            for (
+                int i = 0;
+                i < blocks.Length && 24 + ((i + 1) * RtcpReportBlock.Length) <= body.Length;
+                i++
+            )
             {
                 blocks[i] = RtcpReportBlock.Read(body[(24 + (i * RtcpReportBlock.Length))..]);
             }
@@ -120,7 +128,8 @@ public readonly record struct RtcpSenderReport(
                 BinaryPrimitives.ReadUInt32BigEndian(body[12..]),
                 BinaryPrimitives.ReadUInt32BigEndian(body[16..]),
                 BinaryPrimitives.ReadUInt32BigEndian(body[20..]),
-                blocks);
+                blocks
+            );
             return true;
         }
 
@@ -129,7 +138,10 @@ public readonly record struct RtcpSenderReport(
 }
 
 /// <summary>An RTCP Receiver Report (RFC 3550 §6.4.2).</summary>
-public readonly record struct RtcpReceiverReport(uint Ssrc, IReadOnlyList<RtcpReportBlock> ReportBlocks)
+public readonly record struct RtcpReceiverReport(
+    uint Ssrc,
+    IReadOnlyList<RtcpReportBlock> ReportBlocks
+)
 {
     /// <summary>Serializes the receiver report, returning the number of bytes written.</summary>
     public int Write(Span<byte> destination)
@@ -160,12 +172,21 @@ public readonly record struct RtcpReceiverReport(uint Ssrc, IReadOnlyList<RtcpRe
             }
 
             var blocks = new RtcpReportBlock[element.ReportCount];
-            for (int i = 0; i < blocks.Length && 4 + ((i + 1) * RtcpReportBlock.Length) <= element.Body.Length; i++)
+            for (
+                int i = 0;
+                i < blocks.Length && 4 + ((i + 1) * RtcpReportBlock.Length) <= element.Body.Length;
+                i++
+            )
             {
-                blocks[i] = RtcpReportBlock.Read(element.Body[(4 + (i * RtcpReportBlock.Length))..]);
+                blocks[i] = RtcpReportBlock.Read(
+                    element.Body[(4 + (i * RtcpReportBlock.Length))..]
+                );
             }
 
-            report = new RtcpReceiverReport(BinaryPrimitives.ReadUInt32BigEndian(element.Body), blocks);
+            report = new RtcpReceiverReport(
+                BinaryPrimitives.ReadUInt32BigEndian(element.Body),
+                blocks
+            );
             return true;
         }
 

@@ -13,8 +13,11 @@ public sealed class RtcpProtectionAndFeedbackTests
     {
         var keying = new SrtpKeyingMaterial(
             SrtpProtectionProfile.AeadAes128Gcm,
-            ClientMasterKey: Rng(16), ClientMasterSalt: Rng(12),
-            ServerMasterKey: Rng(16), ServerMasterSalt: Rng(12));
+            ClientMasterKey: Rng(16),
+            ClientMasterSalt: Rng(12),
+            ServerMasterKey: Rng(16),
+            ServerMasterSalt: Rng(12)
+        );
         var sender = new SrtpSession(keying, isDtlsClient: true);
         var receiver = new SrtpSession(keying, isDtlsClient: false);
 
@@ -27,14 +30,22 @@ public sealed class RtcpProtectionAndFeedbackTests
 
         Assert.IsTrue(receiver.UnprotectRtcp(buffer, protectedLength, out int recovered));
         Assert.AreEqual(rtcpLength, recovered);
-        Assert.IsTrue(RtcpSenderReport.TryParse(buffer.AsSpan(0, recovered), out RtcpSenderReport parsed));
+        Assert.IsTrue(
+            RtcpSenderReport.TryParse(buffer.AsSpan(0, recovered), out RtcpSenderReport parsed)
+        );
         Assert.AreEqual(0xAABB_CCDD_EEFF_0011ul, parsed.NtpTimestamp);
     }
 
     [TestMethod]
     public void Srtcp_Tampered_FailsAuthentication()
     {
-        var keying = new SrtpKeyingMaterial(SrtpProtectionProfile.AeadAes128Gcm, Rng(16), Rng(12), Rng(16), Rng(12));
+        var keying = new SrtpKeyingMaterial(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            Rng(16),
+            Rng(12),
+            Rng(16),
+            Rng(12)
+        );
         var sender = new SrtpSession(keying, true);
         var receiver = new SrtpSession(keying, false);
 
@@ -54,7 +65,9 @@ public sealed class RtcpProtectionAndFeedbackTests
         int length = RtcpFeedback.BuildNack(buffer, senderSsrc: 0x1, mediaSsrc: 0xDEADBEEF, lost);
 
         var recovered = new List<ushort>();
-        Assert.IsTrue(RtcpFeedback.TryParseNack(buffer.AsSpan(0, length), out uint mediaSsrc, recovered));
+        Assert.IsTrue(
+            RtcpFeedback.TryParseNack(buffer.AsSpan(0, length), out uint mediaSsrc, recovered)
+        );
         Assert.AreEqual(0xDEADBEEFu, mediaSsrc);
         CollectionAssert.AreEquivalent(lost, recovered);
     }

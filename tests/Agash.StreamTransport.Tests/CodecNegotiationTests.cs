@@ -20,10 +20,16 @@ public sealed class CodecNegotiationTests
         // Registry: a fake AV1 (more preferred by descriptor order) + the built-in HEVC, plus Opus.
         var registry = new MediaCodecRegistry(
             [new FakeVideoCodec("AV1", preference: 5), new H265VideoCodecDescriptor()],
-            [new OpusAudioCodecDescriptor()]);
+            [new OpusAudioCodecDescriptor()]
+        );
 
         // Default options prefer H265 first (VideoCodecs = [H265, H264]).
-        PeerConnectionOptions pc = MediaConfig.Build(registry, new MediaTransportOptions(), audio: true, video: true);
+        PeerConnectionOptions pc = MediaConfig.Build(
+            registry,
+            new MediaTransportOptions(),
+            audio: true,
+            video: true
+        );
 
         IReadOnlyList<SdpCodec> video = pc.Media.Single(m => m.Kind == SdpMediaKind.Video).Codecs;
         IReadOnlyList<SdpCodec> audio = pc.Media.Single(m => m.Kind == SdpMediaKind.Audio).Codecs;
@@ -47,11 +53,16 @@ public sealed class CodecNegotiationTests
     {
         var registry = new MediaCodecRegistry(
             [new FakeVideoCodec("AV1", preference: 5), new H265VideoCodecDescriptor()],
-            [new OpusAudioCodecDescriptor()]);
+            [new OpusAudioCodecDescriptor()]
+        );
 
         // No VideoCodecs preference -> registry (descriptor-preference) order: AV1 (5) before H265 (10).
         PeerConnectionOptions pc = MediaConfig.Build(
-            registry, new MediaTransportOptions { VideoCodecs = [] }, audio: false, video: true);
+            registry,
+            new MediaTransportOptions { VideoCodecs = [] },
+            audio: false,
+            video: true
+        );
 
         IReadOnlyList<SdpCodec> video = pc.Media.Single(m => m.Kind == SdpMediaKind.Video).Codecs;
         Assert.AreEqual("AV1", video[0].EncodingName);
@@ -67,9 +78,15 @@ public sealed class CodecNegotiationTests
         public string? FormatParameters => null;
         public IReadOnlyList<string> RtcpFeedback => ["nack", "nack pli"];
         public int Preference => preference;
-        public IVideoEncoder CreateEncoder(VideoEncoderSettings settings) => throw new NotSupportedException();
-        public IVideoDecoder CreateDecoder(VideoDecoderSettings settings) => throw new NotSupportedException();
+
+        public IVideoEncoder CreateEncoder(VideoEncoderSettings settings) =>
+            throw new NotSupportedException();
+
+        public IVideoDecoder CreateDecoder(VideoDecoderSettings settings) =>
+            throw new NotSupportedException();
+
         public IRtpPacketizer CreatePacketizer() => throw new NotSupportedException();
+
         public IRtpDepacketizer CreateDepacketizer() => throw new NotSupportedException();
     }
 }

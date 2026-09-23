@@ -18,7 +18,8 @@ public static class SdpReader
             return false;
         }
 
-        string sessionUfrag = "", sessionPwd = "";
+        string sessionUfrag = "",
+            sessionPwd = "";
         DtlsFingerprint? sessionFingerprint = null;
         SdpSetup sessionSetup = SdpSetup.ActPass;
 
@@ -46,7 +47,13 @@ public static class SdpReader
 
             if (current is null)
             {
-                ApplySessionAttribute(line, ref sessionUfrag, ref sessionPwd, ref sessionFingerprint, ref sessionSetup);
+                ApplySessionAttribute(
+                    line,
+                    ref sessionUfrag,
+                    ref sessionPwd,
+                    ref sessionFingerprint,
+                    ref sessionSetup
+                );
             }
             else
             {
@@ -68,20 +75,22 @@ public static class SdpReader
                 return false; // JSEP: absence of a fingerprint is a negotiation failure.
             }
 
-            result.Add(new SdpMediaDescription
-            {
-                Kind = m.Kind,
-                Mid = m.Mid ?? result.Count.ToString(CultureInfo.InvariantCulture),
-                Direction = m.Direction,
-                Codecs = m.BuildCodecs(),
-                IceUfrag = m.IceUfrag ?? sessionUfrag,
-                IcePwd = m.IcePwd ?? sessionPwd,
-                Fingerprint = fingerprint.Value,
-                Setup = m.Setup ?? sessionSetup,
-                RtcpMux = m.RtcpMux,
-                Ssrc = m.Ssrc,
-                Cname = m.Cname,
-            });
+            result.Add(
+                new SdpMediaDescription
+                {
+                    Kind = m.Kind,
+                    Mid = m.Mid ?? result.Count.ToString(CultureInfo.InvariantCulture),
+                    Direction = m.Direction,
+                    Codecs = m.BuildCodecs(),
+                    IceUfrag = m.IceUfrag ?? sessionUfrag,
+                    IcePwd = m.IcePwd ?? sessionPwd,
+                    Fingerprint = fingerprint.Value,
+                    Setup = m.Setup ?? sessionSetup,
+                    RtcpMux = m.RtcpMux,
+                    Ssrc = m.Ssrc,
+                    Cname = m.Cname,
+                }
+            );
         }
 
         description = new SdpDescription { Media = result };
@@ -89,7 +98,12 @@ public static class SdpReader
     }
 
     private static void ApplySessionAttribute(
-        string line, ref string ufrag, ref string pwd, ref DtlsFingerprint? fingerprint, ref SdpSetup setup)
+        string line,
+        ref string ufrag,
+        ref string pwd,
+        ref DtlsFingerprint? fingerprint,
+        ref SdpSetup setup
+    )
     {
         if (TryValue(line, "a=ice-ufrag:", out string u))
         {
@@ -99,13 +113,20 @@ public static class SdpReader
         {
             pwd = p;
         }
-        else if (TryValue(line, "a=fingerprint:", out string f) && ParseFingerprint(f) is { } parsed)
+        else if (
+            TryValue(line, "a=fingerprint:", out string f) && ParseFingerprint(f) is { } parsed
+        )
         {
             fingerprint = parsed;
         }
         else if (TryValue(line, "a=setup:", out string s))
         {
-            setup = s switch { "active" => SdpSetup.Active, "passive" => SdpSetup.Passive, _ => SdpSetup.ActPass };
+            setup = s switch
+            {
+                "active" => SdpSetup.Active,
+                "passive" => SdpSetup.Passive,
+                _ => SdpSetup.ActPass,
+            };
         }
     }
 
@@ -178,7 +199,14 @@ public static class SdpReader
             var builder = new MediaBuilder { Kind = kind };
             for (int i = 3; i < parts.Length; i++)
             {
-                if (int.TryParse(parts[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out int pt))
+                if (
+                    int.TryParse(
+                        parts[i],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int pt
+                    )
+                )
                 {
                     builder._payloadOrder.Add(pt);
                 }
@@ -189,20 +217,67 @@ public static class SdpReader
 
         public void Apply(string line)
         {
-            if (TryValue(line, "a=mid:", out string mid)) { Mid = mid; }
-            else if (TryValue(line, "a=ice-ufrag:", out string u)) { IceUfrag = u; }
-            else if (TryValue(line, "a=ice-pwd:", out string p)) { IcePwd = p; }
-            else if (TryValue(line, "a=fingerprint:", out string f)) { Fingerprint = ParseFingerprint(f); }
-            else if (TryValue(line, "a=setup:", out string s)) { Setup = s switch { "active" => SdpSetup.Active, "passive" => SdpSetup.Passive, _ => SdpSetup.ActPass }; }
-            else if (line == "a=rtcp-mux") { RtcpMux = true; }
-            else if (line == "a=sendrecv") { Direction = SdpDirection.SendRecv; }
-            else if (line == "a=sendonly") { Direction = SdpDirection.SendOnly; }
-            else if (line == "a=recvonly") { Direction = SdpDirection.RecvOnly; }
-            else if (line == "a=inactive") { Direction = SdpDirection.Inactive; }
-            else if (TryValue(line, "a=rtpmap:", out string rtpmap)) { ParseRtpmap(rtpmap); }
-            else if (TryValue(line, "a=fmtp:", out string fmtp)) { ParseFmtp(fmtp); }
-            else if (TryValue(line, "a=rtcp-fb:", out string fb)) { ParseFeedback(fb); }
-            else if (TryValue(line, "a=ssrc:", out string ssrc)) { ParseSsrc(ssrc); }
+            if (TryValue(line, "a=mid:", out string mid))
+            {
+                Mid = mid;
+            }
+            else if (TryValue(line, "a=ice-ufrag:", out string u))
+            {
+                IceUfrag = u;
+            }
+            else if (TryValue(line, "a=ice-pwd:", out string p))
+            {
+                IcePwd = p;
+            }
+            else if (TryValue(line, "a=fingerprint:", out string f))
+            {
+                Fingerprint = ParseFingerprint(f);
+            }
+            else if (TryValue(line, "a=setup:", out string s))
+            {
+                Setup = s switch
+                {
+                    "active" => SdpSetup.Active,
+                    "passive" => SdpSetup.Passive,
+                    _ => SdpSetup.ActPass,
+                };
+            }
+            else if (line == "a=rtcp-mux")
+            {
+                RtcpMux = true;
+            }
+            else if (line == "a=sendrecv")
+            {
+                Direction = SdpDirection.SendRecv;
+            }
+            else if (line == "a=sendonly")
+            {
+                Direction = SdpDirection.SendOnly;
+            }
+            else if (line == "a=recvonly")
+            {
+                Direction = SdpDirection.RecvOnly;
+            }
+            else if (line == "a=inactive")
+            {
+                Direction = SdpDirection.Inactive;
+            }
+            else if (TryValue(line, "a=rtpmap:", out string rtpmap))
+            {
+                ParseRtpmap(rtpmap);
+            }
+            else if (TryValue(line, "a=fmtp:", out string fmtp))
+            {
+                ParseFmtp(fmtp);
+            }
+            else if (TryValue(line, "a=rtcp-fb:", out string fb))
+            {
+                ParseFeedback(fb);
+            }
+            else if (TryValue(line, "a=ssrc:", out string ssrc))
+            {
+                ParseSsrc(ssrc);
+            }
         }
 
         public IReadOnlyList<SdpCodec> BuildCodecs()
@@ -215,9 +290,16 @@ public static class SdpReader
                     continue;
                 }
 
-                codecs.Add(new SdpCodec(pt, map.Name, map.Clock, map.Channels,
-                    _fmtp.GetValueOrDefault(pt),
-                    _feedback.TryGetValue(pt, out List<string>? fb) ? fb : []));
+                codecs.Add(
+                    new SdpCodec(
+                        pt,
+                        map.Name,
+                        map.Clock,
+                        map.Channels,
+                        _fmtp.GetValueOrDefault(pt),
+                        _feedback.TryGetValue(pt, out List<string>? fb) ? fb : []
+                    )
+                );
             }
 
             return codecs;
@@ -256,7 +338,9 @@ public static class SdpReader
             int space = value.IndexOf(' ', StringComparison.Ordinal);
             if (space > 0 && int.TryParse(value[..space], out int pt))
             {
-                (_feedback.TryGetValue(pt, out List<string>? list) ? list : _feedback[pt] = []).Add(value[(space + 1)..]);
+                (_feedback.TryGetValue(pt, out List<string>? list) ? list : _feedback[pt] = []).Add(
+                    value[(space + 1)..]
+                );
             }
         }
 

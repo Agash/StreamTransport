@@ -50,33 +50,47 @@ public sealed class D3D11BgraToNv12Converter : IDisposable
             _psUV = device.CreatePixelShader(psUVBlob.AsSpan());
         }
 
-        _sampler = device.CreateSamplerState(new SamplerDescription
-        {
-            Filter = Filter.MinMagMipLinear,
-            AddressU = TextureAddressMode.Clamp,
-            AddressV = TextureAddressMode.Clamp,
-            AddressW = TextureAddressMode.Clamp,
-            MaxLOD = float.MaxValue,
-        });
+        _sampler = device.CreateSamplerState(
+            new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                MaxLOD = float.MaxValue,
+            }
+        );
     }
 
     private static string LoadHlsl(string logicalName)
     {
         System.Reflection.Assembly assembly = typeof(D3D11BgraToNv12Converter).Assembly;
-        using Stream stream = assembly.GetManifestResourceStream(logicalName)
-            ?? throw new InvalidOperationException($"Embedded shader '{logicalName}' was not found.");
+        using Stream stream =
+            assembly.GetManifestResourceStream(logicalName)
+            ?? throw new InvalidOperationException(
+                $"Embedded shader '{logicalName}' was not found."
+            );
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
 
     private static Blob Compile(string entryPoint, string profile)
     {
-        Compiler.Compile(Hlsl, entryPoint, "bgra_to_nv12.hlsl", profile, out Blob blob, out Blob? errors);
+        Compiler.Compile(
+            Hlsl,
+            entryPoint,
+            "bgra_to_nv12.hlsl",
+            profile,
+            out Blob blob,
+            out Blob? errors
+        );
         using (errors)
         {
             if (blob is null)
             {
-                throw new InvalidOperationException($"Failed to compile {entryPoint}: {errors?.AsString()}");
+                throw new InvalidOperationException(
+                    $"Failed to compile {entryPoint}: {errors?.AsString()}"
+                );
             }
         }
 
@@ -90,12 +104,15 @@ public sealed class D3D11BgraToNv12Converter : IDisposable
 
         using var source = new ID3D11Texture2D(bgraTexture);
         source.AddRef();
-        using ID3D11ShaderResourceView srv = _device.CreateShaderResourceView(source, new ShaderResourceViewDescription
-        {
-            Format = Format.B8G8R8A8_UNorm,
-            ViewDimension = ShaderResourceViewDimension.Texture2D,
-            Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
-        });
+        using ID3D11ShaderResourceView srv = _device.CreateShaderResourceView(
+            source,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.B8G8R8A8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
+            }
+        );
 
         // Bind the output (Y plane) BEFORE the source SRV. If the source texture is still bound as a render
         // target by an upstream pass (e.g. D3D11AlphaPacker leaves its packed output bound), setting our RTV
@@ -134,31 +151,39 @@ public sealed class D3D11BgraToNv12Converter : IDisposable
         _yRtv?.Dispose();
         _uvRtv?.Dispose();
         _nv12?.Dispose();
-        _nv12 = _device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = (uint)width,
-            Height = (uint)height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.NV12,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Default,
-            BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
-            CPUAccessFlags = CpuAccessFlags.None,
-        });
+        _nv12 = _device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.NV12,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None,
+            }
+        );
         // Per-plane render targets: R8 is the Y plane, R8G8 the half-res UV plane.
-        _yRtv = _device.CreateRenderTargetView(_nv12, new RenderTargetViewDescription
-        {
-            Format = Format.R8_UNorm,
-            ViewDimension = RenderTargetViewDimension.Texture2D,
-            Texture2D = new Texture2DRenderTargetView { MipSlice = 0 },
-        });
-        _uvRtv = _device.CreateRenderTargetView(_nv12, new RenderTargetViewDescription
-        {
-            Format = Format.R8G8_UNorm,
-            ViewDimension = RenderTargetViewDimension.Texture2D,
-            Texture2D = new Texture2DRenderTargetView { MipSlice = 0 },
-        });
+        _yRtv = _device.CreateRenderTargetView(
+            _nv12,
+            new RenderTargetViewDescription
+            {
+                Format = Format.R8_UNorm,
+                ViewDimension = RenderTargetViewDimension.Texture2D,
+                Texture2D = new Texture2DRenderTargetView { MipSlice = 0 },
+            }
+        );
+        _uvRtv = _device.CreateRenderTargetView(
+            _nv12,
+            new RenderTargetViewDescription
+            {
+                Format = Format.R8G8_UNorm,
+                ViewDimension = RenderTargetViewDimension.Texture2D,
+                Texture2D = new Texture2DRenderTargetView { MipSlice = 0 },
+            }
+        );
         _width = width;
         _height = height;
     }

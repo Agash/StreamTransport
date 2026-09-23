@@ -4,11 +4,17 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion
+      Include="Microsoft.Extensions.DependencyInjection.Abstractions"
+      Version="10.0.11"
+    />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-preview.7.26381.103" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.7.26381.103" />
+    <PackageVersion
+      Include="Microsoft.Extensions.DependencyInjection"
+      Version="11.0.0-preview.7.26381.103"
+    />
     <!-- DTLS 1.2 + use_srtp (RFC 5764) handshake engine - the ONLY third-party crypto dependency,
          confined to Agash.StreamTransport.WebRtc.Dtls. The BCL has no managed DTLS. -->
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />

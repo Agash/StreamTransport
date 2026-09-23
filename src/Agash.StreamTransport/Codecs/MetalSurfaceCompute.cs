@@ -32,9 +32,19 @@ internal static class MetalContext
         {
             if (_device is null)
             {
-                _device = MTLDevice.SystemDefault ?? throw new InvalidOperationException("No Metal device available.");
-                _queue = _device.CreateCommandQueue() ?? throw new InvalidOperationException("Failed to create a Metal command queue.");
-                _library = _device.CreateDefaultLibrary() ?? throw new InvalidOperationException("default.metallib not found in the app bundle.");
+                _device =
+                    MTLDevice.SystemDefault
+                    ?? throw new InvalidOperationException("No Metal device available.");
+                _queue =
+                    _device.CreateCommandQueue()
+                    ?? throw new InvalidOperationException(
+                        "Failed to create a Metal command queue."
+                    );
+                _library =
+                    _device.CreateDefaultLibrary()
+                    ?? throw new InvalidOperationException(
+                        "default.metallib not found in the app bundle."
+                    );
             }
 
             return (_device, _queue!, _library!);
@@ -53,7 +63,13 @@ internal static class MetalContext
 internal sealed class MetalSurfaceCompute : IDisposable
 {
     /// <summary>An input plane: the source IOSurface handle, the Metal format to view it as, the plane index, and its dimensions.</summary>
-    public readonly record struct Input(nint Surface, MTLPixelFormat Format, int Plane, int Width, int Height);
+    public readonly record struct Input(
+        nint Surface,
+        MTLPixelFormat Format,
+        int Plane,
+        int Width,
+        int Height
+    );
 
     private readonly IMTLComputePipelineState _pipeline;
     private IOSurface.IOSurface? _output;
@@ -64,10 +80,16 @@ internal sealed class MetalSurfaceCompute : IDisposable
 
     public MetalSurfaceCompute(string functionName)
     {
-        using IMTLFunction fn = MetalContext.Library.CreateFunction(functionName)
-            ?? throw new InvalidOperationException($"Metal function '{functionName}' not found in default.metallib.");
-        _pipeline = MetalContext.Device.CreateComputePipelineState(fn, out NSError? error)
-            ?? throw new InvalidOperationException($"Failed to create compute pipeline '{functionName}': {error?.LocalizedDescription}");
+        using IMTLFunction fn =
+            MetalContext.Library.CreateFunction(functionName)
+            ?? throw new InvalidOperationException(
+                $"Metal function '{functionName}' not found in default.metallib."
+            );
+        _pipeline =
+            MetalContext.Device.CreateComputePipelineState(fn, out NSError? error)
+            ?? throw new InvalidOperationException(
+                $"Failed to create compute pipeline '{functionName}': {error?.LocalizedDescription}"
+            );
     }
 
     /// <summary>Run the kernel; returns the BGRA output IOSurface handle (valid until the next Run on this instance).</summary>
@@ -79,8 +101,14 @@ internal sealed class MetalSurfaceCompute : IDisposable
         var inputTextures = new IMTLTexture[inputs.Length];
         for (int i = 0; i < inputs.Length; i++)
         {
-            inputTextures[i] = CreateTexture(inputs[i].Surface, inputs[i].Format, inputs[i].Plane,
-                inputs[i].Width, inputs[i].Height, MTLTextureUsage.ShaderRead);
+            inputTextures[i] = CreateTexture(
+                inputs[i].Surface,
+                inputs[i].Format,
+                inputs[i].Plane,
+                inputs[i].Width,
+                inputs[i].Height,
+                MTLTextureUsage.ShaderRead
+            );
         }
 
         IMTLCommandBuffer cb = MetalContext.Queue.CommandBuffer()!;
@@ -117,24 +145,45 @@ internal sealed class MetalSurfaceCompute : IDisposable
 
         _outputTexture?.Dispose();
         _output?.Dispose();
-        _output = new IOSurface.IOSurface(new IOSurfaceOptions
-        {
-            Width = width,
-            Height = height,
-            BytesPerElement = 4,
-            PixelFormat = (int)CVPixelFormatType.CV32BGRA,
-        });
-        _outputTexture = CreateTexture(_output.Handle.Handle, MTLPixelFormat.BGRA8Unorm, 0, width, height,
-            MTLTextureUsage.ShaderWrite | MTLTextureUsage.ShaderRead);
+        _output = new IOSurface.IOSurface(
+            new IOSurfaceOptions
+            {
+                Width = width,
+                Height = height,
+                BytesPerElement = 4,
+                PixelFormat = (int)CVPixelFormatType.CV32BGRA,
+            }
+        );
+        _outputTexture = CreateTexture(
+            _output.Handle.Handle,
+            MTLPixelFormat.BGRA8Unorm,
+            0,
+            width,
+            height,
+            MTLTextureUsage.ShaderWrite | MTLTextureUsage.ShaderRead
+        );
         _outWidth = width;
         _outHeight = height;
     }
 
-    private static IMTLTexture CreateTexture(nint surfaceHandle, MTLPixelFormat format, int plane, int width, int height, MTLTextureUsage usage)
+    private static IMTLTexture CreateTexture(
+        nint surfaceHandle,
+        MTLPixelFormat format,
+        int plane,
+        int width,
+        int height,
+        MTLTextureUsage usage
+    )
     {
-        var surface = Runtime.GetINativeObject<IOSurface.IOSurface>(surfaceHandle, owns: false)
+        var surface =
+            Runtime.GetINativeObject<IOSurface.IOSurface>(surfaceHandle, owns: false)
             ?? throw new InvalidOperationException("Could not wrap the IOSurface handle.");
-        var desc = MTLTextureDescriptor.CreateTexture2DDescriptor(format, (nuint)width, (nuint)height, mipmapped: false);
+        var desc = MTLTextureDescriptor.CreateTexture2DDescriptor(
+            format,
+            (nuint)width,
+            (nuint)height,
+            mipmapped: false
+        );
         desc.Usage = usage;
         return MetalContext.Device.CreateTexture(desc, surface, (nuint)plane)
             ?? throw new InvalidOperationException("CreateTexture from IOSurface returned null.");

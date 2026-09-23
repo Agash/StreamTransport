@@ -29,25 +29,52 @@ public sealed class DtlsSrtpHandshakeTests
         await using (client)
         await using (server)
         {
-            Task<SrtpKeyingMaterial> clientHandshake = client.HandshakeAsync(CancellationToken.None);
-            Task<SrtpKeyingMaterial> serverHandshake = server.HandshakeAsync(CancellationToken.None);
+            Task<SrtpKeyingMaterial> clientHandshake = client.HandshakeAsync(
+                CancellationToken.None
+            );
+            Task<SrtpKeyingMaterial> serverHandshake = server.HandshakeAsync(
+                CancellationToken.None
+            );
 
-            await Task.WhenAll(clientHandshake, serverHandshake).WaitAsync(TimeSpan.FromSeconds(15));
+            await Task.WhenAll(clientHandshake, serverHandshake)
+                .WaitAsync(TimeSpan.FromSeconds(15));
 
             SrtpKeyingMaterial clientKeys = clientHandshake.Result;
             SrtpKeyingMaterial serverKeys = serverHandshake.Result;
 
             // RFC 5705 exporter is symmetric: both sides derive identical keying material.
             Assert.AreEqual(clientKeys.Profile, serverKeys.Profile);
-            Assert.AreEqual(SrtpProtectionProfile.AeadAes256Gcm, clientKeys.Profile, "should negotiate the preferred AES-256-GCM");
-            CollectionAssert.AreEqual(clientKeys.ClientMasterKey.ToArray(), serverKeys.ClientMasterKey.ToArray());
-            CollectionAssert.AreEqual(clientKeys.ServerMasterKey.ToArray(), serverKeys.ServerMasterKey.ToArray());
-            CollectionAssert.AreEqual(clientKeys.ClientMasterSalt.ToArray(), serverKeys.ClientMasterSalt.ToArray());
-            CollectionAssert.AreEqual(clientKeys.ServerMasterSalt.ToArray(), serverKeys.ServerMasterSalt.ToArray());
+            Assert.AreEqual(
+                SrtpProtectionProfile.AeadAes256Gcm,
+                clientKeys.Profile,
+                "should negotiate the preferred AES-256-GCM"
+            );
+            CollectionAssert.AreEqual(
+                clientKeys.ClientMasterKey.ToArray(),
+                serverKeys.ClientMasterKey.ToArray()
+            );
+            CollectionAssert.AreEqual(
+                clientKeys.ServerMasterKey.ToArray(),
+                serverKeys.ServerMasterKey.ToArray()
+            );
+            CollectionAssert.AreEqual(
+                clientKeys.ClientMasterSalt.ToArray(),
+                serverKeys.ClientMasterSalt.ToArray()
+            );
+            CollectionAssert.AreEqual(
+                clientKeys.ServerMasterSalt.ToArray(),
+                serverKeys.ServerMasterSalt.ToArray()
+            );
 
             // Each side authenticated the other by certificate fingerprint.
-            Assert.AreEqual(serverFactory.LocalFingerprint.ToSdpValue(), client.RemoteFingerprint!.Value.ToSdpValue());
-            Assert.AreEqual(clientFactory.LocalFingerprint.ToSdpValue(), server.RemoteFingerprint!.Value.ToSdpValue());
+            Assert.AreEqual(
+                serverFactory.LocalFingerprint.ToSdpValue(),
+                client.RemoteFingerprint!.Value.ToSdpValue()
+            );
+            Assert.AreEqual(
+                clientFactory.LocalFingerprint.ToSdpValue(),
+                server.RemoteFingerprint!.Value.ToSdpValue()
+            );
 
             // The exported material drives interoperable SRTP sessions.
             var clientSrtp = new SrtpSession(clientKeys, isDtlsClient: true);

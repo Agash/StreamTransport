@@ -34,14 +34,19 @@ public static class D3D11Devices
 
         try
         {
-            D3D11.D3D11CreateDevice(
-                adapter,
-                adapter is null ? DriverType.Hardware : DriverType.Unknown,
-                DeviceCreationFlags.VideoSupport | DeviceCreationFlags.BgraSupport,
-                [FeatureLevel.Level_11_1, FeatureLevel.Level_11_0],
-                out ID3D11Device? device).CheckError();
+            D3D11
+                .D3D11CreateDevice(
+                    adapter,
+                    adapter is null ? DriverType.Hardware : DriverType.Unknown,
+                    DeviceCreationFlags.VideoSupport | DeviceCreationFlags.BgraSupport,
+                    [FeatureLevel.Level_11_1, FeatureLevel.Level_11_0],
+                    out ID3D11Device? device
+                )
+                .CheckError();
 
-            ID3D11Device created = device ?? throw new InvalidOperationException("D3D11CreateDevice returned no device.");
+            ID3D11Device created =
+                device
+                ?? throw new InvalidOperationException("D3D11CreateDevice returned no device.");
             using (ID3D11Multithread multithread = created.QueryInterface<ID3D11Multithread>())
             {
                 // FFmpeg and nvenc submit on the immediate context under their own lock; protect it.
@@ -83,7 +88,9 @@ public static class D3D11Devices
     /// <param name="encoderName">The FFmpeg encoder name (e.g. <c>hevc_nvenc</c>, <c>hevc_amf</c>, <c>hevc_qsv</c>).</param>
     /// <param name="inputFormat">The surface pixel format the caller would feed the encoder directly.</param>
     /// <returns><see langword="true"/> if the encoder ingests that format directly on this machine.</returns>
-    public static bool SupportsEncoderInputFormat(string encoderName, VideoPixelFormat inputFormat) =>
-        D3D11VideoEncoder.SupportsInputFormat(encoderName, inputFormat);
+    public static bool SupportsEncoderInputFormat(
+        string encoderName,
+        VideoPixelFormat inputFormat
+    ) => D3D11VideoEncoder.SupportsInputFormat(encoderName, inputFormat);
 }
 #endif

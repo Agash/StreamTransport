@@ -14,11 +14,11 @@ public readonly record struct IceCredentials(string UsernameFragment, string Pas
     /// Generates fresh credentials with the RFC-mandated entropy (ufrag ≥ 24 bits, password ≥ 128 bits),
     /// using only ICE-permitted characters (RFC 8445 ICE-char: ALPHA / DIGIT / '+' / '/').
     /// </summary>
-    public static IceCredentials Generate()
-        => new(RandomIceString(4), RandomIceString(22));
+    public static IceCredentials Generate() => new(RandomIceString(4), RandomIceString(22));
 
     /// <summary>The USERNAME attribute value for a check this agent sends: <c>remoteUfrag:localUfrag</c>.</summary>
-    public static string CheckUsername(string remoteUfrag, string localUfrag) => $"{remoteUfrag}:{localUfrag}";
+    public static string CheckUsername(string remoteUfrag, string localUfrag) =>
+        $"{remoteUfrag}:{localUfrag}";
 
     private static string RandomIceString(int length)
     {

@@ -9,7 +9,13 @@ namespace StreamTransport.Agent;
 /// <paramref name="verify"/>, a sync marker carrying the <see cref="SyncMarkerCodec"/> payload is emitted at
 /// each wall-clock second (a forced keyframe so the marker's data strip decodes cleanly).
 /// </summary>
-internal sealed class TestPatternVideoSource(int width, int height, int fps, bool alpha = false, bool verify = false) : IVideoFrameSource
+internal sealed class TestPatternVideoSource(
+    int width,
+    int height,
+    int fps,
+    bool alpha = false,
+    bool verify = false
+) : IVideoFrameSource
 {
     private readonly byte[] _nv12 = alpha ? [] : new byte[width * height * 3 / 2];
     private readonly byte[] _bgra = alpha ? new byte[width * height * 4] : [];
@@ -44,7 +50,10 @@ internal sealed class TestPatternVideoSource(int width, int height, int fps, boo
         // video/audio pairing unambiguous, so the measured skew is the true A/V offset.
         int seq = SyncMarkerCodec.CurrentSeqId();
         bool marker = verify && seq != _lastMarkerSeq;
-        if (marker) { _lastMarkerSeq = seq; }
+        if (marker)
+        {
+            _lastMarkerSeq = seq;
+        }
 
         // One capture timestamp for this frame, stamped at production and used for BOTH the frame's
         // PresentationTimeNs (which the transport turns into abs-capture-time) and the marker's embedded
@@ -55,7 +64,14 @@ internal sealed class TestPatternVideoSource(int width, int height, int fps, boo
         {
             // BGRA with a horizontal alpha gradient, so the transparency path is exercised end to end. The
             // data-strip marker codec is the NV12 path; the alpha path keeps the plain white marker.
-            if (marker) { _bgra.AsSpan().Fill(255); } else { RenderBgra(_frame); } // white opaque marker
+            if (marker)
+            {
+                _bgra.AsSpan().Fill(255);
+            }
+            else
+            {
+                RenderBgra(_frame);
+            } // white opaque marker
             _frame++;
             frame = VideoFrame.FromPixels(_bgra, VideoPixelFormat.Bgra, width, height, captureNs);
         }
@@ -63,7 +79,13 @@ internal sealed class TestPatternVideoSource(int width, int height, int fps, boo
         {
             if (marker)
             {
-                SyncMarkerCodec.RenderVideoMarker(_nv12, width, height, seq, SyncMarkerCodec.CaptureMsFromNs(captureNs));
+                SyncMarkerCodec.RenderVideoMarker(
+                    _nv12,
+                    width,
+                    height,
+                    seq,
+                    SyncMarkerCodec.CaptureMsFromNs(captureNs)
+                );
                 _nv12.AsSpan(width * height).Fill(128); // neutral chroma
             }
             else
@@ -98,8 +120,8 @@ internal sealed class TestPatternVideoSource(int width, int height, int fps, boo
                 byte a = (byte)(x * 255 / width); // horizontal transparency gradient
                 if (Math.Abs(x - barX) < 6)
                 {
-                    r = g = b = 235;               // bright moving bar...
-                    a = 255;                       // ...fully opaque.
+                    r = g = b = 235; // bright moving bar...
+                    a = 255; // ...fully opaque.
                 }
 
                 _bgra[p] = b;
@@ -138,13 +160,14 @@ internal sealed class TestPatternVideoSource(int width, int height, int fps, boo
             int row = uvStart + (y * width);
             for (int x = 0; x < uvWidth; x++)
             {
-                _nv12[row + (2 * x)] = (byte)(128 + (64 * Math.Sin(frameIndex * 0.05)));     // U
+                _nv12[row + (2 * x)] = (byte)(128 + (64 * Math.Sin(frameIndex * 0.05))); // U
                 _nv12[row + (2 * x) + 1] = (byte)(128 + (64 * Math.Cos(frameIndex * 0.05))); // V
             }
         }
     }
 
-    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 }
 
 /// <summary>
@@ -186,13 +209,18 @@ internal sealed class SineToneAudioSource(bool verify = false) : IAudioFrameSour
         // see the note there; this keeps the A/V marker pairing unambiguous.
         int seq = SyncMarkerCodec.CurrentSeqId();
         bool marker = verify && seq != _lastMarkerSeq;
-        if (marker) { _lastMarkerSeq = seq; }
+        if (marker)
+        {
+            _lastMarkerSeq = seq;
+        }
         double amplitude = marker ? 0.95 : 0.3; // loud burst marker vs the steady tone
         double freq = marker ? SyncMarkerCodec.AudioFrequency(SyncMarkerCodec.CurrentSeqId()) : 440;
         byte[] pcm = new byte[SamplesPerFrame * 2];
         for (int i = 0; i < SamplesPerFrame; i++)
         {
-            short value = (short)(short.MaxValue * amplitude * Math.Sin(2 * Math.PI * freq * _sample++ / SampleRate));
+            short value = (short)(
+                short.MaxValue * amplitude * Math.Sin(2 * Math.PI * freq * _sample++ / SampleRate)
+            );
             pcm[2 * i] = (byte)(value & 0xFF);
             pcm[(2 * i) + 1] = (byte)((value >> 8) & 0xFF);
         }
@@ -201,7 +229,8 @@ internal sealed class SineToneAudioSource(bool verify = false) : IAudioFrameSour
         return true;
     }
 
-    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 }
 
 /// <summary>A video sink that just counts and periodically reports decoded frames.</summary>
@@ -214,7 +243,9 @@ internal sealed class ReportingVideoSink(Action<string> log) : IVideoFrameSink
         int n = Interlocked.Increment(ref _count);
         if (n == 1 || n % 60 == 0)
         {
-            log($"video: {n} frames ({frame.Width}x{frame.Height}, {(frame.IsGpuSurface ? "gpu" : "cpu")})");
+            log(
+                $"video: {n} frames ({frame.Width}x{frame.Height}, {(frame.IsGpuSurface ? "gpu" : "cpu")})"
+            );
         }
     }
 }

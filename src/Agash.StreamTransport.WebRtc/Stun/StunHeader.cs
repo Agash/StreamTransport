@@ -24,7 +24,8 @@ public static class StunHeader
         uint c = (uint)messageClass;
 
         // M11..M5 | C1 | M4..M2 | C0 | M1..M0, with the two leading bits zero.
-        uint type = ((m & 0x0F80u) << 2)
+        uint type =
+            ((m & 0x0F80u) << 2)
             | ((m & 0x0070u) << 1)
             | (m & 0x000Fu)
             | ((c & 0b10u) << 7)
@@ -35,9 +36,7 @@ public static class StunHeader
     /// <summary>Unpacks a 14-bit STUN message-type field into its class and method (RFC 8489 §5).</summary>
     public static (StunMessageClass Class, StunMethod Method) DecodeType(ushort type)
     {
-        uint method = (type & 0x000Fu)
-            | ((type & 0x00E0u) >> 1)
-            | ((type & 0x3E00u) >> 2);
+        uint method = (type & 0x000Fu) | ((type & 0x00E0u) >> 1) | ((type & 0x3E00u) >> 2);
         uint cls = ((type & 0x0100u) >> 7) | ((type & 0x0010u) >> 4);
         return ((StunMessageClass)cls, (StunMethod)method);
     }

@@ -52,7 +52,13 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
     private int _outHeight;
     private bool _disposed;
 
-    public bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp)
+    public bool TryDecode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out VideoFrame frame,
+        out uint frameRtpTimestamp
+    )
     {
         frame = default;
         frameRtpTimestamp = rtpTimestamp;
@@ -77,10 +83,18 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
             int nalType = (unit[0] >> 1) & 0x3F;
             switch (nalType)
             {
-                case 32: paramsChanged |= ReplaceIfChanged(ref _vps, unit); break; // VPS
-                case 33: paramsChanged |= ReplaceIfChanged(ref _sps, unit); break; // SPS
-                case 34: paramsChanged |= ReplaceIfChanged(ref _pps, unit); break; // PPS
-                case 35: case 36: break;                                           // AUD / EOS - skip
+                case 32:
+                    paramsChanged |= ReplaceIfChanged(ref _vps, unit);
+                    break; // VPS
+                case 33:
+                    paramsChanged |= ReplaceIfChanged(ref _sps, unit);
+                    break; // SPS
+                case 34:
+                    paramsChanged |= ReplaceIfChanged(ref _pps, unit);
+                    break; // PPS
+                case 35:
+                case 36:
+                    break; // AUD / EOS - skip
                 default:
                     if (nalType <= 31) // VCL NAL: emit length-prefixed
                     {
@@ -92,7 +106,12 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
             }
         }
 
-        if ((paramsChanged || _session is null) && _vps is not null && _sps is not null && _pps is not null)
+        if (
+            (paramsChanged || _session is null)
+            && _vps is not null
+            && _sps is not null
+            && _pps is not null
+        )
         {
             RebuildSession();
         }
@@ -112,16 +131,28 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
             return false;
         }
 
-        frame = VideoFrame.FromIOSurface(_outSurface, _outWidth, _outHeight, presentationTimeNs)
-            with { PixelFormat = VideoPixelFormat.Bgra };
+        frame = VideoFrame.FromIOSurface(
+            _outSurface,
+            _outWidth,
+            _outHeight,
+            presentationTimeNs
+        ) with
+        {
+            PixelFormat = VideoPixelFormat.Bgra,
+        };
         return true;
     }
 
     private bool Decode(ArraySegment<byte> lengthPrefixedVcl, uint rtpTimestamp)
     {
         var block = CMBlockBuffer.FromMemoryBlock(
-            lengthPrefixedVcl.Array!.AsSpan(lengthPrefixedVcl.Offset, lengthPrefixedVcl.Count).ToArray(),
-            (nuint)0, CMBlockBufferFlags.AssureMemoryNow, out CMBlockBufferError blockError);
+            lengthPrefixedVcl
+                .Array!.AsSpan(lengthPrefixedVcl.Offset, lengthPrefixedVcl.Count)
+                .ToArray(),
+            (nuint)0,
+            CMBlockBufferFlags.AssureMemoryNow,
+            out CMBlockBufferError blockError
+        );
         if (block is null || blockError != CMBlockBufferError.None)
         {
             return false;
@@ -137,7 +168,13 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
             };
 
             var sample = CMSampleBuffer.CreateReady(
-                block, _format!, 1, [timing], [(nuint)lengthPrefixedVcl.Count], out CMSampleBufferError sampleError);
+                block,
+                _format!,
+                1,
+                [timing],
+                [(nuint)lengthPrefixedVcl.Count],
+                out CMSampleBufferError sampleError
+            );
             if (sample is null || sampleError != CMSampleBufferError.None)
             {
                 sample?.Dispose();
@@ -149,15 +186,25 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
                 // Synchronous decode (no async flag): the output callback fires within DecodeFrame on this
                 // thread, so _outSurface is set before we return.
                 _outSurface = 0;
-                VTStatus status = _session!.DecodeFrame(sample, VTDecodeFrameFlags.EnableTemporalProcessing,
-                    sourceFrame: IntPtr.Zero, out VTDecodeInfoFlags _);
+                VTStatus status = _session!.DecodeFrame(
+                    sample,
+                    VTDecodeFrameFlags.EnableTemporalProcessing,
+                    sourceFrame: IntPtr.Zero,
+                    out VTDecodeInfoFlags _
+                );
                 return status == VTStatus.Ok && _outSurface != 0;
             }
         }
     }
 
-    private void OnDecodedFrame(IntPtr sourceFrame, VTStatus status, VTDecodeInfoFlags flags,
-        CVImageBuffer? imageBuffer, CMTime presentationTimeStamp, CMTime presentationDuration)
+    private void OnDecodedFrame(
+        IntPtr sourceFrame,
+        VTStatus status,
+        VTDecodeInfoFlags flags,
+        CVImageBuffer? imageBuffer,
+        CMTime presentationTimeStamp,
+        CMTime presentationDuration
+    )
     {
         if (status != VTStatus.Ok || imageBuffer is null)
         {
@@ -180,7 +227,10 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
 
         // Keep this buffer (and the prior one) alive so the announced IOSurface stays valid while Syphon/the
         // encoder reads it: hold an explicit CFRetain across the callback boundary, release the superseded one.
-        if (_previousPb != 0) { CFRelease(_previousPb); }
+        if (_previousPb != 0)
+        {
+            CFRelease(_previousPb);
+        }
         _previousPb = _currentPb;
         _currentPb = handle;
         CFRetain(_currentPb);
@@ -190,10 +240,14 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
         _outHeight = (int)pixelBuffer.Height;
     }
 
-    [System.Runtime.InteropServices.LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    [System.Runtime.InteropServices.LibraryImport(
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+    )]
     private static partial nint CFRetain(nint cf);
 
-    [System.Runtime.InteropServices.LibraryImport("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")]
+    [System.Runtime.InteropServices.LibraryImport(
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+    )]
     private static partial void CFRelease(nint cf);
 
     private void RebuildSession()
@@ -203,7 +257,11 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
         _format?.Dispose();
 
         _format = CMVideoFormatDescription.FromHevcParameterSets(
-            [_vps!, _sps!, _pps!], NalLengthSize, new NSDictionary(), out CMFormatDescriptionError formatError);
+            [_vps!, _sps!, _pps!],
+            NalLengthSize,
+            new NSDictionary(),
+            out CMFormatDescriptionError formatError
+        );
         if (_format is null || formatError != CMFormatDescriptionError.None)
         {
             _format = null;
@@ -214,7 +272,7 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
         var destination = new CVPixelBufferAttributes
         {
             PixelFormatType = CVPixelFormatType.CV32BGRA, // decode straight to Syphon's BGRA - no Metal convert
-            AllocateWithIOSurface = true,                 // IOSurface-backed for the zero-copy Syphon announce
+            AllocateWithIOSurface = true, // IOSurface-backed for the zero-copy Syphon announce
             MetalCompatibility = true,
         };
 
@@ -237,7 +295,8 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
     {
         // Span can't be captured by an iterator, so collect ranges eagerly.
         var ranges = new List<Range>();
-        int i = 0, n = data.Length;
+        int i = 0,
+            n = data.Length;
         int start = -1;
         while (i + 2 < n)
         {
@@ -246,7 +305,8 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
                 if (start >= 0)
                 {
                     int end = i;
-                    if (end > 0 && data[end - 1] == 0) end--; // trim the 4th zero of a 4-byte start code
+                    if (end > 0 && data[end - 1] == 0)
+                        end--; // trim the 4th zero of a 4-byte start code
                     ranges.Add(new Range(start, end));
                 }
                 i += 3;
@@ -274,8 +334,16 @@ internal sealed partial class VtSessionVideoDecoder : IVideoDecoderBackend
         _disposed = true;
         _session?.Dispose();
         _format?.Dispose();
-        if (_currentPb != 0) { CFRelease(_currentPb); _currentPb = 0; }
-        if (_previousPb != 0) { CFRelease(_previousPb); _previousPb = 0; }
+        if (_currentPb != 0)
+        {
+            CFRelease(_currentPb);
+            _currentPb = 0;
+        }
+        if (_previousPb != 0)
+        {
+            CFRelease(_previousPb);
+            _previousPb = 0;
+        }
     }
 }
 #endif

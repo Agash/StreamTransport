@@ -32,7 +32,11 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
     private long _timeNs;
     private bool _hasNew;
 
-    private PipeWireVideoCaptureSource(PipeWireContext context, PipeWireVideoCapture capture, bool alpha)
+    private PipeWireVideoCaptureSource(
+        PipeWireContext context,
+        PipeWireVideoCapture capture,
+        bool alpha
+    )
     {
         _context = context;
         _capture = capture;
@@ -41,7 +45,11 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
     }
 
     /// <summary>Start the PipeWire loop and connect to <paramref name="targetNodeId"/> (or any node).</summary>
-    public static async Task<PipeWireVideoCaptureSource> CreateAsync(uint targetNodeId, bool alpha = false, ILoggerFactory? loggerFactory = null)
+    public static async Task<PipeWireVideoCaptureSource> CreateAsync(
+        uint targetNodeId,
+        bool alpha = false,
+        ILoggerFactory? loggerFactory = null
+    )
     {
         var context = new PipeWireContext("StreamTransport.Agent", loggerFactory);
         await context.StartAsync().ConfigureAwait(false);
@@ -50,7 +58,14 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
         // Alpha needs a format that carries it (BGRA); otherwise accept the full set including YUV.
         PwPixelFormat[] formats = alpha
             ? [PwPixelFormat.Bgra]
-            : [PwPixelFormat.Bgra, PwPixelFormat.Bgrx, PwPixelFormat.Rgba, PwPixelFormat.Yuv420, PwPixelFormat.Yuyv];
+            :
+            [
+                PwPixelFormat.Bgra,
+                PwPixelFormat.Bgrx,
+                PwPixelFormat.Rgba,
+                PwPixelFormat.Yuv420,
+                PwPixelFormat.Yuyv,
+            ];
         capture.Connect(targetNodeId, formats);
         return source;
     }
@@ -76,7 +91,8 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
         // planes arrive as separate data blocks) - skip the frame rather than read out of bounds.
         int requiredBytes = frame.Format switch
         {
-            PwPixelFormat.Yuv420 => (frame.Stride * frame.Height) + (2 * ((frame.Stride / 2) * (frame.Height / 2))),
+            PwPixelFormat.Yuv420 => (frame.Stride * frame.Height)
+                + (2 * ((frame.Stride / 2) * (frame.Height / 2))),
             PwPixelFormat.Yuyv => frame.Stride * frame.Height,
             _ => frame.Stride * frame.Height,
         };
@@ -97,7 +113,9 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
             byte[] bgra = new byte[frame.Width * frame.Height * 4];
             for (int y = 0; y < frame.Height; y++)
             {
-                frame.Data.Slice(y * frame.Stride, frame.Width * 4).CopyTo(bgra.AsSpan(y * frame.Width * 4));
+                frame
+                    .Data.Slice(y * frame.Stride, frame.Width * 4)
+                    .CopyTo(bgra.AsSpan(y * frame.Width * 4));
             }
 
             lock (_gate)
@@ -122,7 +140,14 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
                 YuyvToNv12(frame.Data, frame.Stride, frame.Width, frame.Height, nv12);
                 break;
             default:
-                PackedToNv12(frame.Data, frame.Stride, frame.Width, frame.Height, frame.Format, nv12);
+                PackedToNv12(
+                    frame.Data,
+                    frame.Stride,
+                    frame.Width,
+                    frame.Height,
+                    frame.Format,
+                    nv12
+                );
                 break;
         }
         lock (_gate)
@@ -153,12 +178,25 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
                 return false;
             }
 
-            frame = VideoFrame.FromPixels(pixels, _alpha ? VideoPixelFormat.Bgra : VideoPixelFormat.Nv12, _width, _height, _timeNs);
+            frame = VideoFrame.FromPixels(
+                pixels,
+                _alpha ? VideoPixelFormat.Bgra : VideoPixelFormat.Nv12,
+                _width,
+                _height,
+                _timeNs
+            );
             return true;
         }
     }
 
-    private static void PackedToNv12(ReadOnlySpan<byte> src, int stride, int width, int height, PwPixelFormat format, byte[] nv12)
+    private static void PackedToNv12(
+        ReadOnlySpan<byte> src,
+        int stride,
+        int width,
+        int height,
+        PwPixelFormat format,
+        byte[] nv12
+    )
     {
         // Channel offsets within a 4-byte pixel for the supported packed formats.
         (int rIdx, int bIdx) = format == PwPixelFormat.Rgba ? (0, 2) : (2, 0); // BGRA/BGRx default
@@ -186,7 +224,13 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
 
     // I420 (PipeWire Yuv420): three contiguous planes in the mapped buffer - Y (stride x height), then U and
     // V (each stride/2 x height/2). Repack into NV12 (full Y plane + interleaved UV); no colour conversion.
-    private static void I420ToNv12(ReadOnlySpan<byte> src, int stride, int width, int height, byte[] nv12)
+    private static void I420ToNv12(
+        ReadOnlySpan<byte> src,
+        int stride,
+        int width,
+        int height,
+        byte[] nv12
+    )
     {
         int chromaStride = stride / 2;
         int chromaWidth = width / 2;
@@ -220,7 +264,13 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
 
     // YUY2 (PipeWire Yuyv): packed 4:2:2, each 4 bytes = Y0 U Y1 V (two pixels). Subsample 4:2:2 -> 4:2:0 by
     // taking chroma from even luma rows only.
-    private static void YuyvToNv12(ReadOnlySpan<byte> src, int stride, int width, int height, byte[] nv12)
+    private static void YuyvToNv12(
+        ReadOnlySpan<byte> src,
+        int stride,
+        int width,
+        int height,
+        byte[] nv12
+    )
     {
         int uvOffset = width * height;
         for (int y = 0; y < height; y++)
@@ -246,7 +296,8 @@ internal sealed class PipeWireVideoCaptureSource : IVideoFrameSource, IAsyncDisp
         }
     }
 
-    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     public async ValueTask DisposeAsync()
     {

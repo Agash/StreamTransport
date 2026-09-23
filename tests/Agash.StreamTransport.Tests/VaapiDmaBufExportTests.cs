@@ -35,15 +35,20 @@ public sealed class VaapiDmaBufExportTests
         }
         catch (Exception ex)
         {
-            Assert.Inconclusive($"hevc_vaapi hardware is not available on this machine: {ex.Message}");
+            Assert.Inconclusive(
+                $"hevc_vaapi hardware is not available on this machine: {ex.Message}"
+            );
             return;
         }
 
         using (encoder)
         using (var decoder = new VaapiVideoDecoder(gpuSurface: true))
         {
-            Assert.AreEqual(VideoSurfaceKind.DmaBuf, decoder.OutputSurfaceKind,
-                "GPU-surface decoder must surface PipeWire/DMA-BUF frames.");
+            Assert.AreEqual(
+                VideoSurfaceKind.DmaBuf,
+                decoder.OutputSurfaceKind,
+                "GPU-surface decoder must surface PipeWire/DMA-BUF frames."
+            );
 
             byte[] nv12 = HardwareEncoderTestSupport.Nv12Pattern(width, height);
             var inputFrame = VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, width, height, 0);
@@ -63,7 +68,11 @@ public sealed class VaapiDmaBufExportTests
                 }
 
                 exported = true;
-                Assert.AreEqual(VideoSurfaceKind.DmaBuf, decoded.SurfaceKind, "decoded frame must be a DMA-BUF surface");
+                Assert.AreEqual(
+                    VideoSurfaceKind.DmaBuf,
+                    decoded.SurfaceKind,
+                    "decoded frame must be a DMA-BUF surface"
+                );
                 Assert.AreEqual(width, decoded.Width);
                 Assert.AreEqual(height, decoded.Height);
                 Assert.IsTrue(decoded.Pixels.IsEmpty, "a GPU-surface frame carries no CPU pixels");
@@ -72,12 +81,18 @@ public sealed class VaapiDmaBufExportTests
                 DmaBufSurface surface = decoded.DmaBuf!.Value;
                 Assert.AreEqual(VideoPixelFormat.Nv12, surface.Format);
                 // NV12 exports as 1 or 2 planes (single fd with 2 layers, or 2 layers across objects).
-                Assert.IsTrue(surface.PlaneCount is 1 or 2, $"unexpected plane count {surface.PlaneCount}");
+                Assert.IsTrue(
+                    surface.PlaneCount is 1 or 2,
+                    $"unexpected plane count {surface.PlaneCount}"
+                );
                 for (int p = 0; p < surface.PlaneCount; p++)
                 {
                     DmaBufPlane plane = surface[p];
                     Assert.IsTrue(plane.Fd >= 0, $"plane {p} must carry a valid dmabuf fd");
-                    Assert.IsTrue(plane.Stride >= width, $"plane {p} stride {plane.Stride} too small for width {width}");
+                    Assert.IsTrue(
+                        plane.Stride >= width,
+                        $"plane {p} stride {plane.Stride} too small for width {width}"
+                    );
                 }
             }
 
@@ -106,7 +121,9 @@ public sealed class VaapiDmaBufExportTests
         }
         catch (Exception ex)
         {
-            Assert.Inconclusive($"hevc_vaapi hardware is not available on this machine: {ex.Message}");
+            Assert.Inconclusive(
+                $"hevc_vaapi hardware is not available on this machine: {ex.Message}"
+            );
             return;
         }
 
@@ -144,7 +161,10 @@ public sealed class VaapiDmaBufExportTests
             }
 
             Assert.IsTrue(sawSurface, "decoder should have produced a DMA-BUF surface to import");
-            Assert.IsTrue(importedOk, "importing a DMA-BUF surface and encoding it should produce a non-empty access unit");
+            Assert.IsTrue(
+                importedOk,
+                "importing a DMA-BUF surface and encoding it should produce a non-empty access unit"
+            );
         }
     }
 }

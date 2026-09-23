@@ -33,6 +33,7 @@ public static class SignalingJson
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UseStringEnumConverter = true)]
+    UseStringEnumConverter = true
+)]
 [JsonSerializable(typeof(SignalingMessage))]
 internal sealed partial class SignalingJsonContext : JsonSerializerContext;

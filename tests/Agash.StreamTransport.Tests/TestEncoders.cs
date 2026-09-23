@@ -13,7 +13,13 @@ namespace Agash.StreamTransport.Tests;
 /// </summary>
 internal static class TestEncoders
 {
-    public static IVideoEncoderBackend Open(string encoderName, int width, int height, int fps, long bitrate)
+    public static IVideoEncoderBackend Open(
+        string encoderName,
+        int width,
+        int height,
+        int fps,
+        long bitrate
+    )
     {
         if (encoderName != "hevc_vaapi")
         {
@@ -30,11 +36,18 @@ internal static class TestEncoders
         }
         catch (Exception ex)
         {
-            throw new HardwareEncoderUnavailableException($"hevc_vaapi could not be opened: {ex.Message}");
+            throw new HardwareEncoderUnavailableException(
+                $"hevc_vaapi could not be opened: {ex.Message}"
+            );
         }
     }
 
     /// <summary>Encode one NV12 buffer through the common backend interface; returns the access unit or null.</summary>
-    public static byte[]? EncodeNv12(IVideoEncoderBackend encoder, byte[] nv12, int width, int height) =>
+    public static byte[]? EncodeNv12(
+        IVideoEncoderBackend encoder,
+        byte[] nv12,
+        int width,
+        int height
+    ) =>
         encoder.Encode(VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, width, height, 0), out _);
 }

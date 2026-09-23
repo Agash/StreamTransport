@@ -17,7 +17,10 @@ public sealed class SdpTests
                 {
                     Kind = SdpMediaKind.Audio,
                     Mid = "0",
-                    Codecs = [new SdpCodec(111, "opus", 48000, 2, "minptime=10;useinbandfec=1", [])],
+                    Codecs =
+                    [
+                        new SdpCodec(111, "opus", 48000, 2, "minptime=10;useinbandfec=1", []),
+                    ],
                     IceUfrag = "abcd",
                     IcePwd = "0123456789abcdef0123456789",
                     Fingerprint = fingerprint,
@@ -29,7 +32,17 @@ public sealed class SdpTests
                 {
                     Kind = SdpMediaKind.Video,
                     Mid = "1",
-                    Codecs = [new SdpCodec(96, "H264", 90000, null, "profile-level-id=42e01f;packetization-mode=1", ["nack", "nack pli", "goog-remb"])],
+                    Codecs =
+                    [
+                        new SdpCodec(
+                            96,
+                            "H264",
+                            90000,
+                            null,
+                            "profile-level-id=42e01f;packetization-mode=1",
+                            ["nack", "nack pli", "goog-remb"]
+                        ),
+                    ],
                     IceUfrag = "abcd",
                     IcePwd = "0123456789abcdef0123456789",
                     Fingerprint = fingerprint,
@@ -94,13 +107,13 @@ public sealed class SdpTests
     {
         // Chrome-style: ICE creds + fingerprint at session level, applied to each m-section.
         const string sdp =
-            "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n" +
-            "a=group:BUNDLE 0\r\n" +
-            "a=ice-ufrag:sess\r\na=ice-pwd:sesspasswordsesspassword00\r\n" +
-            "a=fingerprint:sha-256 AA:BB:CC:DD\r\n" +
-            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\n" +
-            "a=rtcp-mux\r\na=setup:active\r\na=mid:0\r\na=sendrecv\r\n" +
-            "a=rtpmap:111 opus/48000/2\r\n";
+            "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+            + "a=group:BUNDLE 0\r\n"
+            + "a=ice-ufrag:sess\r\na=ice-pwd:sesspasswordsesspassword00\r\n"
+            + "a=fingerprint:sha-256 AA:BB:CC:DD\r\n"
+            + "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\n"
+            + "a=rtcp-mux\r\na=setup:active\r\na=mid:0\r\na=sendrecv\r\n"
+            + "a=rtpmap:111 opus/48000/2\r\n";
 
         Assert.IsTrue(SdpReader.TryParse(sdp, out SdpDescription parsed));
         SdpMediaDescription audio = parsed.Media[0];
@@ -157,9 +170,9 @@ public sealed class SdpTests
     public void Parse_NoFingerprint_FailsAsJsepRequires()
     {
         const string sdp =
-            "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n" +
-            "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=ice-ufrag:x\r\na=ice-pwd:y\r\na=mid:0\r\n" +
-            "a=rtpmap:111 opus/48000/2\r\n";
+            "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+            + "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=ice-ufrag:x\r\na=ice-pwd:y\r\na=mid:0\r\n"
+            + "a=rtpmap:111 opus/48000/2\r\n";
 
         Assert.IsFalse(SdpReader.TryParse(sdp, out _));
     }

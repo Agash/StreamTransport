@@ -30,8 +30,10 @@ public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
     {
         IOSurface.IOSurface packed = Pack(Wrap(colourBgra.Surface));
         (int pw, int ph) = ((int)packed.Width, (int)packed.Height);
-        return VideoFrame.FromIOSurface(packed.Handle.Handle, pw, ph, presentationTimeNs)
-            with { PixelFormat = VideoPixelFormat.Bgra };
+        return VideoFrame.FromIOSurface(packed.Handle.Handle, pw, ph, presentationTimeNs) with
+        {
+            PixelFormat = VideoPixelFormat.Bgra,
+        };
     }
 
     /// <summary>Split a decoded 2W x H colour|alpha surface frame back into a W x H BGRA surface frame (zero-copy, Metal).</summary>
@@ -39,8 +41,10 @@ public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
     {
         IOSurface.IOSurface result = Unpack(Wrap(packed.Surface));
         (int rw, int rh) = ((int)result.Width, (int)result.Height);
-        return VideoFrame.FromIOSurface(result.Handle.Handle, rw, rh, presentationTimeNs)
-            with { PixelFormat = VideoPixelFormat.Bgra };
+        return VideoFrame.FromIOSurface(result.Handle.Handle, rw, rh, presentationTimeNs) with
+        {
+            PixelFormat = VideoPixelFormat.Bgra,
+        };
     }
 
     // The IOSurface-typed Pack/Unpack below are the surface-native primitive; the VideoFrame PackAlpha/UnpackAlpha
@@ -51,10 +55,11 @@ public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
     public IOSurface.IOSurface Pack(IOSurface.IOSurface bgra)
     {
         (int w, int h) = ((int)bgra.Width, (int)bgra.Height);
-        nint output = _pack.Run(w * 2, h,
-        [
-            new MetalSurfaceCompute.Input(bgra.Handle.Handle, MTLPixelFormat.BGRA8Unorm, 0, w, h),
-        ]);
+        nint output = _pack.Run(
+            w * 2,
+            h,
+            [new MetalSurfaceCompute.Input(bgra.Handle.Handle, MTLPixelFormat.BGRA8Unorm, 0, w, h)]
+        );
         return Wrap(output);
     }
 
@@ -69,19 +74,43 @@ public sealed class MetalAlphaCodec : IDisposable, IAlphaPacker, IAlphaUnpacker
             // CbCr plane (index 1) dims straight from the surface.
             (int cw, int ch) = ((int)packed.GetWidth((nuint)1), (int)packed.GetHeight((nuint)1));
             _unpackNv12 ??= new MetalSurfaceCompute("alpha_unpack_nv12");
-            nint output = _unpackNv12.Run(outW, packedH,
-            [
-                new MetalSurfaceCompute.Input(packed.Handle.Handle, MTLPixelFormat.R8Unorm, 0, packedW, packedH),
-                new MetalSurfaceCompute.Input(packed.Handle.Handle, MTLPixelFormat.RG8Unorm, 1, cw, ch),
-            ]);
+            nint output = _unpackNv12.Run(
+                outW,
+                packedH,
+                [
+                    new MetalSurfaceCompute.Input(
+                        packed.Handle.Handle,
+                        MTLPixelFormat.R8Unorm,
+                        0,
+                        packedW,
+                        packedH
+                    ),
+                    new MetalSurfaceCompute.Input(
+                        packed.Handle.Handle,
+                        MTLPixelFormat.RG8Unorm,
+                        1,
+                        cw,
+                        ch
+                    ),
+                ]
+            );
             return Wrap(output);
         }
 
         _unpackBgra ??= new MetalSurfaceCompute("alpha_unpack_bgra");
-        nint bgraOut = _unpackBgra.Run(outW, packedH,
-        [
-            new MetalSurfaceCompute.Input(packed.Handle.Handle, MTLPixelFormat.BGRA8Unorm, 0, packedW, packedH),
-        ]);
+        nint bgraOut = _unpackBgra.Run(
+            outW,
+            packedH,
+            [
+                new MetalSurfaceCompute.Input(
+                    packed.Handle.Handle,
+                    MTLPixelFormat.BGRA8Unorm,
+                    0,
+                    packedW,
+                    packedH
+                ),
+            ]
+        );
         return Wrap(bgraOut);
     }
 

@@ -8,22 +8,38 @@ public sealed class CcfbTests
     [TestMethod]
     public void BuildThenParse_RoundTripsMultipleStreamsWithLossAndEcn()
     {
-        var stream1 = new CcfbStreamReport(0x1111_1111, BeginSequence: 1000,
-        [
-            new CcfbMetric(Received: true, Ecn: 0, ArrivalTimeOffset: 100),
-            new CcfbMetric(Received: false, Ecn: 0, ArrivalTimeOffset: 0),       // lost
-            new CcfbMetric(Received: true, Ecn: 3, ArrivalTimeOffset: 250),      // ECN-CE
-        ]);
-        var stream2 = new CcfbStreamReport(0x2222_2222, BeginSequence: 5,
-        [
-            new CcfbMetric(Received: true, Ecn: 1, ArrivalTimeOffset: Ccfb.ArrivalTimeUnknown),
-        ]);
+        var stream1 = new CcfbStreamReport(
+            0x1111_1111,
+            BeginSequence: 1000,
+            [
+                new CcfbMetric(Received: true, Ecn: 0, ArrivalTimeOffset: 100),
+                new CcfbMetric(Received: false, Ecn: 0, ArrivalTimeOffset: 0), // lost
+                new CcfbMetric(Received: true, Ecn: 3, ArrivalTimeOffset: 250), // ECN-CE
+            ]
+        );
+        var stream2 = new CcfbStreamReport(
+            0x2222_2222,
+            BeginSequence: 5,
+            [new CcfbMetric(Received: true, Ecn: 1, ArrivalTimeOffset: Ccfb.ArrivalTimeUnknown)]
+        );
 
         byte[] buffer = new byte[256];
-        int length = Ccfb.Build(buffer, senderSsrc: 0xFEED_BEEF, [stream1, stream2], reportTimestamp: 0xABCD_1234);
+        int length = Ccfb.Build(
+            buffer,
+            senderSsrc: 0xFEED_BEEF,
+            [stream1, stream2],
+            reportTimestamp: 0xABCD_1234
+        );
 
         var parsed = new List<CcfbStreamReport>();
-        Assert.IsTrue(Ccfb.TryParse(buffer.AsSpan(0, length), out uint senderSsrc, out uint reportTimestamp, parsed));
+        Assert.IsTrue(
+            Ccfb.TryParse(
+                buffer.AsSpan(0, length),
+                out uint senderSsrc,
+                out uint reportTimestamp,
+                parsed
+            )
+        );
 
         Assert.AreEqual(0xFEED_BEEFu, senderSsrc);
         Assert.AreEqual(0xABCD_1234u, reportTimestamp);
@@ -79,13 +95,16 @@ public sealed class CcfbTests
     public void RoundTrip_PreservesArrivalTimeUnknownSentinel_AndAllEcnCodepoints()
     {
         // The 0x1FFF "arrival time unknown" sentinel and every 2-bit ECN codepoint must survive a round trip.
-        var stream = new CcfbStreamReport(0x9999_9999, BeginSequence: 7,
-        [
-            new CcfbMetric(Received: true, Ecn: 0, ArrivalTimeOffset: Ccfb.ArrivalTimeUnknown),
-            new CcfbMetric(Received: true, Ecn: 1, ArrivalTimeOffset: 0),     // ECT(1)
-            new CcfbMetric(Received: true, Ecn: 2, ArrivalTimeOffset: 8190),  // ECT(0)
-            new CcfbMetric(Received: true, Ecn: 3, ArrivalTimeOffset: 1),     // CE
-        ]);
+        var stream = new CcfbStreamReport(
+            0x9999_9999,
+            BeginSequence: 7,
+            [
+                new CcfbMetric(Received: true, Ecn: 0, ArrivalTimeOffset: Ccfb.ArrivalTimeUnknown),
+                new CcfbMetric(Received: true, Ecn: 1, ArrivalTimeOffset: 0), // ECT(1)
+                new CcfbMetric(Received: true, Ecn: 2, ArrivalTimeOffset: 8190), // ECT(0)
+                new CcfbMetric(Received: true, Ecn: 3, ArrivalTimeOffset: 1), // CE
+            ]
+        );
 
         byte[] buffer = new byte[128];
         int length = Ccfb.Build(buffer, 0x1, [stream], 0x55);

@@ -41,14 +41,18 @@ internal sealed unsafe class VulkanVideoDecoder : IDisposable
         _context->pkt_timebase = new AVRational { num = 1, den = 90_000 };
         _context->get_format = new AVCodecContext_get_format_func
         {
-            Pointer = (nint)(delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)&GetVulkanFormat,
+            Pointer = (nint)
+                (delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)
+                    &GetVulkanFormat,
         };
 
         int open = ffmpeg.avcodec_open2(_context, codec, null);
         if (open < 0)
         {
-            fixed (AVCodecContext** context = &_context) ffmpeg.avcodec_free_context(context);
-            fixed (AVBufferRef** dev = &_hwDevice) ffmpeg.av_buffer_unref(dev);
+            fixed (AVCodecContext** context = &_context)
+                ffmpeg.avcodec_free_context(context);
+            fixed (AVBufferRef** dev = &_hwDevice)
+                ffmpeg.av_buffer_unref(dev);
             open.ThrowOnError("open Vulkan HEVC decoder");
         }
 
@@ -99,10 +103,15 @@ internal sealed unsafe class VulkanVideoDecoder : IDisposable
         receive.ThrowOnError("receive decoded frame");
         if (resend)
         {
-            ffmpeg.avcodec_send_packet(_context, _packet).ThrowOnError("re-send packet to Vulkan decoder");
+            ffmpeg
+                .avcodec_send_packet(_context, _packet)
+                .ThrowOnError("re-send packet to Vulkan decoder");
         }
 
-        if ((AVPixelFormat)_frame->format != AVPixelFormat.AV_PIX_FMT_VULKAN || _frame->data[0] is null)
+        if (
+            (AVPixelFormat)_frame->format != AVPixelFormat.AV_PIX_FMT_VULKAN
+            || _frame->data[0] is null
+        )
         {
             return false;
         }
@@ -160,10 +169,14 @@ internal sealed unsafe class VulkanVideoDecoder : IDisposable
         }
 
         _disposed = true;
-        fixed (AVPacket** packet = &_packet) ffmpeg.av_packet_free(packet);
-        fixed (AVFrame** frame = &_frame) ffmpeg.av_frame_free(frame);
-        fixed (AVCodecContext** context = &_context) ffmpeg.avcodec_free_context(context);
-        fixed (AVBufferRef** device = &_hwDevice) ffmpeg.av_buffer_unref(device);
+        fixed (AVPacket** packet = &_packet)
+            ffmpeg.av_packet_free(packet);
+        fixed (AVFrame** frame = &_frame)
+            ffmpeg.av_frame_free(frame);
+        fixed (AVCodecContext** context = &_context)
+            ffmpeg.avcodec_free_context(context);
+        fixed (AVBufferRef** device = &_hwDevice)
+            ffmpeg.av_buffer_unref(device);
     }
 
     // Leading field of libavutil's AVVkFrame (hwcontext_vulkan.h): VkImage img[AV_NUM_DATA_POINTERS=8]. That

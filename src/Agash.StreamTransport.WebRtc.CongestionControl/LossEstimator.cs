@@ -13,7 +13,11 @@ namespace Agash.StreamTransport.WebRtc.CongestionControl;
 /// true. This stops the controller from collapsing the rate on a flaky-but-not-congested radio - exactly the
 /// failure mode a naive "back off on any lost packet" controller suffers.
 /// </remarks>
-internal sealed class LossEstimator(long virtualRttMicros, int rttsWithLossBeforeBackoff, int losslessRttsBeforeClear)
+internal sealed class LossEstimator(
+    long virtualRttMicros,
+    int rttsWithLossBeforeBackoff,
+    int losslessRttsBeforeClear
+)
 {
     private double _congestionLevel;
     private bool _lossEventThisRtt;

@@ -21,7 +21,10 @@ internal sealed class LoopbackSignaling : ISignalingChannel
 
     public event Func<IceCandidate, Task>? IceCandidateReceived;
 
-    public Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default)
+    public Task SendAsync(
+        SessionDescription description,
+        CancellationToken cancellationToken = default
+    )
     {
         Peer!._inbox.Writer.TryWrite(description);
         return Task.CompletedTask;

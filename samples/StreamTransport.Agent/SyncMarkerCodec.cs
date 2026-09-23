@@ -55,14 +55,16 @@ internal static class SyncMarkerCodec
     private static long NowMs() => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
     /// <summary>The sender capture clock in ms, masked to the bits the video strip carries.</summary>
-    public static long CaptureMsNow() => (Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency) & ((1L << CaptureMsBits) - 1);
+    public static long CaptureMsNow() =>
+        (Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency) & ((1L << CaptureMsBits) - 1);
 
     /// <summary>
     /// The capture-ms field for a given frame capture timestamp (the same monotonic ns value used as the
     /// frame's <c>PresentationTimeNs</c>), so the embedded marker time matches the abs-capture time the
     /// transport stamps - the two must reference the same instant for the verify metric to be meaningful.
     /// </summary>
-    public static long CaptureMsFromNs(long presentationTimeNs) => (presentationTimeNs / 1_000_000) & ((1L << CaptureMsBits) - 1);
+    public static long CaptureMsFromNs(long presentationTimeNs) =>
+        (presentationTimeNs / 1_000_000) & ((1L << CaptureMsBits) - 1);
 
     // ---- Video encode (sender) ----
 
@@ -70,9 +72,16 @@ internal static class SyncMarkerCodec
     /// Render the video marker into an NV12 luma plane: a payload strip across the top rows, white below. The
     /// frame should be sent as a forced keyframe so the strip decodes losslessly enough to read back.
     /// </summary>
-    public static void RenderVideoMarker(Span<byte> nv12, int width, int height, int seqId, long captureMs)
+    public static void RenderVideoMarker(
+        Span<byte> nv12,
+        int width,
+        int height,
+        int seqId,
+        long captureMs
+    )
     {
-        long payload = ((long)Preamble << (SeqIdBits + CaptureMsBits))
+        long payload =
+            ((long)Preamble << (SeqIdBits + CaptureMsBits))
             | ((long)(seqId & ((1 << SeqIdBits) - 1)) << CaptureMsBits)
             | (captureMs & ((1L << CaptureMsBits) - 1));
 
@@ -100,7 +109,13 @@ internal static class SyncMarkerCodec
     /// Recover the marker payload from a decoded NV12/I420 luma plane. Returns false when the preamble is absent
     /// (the frame is not a marker, or is too degraded to trust).
     /// </summary>
-    public static bool TryReadVideoMarker(ReadOnlySpan<byte> luma, int width, int height, out int seqId, out long captureMs)
+    public static bool TryReadVideoMarker(
+        ReadOnlySpan<byte> luma,
+        int width,
+        int height,
+        out int seqId,
+        out long captureMs
+    )
     {
         seqId = 0;
         captureMs = 0;
@@ -152,7 +167,12 @@ internal static class SyncMarkerCodec
     /// receiver decodes Opus to stereo, and reading interleaved stereo as mono sample-and-holds each sample,
     /// halving the apparent frequency and so the decoded id. Returns false when the frame is not a loud burst.
     /// </summary>
-    public static bool TryReadAudioMarker(ReadOnlySpan<byte> pcm16, int sampleRate, int channels, out int seqId)
+    public static bool TryReadAudioMarker(
+        ReadOnlySpan<byte> pcm16,
+        int sampleRate,
+        int channels,
+        out int seqId
+    )
     {
         seqId = 0;
         int stride = Math.Max(1, channels);
@@ -197,11 +217,19 @@ internal static class SyncMarkerCodec
         return true;
     }
 
-    private static double Goertzel(ReadOnlySpan<byte> pcm16, int samples, int stride, int sampleRate, double freq)
+    private static double Goertzel(
+        ReadOnlySpan<byte> pcm16,
+        int samples,
+        int stride,
+        int sampleRate,
+        double freq
+    )
     {
         double w = 2.0 * Math.PI * freq / sampleRate;
         double coeff = 2.0 * Math.Cos(w);
-        double s0 = 0, s1 = 0, s2 = 0;
+        double s0 = 0,
+            s1 = 0,
+            s2 = 0;
         for (int i = 0; i < samples; i++)
         {
             int b = 2 * i * stride;

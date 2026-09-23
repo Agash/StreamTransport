@@ -16,7 +16,8 @@ public sealed class VideoLoopbackTests
     /// <summary>Auto-selected encoder (NVENC on Windows/Linux, VideoToolbox on macOS): source -> encode -> WebRTC -> decode -> sink.</summary>
     [TestMethod]
     [Timeout(60_000)]
-    public Task VideoLoopback_AutoEncoder_DeliversDecodedFrames() => RunLoopbackAsync(encoderName: null);
+    public Task VideoLoopback_AutoEncoder_DeliversDecodedFrames() =>
+        RunLoopbackAsync(encoderName: null);
 
     /// <summary>Forces the AMD AMF encoder end to end, so the full transport is exercised with AMF too.</summary>
     [TestMethod]
@@ -31,7 +32,8 @@ public sealed class VideoLoopbackTests
     /// <summary>Forces Apple VideoToolbox end to end (macOS; self-skips elsewhere).</summary>
     [TestMethod]
     [Timeout(60_000)]
-    public Task VideoLoopback_VideoToolbox_DeliversDecodedFrames() => RunLoopbackAsync("hevc_videotoolbox");
+    public Task VideoLoopback_VideoToolbox_DeliversDecodedFrames() =>
+        RunLoopbackAsync("hevc_videotoolbox");
 
     /// <summary>Forces Linux VAAPI end to end (self-skips elsewhere).</summary>
     [TestMethod]
@@ -43,7 +45,9 @@ public sealed class VideoLoopbackTests
         string? nativeBin = TestNative.FindFFmpegBin();
         if (nativeBin is null)
         {
-            Assert.Inconclusive("No bundled FFmpeg native build found; skipping video loopback test.");
+            Assert.Inconclusive(
+                "No bundled FFmpeg native build found; skipping video loopback test."
+            );
             return;
         }
 
@@ -60,7 +64,9 @@ public sealed class VideoLoopbackTests
             }
             catch (NotSupportedException ex)
             {
-                Assert.Inconclusive($"No hardware HEVC encoder available on this machine: {ex.Message}");
+                Assert.Inconclusive(
+                    $"No hardware HEVC encoder available on this machine: {ex.Message}"
+                );
                 return;
             }
         }
@@ -81,7 +87,13 @@ public sealed class VideoLoopbackTests
         // otherwise hang rather than report. Opening it here surfaces availability up front.
         try
         {
-            using var preflight = TestEncoders.Open(probe, width, height, fps: 30, bitrate: 4_000_000);
+            using var preflight = TestEncoders.Open(
+                probe,
+                width,
+                height,
+                fps: 30,
+                bitrate: 4_000_000
+            );
         }
         catch (HardwareEncoderUnavailableException ex)
         {
@@ -97,8 +109,20 @@ public sealed class VideoLoopbackTests
         receiverSignaling.Peer = senderSignaling;
 
         var sink = new CollectingVideoSink(target: 5);
-        await using var receiver = new WebRtcMediaReceiver(new MediaTransportOptions(), TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, video: sink);
-        await using var sender = new WebRtcMediaSender(options, TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, video: new PatternVideoSource(width, height));
+        await using var receiver = new WebRtcMediaReceiver(
+            new MediaTransportOptions(),
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            video: sink
+        );
+        await using var sender = new WebRtcMediaSender(
+            options,
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            video: new PatternVideoSource(width, height)
+        );
 
         await receiver.StartAsync(receiverSignaling);
 
@@ -121,7 +145,8 @@ public sealed class VideoLoopbackTests
 
         Assert.IsTrue(
             ReferenceEquals(finished, sink.Reached) && sink.Count >= 5,
-            $"Expected at least 5 decoded video frames at the sink, got {sink.Count}.");
+            $"Expected at least 5 decoded video frames at the sink, got {sink.Count}."
+        );
         Assert.AreEqual(width, sink.LastWidth, "Decoded frame width should match.");
         Assert.AreEqual(height, sink.LastHeight, "Decoded frame height should match.");
     }

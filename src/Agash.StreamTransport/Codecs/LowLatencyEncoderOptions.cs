@@ -14,13 +14,14 @@ internal static unsafe class LowLatencyEncoderOptions
 {
     // VBV (rc_buffer_size) as a fraction of one second of bitrate. A tight buffer keeps end-to-end latency
     // low (the encoder can't run ahead of the budget); a looser one rides out a lossy/variable cellular link.
-    private static double VbvSeconds(MediaProfile profile) => profile switch
-    {
-        MediaProfile.InteractiveP2P => 0.5,
-        MediaProfile.ScreenShare => 1.0,
-        MediaProfile.IrlContribution => 1.5,
-        _ => 0.5,
-    };
+    private static double VbvSeconds(MediaProfile profile) =>
+        profile switch
+        {
+            MediaProfile.InteractiveP2P => 0.5,
+            MediaProfile.ScreenShare => 1.0,
+            MediaProfile.IrlContribution => 1.5,
+            _ => 0.5,
+        };
 
     /// <summary>
     /// Set the codec-context low-latency + CBR rate-control fields shared by every HW encoder. Call after
@@ -37,8 +38,15 @@ internal static unsafe class LowLatencyEncoderOptions
         // at the target with a profile-sized VBV. Without this the opening ~second runs unbounded VBR. The
         // STX_ENC_VBV env var overrides the VBV depth (seconds) for ad-hoc latency measurement (test-only).
         double vbvSeconds = VbvSeconds(profile);
-        if (double.TryParse(Environment.GetEnvironmentVariable("STX_ENC_VBV"),
-                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double vbvOverride) && vbvOverride > 0)
+        if (
+            double.TryParse(
+                Environment.GetEnvironmentVariable("STX_ENC_VBV"),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double vbvOverride
+            )
+            && vbvOverride > 0
+        )
         {
             vbvSeconds = vbvOverride;
         }
@@ -61,37 +69,55 @@ internal static unsafe class LowLatencyEncoderOptions
                 // p4 = balanced speed/quality; ull (ultra-low-latency: no lookahead/reorder) for the interactive
                 // profile, ll otherwise. forced-idr honours our keyframe-on-PLI; rc-lookahead 0 removes the
                 // look-ahead delay.
-                Set(options,
+                Set(
+                    options,
                     ("preset", "p4"),
                     ("tune", profile == MediaProfile.InteractiveP2P ? "ull" : "ll"),
-                    ("rc", "cbr"), ("zerolatency", "1"), ("delay", "0"), ("rc-lookahead", "0"), ("forced-idr", "1"));
-                break;
-
-            case "hevc_amf" or "h264_amf":
-                Set(options,
-                    ("usage", profile == MediaProfile.ScreenShare ? "lowlatency_high_quality" : "ultralowlatency"),
                     ("rc", "cbr"),
-                    ("quality", profile == MediaProfile.ScreenShare ? "balanced" : "speed"));
+                    ("zerolatency", "1"),
+                    ("delay", "0"),
+                    ("rc-lookahead", "0"),
+                    ("forced-idr", "1")
+                );
                 break;
 
-            case "hevc_qsv" or "h264_qsv":
+            case "hevc_amf"
+            or "h264_amf":
+                Set(
+                    options,
+                    (
+                        "usage",
+                        profile == MediaProfile.ScreenShare
+                            ? "lowlatency_high_quality"
+                            : "ultralowlatency"
+                    ),
+                    ("rc", "cbr"),
+                    ("quality", profile == MediaProfile.ScreenShare ? "balanced" : "speed")
+                );
+                break;
+
+            case "hevc_qsv"
+            or "h264_qsv":
                 Set(options, ("preset", "veryfast"), ("low_delay_brc", "1"), ("async_depth", "1"));
                 break;
 
-            case "hevc_vaapi" or "h264_vaapi":
+            case "hevc_vaapi"
+            or "h264_vaapi":
                 // No async pipeline (encode one frame, get one packet) - the rest of VAAPI's rate control comes
                 // from the context (CBR/VBV in ConfigureContext).
                 Set(options, ("async_depth", "1"));
                 break;
 
-            case "hevc_videotoolbox" or "h264_videotoolbox":
+            case "hevc_videotoolbox"
+            or "h264_videotoolbox":
                 // realtime: encode at least as fast as capture; prio_speed: favour speed over quality. The CBR
                 // ceiling comes from ConfigureContext (rc_max_rate); the encoder's own constant_bit_rate property
                 // is not supported for HEVC VideoToolbox ("not supported by the encoder"), so don't set it.
                 Set(options, ("realtime", "1"), ("prio_speed", "1"));
                 break;
 
-            case "hevc_rkmpp" or "h264_rkmpp":
+            case "hevc_rkmpp"
+            or "h264_rkmpp":
                 // CBR; the low-delay (async off) comes from AV_CODEC_FLAG_LOW_DELAY in ConfigureContext.
                 Set(options, ("rc_mode", "cbr"));
                 break;
@@ -106,7 +132,12 @@ internal static unsafe class LowLatencyEncoderOptions
         string? envOpts = Environment.GetEnvironmentVariable("STX_ENC_OPT");
         if (!string.IsNullOrWhiteSpace(envOpts))
         {
-            foreach (string pair in envOpts.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (
+                string pair in envOpts.Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+                )
+            )
             {
                 int eq = pair.IndexOf('=');
                 if (eq > 0)

@@ -50,7 +50,8 @@ public sealed class D3D11ConverterTests
             int y = ReadNv12Luma(device, nv12, w, h, w / 2, h / 2);
             Assert.IsTrue(
                 Math.Abs(y - ExpectedY) <= 12,
-                $"Converter luma Y={y} (expected ~{ExpectedY}); Y~16 means it sampled black - the read/write hazard regressed.");
+                $"Converter luma Y={y} (expected ~{ExpectedY}); Y~16 means it sampled black - the read/write hazard regressed."
+            );
         }
     }
 
@@ -58,12 +59,15 @@ public sealed class D3D11ConverterTests
     {
         try
         {
-            D3D11.D3D11CreateDevice(
-                (IDXGIAdapter?)null,
-                DriverType.Hardware,
-                DeviceCreationFlags.BgraSupport,
-                [FeatureLevel.Level_11_1, FeatureLevel.Level_11_0],
-                out ID3D11Device? device).CheckError();
+            D3D11
+                .D3D11CreateDevice(
+                    (IDXGIAdapter?)null,
+                    DriverType.Hardware,
+                    DeviceCreationFlags.BgraSupport,
+                    [FeatureLevel.Level_11_1, FeatureLevel.Level_11_0],
+                    out ID3D11Device? device
+                )
+                .CheckError();
             return device;
         }
         catch (Exception)
@@ -100,31 +104,48 @@ public sealed class D3D11ConverterTests
         {
             fixed (byte* p = data)
             {
-                return device.CreateTexture2D(description, [new SubresourceData((nint)p, (uint)(width * 4))]);
+                return device.CreateTexture2D(
+                    description,
+                    [new SubresourceData((nint)p, (uint)(width * 4))]
+                );
             }
         }
     }
 
-    private static int ReadNv12Luma(ID3D11Device device, nint nv12Texture, int width, int height, int px, int py)
+    private static int ReadNv12Luma(
+        ID3D11Device device,
+        nint nv12Texture,
+        int width,
+        int height,
+        int px,
+        int py
+    )
     {
         ID3D11DeviceContext context = device.ImmediateContext;
         using var source = new ID3D11Texture2D(nv12Texture);
         source.AddRef();
-        using ID3D11Texture2D staging = device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = (uint)width,
-            Height = (uint)height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.NV12,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Staging,
-            BindFlags = BindFlags.None,
-            CPUAccessFlags = CpuAccessFlags.Read,
-        });
+        using ID3D11Texture2D staging = device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.NV12,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+            }
+        );
         context.CopyResource(staging, source);
 
-        MappedSubresource map = context.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+        MappedSubresource map = context.Map(
+            staging,
+            0,
+            MapMode.Read,
+            Vortice.Direct3D11.MapFlags.None
+        );
         try
         {
             unsafe

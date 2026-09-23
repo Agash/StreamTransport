@@ -28,8 +28,11 @@ public sealed class ScreamCongestionController : INetworkController
     {
         _options = options ?? new ScreamOptions();
         _lossEstimator = new LossEstimator(
-            _options.VirtualRttMs * 1000L, _options.RttsWithLossBeforeBackoff, _options.LosslessRttsBeforeClear);
-        _minCwnd = (_options.MinBitrateBps / 8.0) * 0.05;   // ~50 ms at the floor rate
+            _options.VirtualRttMs * 1000L,
+            _options.RttsWithLossBeforeBackoff,
+            _options.LosslessRttsBeforeClear
+        );
+        _minCwnd = (_options.MinBitrateBps / 8.0) * 0.05; // ~50 ms at the floor rate
         _cwndBytes = Math.Max(_minCwnd, (_options.StartBitrateBps / 8.0) * 0.1);
         _targetBitrate = _options.StartBitrateBps;
         CurrentEstimate = BuildEstimate();
@@ -82,7 +85,8 @@ public sealed class ScreamCongestionController : INetworkController
         if (anyReceived)
         {
             double rttSample = Math.Max(1, nowMicros - latestSendMicros);
-            _srttMicros = _srttMicros == 0 ? rttSample : (_srttMicros * 0.875) + (rttSample * 0.125);
+            _srttMicros =
+                _srttMicros == 0 ? rttSample : (_srttMicros * 0.875) + (rttSample * 0.125);
             _baseRttMicros = Math.Min(_baseRttMicros, rttSample);
         }
 
@@ -102,9 +106,14 @@ public sealed class ScreamCongestionController : INetworkController
         if (receivedCount > 0)
         {
             double fractionMarked = (double)ceCount / receivedCount;
-            _l4sAlpha = fractionMarked > _l4sAlpha
-                ? Math.Min(1.0, (_options.L4sAlphaGainUp * fractionMarked) + ((1.0 - _options.L4sAlphaGainUp) * _l4sAlpha))
-                : (1.0 - _options.L4sAlphaGainDown) * _l4sAlpha;
+            _l4sAlpha =
+                fractionMarked > _l4sAlpha
+                    ? Math.Min(
+                        1.0,
+                        (_options.L4sAlphaGainUp * fractionMarked)
+                            + ((1.0 - _options.L4sAlphaGainUp) * _l4sAlpha)
+                    )
+                    : (1.0 - _options.L4sAlphaGainDown) * _l4sAlpha;
         }
 
         if (delayCongested || _lossEstimator.Congested)
@@ -159,9 +168,11 @@ public sealed class ScreamCongestionController : INetworkController
         CurrentEstimate = BuildEstimate();
     }
 
-    private BitrateEstimate BuildEstimate() => new(
-        _targetBitrate,
-        (long)(_targetBitrate * _options.PacingHeadroom),
-        (long)_srttMicros,
-        _baseRttMicros is double.MaxValue ? 0 : (long)_baseRttMicros);
+    private BitrateEstimate BuildEstimate() =>
+        new(
+            _targetBitrate,
+            (long)(_targetBitrate * _options.PacingHeadroom),
+            (long)_srttMicros,
+            _baseRttMicros is double.MaxValue ? 0 : (long)_baseRttMicros
+        );
 }

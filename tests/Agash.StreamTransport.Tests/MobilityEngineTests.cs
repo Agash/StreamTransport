@@ -64,8 +64,6 @@ public sealed class MobilityEngineTests
             NetworksChanged?.Invoke(paths);
         }
 
-        public void Dispose()
-        {
-        }
+        public void Dispose() { }
     }
 }

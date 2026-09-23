@@ -22,7 +22,8 @@ internal static class DrmPrime
 /// <summary>DRM <c>fourcc</c> pixel-format codes (drm_fourcc.h), as used in an AVDRMLayerDescriptor.</summary>
 internal static class Fourcc
 {
-    private static uint Code(char a, char b, char c, char d) => a | ((uint)b << 8) | ((uint)c << 16) | ((uint)d << 24);
+    private static uint Code(char a, char b, char c, char d) =>
+        a | ((uint)b << 8) | ((uint)c << 16) | ((uint)d << 24);
 
     /// <summary><c>DRM_FORMAT_NV12</c> - 4:2:0 Y plane + interleaved UV plane (as a single layer).</summary>
     internal static readonly uint Nv12 = Code('N', 'V', '1', '2');
@@ -41,8 +42,8 @@ internal static class Fourcc
 internal struct AVDRMPlaneDescriptor
 {
     public int object_index;
-    public nint offset;   // ptrdiff_t
-    public nint pitch;    // ptrdiff_t
+    public nint offset; // ptrdiff_t
+    public nint pitch; // ptrdiff_t
 }
 
 [InlineArray(DrmPrime.MaxPlanes)]
@@ -63,7 +64,7 @@ internal struct AVDRMLayerDescriptor
 internal struct AVDRMObjectDescriptor
 {
     public int fd;
-    public nuint size;            // size_t
+    public nuint size; // size_t
     public ulong format_modifier; // uint64_t
 }
 

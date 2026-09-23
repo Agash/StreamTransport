@@ -23,15 +23,20 @@ public sealed class AudioPipelineTests
 
         (uint duration, byte[] payload) = pipeline.Encode(frame);
 
-        Assert.AreEqual((uint)SamplesPerChannel, duration,
-            "RTP duration must be per-channel samples, not the interleaved total (the stereo timestamp bug).");
+        Assert.AreEqual(
+            (uint)SamplesPerChannel,
+            duration,
+            "RTP duration must be per-channel samples, not the interleaved total (the stereo timestamp bug)."
+        );
         Assert.IsTrue(payload.Length > 0, "Opus should produce a payload.");
 
         AudioFrame decoded = pipeline.Decode(payload, 0);
         Assert.AreEqual(2, decoded.Channels, "the decoder emits stereo.");
         Assert.AreEqual(SampleRate, decoded.SampleRate);
-        Assert.IsTrue(decoded.Samples.Length >= SamplesPerChannel * 2 * sizeof(short) - 64,
-            $"expected ~{SamplesPerChannel} stereo samples back, got {decoded.Samples.Length / 2 / sizeof(short)}.");
+        Assert.IsTrue(
+            decoded.Samples.Length >= SamplesPerChannel * 2 * sizeof(short) - 64,
+            $"expected ~{SamplesPerChannel} stereo samples back, got {decoded.Samples.Length / 2 / sizeof(short)}."
+        );
     }
 
     [TestMethod]
@@ -47,7 +52,11 @@ public sealed class AudioPipelineTests
         var frame = new AudioFrame(AsBytes(mono), AudioSampleFormat.S16, SampleRate, 1, 0);
 
         (uint duration, byte[] payload) = pipeline.Encode(frame);
-        Assert.AreEqual((uint)SamplesPerChannel, duration, "a mono frame advances the clock by its sample count.");
+        Assert.AreEqual(
+            (uint)SamplesPerChannel,
+            duration,
+            "a mono frame advances the clock by its sample count."
+        );
 
         AudioFrame decoded = pipeline.Decode(payload, 0);
         Assert.AreEqual(2, decoded.Channels, "a mono stream still decodes to two channels.");
@@ -74,7 +83,10 @@ public sealed class AudioPipelineTests
         }
 
         double rms = Math.Sqrt(sumSquares / (double)Math.Max(1, samples.Length));
-        Assert.IsTrue(rms > 200, $"Decoded audio RMS {rms:F0} too low - signal did not survive the round-trip.");
+        Assert.IsTrue(
+            rms > 200,
+            $"Decoded audio RMS {rms:F0} too low - signal did not survive the round-trip."
+        );
     }
 
     private static AudioFrame StereoSine(int perChannel)
@@ -89,5 +101,6 @@ public sealed class AudioPipelineTests
         return new AudioFrame(AsBytes(interleaved), AudioSampleFormat.S16, SampleRate, 2, 0);
     }
 
-    private static byte[] AsBytes(short[] samples) => MemoryMarshal.AsBytes(samples.AsSpan()).ToArray();
+    private static byte[] AsBytes(short[] samples) =>
+        MemoryMarshal.AsBytes(samples.AsSpan()).ToArray();
 }

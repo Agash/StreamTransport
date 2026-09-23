@@ -34,7 +34,9 @@ internal static unsafe class VaapiDevice
             EnsureCreated(renderNode);
             if (s_device is null)
             {
-                throw new NotSupportedException("No usable VAAPI device is available on this machine.");
+                throw new NotSupportedException(
+                    "No usable VAAPI device is available on this machine."
+                );
             }
 
             return ffmpeg.av_buffer_ref(s_device);
@@ -100,7 +102,13 @@ internal static unsafe class VaapiDevice
         AVBufferRef* device = null;
         // Default to the first render node; a multi-GPU box can pass e.g. /dev/dri/renderD129. The node is
         // fixed by the first caller for the process (single shared device).
-        int created = ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI, renderNode, null, 0);
+        int created = ffmpeg.av_hwdevice_ctx_create(
+            &device,
+            AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI,
+            renderNode,
+            null,
+            0
+        );
         if (created >= 0 && device is not null)
         {
             s_device = device; // never unref'd: kept for the whole process (see class remarks).

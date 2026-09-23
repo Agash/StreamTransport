@@ -23,7 +23,12 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
     private readonly Task _pump;
 
     /// <summary>Create a scheduler whose buffer depth adapts between <paramref name="minDelayNs"/> and <paramref name="maxDelayNs"/> (plus <paramref name="marginNs"/> headroom) to measured jitter.</summary>
-    public PlayoutScheduler(long minDelayNs, long maxDelayNs, long marginNs, Func<long>? nowNs = null)
+    public PlayoutScheduler(
+        long minDelayNs,
+        long maxDelayNs,
+        long marginNs,
+        Func<long>? nowNs = null
+    )
     {
         _timeline = new PlayoutTimeline(minDelayNs, maxDelayNs, marginNs);
         _nowNs = nowNs ?? DefaultNowNs;
@@ -32,9 +37,7 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
 
     /// <summary>Create a scheduler with a fixed buffer depth (min = max, no margin); used by tests.</summary>
     public PlayoutScheduler(long fixedDelayNs, Func<long>? nowNs = null)
-        : this(fixedDelayNs, fixedDelayNs, 0, nowNs)
-    {
-    }
+        : this(fixedDelayNs, fixedDelayNs, 0, nowNs) { }
 
     /// <summary>
     /// Schedule <paramref name="submit"/> to run when the frame captured at <paramref name="senderWallNs"/> is due,
@@ -54,7 +57,8 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
     /// it presents immediately because the GPU output texture cannot be held - so the timeline tracks video's
     /// slower arrival curve, and <see cref="ScheduleOnTimeline"/> lands audio on it.
     /// </summary>
-    public void ObserveArrival(long senderWallNs) => _timeline.ObserveArrival(senderWallNs, _nowNs());
+    public void ObserveArrival(long senderWallNs) =>
+        _timeline.ObserveArrival(senderWallNs, _nowNs());
 
     /// <summary>The current adaptive jitter-buffer/playout depth in ns (for receive-side network telemetry).</summary>
     public long CurrentDelayNs => _timeline.CurrentDelayNs;
@@ -180,7 +184,8 @@ internal sealed class PlayoutScheduler : IAsyncDisposable
         }
     }
 
-    private static long DefaultNowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long DefaultNowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     public async ValueTask DisposeAsync()
     {

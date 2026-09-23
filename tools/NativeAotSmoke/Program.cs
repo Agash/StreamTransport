@@ -9,11 +9,12 @@ using Agash.StreamTransport.WebRtc.Sdp;
 // binary, the stack (incl. BouncyCastle DTLS and the SCReAM controller) is AOT-safe end to end.
 
 var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
-PeerConnectionOptions Options(uint ssrc) => new()
-{
-    IncludeLoopback = true,
-    Media = [new MediaLine("0", SdpMediaKind.Audio, ssrc, [opusCodec])],
-};
+PeerConnectionOptions Options(uint ssrc) =>
+    new()
+    {
+        IncludeLoopback = true,
+        Media = [new MediaLine("0", SdpMediaKind.Audio, ssrc, [opusCodec])],
+    };
 
 await using var offerer = new PeerConnection(Options(0x1111_1111), new DtlsTransportFactory());
 await using var answerer = new PeerConnection(Options(0x2222_2222), new DtlsTransportFactory());
@@ -56,14 +57,18 @@ catch (TimeoutException)
     return 1;
 }
 
-Console.WriteLine($"NATIVE-AOT-OK: connected + encrypted RTP delivered in {sw.ElapsedMilliseconds} ms (controller {controller.CurrentEstimate.TargetBitrateBps} bps)");
+Console.WriteLine(
+    $"NATIVE-AOT-OK: connected + encrypted RTP delivered in {sw.ElapsedMilliseconds} ms (controller {controller.CurrentEstimate.TargetBitrateBps} bps)"
+);
 return 0;
 
 async Task AwaitFirstRtp()
 {
     await connected.Task.ConfigureAwait(false);
     byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE];
-    await offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 0, marker: true, payload).ConfigureAwait(false);
+    await offerer
+        .SendRtp(111, 0x1111_1111, rtpTimestamp: 0, marker: true, payload)
+        .ConfigureAwait(false);
     byte[] got = await received.Task.ConfigureAwait(false);
     if (!got.AsSpan().SequenceEqual(payload))
     {

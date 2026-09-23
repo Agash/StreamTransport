@@ -18,8 +18,11 @@ internal sealed class FakeVideoCodec : IVideoCodecDescriptor
     public int Preference => 1;
 
     public IVideoEncoder CreateEncoder(VideoEncoderSettings settings) => new FakeEncoder();
+
     public IVideoDecoder CreateDecoder(VideoDecoderSettings settings) => new FakeDecoder();
+
     public IRtpPacketizer CreatePacketizer() => new Passthrough();
+
     public IRtpDepacketizer CreateDepacketizer() => new Passthrough();
 
     private sealed class FakeEncoder : IVideoEncoder
@@ -32,20 +35,21 @@ internal sealed class FakeVideoCodec : IVideoCodecDescriptor
             return new EncodedVideoAccessUnit(3000, au, frame.PresentationTimeNs);
         }
 
-        public void Dispose()
-        {
-        }
+        public void Dispose() { }
     }
 
     private sealed class FakeDecoder : IVideoDecoder
     {
         public bool IsGpuOutput => false;
 
-        public void SetPreserveAlpha(bool value)
-        {
-        }
+        public void SetPreserveAlpha(bool value) { }
 
-        public VideoFrame? Decode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long nowNs, out uint frameRtpTimestamp)
+        public VideoFrame? Decode(
+            ReadOnlySpan<byte> accessUnit,
+            uint rtpTimestamp,
+            long nowNs,
+            out uint frameRtpTimestamp
+        )
         {
             frameRtpTimestamp = rtpTimestamp;
             if (accessUnit.Length < 8)
@@ -55,12 +59,16 @@ internal sealed class FakeVideoCodec : IVideoCodecDescriptor
 
             int width = BinaryPrimitives.ReadInt32LittleEndian(accessUnit);
             int height = BinaryPrimitives.ReadInt32LittleEndian(accessUnit[4..]);
-            return VideoFrame.FromPixels(new byte[width * height * 3 / 2], VideoPixelFormat.Nv12, width, height, nowNs);
+            return VideoFrame.FromPixels(
+                new byte[width * height * 3 / 2],
+                VideoPixelFormat.Nv12,
+                width,
+                height,
+                nowNs
+            );
         }
 
-        public void Dispose()
-        {
-        }
+        public void Dispose() { }
     }
 
     private sealed class Passthrough : IRtpPacketizer, IRtpDepacketizer
@@ -82,8 +90,6 @@ internal sealed class FakeVideoCodec : IVideoCodecDescriptor
             return new PooledBuffer(buffer, payload.Length);
         }
 
-        public void Dispose()
-        {
-        }
+        public void Dispose() { }
     }
 }

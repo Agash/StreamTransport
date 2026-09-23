@@ -27,16 +27,25 @@ internal static class TestNative
                 // Match the avcodec shared library by THIS OS's extension so a multi-RID dev checkout (e.g.
                 // both win-x64 and linux-x64 fetched) only ever picks the build that can actually load here:
                 // Windows "avcodec-62.dll", Linux "libavcodec.so.62", macOS "libavcodec.62.dylib".
-                string?[] dirs = [.. Directory.EnumerateFiles(ffmpegRoot, "*", SearchOption.AllDirectories)
-                    .Where(f => Path.GetFileName(f).Contains("avcodec", StringComparison.OrdinalIgnoreCase)
-                        && IsCurrentOsLibrary(f))
-                    .Select(Path.GetDirectoryName)
-                    .Distinct()];
+                string?[] dirs =
+                [
+                    .. Directory
+                        .EnumerateFiles(ffmpegRoot, "*", SearchOption.AllDirectories)
+                        .Where(f =>
+                            Path.GetFileName(f)
+                                .Contains("avcodec", StringComparison.OrdinalIgnoreCase)
+                            && IsCurrentOsLibrary(f)
+                        )
+                        .Select(Path.GetDirectoryName)
+                        .Distinct(),
+                ];
 
                 // Within this OS's builds, prefer the one matching the process architecture (x64 vs arm64).
-                return dirs.FirstOrDefault(d => d is not null
-                        && Path.GetFileName(d).EndsWith(archToken, StringComparison.OrdinalIgnoreCase))
-                    ?? dirs.FirstOrDefault(d => d is not null);
+                return dirs.FirstOrDefault(d =>
+                        d is not null
+                        && Path.GetFileName(d)
+                            .EndsWith(archToken, StringComparison.OrdinalIgnoreCase)
+                    ) ?? dirs.FirstOrDefault(d => d is not null);
             }
 
             dir = dir.Parent;

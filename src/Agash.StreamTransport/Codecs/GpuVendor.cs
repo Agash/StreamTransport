@@ -20,13 +20,14 @@ internal enum GpuVendor
 internal static class GpuVendorMap
 {
     /// <summary>The GPU vendor that backs the given hardware encoder, or Unknown.</summary>
-    public static GpuVendor ForEncoder(string encoderName) => encoderName switch
-    {
-        "hevc_nvenc" or "h264_nvenc" => GpuVendor.Nvidia,
-        "hevc_amf" or "h264_amf" => GpuVendor.Amd,
-        "hevc_qsv" or "h264_qsv" => GpuVendor.Intel,
-        _ => GpuVendor.Unknown,
-    };
+    public static GpuVendor ForEncoder(string encoderName) =>
+        encoderName switch
+        {
+            "hevc_nvenc" or "h264_nvenc" => GpuVendor.Nvidia,
+            "hevc_amf" or "h264_amf" => GpuVendor.Amd,
+            "hevc_qsv" or "h264_qsv" => GpuVendor.Intel,
+            _ => GpuVendor.Unknown,
+        };
 
     /// <summary>
     /// Find the DXGI adapter index whose vendor matches <paramref name="vendor"/>, or -1 if none. The
@@ -40,7 +41,11 @@ internal static class GpuVendorMap
         }
 
         using IDXGIFactory1 factory = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
-        for (uint index = 0; factory.EnumAdapters1(index, out IDXGIAdapter1? adapter).Success; index++)
+        for (
+            uint index = 0;
+            factory.EnumAdapters1(index, out IDXGIAdapter1? adapter).Success;
+            index++
+        )
         {
             using (adapter)
             {

@@ -19,7 +19,11 @@ namespace Agash.StreamTransport.WebRtc.Dtls;
 /// </summary>
 internal sealed class DtlsCertificate
 {
-    private DtlsCertificate(Certificate certificate, AsymmetricKeyParameter privateKey, DtlsFingerprint fingerprint)
+    private DtlsCertificate(
+        Certificate certificate,
+        AsymmetricKeyParameter privateKey,
+        DtlsFingerprint fingerprint
+    )
     {
         Certificate = certificate;
         PrivateKey = privateKey;
@@ -42,7 +46,13 @@ internal sealed class DtlsCertificate
 
         var domain = ECNamedCurveTable.GetByName("secp256r1");
         var domainParameters = new ECNamedDomainParameters(
-            ECNamedCurveTable.GetOid("secp256r1"), domain.Curve, domain.G, domain.N, domain.H, domain.GetSeed());
+            ECNamedCurveTable.GetOid("secp256r1"),
+            domain.Curve,
+            domain.G,
+            domain.N,
+            domain.H,
+            domain.GetSeed()
+        );
 
         var generator = new ECKeyPairGenerator("EC");
         generator.Init(new ECKeyGenerationParameters(domainParameters, random));
@@ -61,7 +71,11 @@ internal sealed class DtlsCertificate
         serial[0] = 1; // keep it positive
         certGenerator.SetSerialNumber(new BigInteger(serial));
 
-        ISignatureFactory signatureFactory = new Asn1SignatureFactory("SHA256WITHECDSA", keyPair.Private, random);
+        ISignatureFactory signatureFactory = new Asn1SignatureFactory(
+            "SHA256WITHECDSA",
+            keyPair.Private,
+            random
+        );
         X509Certificate x509 = certGenerator.Generate(signatureFactory);
         byte[] der = x509.GetEncoded();
 
@@ -69,6 +83,10 @@ internal sealed class DtlsCertificate
         var tlsCertificate = crypto.CreateCertificate(der);
         var certificate = new Certificate(null, [new CertificateEntry(tlsCertificate, null)]);
 
-        return new DtlsCertificate(certificate, keyPair.Private, CertificateFingerprint.Sha256(der));
+        return new DtlsCertificate(
+            certificate,
+            keyPair.Private,
+            CertificateFingerprint.Sha256(der)
+        );
     }
 }

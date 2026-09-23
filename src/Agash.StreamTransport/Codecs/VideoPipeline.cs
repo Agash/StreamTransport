@@ -1,4 +1,3 @@
-
 using FFmpeg.AutoGen;
 
 namespace Agash.StreamTransport.Codecs;
@@ -31,14 +30,17 @@ internal static class HevcEncoderSelector
         {
             return FFmpegLibrary.HasEncoder(preferred)
                 ? preferred
-                : throw new NotSupportedException($"Requested HEVC encoder '{preferred}' is not present in the FFmpeg build.");
+                : throw new NotSupportedException(
+                    $"Requested HEVC encoder '{preferred}' is not present in the FFmpeg build."
+                );
         }
 
         IReadOnlyList<string> usable = UsableEncoders();
         return usable.Count > 0
             ? usable[0]
             : throw new NotSupportedException(
-                "No usable hardware HEVC encoder (vaapi/nvenc/amf/qsv/rkmpp/videotoolbox) is available on this machine.");
+                "No usable hardware HEVC encoder (vaapi/nvenc/amf/qsv/rkmpp/videotoolbox) is available on this machine."
+            );
     }
 
     /// <summary>The usable hardware encoders, in priority order - present in the build and with usable hardware.</summary>
@@ -57,12 +59,13 @@ internal static class HevcEncoderSelector
     }
 
     /// <summary>Whether the hardware backing an encoder can actually be initialised on this host.</summary>
-    public static bool IsUsable(string name, AVHWDeviceType type) => name switch
-    {
-        // VAAPI goes through the shared process-wide device (see VaapiDevice), not a throwaway probe device.
-        "hevc_vaapi" => VaapiDevice.IsAvailable(),
-        _ => CodecProbe.HwDeviceUsable(type),
-    };
+    public static bool IsUsable(string name, AVHWDeviceType type) =>
+        name switch
+        {
+            // VAAPI goes through the shared process-wide device (see VaapiDevice), not a throwaway probe device.
+            "hevc_vaapi" => VaapiDevice.IsAvailable(),
+            _ => CodecProbe.HwDeviceUsable(type),
+        };
 }
 
 /// <summary>
@@ -70,14 +73,21 @@ internal static class HevcEncoderSelector
 /// dimensions are known. Currently the CUDA/NVENC backend accepts CPU NV12 (or I420) frames; the GPU
 /// texture (zero-copy) input is layered on in a later step.
 /// </summary>
-internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderName = null, nint gpuDeviceHandle = 0, bool preserveAlpha = false, int maxBFrames = 0, MediaProfile profile = MediaProfile.InteractiveP2P) : IVideoEncoder
+internal sealed class VideoSendPipeline(
+    int fps,
+    long bitrate,
+    string? encoderName = null,
+    nint gpuDeviceHandle = 0,
+    bool preserveAlpha = false,
+    int maxBFrames = 0,
+    MediaProfile profile = MediaProfile.InteractiveP2P
+) : IVideoEncoder
 {
     private const int ClockRate = 90_000;
     private readonly string _encoderName = HevcEncoderSelector.Select(encoderName);
     private readonly CpuSurfaceTransform _cpuTransform = new();
     private IVideoEncoderBackend? _backend;
     private long _lastCaptureNs = -1;
-
 
     /// <summary>The shared GPU device handle the zero-copy encoder runs on (Windows), or 0.</summary>
     public nint GpuDeviceHandle => gpuDeviceHandle;
@@ -95,7 +105,10 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         // keyframe-on-demand request rides through the normalisation (a fresh NV12 frame is built).
         VideoFrame prepared = frame.IsGpuSurface
             ? frame
-            : PrepareCpuFrame(frame) with { ForceKeyframe = frame.ForceKeyframe };
+            : PrepareCpuFrame(frame) with
+            {
+                ForceKeyframe = frame.ForceKeyframe,
+            };
 
         // Create the codec backend lazily on the first frame, when dimensions are known: the encoder class
         // *is* the backend (no wrapper), constructed here at the prepared frame's size.
@@ -106,7 +119,9 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         // reorders - relative to the submitted frame). Allocation-free: no FIFO or map, just the recovered PTS.
         // Use that producing capture time for both the RTP duration and the caller's abs-capture-time.
         byte[]? accessUnit = _backend.Encode(prepared, out long captureNs);
-        return accessUnit is null ? null : new EncodedVideoAccessUnit(DurationFromCaptureTime(captureNs), accessUnit, captureNs);
+        return accessUnit is null
+            ? null
+            : new EncodedVideoAccessUnit(DurationFromCaptureTime(captureNs), accessUnit, captureNs);
     }
 
     // The RTP timestamp must advance by the REAL capture interval, not a fixed ClockRate/fps - otherwise a
@@ -130,17 +145,41 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
     // Selection is on what kind of memory holds the frame, not on what produced it. A DMA-BUF from
     // V4L2 and one from PipeWire are the same problem for an encoder, and were not distinguishable
     // here while the discriminator named the producer.
-    private IVideoEncoderBackend CreateBackend(in VideoFrame frame) => frame.SurfaceKind switch
-    {
+    private IVideoEncoderBackend CreateBackend(in VideoFrame frame) =>
+        frame.SurfaceKind switch
+        {
 #if WINDOWS_HEAD
-        // The texture's native format (BGRA) goes straight to the ASIC; gpuDeviceHandle is the shared device.
-        VideoSurfaceKind.D3D11Texture => new D3D11VideoEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, frame.PixelFormat, gpuDeviceHandle, profile),
+            // The texture's native format (BGRA) goes straight to the ASIC; gpuDeviceHandle is the shared device.
+            VideoSurfaceKind.D3D11Texture => new D3D11VideoEncoder(
+                _encoderName,
+                frame.Width,
+                frame.Height,
+                fps,
+                bitrate,
+                frame.PixelFormat,
+                gpuDeviceHandle,
+                profile
+            ),
 #endif
-        VideoSurfaceKind.IOSurface => new VideoToolboxVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile),
-        VideoSurfaceKind.DmaBuf => new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile),
-        VideoSurfaceKind.Cpu => CreateCpuEncoderWithFallback(frame),
-        _ => throw new NotSupportedException($"Surface kind {frame.SurfaceKind} has no encoder on this platform."),
-    };
+            VideoSurfaceKind.IOSurface => new VideoToolboxVideoEncoder(
+                frame.Width,
+                frame.Height,
+                fps,
+                bitrate,
+                profile
+            ),
+            VideoSurfaceKind.DmaBuf => new VaapiVideoEncoder(
+                frame.Width,
+                frame.Height,
+                fps,
+                bitrate,
+                profile
+            ),
+            VideoSurfaceKind.Cpu => CreateCpuEncoderWithFallback(frame),
+            _ => throw new NotSupportedException(
+                $"Surface kind {frame.SurfaceKind} has no encoder on this platform."
+            ),
+        };
 
     // CPU-input (None) path. A pinned encoder is honoured exactly (no silent substitution). Otherwise try the
     // usable hardware encoders in priority order: device-probe says the GPU is present, but an encoder can still
@@ -152,7 +191,15 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
         {
             return _encoderName == "hevc_vaapi"
                 ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile)
-                : new HardwareHevcEncoder(_encoderName, frame.Width, frame.Height, fps, bitrate, maxBFrames, profile);
+                : new HardwareHevcEncoder(
+                    _encoderName,
+                    frame.Width,
+                    frame.Height,
+                    fps,
+                    bitrate,
+                    maxBFrames,
+                    profile
+                );
         }
 
         Exception? last = null;
@@ -162,15 +209,27 @@ internal sealed class VideoSendPipeline(int fps, long bitrate, string? encoderNa
             {
                 return name == "hevc_vaapi"
                     ? new VaapiVideoEncoder(frame.Width, frame.Height, fps, bitrate, profile)
-                    : new HardwareHevcEncoder(name, frame.Width, frame.Height, fps, bitrate, maxBFrames, profile);
+                    : new HardwareHevcEncoder(
+                        name,
+                        frame.Width,
+                        frame.Height,
+                        fps,
+                        bitrate,
+                        maxBFrames,
+                        profile
+                    );
             }
-            catch (Exception ex) when (ex is HardwareEncoderUnavailableException or NotSupportedException)
+            catch (Exception ex)
+                when (ex is HardwareEncoderUnavailableException or NotSupportedException)
             {
                 last = ex; // probed-usable but failed to open; try the next candidate
             }
         }
 
-        throw new NotSupportedException("No hardware HEVC encoder could be opened on this machine.", last);
+        throw new NotSupportedException(
+            "No hardware HEVC encoder could be opened on this machine.",
+            last
+        );
     }
 
     // The CPU surface transform (last resort, CPU-memory sources only): a BGRA frame with alpha is packed
@@ -208,7 +267,6 @@ internal sealed class VideoReceivePipeline : IVideoDecoder
     /// <summary>True when frames are decoded into GPU surfaces (zero-copy), false for the CPU path.</summary>
     public bool IsGpuOutput => _decoder.OutputSurfaceKind != VideoSurfaceKind.Cpu;
 
-
     /// <summary>The native device handle the GPU output surface lives on (ID3D11Device* on Windows), or 0.</summary>
     public nint NativeDevice => _decoder.NativeDevice;
 
@@ -219,9 +277,22 @@ internal sealed class VideoReceivePipeline : IVideoDecoder
     /// </summary>
     public void SetPreserveAlpha(bool value) => _preserveAlpha = value;
 
-    public VideoFrame? Decode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out uint frameRtpTimestamp)
+    public VideoFrame? Decode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out uint frameRtpTimestamp
+    )
     {
-        if (!_decoder.TryDecode(accessUnit, rtpTimestamp, presentationTimeNs, out VideoFrame frame, out frameRtpTimestamp))
+        if (
+            !_decoder.TryDecode(
+                accessUnit,
+                rtpTimestamp,
+                presentationTimeNs,
+                out VideoFrame frame,
+                out frameRtpTimestamp
+            )
+        )
         {
             return null;
         }

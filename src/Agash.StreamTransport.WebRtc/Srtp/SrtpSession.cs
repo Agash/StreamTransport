@@ -34,22 +34,72 @@ public sealed class SrtpSession
         {
             SrtpProtectionProfile.AeadAes128Gcm => 16,
             SrtpProtectionProfile.AeadAes256Gcm => 32,
-            _ => throw new NotSupportedException($"Only AES-GCM SRTP profiles are supported, not {keying.Profile}."),
+            _ => throw new NotSupportedException(
+                $"Only AES-GCM SRTP profiles are supported, not {keying.Profile}."
+            ),
         };
 
-        ReadOnlySpan<byte> sendMasterKey = (isDtlsClient ? keying.ClientMasterKey : keying.ServerMasterKey).Span;
-        ReadOnlySpan<byte> sendMasterSalt = (isDtlsClient ? keying.ClientMasterSalt : keying.ServerMasterSalt).Span;
-        ReadOnlySpan<byte> recvMasterKey = (isDtlsClient ? keying.ServerMasterKey : keying.ClientMasterKey).Span;
-        ReadOnlySpan<byte> recvMasterSalt = (isDtlsClient ? keying.ServerMasterSalt : keying.ClientMasterSalt).Span;
+        ReadOnlySpan<byte> sendMasterKey = (
+            isDtlsClient ? keying.ClientMasterKey : keying.ServerMasterKey
+        ).Span;
+        ReadOnlySpan<byte> sendMasterSalt = (
+            isDtlsClient ? keying.ClientMasterSalt : keying.ServerMasterSalt
+        ).Span;
+        ReadOnlySpan<byte> recvMasterKey = (
+            isDtlsClient ? keying.ServerMasterKey : keying.ClientMasterKey
+        ).Span;
+        ReadOnlySpan<byte> recvMasterSalt = (
+            isDtlsClient ? keying.ServerMasterSalt : keying.ClientMasterSalt
+        ).Span;
 
-        _sendKey = SrtpKeyDerivation.Derive(sendMasterKey, sendMasterSalt, SrtpKeyDerivation.LabelRtpEncryption, keyLength);
-        _sendSalt = SrtpKeyDerivation.Derive(sendMasterKey, sendMasterSalt, SrtpKeyDerivation.LabelRtpSalt, SrtpGcmTransform.SaltLength);
-        _recvKey = SrtpKeyDerivation.Derive(recvMasterKey, recvMasterSalt, SrtpKeyDerivation.LabelRtpEncryption, keyLength);
-        _recvSalt = SrtpKeyDerivation.Derive(recvMasterKey, recvMasterSalt, SrtpKeyDerivation.LabelRtpSalt, SrtpGcmTransform.SaltLength);
-        _sendRtcpKey = SrtpKeyDerivation.Derive(sendMasterKey, sendMasterSalt, SrtpKeyDerivation.LabelRtcpEncryption, keyLength);
-        _sendRtcpSalt = SrtpKeyDerivation.Derive(sendMasterKey, sendMasterSalt, SrtpKeyDerivation.LabelRtcpSalt, SrtpGcmTransform.SaltLength);
-        _recvRtcpKey = SrtpKeyDerivation.Derive(recvMasterKey, recvMasterSalt, SrtpKeyDerivation.LabelRtcpEncryption, keyLength);
-        _recvRtcpSalt = SrtpKeyDerivation.Derive(recvMasterKey, recvMasterSalt, SrtpKeyDerivation.LabelRtcpSalt, SrtpGcmTransform.SaltLength);
+        _sendKey = SrtpKeyDerivation.Derive(
+            sendMasterKey,
+            sendMasterSalt,
+            SrtpKeyDerivation.LabelRtpEncryption,
+            keyLength
+        );
+        _sendSalt = SrtpKeyDerivation.Derive(
+            sendMasterKey,
+            sendMasterSalt,
+            SrtpKeyDerivation.LabelRtpSalt,
+            SrtpGcmTransform.SaltLength
+        );
+        _recvKey = SrtpKeyDerivation.Derive(
+            recvMasterKey,
+            recvMasterSalt,
+            SrtpKeyDerivation.LabelRtpEncryption,
+            keyLength
+        );
+        _recvSalt = SrtpKeyDerivation.Derive(
+            recvMasterKey,
+            recvMasterSalt,
+            SrtpKeyDerivation.LabelRtpSalt,
+            SrtpGcmTransform.SaltLength
+        );
+        _sendRtcpKey = SrtpKeyDerivation.Derive(
+            sendMasterKey,
+            sendMasterSalt,
+            SrtpKeyDerivation.LabelRtcpEncryption,
+            keyLength
+        );
+        _sendRtcpSalt = SrtpKeyDerivation.Derive(
+            sendMasterKey,
+            sendMasterSalt,
+            SrtpKeyDerivation.LabelRtcpSalt,
+            SrtpGcmTransform.SaltLength
+        );
+        _recvRtcpKey = SrtpKeyDerivation.Derive(
+            recvMasterKey,
+            recvMasterSalt,
+            SrtpKeyDerivation.LabelRtcpEncryption,
+            keyLength
+        );
+        _recvRtcpSalt = SrtpKeyDerivation.Derive(
+            recvMasterKey,
+            recvMasterSalt,
+            SrtpKeyDerivation.LabelRtcpSalt,
+            SrtpGcmTransform.SaltLength
+        );
     }
 
     /// <summary>The bytes added to an RTP packet by protection (the GCM tag).</summary>
@@ -82,7 +132,14 @@ public sealed class SrtpSession
         uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
         ushort seq = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
         uint roc = _recvRoc.GetOrAdd(ssrc, static _ => new ReceiverRollover()).Estimate(seq);
-        return SrtpGcmTransform.UnprotectRtp(_recvKey, _recvSalt, roc, packet, length, out plaintextLength);
+        return SrtpGcmTransform.UnprotectRtp(
+            _recvKey,
+            _recvSalt,
+            roc,
+            packet,
+            length,
+            out plaintextLength
+        );
     }
 
     /// <summary>The bytes added to an RTCP packet by protection (the SRTCP index trailer + GCM tag).</summary>
@@ -97,7 +154,13 @@ public sealed class SrtpSession
 
     /// <summary>Authenticates and decrypts an SRTCP packet in place, writing the recovered RTCP length.</summary>
     public bool UnprotectRtcp(Span<byte> packet, int length, out int plaintextLength) =>
-        SrtpGcmTransform.UnprotectRtcp(_recvRtcpKey, _recvRtcpSalt, packet, length, out plaintextLength);
+        SrtpGcmTransform.UnprotectRtcp(
+            _recvRtcpKey,
+            _recvRtcpSalt,
+            packet,
+            length,
+            out plaintextLength
+        );
 
     private sealed class SenderRollover
     {

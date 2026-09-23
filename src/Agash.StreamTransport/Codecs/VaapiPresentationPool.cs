@@ -51,14 +51,18 @@ public sealed unsafe class VaapiPresentationPool : IDisposable
         _display = VaapiDevice.Display;
         if (_display == 0)
         {
-            throw new NotSupportedException("No VAAPI display available for the presentation pool.");
+            throw new NotSupportedException(
+                "No VAAPI display available for the presentation pool."
+            );
         }
 
         _device = VaapiDevice.AcquireRef();
         _framesRef = ffmpeg.av_hwframe_ctx_alloc(_device);
         if (_framesRef is null)
         {
-            throw new NotSupportedException("Failed to allocate VAAPI frames context for the presentation pool.");
+            throw new NotSupportedException(
+                "Failed to allocate VAAPI frames context for the presentation pool."
+            );
         }
 
         var framesCtx = (AVHWFramesContext*)_framesRef->data;
@@ -72,7 +76,9 @@ public sealed unsafe class VaapiPresentationPool : IDisposable
         for (int i = 0; i < count; i++)
         {
             AVFrame* surface = ffmpeg.av_frame_alloc();
-            ffmpeg.av_hwframe_get_buffer(_framesRef, surface, 0).ThrowOnError("allocate presentation surface");
+            ffmpeg
+                .av_hwframe_get_buffer(_framesRef, surface, 0)
+                .ThrowOnError("allocate presentation surface");
             _surfaces[i] = surface;
             _surfaceIds[i] = (uint)(nuint)surface->data[3];
             _planes[i] = ExportDmaBuf(surface, i);
@@ -108,8 +114,15 @@ public sealed unsafe class VaapiPresentationPool : IDisposable
             new Span<byte>(param, VaapiInterop.ProcPipelineParameterBufferSize).Clear();
             *(uint*)param = sourceSurfaceId;
 
-            int rc = VaapiInterop.vaCreateBuffer(_display, _vppContext, VaapiInterop.VAProcPipelineParameterBufferType,
-                VaapiInterop.ProcPipelineParameterBufferSize, 1, param, out paramBuf);
+            int rc = VaapiInterop.vaCreateBuffer(
+                _display,
+                _vppContext,
+                VaapiInterop.VAProcPipelineParameterBufferType,
+                VaapiInterop.ProcPipelineParameterBufferSize,
+                1,
+                param,
+                out paramBuf
+            );
             if (rc != 0)
             {
                 return rc;
@@ -147,15 +160,31 @@ public sealed unsafe class VaapiPresentationPool : IDisposable
 
     private void CreateVppContext()
     {
-        VaapiInterop.vaCreateConfig(_display, VaapiInterop.VAProfileNone, VaapiInterop.VAEntrypointVideoProc, null, 0, out _vppConfig)
+        VaapiInterop
+            .vaCreateConfig(
+                _display,
+                VaapiInterop.VAProfileNone,
+                VaapiInterop.VAEntrypointVideoProc,
+                null,
+                0,
+                out _vppConfig
+            )
             .ThrowOnError("create VPP config");
 
         // Register every pool surface as a render target so any of them can be a copy destination.
         fixed (uint* targets = _surfaceIds)
         {
-            VaapiInterop.vaCreateContext(_display, _vppConfig,
-                ((AVHWFramesContext*)_framesRef->data)->width, ((AVHWFramesContext*)_framesRef->data)->height,
-                VaapiInterop.VA_PROGRESSIVE, targets, Count, out _vppContext)
+            VaapiInterop
+                .vaCreateContext(
+                    _display,
+                    _vppConfig,
+                    ((AVHWFramesContext*)_framesRef->data)->width,
+                    ((AVHWFramesContext*)_framesRef->data)->height,
+                    VaapiInterop.VA_PROGRESSIVE,
+                    targets,
+                    Count,
+                    out _vppContext
+                )
                 .ThrowOnError("create VPP context");
         }
     }
@@ -168,7 +197,14 @@ public sealed unsafe class VaapiPresentationPool : IDisposable
         AVFrame* drm = ffmpeg.av_frame_alloc();
         drm->format = (int)AVPixelFormat.AV_PIX_FMT_DRM_PRIME;
         // Map for read+write: the surface is both a VPP destination (write) and a PipeWire source (read).
-        if (ffmpeg.av_hwframe_map(drm, surface, (int)DrmPrime.HwframeMapRead | (int)DrmPrime.HwframeMapWrite) < 0 || drm->data[0] is null)
+        if (
+            ffmpeg.av_hwframe_map(
+                drm,
+                surface,
+                (int)DrmPrime.HwframeMapRead | (int)DrmPrime.HwframeMapWrite
+            ) < 0
+            || drm->data[0] is null
+        )
         {
             ffmpeg.av_frame_free(&drm);
             throw new NotSupportedException("Failed to export presentation surface to DMA-BUF.");
@@ -185,7 +221,12 @@ public sealed unsafe class VaapiPresentationPool : IDisposable
             {
                 ref readonly AVDRMPlaneDescriptor plane = ref layer.planes[p];
                 int fd = desc.objects[plane.object_index].fd;
-                planes[planeCount++] = new DmaBufPlane(fd, (uint)plane.offset, (uint)plane.pitch, layer.format);
+                planes[planeCount++] = new DmaBufPlane(
+                    fd,
+                    (uint)plane.offset,
+                    (uint)plane.pitch,
+                    layer.format
+                );
             }
         }
 

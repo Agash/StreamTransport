@@ -29,7 +29,8 @@ internal sealed class VerificationReport
     private int _videoPublishLatencyCount;
 
     /// <param name="audioDeviceLatencyMs">The receiver platform's audio device buffer depth (La), for the boundary-skew estimate.</param>
-    public VerificationReport(double audioDeviceLatencyMs = 0) => _audioDeviceLatencyMs = audioDeviceLatencyMs;
+    public VerificationReport(double audioDeviceLatencyMs = 0) =>
+        _audioDeviceLatencyMs = audioDeviceLatencyMs;
 
     // First observation per sequence id, in the shared QPC clock (comparable across both sinks, and - on one
     // machine - with the sender's embedded capture ms).
@@ -130,14 +131,20 @@ internal sealed class VerificationReport
             {
                 bool flowed = _videoFrames >= 10;
                 bool contentLive = _videoBrightMax - _videoBrightMin > 15 && _videoBrightMax > 30; // not black/frozen
-                log($"video : {_videoFrames} frames ({videoFps:F1} fps), brightness {_videoBrightMin:F0}..{_videoBrightMax:F0}, format {_lastVideoFormat}");
+                log(
+                    $"video : {_videoFrames} frames ({videoFps:F1} fps), brightness {_videoBrightMin:F0}..{_videoBrightMax:F0}, format {_lastVideoFormat}"
+                );
                 if (_sawAnyBgra)
                 {
-                    log($"alpha : gradient {(_sawAlphaGradient ? "preserved" : "MISSING")} (decoded BGRA = transparency path)");
+                    log(
+                        $"alpha : gradient {(_sawAlphaGradient ? "preserved" : "MISSING")} (decoded BGRA = transparency path)"
+                    );
                     ok &= _sawAlphaGradient;
                 }
 
-                log($"video : flow {(flowed ? "OK" : "LOW")}, content {(contentLive ? "live" : "FROZEN/BLACK")}");
+                log(
+                    $"video : flow {(flowed ? "OK" : "LOW")}, content {(contentLive ? "live" : "FROZEN/BLACK")}"
+                );
                 ok &= flowed && contentLive;
             }
 
@@ -147,7 +154,9 @@ internal sealed class VerificationReport
                 bool flowed = _audioFrames >= 20;
                 bool audible = avgRms > 1000; // the 0.3-amplitude tone is ~7000 RMS
                 log($"audio : {_audioFrames} frames ({audioFps:F1} fps), avg RMS {avgRms:F0}");
-                log($"audio : flow {(flowed ? "OK" : "LOW")}, signal {(audible ? "present" : "SILENT")}");
+                log(
+                    $"audio : flow {(flowed ? "OK" : "LOW")}, signal {(audible ? "present" : "SILENT")}"
+                );
                 ok &= flowed && audible;
             }
 
@@ -207,16 +216,29 @@ internal sealed class VerificationReport
 
         if (skews.Count < 3)
         {
-            log($"sync  : only {skews.Count} id-matched A/V markers after warm-up (run --verify longer) - INCONCLUSIVE");
+            log(
+                $"sync  : only {skews.Count} id-matched A/V markers after warm-up (run --verify longer) - INCONCLUSIVE"
+            );
             return true; // not enough data to fail on
         }
 
-        double mean = 0, min = double.MaxValue, max = double.MinValue, meanTime = 0;
-        foreach ((double t, double sk) in skews) { mean += sk; meanTime += t; min = Math.Min(min, sk); max = Math.Max(max, sk); }
+        double mean = 0,
+            min = double.MaxValue,
+            max = double.MinValue,
+            meanTime = 0;
+        foreach ((double t, double sk) in skews)
+        {
+            mean += sk;
+            meanTime += t;
+            min = Math.Min(min, sk);
+            max = Math.Max(max, sk);
+        }
         mean /= skews.Count;
         meanTime /= skews.Count;
 
-        double variance = 0, cov = 0, timeVar = 0;
+        double variance = 0,
+            cov = 0,
+            timeVar = 0;
         foreach ((double t, double sk) in skews)
         {
             variance += (sk - mean) * (sk - mean);
@@ -229,10 +251,14 @@ internal sealed class VerificationReport
         string lead = mean >= 0 ? "video behind audio" : "video ahead of audio";
 
         bool locked = Math.Abs(mean) <= 40 && Math.Abs(slope) <= 6 && stdDev <= 40;
-        log($"sync  : {skews.Count} id-matched markers; skew {mean:+0;-0;0} ms ({lead}), jitter +/-{stdDev:F0} ms, trend {slope:+0.0;-0.0;0.0} ms/s, range {max - min:F0} ms - {(locked ? "IN SYNC" : "OUT OF SYNC")}");
+        log(
+            $"sync  : {skews.Count} id-matched markers; skew {mean:+0;-0;0} ms ({lead}), jitter +/-{stdDev:F0} ms, trend {slope:+0.0;-0.0;0.0} ms/s, range {max - min:F0} ms - {(locked ? "IN SYNC" : "OUT OF SYNC")}"
+        );
         if (latencyCount > 0)
         {
-            log($"sync  : capture->present video ~{latencySum / latencyCount:F0} ms, audio ~{audioLatencySum / latencyCount:F0} ms (same-machine QPC only)");
+            log(
+                $"sync  : capture->present video ~{latencySum / latencyCount:F0} ms, audio ~{audioLatencySum / latencyCount:F0} ms (same-machine QPC only)"
+            );
         }
 
         // Boundary-skew estimate (#14): the skew above is at scheduler release - the part the playout controls. The
@@ -241,9 +267,14 @@ internal sealed class VerificationReport
         // scheduler skew + (Lv - La). Informational - the IN/OUT verdict stays on the controllable scheduler skew;
         // a host that sets the receiver's output-latency offset (Lv - La) drives this toward zero. See
         // docs/notes/output-boundary-latency-sync.md.
-        double lv = _videoPublishLatencyCount > 0 ? _videoPublishLatencySumMs / _videoPublishLatencyCount : 0;
+        double lv =
+            _videoPublishLatencyCount > 0
+                ? _videoPublishLatencySumMs / _videoPublishLatencyCount
+                : 0;
         double boundary = mean + (lv - _audioDeviceLatencyMs);
-        log($"sync  : output-boundary skew ~{boundary:+0;-0;0} ms (video publish Lv ~{lv:F0} ms, audio device La ~{_audioDeviceLatencyMs:F0} ms; uncompensated)");
+        log(
+            $"sync  : output-boundary skew ~{boundary:+0;-0;0} ms (video publish Lv ~{lv:F0} ms, audio device La ~{_audioDeviceLatencyMs:F0} ms; uncompensated)"
+        );
 
         return locked;
     }
@@ -254,7 +285,10 @@ internal sealed class VerificationReport
 /// recovers the <see cref="SyncMarkerCodec"/> marker payload (sequence id + sender capture ms) from the decoded
 /// luma plane. Pairs with <see cref="VerifyingAudioSink"/> via a shared <see cref="VerificationReport"/>.
 /// </summary>
-internal sealed class VerifyingVideoSink(VerificationReport report, bool usePresentationTime = false) : IVideoFrameSink
+internal sealed class VerifyingVideoSink(
+    VerificationReport report,
+    bool usePresentationTime = false
+) : IVideoFrameSink
 {
     public void Submit(VideoFrame frame)
     {
@@ -271,12 +305,24 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
         report.RecordVideoContent(brightness, isBgra, alphaGradient, opaque);
 
         // The marker codec rides the NV12/I420 luma plane (the alpha path keeps the plain white marker).
-        if (!isBgra && SyncMarkerCodec.TryReadVideoMarker(px, frame.Width, frame.Height, out int seqId, out long captureMs))
+        if (
+            !isBgra
+            && SyncMarkerCodec.TryReadVideoMarker(
+                px,
+                frame.Width,
+                frame.Height,
+                out int seqId,
+                out long captureMs
+            )
+        )
         {
             // GPU verify reads pixels back on a synchronous path that adds latency after the frame was delivered,
             // so it stamps the delivery (playout) time on the frame and we use that - otherwise the readback cost
             // would inflate the measured A/V skew. The CPU path has no such delay and times the marker on receipt.
-            double presentMs = usePresentationTime && frame.PresentationTimeNs > 0 ? frame.PresentationTimeNs / 1_000_000.0 : NowMs();
+            double presentMs =
+                usePresentationTime && frame.PresentationTimeNs > 0
+                    ? frame.PresentationTimeNs / 1_000_000.0
+                    : NowMs();
             report.RecordVideoMarker(seqId, captureMs, presentMs);
         }
     }
@@ -302,11 +348,18 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
         return n > 0 ? sum / (double)n : 0;
     }
 
-    private static (double Brightness, bool AlphaGradient, bool Opaque) SampleBgra(ReadOnlySpan<byte> px, int width, int height)
+    private static (double Brightness, bool AlphaGradient, bool Opaque) SampleBgra(
+        ReadOnlySpan<byte> px,
+        int width,
+        int height
+    )
     {
         long sum = 0;
         int n = 0;
-        int alphaLeft = 0, alphaRight = 0, leftN = 0, rightN = 0;
+        int alphaLeft = 0,
+            alphaRight = 0,
+            leftN = 0,
+            rightN = 0;
         int alphaMin = 255;
         for (int y = 0; y < height; y += 8)
         {
@@ -317,13 +370,24 @@ internal sealed class VerifyingVideoSink(VerificationReport report, bool usePres
                 sum += (px[p] + px[p + 1] + px[p + 2]) / 3;
                 n++;
                 alphaMin = Math.Min(alphaMin, px[p + 3]);
-                if (x < width / 4) { alphaLeft += px[p + 3]; leftN++; }
-                else if (x > 3 * width / 4) { alphaRight += px[p + 3]; rightN++; }
+                if (x < width / 4)
+                {
+                    alphaLeft += px[p + 3];
+                    leftN++;
+                }
+                else if (x > 3 * width / 4)
+                {
+                    alphaRight += px[p + 3];
+                    rightN++;
+                }
             }
         }
 
         double brightness = n > 0 ? sum / (double)n : 0;
-        bool gradient = leftN > 0 && rightN > 0 && brightness < 200
+        bool gradient =
+            leftN > 0
+            && rightN > 0
+            && brightness < 200
             && (alphaRight / (double)rightN) - (alphaLeft / (double)leftN) > 40;
         // Uniformly near-255 alpha = an opaque frame that merely colour-converted to BGRA (not the alpha path).
         bool opaque = alphaMin > 250;
@@ -357,7 +421,14 @@ internal sealed class VerifyingAudioSink(VerificationReport report) : IAudioFram
 
         report.RecordAudioContent(Math.Sqrt(sumSquares / (double)samples));
 
-        if (SyncMarkerCodec.TryReadAudioMarker(bytes, frame.SampleRate == 0 ? SampleRate : frame.SampleRate, Math.Max(1, frame.Channels), out int seqId))
+        if (
+            SyncMarkerCodec.TryReadAudioMarker(
+                bytes,
+                frame.SampleRate == 0 ? SampleRate : frame.SampleRate,
+                Math.Max(1, frame.Channels),
+                out int seqId
+            )
+        )
         {
             report.RecordAudioMarker(seqId, NowMs());
         }

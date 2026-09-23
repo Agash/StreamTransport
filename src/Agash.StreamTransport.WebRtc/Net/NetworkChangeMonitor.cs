@@ -78,23 +78,28 @@ public sealed class NetworkChangeMonitor : INetworkMonitor
                 continue;
             }
 
-            operational.Add(new NetworkPathInfo(ni.Id, ni.Name, Classify(ni.NetworkInterfaceType), IsUp: true));
+            operational.Add(
+                new NetworkPathInfo(ni.Id, ni.Name, Classify(ni.NetworkInterfaceType), IsUp: true)
+            );
         }
-
 
         operational.Sort(static (a, b) => StringComparer.Ordinal.Compare(a.Id, b.Id));
         return [.. operational];
     }
 
-    private static NetworkAdapterType Classify(NetworkInterfaceType type) => type switch
-    {
-        NetworkInterfaceType.Ethernet or NetworkInterfaceType.GigabitEthernet or NetworkInterfaceType.FastEthernetT
+    private static NetworkAdapterType Classify(NetworkInterfaceType type) =>
+        type switch
+        {
+            NetworkInterfaceType.Ethernet
+            or NetworkInterfaceType.GigabitEthernet
+            or NetworkInterfaceType.FastEthernetT
             or NetworkInterfaceType.FastEthernetFx => NetworkAdapterType.Ethernet,
-        NetworkInterfaceType.Wireless80211 => NetworkAdapterType.Wifi,
-        NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2 => NetworkAdapterType.Cellular,
-        NetworkInterfaceType.Loopback => NetworkAdapterType.Loopback,
-        _ => NetworkAdapterType.Other,
-    };
+            NetworkInterfaceType.Wireless80211 => NetworkAdapterType.Wifi,
+            NetworkInterfaceType.Wwanpp or NetworkInterfaceType.Wwanpp2 =>
+                NetworkAdapterType.Cellular,
+            NetworkInterfaceType.Loopback => NetworkAdapterType.Loopback,
+            _ => NetworkAdapterType.Other,
+        };
 
     /// <inheritdoc/>
     public void Dispose()

@@ -23,10 +23,24 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
         // into a VAAPI surface and encoded - no CPU upload. Otherwise upload the CPU NV12 buffer.
         if (frame.SurfaceKind == VideoSurfaceKind.DmaBuf && frame.DmaBuf.HasValue)
         {
-            return EncodeDmaBuf(frame.DmaBuf.Value, frame.Width, frame.Height, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
+            return EncodeDmaBuf(
+                frame.DmaBuf.Value,
+                frame.Width,
+                frame.Height,
+                frame.PresentationTimeNs,
+                frame.ForceKeyframe,
+                out capturePtsNs
+            );
         }
 
-        return EncodeNv12(frame.Pixels.ToArray(), frame.Width, frame.Height, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
+        return EncodeNv12(
+            frame.Pixels.ToArray(),
+            frame.Width,
+            frame.Height,
+            frame.PresentationTimeNs,
+            frame.ForceKeyframe,
+            out capturePtsNs
+        );
     }
 
     private AVCodecContext* _context;
@@ -36,7 +50,14 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
     private AVFrame* _swFrame;
     private bool _disposed;
 
-    public VaapiVideoEncoder(int width, int height, int fps, long bitrate, MediaProfile profile = MediaProfile.InteractiveP2P, string? renderNode = null)
+    public VaapiVideoEncoder(
+        int width,
+        int height,
+        int fps,
+        long bitrate,
+        MediaProfile profile = MediaProfile.InteractiveP2P,
+        string? renderNode = null
+    )
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -94,7 +115,14 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
     public byte[]? EncodeNv12(byte[] nv12, int width, int height) =>
         EncodeNv12(nv12, width, height, 0, forceKeyframe: false, out _);
 
-    public byte[]? EncodeNv12(byte[] nv12, int width, int height, long capturePtsNs, bool forceKeyframe, out long producedPtsNs)
+    public byte[]? EncodeNv12(
+        byte[] nv12,
+        int width,
+        int height,
+        long capturePtsNs,
+        bool forceKeyframe,
+        out long producedPtsNs
+    )
     {
         producedPtsNs = 0;
         ffmpeg.av_frame_make_writable(_swFrame).ThrowOnError("make staging frame writable");
@@ -103,10 +131,16 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
         AVFrame* hwFrame = ffmpeg.av_frame_alloc();
         try
         {
-            ffmpeg.av_hwframe_get_buffer(_hwFrames, hwFrame, 0).ThrowOnError("acquire VAAPI surface");
-            ffmpeg.av_hwframe_transfer_data(hwFrame, _swFrame, 0).ThrowOnError("upload NV12 to VAAPI surface");
+            ffmpeg
+                .av_hwframe_get_buffer(_hwFrames, hwFrame, 0)
+                .ThrowOnError("acquire VAAPI surface");
+            ffmpeg
+                .av_hwframe_transfer_data(hwFrame, _swFrame, 0)
+                .ThrowOnError("upload NV12 to VAAPI surface");
             hwFrame->pts = capturePtsNs;
-            hwFrame->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
+            hwFrame->pict_type = forceKeyframe
+                ? AVPictureType.AV_PICTURE_TYPE_I
+                : AVPictureType.AV_PICTURE_TYPE_NONE;
 
             ffmpeg.avcodec_send_frame(_context, hwFrame).ThrowOnError("send frame to hevc_vaapi");
             ffmpeg.av_packet_unref(_packet);
@@ -132,7 +166,14 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
     // wrapped as an AV_PIX_FMT_DRM_PRIME frame (its hand-defined AVDRMFrameDescriptor in data[0]) carried by
     // a DRM frames context derived from this encoder's VAAPI device, then av_hwframe_map'd (DIRECT) into a
     // VAAPI surface that aliases the same memory. The caller owns the source fds (we never close them).
-    private byte[]? EncodeDmaBuf(in DmaBufSurface surface, int width, int height, long capturePtsNs, bool forceKeyframe, out long producedPtsNs)
+    private byte[]? EncodeDmaBuf(
+        in DmaBufSurface surface,
+        int width,
+        int height,
+        long capturePtsNs,
+        bool forceKeyframe,
+        out long producedPtsNs
+    )
     {
         producedPtsNs = 0;
         FfmpegLog.InstallIfRequested();
@@ -151,7 +192,11 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
             int objectIndex = -1;
             for (int o = 0; o < objectCount; o++)
             {
-                if (objectFds[o] == plane.Fd) { objectIndex = o; break; }
+                if (objectFds[o] == plane.Fd)
+                {
+                    objectIndex = o;
+                    break;
+                }
             }
 
             if (objectIndex < 0)
@@ -203,12 +248,17 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
 
             va->format = (int)AVPixelFormat.AV_PIX_FMT_VAAPI;
             va->hw_frames_ctx = ffmpeg.av_buffer_ref(_hwFrames);
-            ffmpeg.av_hwframe_map(va, drm, (int)AV_HWFRAME_MAP_READ)
+            ffmpeg
+                .av_hwframe_map(va, drm, (int)AV_HWFRAME_MAP_READ)
                 .ThrowOnError("map DMA-BUF into VAAPI surface");
             va->pts = capturePtsNs;
-            va->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
+            va->pict_type = forceKeyframe
+                ? AVPictureType.AV_PICTURE_TYPE_I
+                : AVPictureType.AV_PICTURE_TYPE_NONE;
 
-            ffmpeg.avcodec_send_frame(_context, va).ThrowOnError("send dmabuf surface to hevc_vaapi");
+            ffmpeg
+                .avcodec_send_frame(_context, va)
+                .ThrowOnError("send dmabuf surface to hevc_vaapi");
             ffmpeg.av_packet_unref(_packet);
             int receive = ffmpeg.avcodec_receive_packet(_context, _packet);
             if (receive == ffmpeg.AVERROR(ffmpeg.EAGAIN) || receive == ffmpeg.AVERROR_EOF)
@@ -246,7 +296,12 @@ internal sealed unsafe class VaapiVideoEncoder : IDisposable, IVideoEncoderBacke
         int uvOffset = width * height;
         for (int row = 0; row < height / 2; row++)
         {
-            Marshal.Copy(nv12, uvOffset + (row * width), (nint)(_swFrame->data[1] + (row * uvStride)), width);
+            Marshal.Copy(
+                nv12,
+                uvOffset + (row * width),
+                (nint)(_swFrame->data[1] + (row * uvStride)),
+                width
+            );
         }
     }
 

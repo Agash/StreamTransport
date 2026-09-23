@@ -92,7 +92,14 @@ public sealed class VideoContentTests
         // CI Mac opens, accepts frames, and returns nothing. Preflight a burst and require real output, so the
         // test reports Inconclusive here rather than failing 55 seconds later with "0 decoded frames".
         // Real-hardware verification happens on our machines.
-        if (!HardwareEncoderTestSupport.TryPreflightEncoder(probe, width, height, out string preflightReason))
+        if (
+            !HardwareEncoderTestSupport.TryPreflightEncoder(
+                probe,
+                width,
+                height,
+                out string preflightReason
+            )
+        )
         {
             Assert.Inconclusive(preflightReason);
             return;
@@ -106,8 +113,20 @@ public sealed class VideoContentTests
         receiverSignaling.Peer = senderSignaling;
 
         var sink = new CollectingVideoSink(target: 5);
-        await using var receiver = new WebRtcMediaReceiver(new MediaTransportOptions(), TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, video: sink);
-        await using var sender = new WebRtcMediaSender(options, TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, video: new StructuredVideoSource(width, height));
+        await using var receiver = new WebRtcMediaReceiver(
+            new MediaTransportOptions(),
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            video: sink
+        );
+        await using var sender = new WebRtcMediaSender(
+            options,
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            video: new StructuredVideoSource(width, height)
+        );
 
         await receiver.StartAsync(receiverSignaling);
         try
@@ -127,23 +146,36 @@ public sealed class VideoContentTests
         await senderSignaling.DisposeAsync();
         await receiverSignaling.DisposeAsync();
 
-        Assert.IsTrue(ReferenceEquals(finished, sink.Reached) && sink.Count >= 5,
-            $"Expected at least 5 decoded frames, got {sink.Count}.");
+        Assert.IsTrue(
+            ReferenceEquals(finished, sink.Reached) && sink.Count >= 5,
+            $"Expected at least 5 decoded frames, got {sink.Count}."
+        );
         Assert.AreEqual(width, sink.LastWidth);
         Assert.AreEqual(height, sink.LastHeight);
 
         byte[]? pixels = sink.SnapshotPixels();
         Assert.IsNotNull(pixels, "decoded frame should carry CPU pixels for the content check.");
-        Assert.IsTrue(sink.LastFormat is VideoPixelFormat.Nv12 or VideoPixelFormat.I420,
-            $"expected a YUV decode for the luma check, got {sink.LastFormat}.");
+        Assert.IsTrue(
+            sink.LastFormat is VideoPixelFormat.Nv12 or VideoPixelFormat.I420,
+            $"expected a YUV decode for the luma check, got {sink.LastFormat}."
+        );
 
         // Y plane is the first width*height bytes (row stride = width) for both NV12 and I420. Sample well
         // inside the bright (top) and dark (bottom) halves, away from the boundary the codec smooths.
         int brightY = pixels[(height / 4 * width) + (width / 2)];
         int darkY = pixels[(3 * height / 4 * width) + (width / 2)];
 
-        Assert.IsTrue(brightY > 150, $"bright region luma {brightY} too low - content lost or black (expected ~{StructuredVideoSource.BrightY}).");
-        Assert.IsTrue(darkY < 90, $"dark region luma {darkY} too high (expected ~{StructuredVideoSource.DarkY}).");
-        Assert.IsTrue(brightY - darkY > 60, $"luma structure flattened (bright {brightY} vs dark {darkY}) - a plane/format bug.");
+        Assert.IsTrue(
+            brightY > 150,
+            $"bright region luma {brightY} too low - content lost or black (expected ~{StructuredVideoSource.BrightY})."
+        );
+        Assert.IsTrue(
+            darkY < 90,
+            $"dark region luma {darkY} too high (expected ~{StructuredVideoSource.DarkY})."
+        );
+        Assert.IsTrue(
+            brightY - darkY > 60,
+            $"luma structure flattened (bright {brightY} vs dark {darkY}) - a plane/format bug."
+        );
     }
 }

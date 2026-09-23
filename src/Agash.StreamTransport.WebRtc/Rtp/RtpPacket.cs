@@ -28,7 +28,8 @@ public static class RtpPacket
         uint ssrc,
         ReadOnlySpan<byte> payload,
         int absCaptureTimeExtensionId = 0,
-        ulong absCaptureTimeNtp = 0)
+        ulong absCaptureTimeNtp = 0
+    )
     {
         destination[0] = 0x80; // V=2, P=0, CC=0; X set below if there's an extension.
         destination[1] = (byte)((marker ? 0x80 : 0) | (payloadType & 0x7F));
@@ -44,7 +45,7 @@ public static class RtpPacket
 
             // One element: id||len-1 byte + 8 octets of UQ32.32 NTP. Pad the element area to a 32-bit word.
             const int elementLength = 8;
-            int dataLength = 1 + elementLength;            // element header + value
+            int dataLength = 1 + elementLength; // element header + value
             int paddedWords = (dataLength + 3) / 4;
             BinaryPrimitives.WriteUInt16BigEndian(destination[(offset + 2)..], (ushort)paddedWords);
 
@@ -60,7 +61,11 @@ public static class RtpPacket
     }
 
     /// <summary>Parses an RTP packet, exposing its header fields and the payload span.</summary>
-    public static bool TryParse(ReadOnlySpan<byte> packet, out RtpHeader header, out ReadOnlySpan<byte> payload)
+    public static bool TryParse(
+        ReadOnlySpan<byte> packet,
+        out RtpHeader header,
+        out ReadOnlySpan<byte> payload
+    )
     {
         header = default;
         payload = default;
@@ -157,4 +162,5 @@ public readonly record struct RtpHeader(
     ushort SequenceNumber,
     uint Timestamp,
     uint Ssrc,
-    ulong? AbsoluteCaptureTimeNtp);
+    ulong? AbsoluteCaptureTimeNtp
+);

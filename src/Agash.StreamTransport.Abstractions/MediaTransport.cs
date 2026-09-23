@@ -18,7 +18,8 @@ public interface IMediaTransport
         MediaTransportOptions options,
         IVideoFrameSource? video = null,
         IAudioFrameSource? audio = null,
-        nint gpuDeviceHandle = 0);
+        nint gpuDeviceHandle = 0
+    );
 
     /// <summary>
     /// Create a receiver for one peer. At least one of <paramref name="video"/> / <paramref name="audio"/>
@@ -27,5 +28,6 @@ public interface IMediaTransport
     IMediaReceiver CreateReceiver(
         MediaTransportOptions options,
         IVideoFrameSink? video = null,
-        IAudioFrameSink? audio = null);
+        IAudioFrameSink? audio = null
+    );
 }

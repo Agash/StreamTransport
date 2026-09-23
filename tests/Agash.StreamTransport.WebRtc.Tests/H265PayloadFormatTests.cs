@@ -57,7 +57,12 @@ public sealed class H265PayloadFormatTests
         for (int i = 0; i < packets.Count; i++)
         {
             bool marker = i == packets.Count - 1;
-            bool completed = depacketizer.Push(packets[i], marker, out byte[] result, out int length);
+            bool completed = depacketizer.Push(
+                packets[i],
+                marker,
+                out byte[] result,
+                out int length
+            );
             if (marker)
             {
                 Assert.IsTrue(completed, "the marker payload completes the access unit");
@@ -86,8 +91,16 @@ public sealed class H265PayloadFormatTests
         // No exception is the assertion; whatever it returns, a subsequent clean frame must still work.
         _ = depacketizer.Push(fuEnd, marker: true, out _, out _);
         byte[] single = [0x40, 0x01, 0x11, 0x22];
-        bool completed = depacketizer.Push(single, marker: true, out byte[] next, out int nextLength);
-        Assert.IsTrue(completed, "the depacketizer must recover and assemble the next complete access unit.");
+        bool completed = depacketizer.Push(
+            single,
+            marker: true,
+            out byte[] next,
+            out int nextLength
+        );
+        Assert.IsTrue(
+            completed,
+            "the depacketizer must recover and assemble the next complete access unit."
+        );
         Assert.IsTrue(nextLength > 0, "the recovered access unit must be non-empty.");
         _ = next;
     }

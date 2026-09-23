@@ -1,7 +1,11 @@
 namespace Agash.StreamTransport.WebRtc.Rtcp;
 
 /// <summary>One packet within an RTCP compound packet (RFC 3550 §6.1), borrowed from the source buffer.</summary>
-public readonly ref struct RtcpElement(RtcpPacketType packetType, int reportCount, ReadOnlySpan<byte> body)
+public readonly ref struct RtcpElement(
+    RtcpPacketType packetType,
+    int reportCount,
+    ReadOnlySpan<byte> body
+)
 {
     /// <summary>The packet type.</summary>
     public RtcpPacketType PacketType { get; } = packetType;

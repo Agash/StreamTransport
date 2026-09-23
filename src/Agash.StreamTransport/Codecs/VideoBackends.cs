@@ -53,7 +53,13 @@ internal interface IVideoDecoderBackend : IDisposable
     /// of the access unit that actually produced this frame (a decoder may hold a one-frame pipeline, so the two
     /// differ) - that is the timestamp playout must schedule against, never the just-submitted one.
     /// </summary>
-    bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp);
+    bool TryDecode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out VideoFrame frame,
+        out uint frameRtpTimestamp
+    );
 }
 
 /// <summary>Selects the decode backend for the requested output mode, falling back to CPU when a GPU backend can't open.</summary>
@@ -117,5 +123,6 @@ internal static class VideoDecoderBackendFactory
     }
 
     [SupportedOSPlatform("macos")]
-    private static IVideoDecoderBackend CreateVideoToolboxDecoder() => new VideoToolboxVideoDecoder();
+    private static IVideoDecoderBackend CreateVideoToolboxDecoder() =>
+        new VideoToolboxVideoDecoder();
 }

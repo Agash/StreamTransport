@@ -38,7 +38,13 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     /// </summary>
     public bool? NegotiatedAlpha
     {
-        get { lock (_gate) { return _negotiatedAlpha; } }
+        get
+        {
+            lock (_gate)
+            {
+                return _negotiatedAlpha;
+            }
+        }
     }
 
     /// <summary>Create a subscriber over a room joined as <see cref="PeerRole.Subscriber"/>.</summary>
@@ -54,14 +60,18 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
         ILoggerFactory loggerFactory,
         IMediaRoom room,
         IVideoFrameSink? video = null,
-        IAudioFrameSink? audio = null)
+        IAudioFrameSink? audio = null
+    )
     {
         if (video is null && audio is null)
         {
             throw new ArgumentException("A subscriber needs at least a video or an audio sink.");
         }
 
-        _options = options with { IceServers = options.IceServers.Count == 0 ? room.IceServers : options.IceServers };
+        _options = options with
+        {
+            IceServers = options.IceServers.Count == 0 ? room.IceServers : options.IceServers,
+        };
         _transport = transport;
         _logger = loggerFactory.CreateLogger<MediaSubscriber>();
         _room = room;
@@ -92,7 +102,9 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
         {
             lock (_gate)
             {
-                return _receiver is WebRtcMediaReceiver receiver ? receiver.CurrentLossStats : default;
+                return _receiver is WebRtcMediaReceiver receiver
+                    ? receiver.CurrentLossStats
+                    : default;
             }
         }
     }
@@ -146,7 +158,10 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     [LoggerMessage(Level = LogLevel.Information, Message = "Attaching to publisher {PeerId}.")]
     private partial void LogAttaching(long peerId);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Publisher negotiated side-by-side alpha = {Alpha}.")]
+    [LoggerMessage(
+        Level = LogLevel.Debug,
+        Message = "Publisher negotiated side-by-side alpha = {Alpha}."
+    )]
     private partial void LogAlphaNegotiated(bool alpha);
 
     /// <summary>
@@ -191,7 +206,9 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
 
         // Wiring the receiver subscribes its handlers to the publisher's channel; any offer/ICE that
         // arrived first was buffered by the channel and flushes now.
-        await receiver.StartAsync(_room.ChannelFor(publisher), cancellationToken).ConfigureAwait(false);
+        await receiver
+            .StartAsync(_room.ChannelFor(publisher), cancellationToken)
+            .ConfigureAwait(false);
 
         // If the publisher's stream.alpha already arrived (control before attach), apply it now that the
         // receiver's video pipeline exists; later control messages flow through OnControl.

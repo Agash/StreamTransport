@@ -22,9 +22,9 @@ public sealed partial class PeerConnection
 
     // libwebrtc parity: bound the missing set, give up to a keyframe after a fixed retry budget, and treat a
     // very large forward jump as a stream reset rather than a 60k-packet gap.
-    private const int MaxNackEntries = 1000;            // kMaxNackPackets
-    private const int MaxNackRetries = 100;             // kMaxNackRetries (a packet is NACKed at most this often)
-    private const int MaxNackPacketAge = 10_000;        // a forward jump beyond this is a reset, not loss (kMaxPacketAge)
+    private const int MaxNackEntries = 1000; // kMaxNackPackets
+    private const int MaxNackRetries = 100; // kMaxNackRetries (a packet is NACKed at most this often)
+    private const int MaxNackPacketAge = 10_000; // a forward jump beyond this is a reset, not loss (kMaxPacketAge)
     private const long NackResendIntervalMicros = 100_000; // resend a still-missing seq at most every RTT (kDefaultRtt)
 
     // The original media payload type to restore when unwrapping an RTX packet (RFC 4588 carries only the
@@ -41,7 +41,12 @@ public sealed partial class PeerConnection
     // Recognize an inbound RTX packet: its SSRC + PT match a configured RTX stream. SSRC config is symmetric
     // (both peers use the same constants), so _rtx - built for our send side - also describes the RTX stream the
     // peer retransmits on. Returns the media SSRC the retransmission belongs to and the PT to restore.
-    private bool TryRecognizeRtx(uint ssrc, byte payloadType, out uint mediaSsrc, out byte originalPayloadType)
+    private bool TryRecognizeRtx(
+        uint ssrc,
+        byte payloadType,
+        out uint mediaSsrc,
+        out byte originalPayloadType
+    )
     {
         foreach ((uint media, RtxState rtx) in _rtx)
         {
@@ -130,11 +135,17 @@ public sealed partial class PeerConnection
             return;
         }
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(12 + (sequences.Count * 4) + SrtpSession.RtcpProtectionOverhead);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            12 + (sequences.Count * 4) + SrtpSession.RtcpProtectionOverhead
+        );
         try
         {
-            int length = RtcpFeedback.BuildNack(buffer, _rtcpSenderSsrc, mediaSsrc,
-                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences));
+            int length = RtcpFeedback.BuildNack(
+                buffer,
+                _rtcpSenderSsrc,
+                mediaSsrc,
+                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences)
+            );
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             Interlocked.Add(ref _nackSequencesRequested, sequences.Count);
             _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
@@ -159,7 +170,12 @@ public sealed partial class PeerConnection
         private readonly Dictionary<ushort, NackEntry> _missing = [];
         private int _highest = -1;
 
-        public void OnReceived(ushort sequence, long nowMicros, List<ushort> nackNow, out bool keyframe)
+        public void OnReceived(
+            ushort sequence,
+            long nowMicros,
+            List<ushort> nackNow,
+            out bool keyframe
+        )
         {
             keyframe = false;
             if (_highest < 0)

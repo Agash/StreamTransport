@@ -44,5 +44,6 @@ internal sealed class CaptureClock
         return (whole << 32) | (fraction & 0xFFFFFFFF);
     }
 
-    private static long NowMonotonicNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowMonotonicNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 }

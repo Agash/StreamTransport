@@ -18,7 +18,12 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
 
     /// <inheritdoc/>
     public byte[]? Encode(in VideoFrame frame, out long capturePtsNs) =>
-        EncodeIOSurface(frame.Surface, frame.PresentationTimeNs, frame.ForceKeyframe, out capturePtsNs);
+        EncodeIOSurface(
+            frame.Surface,
+            frame.PresentationTimeNs,
+            frame.ForceKeyframe,
+            out capturePtsNs
+        );
 
     private readonly int _width;
     private readonly int _height;
@@ -28,7 +33,13 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
     private AVPacket* _packet;
     private bool _disposed;
 
-    public VideoToolboxVideoEncoder(int width, int height, int fps, long bitrate, MediaProfile profile = MediaProfile.InteractiveP2P)
+    public VideoToolboxVideoEncoder(
+        int width,
+        int height,
+        int fps,
+        long bitrate,
+        MediaProfile profile = MediaProfile.InteractiveP2P
+    )
     {
         _width = width;
         _height = height;
@@ -40,7 +51,14 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
         }
 
         AVBufferRef* device = null;
-        ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_VIDEOTOOLBOX, null, null, 0)
+        ffmpeg
+            .av_hwdevice_ctx_create(
+                &device,
+                AVHWDeviceType.AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+                null,
+                null,
+                0
+            )
             .ThrowOnError("create VideoToolbox device");
         _hwDevice = device;
 
@@ -74,9 +92,15 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
     }
 
     /// <summary>Encode one Syphon IOSurface, returning the HEVC access unit or null if output was withheld.</summary>
-    public byte[]? EncodeIOSurface(nint ioSurface) => EncodeIOSurface(ioSurface, 0, forceKeyframe: false, out _);
+    public byte[]? EncodeIOSurface(nint ioSurface) =>
+        EncodeIOSurface(ioSurface, 0, forceKeyframe: false, out _);
 
-    public byte[]? EncodeIOSurface(nint ioSurface, long capturePtsNs, bool forceKeyframe, out long producedPtsNs)
+    public byte[]? EncodeIOSurface(
+        nint ioSurface,
+        long capturePtsNs,
+        bool forceKeyframe,
+        out long producedPtsNs
+    )
     {
         producedPtsNs = 0;
         nint pixelBuffer = CoreVideoInterop.CreatePixelBufferFromIOSurface(ioSurface);
@@ -95,14 +119,20 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
                 0,
                 new av_buffer_create_free_func
                 {
-                    Pointer = (nint)(delegate* unmanaged[Cdecl]<void*, byte*, void>)&ReleasePixelBuffer,
+                    Pointer = (nint)
+                        (delegate* unmanaged[Cdecl]<void*, byte*, void>)&ReleasePixelBuffer,
                 },
                 null,
-                0);
+                0
+            );
             frame->pts = capturePtsNs;
-            frame->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
+            frame->pict_type = forceKeyframe
+                ? AVPictureType.AV_PICTURE_TYPE_I
+                : AVPictureType.AV_PICTURE_TYPE_NONE;
 
-            ffmpeg.avcodec_send_frame(_context, frame).ThrowOnError("send IOSurface frame to encoder");
+            ffmpeg
+                .avcodec_send_frame(_context, frame)
+                .ThrowOnError("send IOSurface frame to encoder");
 
             ffmpeg.av_packet_unref(_packet);
             int receive = ffmpeg.avcodec_receive_packet(_context, _packet);
@@ -125,7 +155,8 @@ internal sealed unsafe class VideoToolboxVideoEncoder : IDisposable, IVideoEncod
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void ReleasePixelBuffer(void* opaque, byte* data) => CoreVideoInterop.Release((nint)data);
+    private static void ReleasePixelBuffer(void* opaque, byte* data) =>
+        CoreVideoInterop.Release((nint)data);
 
     public void Dispose()
     {

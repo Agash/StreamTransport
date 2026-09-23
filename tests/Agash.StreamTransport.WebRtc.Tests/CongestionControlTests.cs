@@ -36,8 +36,14 @@ public sealed class CongestionControlTests
             controller.OnFeedback(results, now);
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps > start, "rate should grow on clean delivery");
-        Assert.IsTrue(controller.CurrentEstimate.PacingRateBps > controller.CurrentEstimate.TargetBitrateBps, "pacing has headroom");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps > start,
+            "rate should grow on clean delivery"
+        );
+        Assert.IsTrue(
+            controller.CurrentEstimate.PacingRateBps > controller.CurrentEstimate.TargetBitrateBps,
+            "pacing has headroom"
+        );
     }
 
     [TestMethod]
@@ -61,7 +67,10 @@ public sealed class CongestionControlTests
             controller.OnFeedback(lossy, now);
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps < beforeLoss, "sustained loss must reduce the target");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps < beforeLoss,
+            "sustained loss must reduce the target"
+        );
         Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps >= Options.MinBitrateBps);
     }
 
@@ -91,8 +100,10 @@ public sealed class CongestionControlTests
             controller.OnFeedback(results, now);
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps >= beforeNoise,
-            "spurious random loss must not drive a back-off (the rate should hold or keep growing)");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps >= beforeNoise,
+            "spurious random loss must not drive a back-off (the rate should hold or keep growing)"
+        );
     }
 
     [TestMethod]
@@ -117,8 +128,10 @@ public sealed class CongestionControlTests
 
         long afterCe = controller.CurrentEstimate.TargetBitrateBps;
         Assert.IsTrue(afterCe < before, "ECN-CE must reduce the target");
-        Assert.IsTrue(afterCe > before * Options.BackoffFactor,
-            "a single ECN-CE batch must back off gentler than a full loss back-off (RFC 9331 L4S)");
+        Assert.IsTrue(
+            afterCe > before * Options.BackoffFactor,
+            "a single ECN-CE batch must back off gentler than a full loss back-off (RFC 9331 L4S)"
+        );
     }
 
     [TestMethod]
@@ -149,7 +162,10 @@ public sealed class CongestionControlTests
         Assert.IsTrue(after >= Options.MinBitrateBps, "but never below the configured floor");
     }
 
-    private static (long Now, ushort Seq) RampClean(ScreamCongestionController controller, int batches)
+    private static (long Now, ushort Seq) RampClean(
+        ScreamCongestionController controller,
+        int batches
+    )
     {
         long now = 0;
         ushort seq = 0;
@@ -185,10 +201,16 @@ public sealed class CongestionControlTests
         for (int batch = 0; batch < 20; batch++)
         {
             now += 300_000; // 300 ms RTT - far above the 60 ms target
-            controller.OnFeedback([new PacketResult(seq++, 1200, now - 300_000, now - 150_000)], now);
+            controller.OnFeedback(
+                [new PacketResult(seq++, 1200, now - 300_000, now - 150_000)],
+                now
+            );
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps <= high, "standing queue delay must not let the rate grow");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps <= high,
+            "standing queue delay must not let the rate grow"
+        );
     }
 
     [TestMethod]
@@ -216,8 +238,10 @@ public sealed class CongestionControlTests
             controller.OnFeedback(results, now);
         }
 
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps >= before,
-            "alternating (non-consecutive) loss RTTs must not trigger a back-off");
+        Assert.IsTrue(
+            controller.CurrentEstimate.TargetBitrateBps >= before,
+            "alternating (non-consecutive) loss RTTs must not trigger a back-off"
+        );
     }
 
     [TestMethod]
@@ -228,7 +252,10 @@ public sealed class CongestionControlTests
 
         // After 10 ms at 1 MB/s, ~10 000 bytes available.
         int available = budget.Refill(10_000);
-        Assert.IsTrue(available is > 9_000 and < 11_000, $"expected ~10 000 bytes, got {available}");
+        Assert.IsTrue(
+            available is > 9_000 and < 11_000,
+            $"expected ~10 000 bytes, got {available}"
+        );
 
         // A long idle does not let the budget exceed the burst cap (~40 ms = ~40 000 bytes).
         int capped = budget.Refill(10_000 + 5_000_000);

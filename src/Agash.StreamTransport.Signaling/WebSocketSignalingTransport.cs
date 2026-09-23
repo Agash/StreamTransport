@@ -11,7 +11,8 @@ namespace Agash.StreamTransport;
 /// disposing the transport closes and disposes the socket (the client owns its socket; the relay handler
 /// keeps ownership of the request socket).
 /// </summary>
-public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocket = false) : IDuplexSignalingTransport
+public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocket = false)
+    : IDuplexSignalingTransport
 {
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -19,13 +20,17 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
     public event Func<SignalingMessage, Task>? MessageReceived;
 
     /// <inheritdoc/>
-    public async ValueTask SendAsync(SignalingMessage message, CancellationToken cancellationToken = default)
+    public async ValueTask SendAsync(
+        SignalingMessage message,
+        CancellationToken cancellationToken = default
+    )
     {
         byte[] bytes = SignalingJson.SerializeToUtf8Bytes(message);
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken)
+            await socket
+                .SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -46,7 +51,9 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
             {
                 try
                 {
-                    result = await socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    result = await socket
+                        .ReceiveAsync(buffer, cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 catch (WebSocketException)
                 {
@@ -59,13 +66,14 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
                 }
 
                 message.Write(buffer, 0, result.Count);
-            }
-            while (!result.EndOfMessage);
+            } while (!result.EndOfMessage);
 
             SignalingMessage? parsed;
             try
             {
-                parsed = SignalingJson.Deserialize(message.GetBuffer().AsSpan(0, (int)message.Length));
+                parsed = SignalingJson.Deserialize(
+                    message.GetBuffer().AsSpan(0, (int)message.Length)
+                );
             }
             catch (System.Text.Json.JsonException)
             {
@@ -88,7 +96,12 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
             {
                 if (socket.State == WebSocketState.Open)
                 {
-                    await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None)
+                    await socket
+                        .CloseAsync(
+                            WebSocketCloseStatus.NormalClosure,
+                            null,
+                            CancellationToken.None
+                        )
                         .ConfigureAwait(false);
                 }
             }

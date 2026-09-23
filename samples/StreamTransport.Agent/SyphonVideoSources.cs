@@ -57,14 +57,25 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     /// is found or <paramref name="timeout"/> elapses. <paramref name="alpha"/> preserves transparency by
     /// packing each captured IOSurface side-by-side (colour|alpha) on the GPU via <see cref="MetalAlphaCodec"/>.
     /// </summary>
-    public static SyphonVideoCaptureSource Connect(string? serverName, bool alpha = false, TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
+    public static SyphonVideoCaptureSource Connect(
+        string? serverName,
+        bool alpha = false,
+        TimeSpan? timeout = null,
+        ILoggerFactory? loggerFactory = null
+    )
     {
         var source = new SyphonVideoCaptureSource(serverName, alpha, loggerFactory);
-        if (!source._ready.Wait(timeout ?? TimeSpan.FromSeconds(8)) || source._connectError is not null)
+        if (
+            !source._ready.Wait(timeout ?? TimeSpan.FromSeconds(8))
+            || source._connectError is not null
+        )
         {
             Exception? error = source._connectError;
             source.Dispose();
-            throw error ?? new InvalidOperationException("Timed out waiting for a Syphon server to appear.");
+            throw error
+                ?? new InvalidOperationException(
+                    "Timed out waiting for a Syphon server to appear."
+                );
         }
 
         return source;
@@ -91,8 +102,10 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
                 return true;
             }
 
-            frame = VideoFrame.FromIOSurface(_surface, _width, _height, _timeNs)
-                with { PixelFormat = VideoPixelFormat.Bgra };
+            frame = VideoFrame.FromIOSurface(_surface, _width, _height, _timeNs) with
+            {
+                PixelFormat = VideoPixelFormat.Bgra,
+            };
             return true;
         }
     }
@@ -120,9 +133,11 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
 
             if (client is null)
             {
-                _connectError = new InvalidOperationException(_serverName is null
-                    ? "No Syphon server found. Start a Syphon source (e.g. VTube Studio, OBS) and retry."
-                    : $"No Syphon server matching '{_serverName}' was found.");
+                _connectError = new InvalidOperationException(
+                    _serverName is null
+                        ? "No Syphon server found. Start a Syphon source (e.g. VTube Studio, OBS) and retry."
+                        : $"No Syphon server matching '{_serverName}' was found."
+                );
                 _ready.Set();
                 return;
             }
@@ -184,8 +199,10 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
         for (int i = 0; i < servers.Count; i++)
         {
             SyphonServerDescription server = servers[i];
-            if (server.Name.Contains(name, StringComparison.OrdinalIgnoreCase)
-                || server.AppName.Contains(name, StringComparison.OrdinalIgnoreCase))
+            if (
+                server.Name.Contains(name, StringComparison.OrdinalIgnoreCase)
+                || server.AppName.Contains(name, StringComparison.OrdinalIgnoreCase)
+            )
             {
                 return i;
             }
@@ -194,7 +211,8 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
         return -1;
     }
 
-    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     public void Dispose()
     {
@@ -233,7 +251,11 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
     private long _firstPublishTicks;
     private bool _disposed;
 
-    public SyphonVideoPublishSink(string serverName, bool alpha = false, ILoggerFactory? loggerFactory = null)
+    public SyphonVideoPublishSink(
+        string serverName,
+        bool alpha = false,
+        ILoggerFactory? loggerFactory = null
+    )
     {
         _server = new SyphonServer(serverName, loggerFactory);
         _preserveAlpha = alpha;
@@ -255,7 +277,8 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
         _publishLatencyTap = publishLatency;
     }
 
-    private static long NowNs() => Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    private static long NowNs() =>
+        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
 
     public void Submit(VideoFrame frame)
     {
@@ -290,7 +313,10 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             }
 
             _server.Publish(surface);
-            if (_firstPublishTicks == 0) { _firstPublishTicks = Stopwatch.GetTimestamp(); }
+            if (_firstPublishTicks == 0)
+            {
+                _firstPublishTicks = Stopwatch.GetTimestamp();
+            }
             _published++;
 
             // Publish-staging latency Lv = hand-off (now, the Metal convert/publish is done) - decode time, for the
@@ -309,7 +335,15 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
                 (int w, int h) = surface.PixelSize();
                 byte[] buffer = new byte[w * h * 4];
                 surface.CopyTightlyPacked(buffer);
-                _verifyTap(VideoFrame.FromPixels(buffer, VideoPixelFormat.Bgra, w, h, frame.PresentationTimeNs));
+                _verifyTap(
+                    VideoFrame.FromPixels(
+                        buffer,
+                        VideoPixelFormat.Bgra,
+                        w,
+                        h,
+                        frame.PresentationTimeNs
+                    )
+                );
             }
 
             // A console host has no Cocoa run loop; drain pending events (non-blocking) so the server stays
@@ -317,12 +351,19 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
             SyphonServer.PumpOnce();
             return;
         }
-        else if (!frame.IsGpuSurface
+        else if (
+            !frame.IsGpuSurface
             && frame.PixelFormat == VideoPixelFormat.Bgra
-            && !frame.Pixels.IsEmpty)
+            && !frame.Pixels.IsEmpty
+        )
         {
             // CPU fallback: copy decoded BGRA pixels into a server-owned surface and publish.
-            _server.PublishPixels(frame.Pixels.Span, frame.Width, frame.Height, CVPixelFormatType.CV32BGRA);
+            _server.PublishPixels(
+                frame.Pixels.Span,
+                frame.Width,
+                frame.Height,
+                CVPixelFormatType.CV32BGRA
+            );
         }
         else
         {
@@ -344,9 +385,12 @@ internal sealed class SyphonVideoPublishSink : IVideoFrameSink, IDisposable
         _disposed = true;
         if (_published > 0 && _firstPublishTicks != 0)
         {
-            double seconds = (Stopwatch.GetTimestamp() - _firstPublishTicks) / (double)Stopwatch.Frequency;
+            double seconds =
+                (Stopwatch.GetTimestamp() - _firstPublishTicks) / (double)Stopwatch.Frequency;
             double fps = seconds > 0 ? _published / seconds : 0;
-            Console.WriteLine($"syphon publish: {_published} frames in {seconds:F1}s ({fps:F1} fps).");
+            Console.WriteLine(
+                $"syphon publish: {_published} frames in {seconds:F1}s ({fps:F1} fps)."
+            );
         }
 
         (_alphaCodec as IDisposable)?.Dispose();

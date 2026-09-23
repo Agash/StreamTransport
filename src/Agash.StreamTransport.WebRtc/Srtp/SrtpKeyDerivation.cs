@@ -33,7 +33,12 @@ public static class SrtpKeyDerivation
     /// <paramref name="masterKey"/> (16 or 32 octets → AES-128/256) and <paramref name="masterSalt"/>
     /// (≤ 14 octets; zero-padded to 14).
     /// </summary>
-    public static byte[] Derive(ReadOnlySpan<byte> masterKey, ReadOnlySpan<byte> masterSalt, byte label, int outputLength)
+    public static byte[] Derive(
+        ReadOnlySpan<byte> masterKey,
+        ReadOnlySpan<byte> masterSalt,
+        byte label,
+        int outputLength
+    )
     {
         // x = (master salt padded to 14 octets) with the label XORed into octet 7, then the 14-octet x
         // becomes the high 14 octets of the 16-octet AES-CM counter block (x * 2^16); the low 2 octets are

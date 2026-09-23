@@ -19,7 +19,13 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
     public nint NativeDevice => 0;
 
     /// <inheritdoc/>
-    public bool TryDecode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, long presentationTimeNs, out VideoFrame frame, out uint frameRtpTimestamp)
+    public bool TryDecode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        long presentationTimeNs,
+        out VideoFrame frame,
+        out uint frameRtpTimestamp
+    )
     {
         if (!Decode(accessUnit, rtpTimestamp, out int width, out int height, out frameRtpTimestamp))
         {
@@ -47,7 +53,14 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
         }
 
         AVBufferRef* device = null;
-        ffmpeg.av_hwdevice_ctx_create(&device, AVHWDeviceType.AV_HWDEVICE_TYPE_VIDEOTOOLBOX, null, null, 0)
+        ffmpeg
+            .av_hwdevice_ctx_create(
+                &device,
+                AVHWDeviceType.AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+                null,
+                null,
+                0
+            )
             .ThrowOnError("create VideoToolbox device");
         _hwDevice = device;
 
@@ -58,7 +71,9 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
         _context->pkt_timebase = new AVRational { num = 1, den = 90_000 };
         _context->get_format = new AVCodecContext_get_format_func
         {
-            Pointer = (nint)(delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)&GetVideoToolboxFormat,
+            Pointer = (nint)
+                (delegate* unmanaged[Cdecl]<AVCodecContext*, AVPixelFormat*, AVPixelFormat>)
+                    &GetVideoToolboxFormat,
         };
         // Low-delay decode: our stream is zero-latency-encoded (no B-frames/reordering). Without this the
         // VideoToolbox decoder holds frames in a reorder buffer and, since we pull one frame per access unit,
@@ -76,7 +91,10 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
     public nint OutputIOSurface { get; private set; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static AVPixelFormat GetVideoToolboxFormat(AVCodecContext* context, AVPixelFormat* formats)
+    private static AVPixelFormat GetVideoToolboxFormat(
+        AVCodecContext* context,
+        AVPixelFormat* formats
+    )
     {
         for (AVPixelFormat* p = formats; *p != AVPixelFormat.AV_PIX_FMT_NONE; p++)
         {
@@ -93,7 +111,13 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
     }
 
     /// <summary>Decode one access unit. On success sets <see cref="OutputIOSurface"/> and returns true with the dimensions.</summary>
-    public bool Decode(ReadOnlySpan<byte> accessUnit, uint rtpTimestamp, out int width, out int height, out uint frameRtpTimestamp)
+    public bool Decode(
+        ReadOnlySpan<byte> accessUnit,
+        uint rtpTimestamp,
+        out int width,
+        out int height,
+        out uint frameRtpTimestamp
+    )
     {
         width = 0;
         height = 0;
@@ -146,7 +170,9 @@ internal sealed unsafe class VideoToolboxVideoDecoder : IDisposable, IVideoDecod
 
         if ((AVPixelFormat)_frame->format != AVPixelFormat.AV_PIX_FMT_VIDEOTOOLBOX)
         {
-            throw new InvalidOperationException("Hardware decoder did not produce a VideoToolbox surface.");
+            throw new InvalidOperationException(
+                "Hardware decoder did not produce a VideoToolbox surface."
+            );
         }
 
         if (_frame->pts != ffmpeg.AV_NOPTS_VALUE)

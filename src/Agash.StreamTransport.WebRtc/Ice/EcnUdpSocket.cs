@@ -42,20 +42,30 @@ internal sealed class EcnUdpSocket : IIceSocket
         EcnInterop.EnableEct1OnSend(_socket, _ipv6);
         EcnInterop.EnableEcnReceive(_socket, _ipv6);
 
-        _channel = Channel.CreateBounded<Received>(new BoundedChannelOptions(64)
-        {
-            SingleReader = true,
-            SingleWriter = true,
-            FullMode = BoundedChannelFullMode.DropOldest, // never block the receive thread; stale datagrams are expendable.
-        });
+        _channel = Channel.CreateBounded<Received>(
+            new BoundedChannelOptions(64)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.DropOldest, // never block the receive thread; stale datagrams are expendable.
+            }
+        );
 
-        _recvThread = new Thread(ReceiveLoop) { IsBackground = true, Name = $"ice-recv {LocalEndPoint}" };
+        _recvThread = new Thread(ReceiveLoop)
+        {
+            IsBackground = true,
+            Name = $"ice-recv {LocalEndPoint}",
+        };
         _recvThread.Start();
     }
 
     public IPEndPoint LocalEndPoint { get; }
 
-    public ValueTask SendAsync(ReadOnlyMemory<byte> data, IPEndPoint destination, CancellationToken cancellationToken = default)
+    public ValueTask SendAsync(
+        ReadOnlyMemory<byte> data,
+        IPEndPoint destination,
+        CancellationToken cancellationToken = default
+    )
     {
         // Synchronous send keeps the socket in blocking mode (a managed async send would flip it non-blocking and
         // break the blocking native receive). UDP sendto does not block in practice for datagrams this size.
@@ -77,7 +87,10 @@ internal sealed class EcnUdpSocket : IIceSocket
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask<IceReceiveResult> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken)
+    public async ValueTask<IceReceiveResult> ReceiveAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken
+    )
     {
         Received item;
         try
@@ -151,5 +164,10 @@ internal sealed class EcnUdpSocket : IIceSocket
         }
     }
 
-    private readonly record struct Received(byte[] Buffer, int Length, IPEndPoint RemoteEndPoint, byte Ecn);
+    private readonly record struct Received(
+        byte[] Buffer,
+        int Length,
+        IPEndPoint RemoteEndPoint,
+        byte Ecn
+    );
 }

@@ -46,24 +46,35 @@ public sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
             _ps = device.CreatePixelShader(psBlob.AsSpan());
         }
 
-        _sampler = device.CreateSamplerState(new SamplerDescription
-        {
-            Filter = Filter.MinMagMipLinear,
-            AddressU = TextureAddressMode.Clamp,
-            AddressV = TextureAddressMode.Clamp,
-            AddressW = TextureAddressMode.Clamp,
-            MaxLOD = float.MaxValue,
-        });
+        _sampler = device.CreateSamplerState(
+            new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                MaxLOD = float.MaxValue,
+            }
+        );
     }
 
     private static Blob Compile(string entryPoint, string profile)
     {
-        Compiler.Compile(Hlsl, entryPoint, "alpha_pack.hlsl", profile, out Blob blob, out Blob? errors);
+        Compiler.Compile(
+            Hlsl,
+            entryPoint,
+            "alpha_pack.hlsl",
+            profile,
+            out Blob blob,
+            out Blob? errors
+        );
         using (errors)
         {
             if (blob is null)
             {
-                throw new InvalidOperationException($"Failed to compile {entryPoint}: {errors?.AsString()}");
+                throw new InvalidOperationException(
+                    $"Failed to compile {entryPoint}: {errors?.AsString()}"
+                );
             }
         }
 
@@ -74,8 +85,13 @@ public sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
     public VideoFrame PackAlpha(in VideoFrame colourBgra, long presentationTimeNs) =>
         VideoFrame.FromD3D11Texture(
             PackCore(colourBgra.Surface, colourBgra.Width, colourBgra.Height),
-            colourBgra.Width * 2, colourBgra.Height, presentationTimeNs)
-            with { PixelFormat = VideoPixelFormat.Bgra };
+            colourBgra.Width * 2,
+            colourBgra.Height,
+            presentationTimeNs
+        ) with
+        {
+            PixelFormat = VideoPixelFormat.Bgra,
+        };
 
     private nint PackCore(nint bgraTexture, int width, int height)
     {
@@ -83,12 +99,15 @@ public sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
 
         using var source = new ID3D11Texture2D(bgraTexture);
         source.AddRef();
-        using ID3D11ShaderResourceView srv = _device.CreateShaderResourceView(source, new ShaderResourceViewDescription
-        {
-            Format = Format.B8G8R8A8_UNorm,
-            ViewDimension = ShaderResourceViewDimension.Texture2D,
-            Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
-        });
+        using ID3D11ShaderResourceView srv = _device.CreateShaderResourceView(
+            source,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.B8G8R8A8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
+            }
+        );
 
         _context.OMSetRenderTargets(_rtv!);
         _context.RSSetViewport(new Viewport(0, 0, width * 2, height));
@@ -113,18 +132,20 @@ public sealed class D3D11AlphaPacker : IDisposable, IAlphaPacker
 
         _rtv?.Dispose();
         _packed?.Dispose();
-        _packed = _device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = (uint)(width * 2),
-            Height = (uint)height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.B8G8R8A8_UNorm,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Default,
-            BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
-            CPUAccessFlags = CpuAccessFlags.None,
-        });
+        _packed = _device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = (uint)(width * 2),
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None,
+            }
+        );
         _rtv = _device.CreateRenderTargetView(_packed);
         _width = width;
         _height = height;

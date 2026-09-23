@@ -78,7 +78,9 @@ internal sealed class EmbeddedRelay : IAsyncDisposable
 
     private async Task HandlePeerAsync(HttpListenerContext context)
     {
-        HttpListenerWebSocketContext ws = await context.AcceptWebSocketAsync(null).ConfigureAwait(false);
+        HttpListenerWebSocketContext ws = await context
+            .AcceptWebSocketAsync(null)
+            .ConfigureAwait(false);
         var transport = new WebSocketSignalingTransport(ws.WebSocket);
         await using ISignalingSession session = _router.Connect(transport);
         transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
@@ -140,40 +142,65 @@ internal sealed class SignalingTunnel : IAsyncDisposable
     /// <summary>The public <c>wss://.../ws</c> URL a remote receiver connects to.</summary>
     public Uri PublicWebSocketUri { get; }
 
-    public static async Task<SignalingTunnel> StartAsync(int localPort, CancellationToken cancellationToken)
+    public static async Task<SignalingTunnel> StartAsync(
+        int localPort,
+        CancellationToken cancellationToken
+    )
     {
         var client = new DevTunnelsClient();
 
         // Respect the existing CLI session (the user may be logged in via GitHub). Only trigger a login
         // if there is none - never force a provider, which could re-authenticate as a different identity.
-        DevTunnelLoginStatus status = await client.GetLoginStatusAsync(cancellationToken).ConfigureAwait(false);
+        DevTunnelLoginStatus status = await client
+            .GetLoginStatusAsync(cancellationToken)
+            .ConfigureAwait(false);
         if (!status.IsLoggedIn)
         {
-            await client.EnsureLoggedInAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            await client
+                .EnsureLoggedInAsync(cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // AllowAnonymous on the tunnel and port grants anonymous client access; no separate access call is
         // needed (and adding one is what made the host start reject with an opaque error).
-        await client.CreateOrUpdateTunnelAsync(
-            TunnelId,
-            new DevTunnelOptions { AllowAnonymous = true, Description = "StreamTransport agent signaling" },
-            cancellationToken).ConfigureAwait(false);
-        await client.CreateOrReplacePortAsync(
-            TunnelId, localPort, new DevTunnelPortOptions { Protocol = "http", AllowAnonymous = true }, cancellationToken)
+        await client
+            .CreateOrUpdateTunnelAsync(
+                TunnelId,
+                new DevTunnelOptions
+                {
+                    AllowAnonymous = true,
+                    Description = "StreamTransport agent signaling",
+                },
+                cancellationToken
+            )
+            .ConfigureAwait(false);
+        await client
+            .CreateOrReplacePortAsync(
+                TunnelId,
+                localPort,
+                new DevTunnelPortOptions { Protocol = "http", AllowAnonymous = true },
+                cancellationToken
+            )
             .ConfigureAwait(false);
 
-        IDevTunnelHostSession session = await client.StartHostSessionAsync(
-            new DevTunnelHostStartOptions
-            {
-                TunnelId = TunnelId,
-                PortNumber = localPort,
-                ReadyTimeout = TimeSpan.FromSeconds(30),
-            },
-            cancellationToken).ConfigureAwait(false);
+        IDevTunnelHostSession session = await client
+            .StartHostSessionAsync(
+                new DevTunnelHostStartOptions
+                {
+                    TunnelId = TunnelId,
+                    PortNumber = localPort,
+                    ReadyTimeout = TimeSpan.FromSeconds(30),
+                },
+                cancellationToken
+            )
+            .ConfigureAwait(false);
         await session.WaitForReadyAsync(cancellationToken).ConfigureAwait(false);
 
-        Uri publicUrl = session.PublicUrl
-            ?? throw new InvalidOperationException($"DevTunnel did not report a public URL ({session.FailureReason}).");
+        Uri publicUrl =
+            session.PublicUrl
+            ?? throw new InvalidOperationException(
+                $"DevTunnel did not report a public URL ({session.FailureReason})."
+            );
         var wss = new Uri($"wss://{publicUrl.Authority}/ws");
         return new SignalingTunnel(session, wss);
     }

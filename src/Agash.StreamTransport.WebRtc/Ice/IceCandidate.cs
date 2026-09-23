@@ -21,7 +21,8 @@ public readonly record struct IceCandidate
         uint priority,
         IPEndPoint endpoint,
         IceCandidateKind kind,
-        IPEndPoint? relatedAddress = null)
+        IPEndPoint? relatedAddress = null
+    )
     {
         Foundation = foundation;
         ComponentId = componentId;
@@ -61,12 +62,17 @@ public readonly record struct IceCandidate
             _ => "host",
         };
 
-        string s = string.Create(CultureInfo.InvariantCulture,
-            $"candidate:{Foundation} {ComponentId} udp {Priority} {Endpoint.Address} {Endpoint.Port} typ {typeName}");
+        string s = string.Create(
+            CultureInfo.InvariantCulture,
+            $"candidate:{Foundation} {ComponentId} udp {Priority} {Endpoint.Address} {Endpoint.Port} typ {typeName}"
+        );
 
         if (RelatedAddress is { } rel)
         {
-            s = string.Create(CultureInfo.InvariantCulture, $"{s} raddr {rel.Address} rport {rel.Port}");
+            s = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{s} raddr {rel.Address} rport {rel.Port}"
+            );
         }
 
         return s;
@@ -101,10 +107,27 @@ public readonly record struct IceCandidate
             return false; // UDP only.
         }
 
-        if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int component)
-            || !uint.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out uint priority)
+        if (
+            !int.TryParse(
+                parts[1],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int component
+            )
+            || !uint.TryParse(
+                parts[3],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out uint priority
+            )
             || !IPAddress.TryParse(parts[4], out IPAddress? address)
-            || !int.TryParse(parts[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out int port))
+            || !int.TryParse(
+                parts[5],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int port
+            )
+        )
         {
             return false;
         }
@@ -125,20 +148,34 @@ public readonly record struct IceCandidate
         IPEndPoint? related = null;
         for (int i = 8; i + 1 < parts.Length; i += 2)
         {
-            if (parts[i].Equals("raddr", StringComparison.Ordinal)
-                && IPAddress.TryParse(parts[i + 1], out IPAddress? raddr))
+            if (
+                parts[i].Equals("raddr", StringComparison.Ordinal)
+                && IPAddress.TryParse(parts[i + 1], out IPAddress? raddr)
+            )
             {
                 int rport = 0;
                 if (i + 3 < parts.Length && parts[i + 2].Equals("rport", StringComparison.Ordinal))
                 {
-                    _ = int.TryParse(parts[i + 3], NumberStyles.Integer, CultureInfo.InvariantCulture, out rport);
+                    _ = int.TryParse(
+                        parts[i + 3],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out rport
+                    );
                 }
 
                 related = new IPEndPoint(raddr, rport);
             }
         }
 
-        candidate = new IceCandidate(parts[0], component, priority, new IPEndPoint(address, port), kind, related);
+        candidate = new IceCandidate(
+            parts[0],
+            component,
+            priority,
+            new IPEndPoint(address, port),
+            kind,
+            related
+        );
         return true;
     }
 
@@ -147,7 +184,12 @@ public readonly record struct IceCandidate
     /// <c>2^24·typePref + 2^8·localPref + (256 − componentId)</c>. IPv6 is given a higher local preference
     /// than IPv4 so the IPv6 path is tried first (the symmetric-NAT-traversal goal).
     /// </summary>
-    public static uint ComputePriority(IceCandidateKind kind, AddressFamily family, int componentId, int index = 0)
+    public static uint ComputePriority(
+        IceCandidateKind kind,
+        AddressFamily family,
+        int componentId,
+        int index = 0
+    )
     {
         uint typePref = kind switch
         {

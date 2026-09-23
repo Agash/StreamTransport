@@ -4,7 +4,11 @@ namespace Agash.StreamTransport.WebRtc;
 /// <param name="SequenceNumber">The RTP sequence number.</param>
 /// <param name="SizeBytes">The packet size in bytes (including headers).</param>
 /// <param name="SendTimeMicros">The send time, in microseconds on a monotonic clock.</param>
-public readonly record struct SentPacketInfo(ushort SequenceNumber, int SizeBytes, long SendTimeMicros);
+public readonly record struct SentPacketInfo(
+    ushort SequenceNumber,
+    int SizeBytes,
+    long SendTimeMicros
+);
 
 /// <summary>
 /// The per-packet outcome the sender derives by correlating its sent packets with RFC 8888 feedback:
@@ -15,7 +19,13 @@ public readonly record struct SentPacketInfo(ushort SequenceNumber, int SizeByte
 /// <param name="SendTimeMicros">When the sender sent it (monotonic µs).</param>
 /// <param name="ReceiveTimeMicros">When the receiver got it (monotonic µs in the sender's frame), or -1 if lost.</param>
 /// <param name="Ecn">The 2-bit ECN mark the receiver echoed for this packet: 0 = Not-ECT, 1 = ECT(1), 2 = ECT(0), 3 = CE (Congestion Experienced).</param>
-public readonly record struct PacketResult(ushort SequenceNumber, int SizeBytes, long SendTimeMicros, long ReceiveTimeMicros, byte Ecn = 0)
+public readonly record struct PacketResult(
+    ushort SequenceNumber,
+    int SizeBytes,
+    long SendTimeMicros,
+    long ReceiveTimeMicros,
+    byte Ecn = 0
+)
 {
     /// <summary>Whether the packet was received.</summary>
     public bool Received => ReceiveTimeMicros >= 0;
@@ -33,7 +43,11 @@ public readonly record struct PacketResult(ushort SequenceNumber, int SizeBytes,
 /// <param name="SmoothedRttMicros">The smoothed RTT (EWMA, α=1/8) in microseconds, or 0 before any feedback.</param>
 /// <param name="BaseRttMicros">The minimum observed RTT in microseconds (the propagation floor), or 0.</param>
 public readonly record struct BitrateEstimate(
-    long TargetBitrateBps, long PacingRateBps, long SmoothedRttMicros = 0, long BaseRttMicros = 0);
+    long TargetBitrateBps,
+    long PacingRateBps,
+    long SmoothedRttMicros = 0,
+    long BaseRttMicros = 0
+);
 
 /// <summary>
 /// A snapshot of transport link health: loss, RTT, and the controller's
@@ -46,10 +60,18 @@ public readonly record struct BitrateEstimate(
 /// <param name="TargetBitrateBps">The current congestion-controlled target bitrate.</param>
 /// <param name="PacingRateBps">The current pacing rate.</param>
 public readonly record struct TransportHealthMetrics(
-    double LossRate, long SmoothedRttMicros, long BaseRttMicros, long TargetBitrateBps, long PacingRateBps)
+    double LossRate,
+    long SmoothedRttMicros,
+    long BaseRttMicros,
+    long TargetBitrateBps,
+    long PacingRateBps
+)
 {
     /// <summary>The queue-delay (bufferbloat) estimate: smoothed RTT above the propagation floor, in microseconds.</summary>
-    public long QueueDelayMicros => BaseRttMicros > 0 && SmoothedRttMicros > BaseRttMicros ? SmoothedRttMicros - BaseRttMicros : 0;
+    public long QueueDelayMicros =>
+        BaseRttMicros > 0 && SmoothedRttMicros > BaseRttMicros
+            ? SmoothedRttMicros - BaseRttMicros
+            : 0;
 }
 
 /// <summary>
@@ -64,8 +86,12 @@ public readonly record struct TransportHealthMetrics(
 /// <param name="RtxPacketsRecovered">Inbound RTX packets successfully unwrapped to their original packet.</param>
 /// <param name="KeyframeRequestsSent">Keyframe (PLI) requests sent to the peer.</param>
 public readonly record struct TransportLossStats(
-    long MediaPacketsSent, long RtxPacketsSent, long NackSequencesRequested,
-    long RtxPacketsRecovered, long KeyframeRequestsSent);
+    long MediaPacketsSent,
+    long RtxPacketsSent,
+    long NackSequencesRequested,
+    long RtxPacketsRecovered,
+    long KeyframeRequestsSent
+);
 
 /// <summary>
 /// A send-side congestion controller (modelled on libwebrtc's <c>NetworkControllerInterface</c>): it is fed

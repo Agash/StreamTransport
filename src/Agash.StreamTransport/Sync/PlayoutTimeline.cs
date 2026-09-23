@@ -102,7 +102,9 @@ internal sealed class PlayoutTimeline
             _lastUpdateLocalNs = localNowNs;
         }
 
-        return senderWallNs + ClockOffsetNs + Math.Clamp(_jitterNs + _marginNs, _minDelayNs, _maxDelayNs);
+        return senderWallNs
+            + ClockOffsetNs
+            + Math.Clamp(_jitterNs + _marginNs, _minDelayNs, _maxDelayNs);
     }
 
     /// <summary>
@@ -129,6 +131,6 @@ internal sealed class PlayoutTimeline
     /// state change). Releases audio at video's typical arrival offset, so it lip-syncs with the on-arrival GPU
     /// video. Returns <paramref name="senderWallNs"/> unchanged until a video frame has anchored the offset.
     /// </summary>
-    public long PeekReleaseLocalNs(long senderWallNs)
-        => _arrivalAnchored ? senderWallNs + ArrivalOffsetNs : senderWallNs;
+    public long PeekReleaseLocalNs(long senderWallNs) =>
+        _arrivalAnchored ? senderWallNs + ArrivalOffsetNs : senderWallNs;
 }

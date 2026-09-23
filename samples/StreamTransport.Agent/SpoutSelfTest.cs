@@ -32,22 +32,31 @@ internal static class SpoutSelfTest
         // Copy the BGRA output into a CPU-readable staging texture and inspect the centre pixel.
         using var bgra = new ID3D11Texture2D(bgraHandle);
         bgra.AddRef();
-        using ID3D11Texture2D staging = device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = w,
-            Height = h,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.B8G8R8A8_UNorm,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Staging,
-            BindFlags = BindFlags.None,
-            CPUAccessFlags = CpuAccessFlags.Read,
-        });
+        using ID3D11Texture2D staging = device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = w,
+                Height = h,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+            }
+        );
         context.CopyResource(staging, bgra);
 
-        MappedSubresource map = context.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
-        int b, g, r;
+        MappedSubresource map = context.Map(
+            staging,
+            0,
+            MapMode.Read,
+            Vortice.Direct3D11.MapFlags.None
+        );
+        int b,
+            g,
+            r;
         unsafe
         {
             byte* center = (byte*)map.DataPointer + ((h / 2) * (int)map.RowPitch) + ((w / 2) * 4);
@@ -61,7 +70,9 @@ internal static class SpoutSelfTest
         D3D11Devices.Release(deviceHandle);
 
         bool grey = InRange(r) && InRange(g) && InRange(b);
-        Console.WriteLine($"CONVERTER centre pixel BGRA=({b},{g},{r}); neutral grey expected ~128.");
+        Console.WriteLine(
+            $"CONVERTER centre pixel BGRA=({b},{g},{r}); neutral grey expected ~128."
+        );
         Console.WriteLine(grey ? "CONVERTER-OK" : "CONVERTER-FAIL: not grey.");
         return grey ? 0 : 1;
 
@@ -89,14 +100,22 @@ internal static class SpoutSelfTest
             return 2;
         }
 
-        bool bgraDirect = D3D11VideoEncoder.SupportsInputFormat(encoderName, VideoPixelFormat.Bgra)
+        bool bgraDirect =
+            D3D11VideoEncoder.SupportsInputFormat(encoderName, VideoPixelFormat.Bgra)
             && Environment.GetEnvironmentVariable("SELFTEST_FORCE_NV12") != "1";
         VideoPixelFormat encInput = bgraDirect ? VideoPixelFormat.Bgra : VideoPixelFormat.Nv12;
 
         D3D11VideoEncoder encoder;
         try
         {
-            encoder = new D3D11VideoEncoder(encoderName, packedW, h, fps: 30, bitrate: 4_000_000, inputFormat: encInput);
+            encoder = new D3D11VideoEncoder(
+                encoderName,
+                packedW,
+                h,
+                fps: 30,
+                bitrate: 4_000_000,
+                inputFormat: encInput
+            );
         }
         catch (Exception ex)
         {
@@ -110,12 +129,16 @@ internal static class SpoutSelfTest
             using var encDevice = new ID3D11Device(encoder.NativeDevice);
             encDevice.AddRef();
             using var packer = new D3D11AlphaPacker(encDevice);
-            using D3D11BgraToNv12Converter? converter = bgraDirect ? null : new D3D11BgraToNv12Converter(encDevice);
+            using D3D11BgraToNv12Converter? converter = bgraDirect
+                ? null
+                : new D3D11BgraToNv12Converter(encDevice);
             using ID3D11Texture2D bgraSrc = CreateAlphaBgra(encDevice, w, h);
 
             for (int i = 0; i < 12; i++)
             {
-                nint packed = packer.PackAlpha(VideoFrame.FromD3D11Texture(bgraSrc.NativePointer, w, h, 0), 0).Surface;
+                nint packed = packer
+                    .PackAlpha(VideoFrame.FromD3D11Texture(bgraSrc.NativePointer, w, h, 0), 0)
+                    .Surface;
                 nint encodeTex = converter is null ? packed : converter.Convert(packed, packedW, h);
                 byte[]? au = encoder.EncodeTexture(encodeTex, 0);
                 if (au is not null)
@@ -131,11 +154,14 @@ internal static class SpoutSelfTest
             return 1;
         }
 
-        int opaqueA, opaqueR, transparentA;
+        int opaqueA,
+            opaqueR,
+            transparentA;
         using (var decoder = new D3D11VideoDecoder())
         {
             nint nv12 = 0;
-            int dw = 0, dh = 0;
+            int dw = 0,
+                dh = 0;
             foreach (byte[] au in accessUnits)
             {
                 if (decoder.Decode(au, 0, out dw, out dh, out _) && decoder.OutputTexture != 0)
@@ -154,14 +180,17 @@ internal static class SpoutSelfTest
             decDevice.AddRef();
             using var unpacker = new D3D11AlphaUnpacker(decDevice);
             // dw = 2W, dh = H -> output W x H.
-            nint bgraOut = unpacker.UnpackAlpha(VideoFrame.FromD3D11Texture(nv12, dw, dh, 0), 0).Surface;
+            nint bgraOut = unpacker
+                .UnpackAlpha(VideoFrame.FromD3D11Texture(nv12, dw, dh, 0), 0)
+                .Surface;
             int outW = dw / 2;
-            (opaqueA, opaqueR) = SamplePixel(decDevice, bgraOut, outW, dh, outW / 4, dh / 2);       // left: opaque
-            (transparentA, _) = SamplePixel(decDevice, bgraOut, outW, dh, (3 * outW) / 4, dh / 2);  // right: transparent
+            (opaqueA, opaqueR) = SamplePixel(decDevice, bgraOut, outW, dh, outW / 4, dh / 2); // left: opaque
+            (transparentA, _) = SamplePixel(decDevice, bgraOut, outW, dh, (3 * outW) / 4, dh / 2); // right: transparent
         }
 
         Console.WriteLine(
-            $"ALPHA round-trip via {encoderName} (bgraDirect={bgraDirect}): opaque A={opaqueA} R={opaqueR}, transparent A={transparentA}.");
+            $"ALPHA round-trip via {encoderName} (bgraDirect={bgraDirect}): opaque A={opaqueA} R={opaqueR}, transparent A={transparentA}."
+        );
         bool ok = opaqueA > 200 && transparentA < 55 && opaqueR > 120;
         Console.WriteLine(ok ? "ALPHA-OK" : "ALPHA-FAIL: alpha did not survive the round-trip.");
         return ok ? 0 : 1;
@@ -176,9 +205,9 @@ internal static class SpoutSelfTest
             for (int x = 0; x < width; x++)
             {
                 int p = ((y * width) + x) * 4;
-                data[p + 0] = 50;   // B
-                data[p + 1] = 100;  // G
-                data[p + 2] = 200;  // R
+                data[p + 0] = 50; // B
+                data[p + 1] = 100; // G
+                data[p + 2] = 200; // R
                 data[p + 3] = (byte)(x < width / 2 ? 255 : 0); // A
             }
         }
@@ -200,32 +229,49 @@ internal static class SpoutSelfTest
         {
             fixed (byte* p = data)
             {
-                return device.CreateTexture2D(description, [new SubresourceData((nint)p, (uint)(width * 4))]);
+                return device.CreateTexture2D(
+                    description,
+                    [new SubresourceData((nint)p, (uint)(width * 4))]
+                );
             }
         }
     }
 
     // Read one BGRA pixel back from a GPU texture; returns (alpha, red).
-    private static (int Alpha, int Red) SamplePixel(ID3D11Device device, nint bgraTexture, int width, int height, int px, int py)
+    private static (int Alpha, int Red) SamplePixel(
+        ID3D11Device device,
+        nint bgraTexture,
+        int width,
+        int height,
+        int px,
+        int py
+    )
     {
         ID3D11DeviceContext context = device.ImmediateContext;
         using var source = new ID3D11Texture2D(bgraTexture);
         source.AddRef();
-        using ID3D11Texture2D staging = device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = (uint)width,
-            Height = (uint)height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.B8G8R8A8_UNorm,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Staging,
-            BindFlags = BindFlags.None,
-            CPUAccessFlags = CpuAccessFlags.Read,
-        });
+        using ID3D11Texture2D staging = device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+            }
+        );
         context.CopyResource(staging, source);
 
-        MappedSubresource map = context.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+        MappedSubresource map = context.Map(
+            staging,
+            0,
+            MapMode.Read,
+            Vortice.Direct3D11.MapFlags.None
+        );
         try
         {
             unsafe
@@ -263,7 +309,10 @@ internal static class SpoutSelfTest
         {
             fixed (byte* p = data)
             {
-                return device.CreateTexture2D(description, [new SubresourceData((nint)p, (uint)width)]);
+                return device.CreateTexture2D(
+                    description,
+                    [new SubresourceData((nint)p, (uint)width)]
+                );
             }
         }
     }

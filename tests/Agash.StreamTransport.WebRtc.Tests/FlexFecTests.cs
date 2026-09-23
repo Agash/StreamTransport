@@ -30,7 +30,10 @@ public sealed class FlexFecTests
 
         // Lose the middle packet (seq 102); everything else is available.
         const ushort lost = 102;
-        FecRecoveredPacket? recovered = FlexFec.TryRecover(fec, seq => seq == lost ? null : Find(run, seq));
+        FecRecoveredPacket? recovered = FlexFec.TryRecover(
+            fec,
+            seq => seq == lost ? null : Find(run, seq)
+        );
 
         Assert.IsNotNull(recovered);
         FecSourcePacket original = Find(run, lost)!.Value;
@@ -38,7 +41,10 @@ public sealed class FlexFecTests
         Assert.AreEqual(original.HeaderBits, recovered.Value.HeaderBits);
         Assert.AreEqual(original.PayloadType, recovered.Value.PayloadType);
         Assert.AreEqual(original.Timestamp, recovered.Value.Timestamp);
-        CollectionAssert.AreEqual(original.BodyAfterHeader.ToArray(), recovered.Value.BodyAfterHeader);
+        CollectionAssert.AreEqual(
+            original.BodyAfterHeader.ToArray(),
+            recovered.Value.BodyAfterHeader
+        );
     }
 
     [TestMethod]
@@ -48,10 +54,16 @@ public sealed class FlexFecTests
         byte[] fec = FlexFec.BuildRepair(run);
 
         const ushort lost = 101; // the 1100-byte one - exercises the length-recovery path.
-        FecRecoveredPacket? recovered = FlexFec.TryRecover(fec, seq => seq == lost ? null : Find(run, seq));
+        FecRecoveredPacket? recovered = FlexFec.TryRecover(
+            fec,
+            seq => seq == lost ? null : Find(run, seq)
+        );
 
         Assert.IsNotNull(recovered);
-        CollectionAssert.AreEqual(Find(run, lost)!.Value.BodyAfterHeader.ToArray(), recovered.Value.BodyAfterHeader);
+        CollectionAssert.AreEqual(
+            Find(run, lost)!.Value.BodyAfterHeader.ToArray(),
+            recovered.Value.BodyAfterHeader
+        );
     }
 
     [TestMethod]

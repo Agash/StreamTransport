@@ -13,7 +13,10 @@ public static class ServiceCollectionExtensions
     /// Registers the WebRTC stack: the DTLS-SRTP factory (singleton, stable certificate/fingerprint), a
     /// <see cref="PeerConnectionFactory"/>, and a per-connection SCReAM <see cref="INetworkController"/>.
     /// </summary>
-    public static IServiceCollection AddStreamTransportWebRtc(this IServiceCollection services, Action<ScreamOptions>? configureCongestionControl = null)
+    public static IServiceCollection AddStreamTransportWebRtc(
+        this IServiceCollection services,
+        Action<ScreamOptions>? configureCongestionControl = null
+    )
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -21,8 +24,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<PeerConnectionFactory>();
 
         // The controller is stateful per connection, so it is transient; options are bound from IOptions.
-        services.TryAddTransient<INetworkController>(static sp =>
-            new ScreamCongestionController(sp.GetService<IOptions<ScreamOptions>>()?.Value));
+        services.TryAddTransient<INetworkController>(static sp => new ScreamCongestionController(
+            sp.GetService<IOptions<ScreamOptions>>()?.Value
+        ));
 
         if (configureCongestionControl is not null)
         {

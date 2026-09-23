@@ -10,9 +10,11 @@ namespace Agash.StreamTransport.Stun;
 /// credentials. For coturn with a shared secret (ephemeral, time-limited credentials), use
 /// <see cref="CoturnSharedSecretIceServerProvider"/> instead.
 /// </remarks>
-public sealed class StaticIceServerProvider(IReadOnlyList<IceServer> iceServers) : IIceServerProvider
+public sealed class StaticIceServerProvider(IReadOnlyList<IceServer> iceServers)
+    : IIceServerProvider
 {
-    private readonly IReadOnlyList<IceServer> _iceServers = iceServers ?? throw new ArgumentNullException(nameof(iceServers));
+    private readonly IReadOnlyList<IceServer> _iceServers =
+        iceServers ?? throw new ArgumentNullException(nameof(iceServers));
 
     /// <summary>Advertise only the given STUN URLs (no TURN).</summary>
     public static StaticIceServerProvider Stun(params string[] stunUrls) =>
@@ -52,7 +54,8 @@ public sealed class CoturnSharedSecretIceServerProvider : IIceServerProvider
         string sharedSecret,
         TimeSpan? credentialLifetime = null,
         string? user = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null
+    )
     {
         ArgumentNullException.ThrowIfNull(turnUrls);
         ArgumentException.ThrowIfNullOrEmpty(sharedSecret);
@@ -80,7 +83,8 @@ public sealed class CoturnSharedSecretIceServerProvider : IIceServerProvider
 
     private (string Username, string Credential) MintCredential()
     {
-        long expiry = _time.GetUtcNow().ToUnixTimeSeconds() + (long)_credentialLifetime.TotalSeconds;
+        long expiry =
+            _time.GetUtcNow().ToUnixTimeSeconds() + (long)_credentialLifetime.TotalSeconds;
         string username = _user is null
             ? expiry.ToString(CultureInfo.InvariantCulture)
             : string.Create(CultureInfo.InvariantCulture, $"{expiry}:{_user}");

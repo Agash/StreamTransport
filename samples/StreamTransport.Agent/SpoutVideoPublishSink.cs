@@ -25,7 +25,11 @@ internal sealed class SpoutVideoPublishSink : IVideoFrameSink, IDisposable
     private SpoutSender? _sender;
     private bool _disposed;
 
-    public SpoutVideoPublishSink(string senderName, bool alpha = false, ILoggerFactory? loggerFactory = null)
+    public SpoutVideoPublishSink(
+        string senderName,
+        bool alpha = false,
+        ILoggerFactory? loggerFactory = null
+    )
     {
         _senderName = senderName;
         _alpha = alpha;
@@ -59,8 +63,14 @@ internal sealed class SpoutVideoPublishSink : IVideoFrameSink, IDisposable
             // (IAlphaUnpacker / INv12ToBgra), created on demand for the negotiated mode (set before the first
             // frame), so they stay on the GPU and a late SetPreserveAlpha works.
             VideoFrame bgra = _alpha
-                ? (_unpacker ??= new D3D11AlphaUnpacker(_device!)).UnpackAlpha(frame, frame.PresentationTimeNs)
-                : (_converter ??= new D3D11Nv12ToBgraConverter(_device!)).Nv12ToBgra(frame, frame.PresentationTimeNs);
+                ? (_unpacker ??= new D3D11AlphaUnpacker(_device!)).UnpackAlpha(
+                    frame,
+                    frame.PresentationTimeNs
+                )
+                : (_converter ??= new D3D11Nv12ToBgraConverter(_device!)).Nv12ToBgra(
+                    frame,
+                    frame.PresentationTimeNs
+                );
 
             _sender!.Send(bgra.Surface);
         }

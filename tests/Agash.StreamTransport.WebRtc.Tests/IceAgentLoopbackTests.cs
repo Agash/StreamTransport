@@ -22,8 +22,16 @@ public sealed class IceAgentLoopbackTests
         var offererCreds = IceCredentials.Generate();
         var answererCreds = IceCredentials.Generate();
 
-        await using var offerer = new IceAgent(offererCreds, IceRole.Controlling, includeLoopback: true);
-        await using var answerer = new IceAgent(answererCreds, IceRole.Controlled, includeLoopback: true);
+        await using var offerer = new IceAgent(
+            offererCreds,
+            IceRole.Controlling,
+            includeLoopback: true
+        );
+        await using var answerer = new IceAgent(
+            answererCreds,
+            IceRole.Controlled,
+            includeLoopback: true
+        );
 
         offerer.SetRemoteCredentials(answererCreds);
         answerer.SetRemoteCredentials(offererCreds);
@@ -32,18 +40,37 @@ public sealed class IceAgentLoopbackTests
         offerer.LocalCandidateGathered += c => answerer.AddRemoteCandidate(c);
         answerer.LocalCandidateGathered += c => offerer.AddRemoteCandidate(c);
 
-        var offererConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var answererConnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        offerer.StateChanged += s => { if (s == IceConnectionState.Connected) { offererConnected.TrySetResult(); } };
-        answerer.StateChanged += s => { if (s == IceConnectionState.Connected) { answererConnected.TrySetResult(); } };
+        var offererConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        var answererConnected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        offerer.StateChanged += s =>
+        {
+            if (s == IceConnectionState.Connected)
+            {
+                offererConnected.TrySetResult();
+            }
+        };
+        answerer.StateChanged += s =>
+        {
+            if (s == IceConnectionState.Connected)
+            {
+                answererConnected.TrySetResult();
+            }
+        };
 
-        var received = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var received = new TaskCompletionSource<byte[]>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         answerer.DataReceived += (data, _, _) => received.TrySetResult(data.ToArray());
 
         offerer.Start();
         answerer.Start();
 
-        await Task.WhenAll(offererConnected.Task, answererConnected.Task).WaitAsync(TimeSpan.FromSeconds(15));
+        await Task.WhenAll(offererConnected.Task, answererConnected.Task)
+            .WaitAsync(TimeSpan.FromSeconds(15));
 
         Assert.AreEqual(IceConnectionState.Connected, offerer.State);
         Assert.AreEqual(IceConnectionState.Connected, answerer.State);

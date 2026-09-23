@@ -26,14 +26,18 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
     public event Func<IceCandidate, Task>? IceCandidateReceived;
 
     /// <inheritdoc/>
-    public Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default) =>
+    public Task SendAsync(
+        SessionDescription description,
+        CancellationToken cancellationToken = default
+    ) =>
         SendEnvelopeAsync(
             new SignalEnvelope
             {
                 Type = description.Kind == SdpKind.Offer ? "offer" : "answer",
                 Sdp = description.Sdp,
             },
-            cancellationToken);
+            cancellationToken
+        );
 
     /// <inheritdoc/>
     public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
@@ -45,7 +49,8 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
                 SdpMid = candidate.SdpMid,
                 SdpMLineIndex = candidate.SdpMLineIndex,
             },
-            cancellationToken);
+            cancellationToken
+        );
 
     /// <summary>Pump incoming messages until the socket closes or the token is cancelled.</summary>
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -57,15 +62,20 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
             WebSocketReceiveResult result;
             do
             {
-                result = await _socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (result.MessageType == WebSocketMessageType.Close) return;
+                result = await _socket
+                    .ReceiveAsync(buffer, cancellationToken)
+                    .ConfigureAwait(false);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    return;
                 message.Write(buffer, 0, result.Count);
-            }
-            while (!result.EndOfMessage);
+            } while (!result.EndOfMessage);
 
             SignalEnvelope? envelope = JsonSerializer.Deserialize(
-                message.ToArray(), SignalEnvelopeContext.Default.SignalEnvelope);
-            if (envelope is not null) await DispatchAsync(envelope).ConfigureAwait(false);
+                message.ToArray(),
+                SignalEnvelopeContext.Default.SignalEnvelope
+            );
+            if (envelope is not null)
+                await DispatchAsync(envelope).ConfigureAwait(false);
         }
     }
 
@@ -74,26 +84,43 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
         switch (envelope.Type)
         {
             case "offer" when DescriptionReceived is { } handler:
-                await handler(new SessionDescription(SdpKind.Offer, envelope.Sdp ?? string.Empty)).ConfigureAwait(false);
+                await handler(new SessionDescription(SdpKind.Offer, envelope.Sdp ?? string.Empty))
+                    .ConfigureAwait(false);
                 break;
             case "answer" when DescriptionReceived is { } handler:
-                await handler(new SessionDescription(SdpKind.Answer, envelope.Sdp ?? string.Empty)).ConfigureAwait(false);
+                await handler(new SessionDescription(SdpKind.Answer, envelope.Sdp ?? string.Empty))
+                    .ConfigureAwait(false);
                 break;
             case "ice" when IceCandidateReceived is { } handler:
-                await handler(new IceCandidate(envelope.Candidate ?? string.Empty, envelope.SdpMid, envelope.SdpMLineIndex)).ConfigureAwait(false);
+                await handler(
+                        new IceCandidate(
+                            envelope.Candidate ?? string.Empty,
+                            envelope.SdpMid,
+                            envelope.SdpMLineIndex
+                        )
+                    )
+                    .ConfigureAwait(false);
                 break;
             default:
                 break;
         }
     }
 
-    private async Task SendEnvelopeAsync(SignalEnvelope envelope, CancellationToken cancellationToken)
+    private async Task SendEnvelopeAsync(
+        SignalEnvelope envelope,
+        CancellationToken cancellationToken
+    )
     {
-        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(envelope, SignalEnvelopeContext.Default.SignalEnvelope);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
+            envelope,
+            SignalEnvelopeContext.Default.SignalEnvelope
+        );
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+            await _socket
+                .SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken)
+                .ConfigureAwait(false);
         }
         finally
         {

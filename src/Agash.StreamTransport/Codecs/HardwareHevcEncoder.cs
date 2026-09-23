@@ -18,7 +18,12 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
 
     /// <inheritdoc/>
     public byte[]? Encode(in VideoFrame frame, out long capturePtsNs) =>
-        EncodeNv12(frame.Pixels.Span, frame.ForceKeyframe, frame.PresentationTimeNs, out capturePtsNs);
+        EncodeNv12(
+            frame.Pixels.Span,
+            frame.ForceKeyframe,
+            frame.PresentationTimeNs,
+            out capturePtsNs
+        );
 
     private readonly int _width;
     private readonly int _height;
@@ -28,7 +33,15 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
     private readonly Lock _rateGate = new();
     private bool _disposed;
 
-    public HardwareHevcEncoder(string encoderName, int width, int height, int fps, long bitrate, int maxBFrames = 0, MediaProfile profile = MediaProfile.InteractiveP2P)
+    public HardwareHevcEncoder(
+        string encoderName,
+        int width,
+        int height,
+        int fps,
+        long bitrate,
+        int maxBFrames = 0,
+        MediaProfile profile = MediaProfile.InteractiveP2P
+    )
     {
         _width = width;
         _height = height;
@@ -36,7 +49,9 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
         AVCodec* codec = ffmpeg.avcodec_find_encoder_by_name(encoderName);
         if (codec is null)
         {
-            throw new NotSupportedException($"Hardware encoder '{encoderName}' was not found in the FFmpeg build.");
+            throw new NotSupportedException(
+                $"Hardware encoder '{encoderName}' was not found in the FFmpeg build."
+            );
         }
 
         _context = ffmpeg.avcodec_alloc_context3(codec);
@@ -69,7 +84,8 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
             }
 
             throw new HardwareEncoderUnavailableException(
-                $"Hardware encoder '{encoderName}' could not be opened; the required GPU is likely not present (error {openResult}).");
+                $"Hardware encoder '{encoderName}' could not be opened; the required GPU is likely not present (error {openResult})."
+            );
         }
 
         _frame = ffmpeg.av_frame_alloc();
@@ -110,12 +126,20 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
     /// <paramref name="producedPtsNs"/> returns the PTS of the frame that produced the emitted access unit (they
     /// differ by the encoder pipeline depth, and reorder with B-frames). Returns the HEVC access unit or null.
     /// </summary>
-    public byte[]? EncodeNv12(ReadOnlySpan<byte> nv12, bool forceKeyframe, long capturePtsNs, out long producedPtsNs)
+    public byte[]? EncodeNv12(
+        ReadOnlySpan<byte> nv12,
+        bool forceKeyframe,
+        long capturePtsNs,
+        out long producedPtsNs
+    )
     {
         producedPtsNs = 0;
         if (nv12.Length < _width * _height * 3 / 2)
         {
-            throw new ArgumentException($"NV12 buffer too small for {_width}x{_height}.", nameof(nv12));
+            throw new ArgumentException(
+                $"NV12 buffer too small for {_width}x{_height}.",
+                nameof(nv12)
+            );
         }
 
         ffmpeg.av_frame_unref(_frame);
@@ -148,7 +172,9 @@ internal sealed unsafe class HardwareHevcEncoder : IDisposable, IVideoEncoderBac
         _frame->pts = capturePtsNs;
         // Force an IDR when requested (keyframe-on-demand): setting the picture type to I makes nvenc/amf/qsv
         // emit a key frame for this input regardless of the GOP cadence. NONE leaves the encoder's own decision.
-        _frame->pict_type = forceKeyframe ? AVPictureType.AV_PICTURE_TYPE_I : AVPictureType.AV_PICTURE_TYPE_NONE;
+        _frame->pict_type = forceKeyframe
+            ? AVPictureType.AV_PICTURE_TYPE_I
+            : AVPictureType.AV_PICTURE_TYPE_NONE;
         ffmpeg.avcodec_send_frame(_context, _frame).ThrowOnError("send frame to encoder");
 
         ffmpeg.av_packet_unref(_packet);

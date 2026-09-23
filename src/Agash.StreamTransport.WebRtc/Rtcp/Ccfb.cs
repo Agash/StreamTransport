@@ -9,7 +9,11 @@ namespace Agash.StreamTransport.WebRtc.Rtcp;
 public readonly record struct CcfbMetric(bool Received, byte Ecn, ushort ArrivalTimeOffset);
 
 /// <summary>An RFC 8888 per-SSRC report block: the metrics for a run of sequence numbers from <see cref="BeginSequence"/>.</summary>
-public readonly record struct CcfbStreamReport(uint Ssrc, ushort BeginSequence, IReadOnlyList<CcfbMetric> Metrics);
+public readonly record struct CcfbStreamReport(
+    uint Ssrc,
+    ushort BeginSequence,
+    IReadOnlyList<CcfbMetric> Metrics
+);
 
 /// <summary>
 /// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11) - the modern,
@@ -25,7 +29,12 @@ public static class Ccfb
     public const ushort ArrivalTimeUnknown = 0x1FFF;
 
     /// <summary>Builds a CCFB packet. Returns the bytes written.</summary>
-    public static int Build(Span<byte> destination, uint senderSsrc, IReadOnlyList<CcfbStreamReport> streams, uint reportTimestamp)
+    public static int Build(
+        Span<byte> destination,
+        uint senderSsrc,
+        IReadOnlyList<CcfbStreamReport> streams,
+        uint reportTimestamp
+    )
     {
         destination[0] = 0x80 | Fmt; // V=2, P=0, FMT=11
         destination[1] = (byte)RtcpPacketType.TransportFeedback; // 205
@@ -35,13 +44,23 @@ public static class Ccfb
         foreach (CcfbStreamReport stream in streams)
         {
             BinaryPrimitives.WriteUInt32BigEndian(destination[offset..], stream.Ssrc);
-            BinaryPrimitives.WriteUInt16BigEndian(destination[(offset + 4)..], stream.BeginSequence);
-            BinaryPrimitives.WriteUInt16BigEndian(destination[(offset + 6)..], (ushort)stream.Metrics.Count);
+            BinaryPrimitives.WriteUInt16BigEndian(
+                destination[(offset + 4)..],
+                stream.BeginSequence
+            );
+            BinaryPrimitives.WriteUInt16BigEndian(
+                destination[(offset + 6)..],
+                (ushort)stream.Metrics.Count
+            );
             offset += 8;
 
             foreach (CcfbMetric metric in stream.Metrics)
             {
-                ushort value = (ushort)((metric.Received ? 0x8000 : 0) | ((metric.Ecn & 0x3) << 13) | (metric.ArrivalTimeOffset & 0x1FFF));
+                ushort value = (ushort)(
+                    (metric.Received ? 0x8000 : 0)
+                    | ((metric.Ecn & 0x3) << 13)
+                    | (metric.ArrivalTimeOffset & 0x1FFF)
+                );
                 BinaryPrimitives.WriteUInt16BigEndian(destination[offset..], value);
                 offset += 2;
             }
@@ -61,13 +80,22 @@ public static class Ccfb
     }
 
     /// <summary>Parses the first CCFB packet in an RTCP compound, populating <paramref name="streams"/>.</summary>
-    public static bool TryParse(ReadOnlySpan<byte> packet, out uint senderSsrc, out uint reportTimestamp, List<CcfbStreamReport> streams)
+    public static bool TryParse(
+        ReadOnlySpan<byte> packet,
+        out uint senderSsrc,
+        out uint reportTimestamp,
+        List<CcfbStreamReport> streams
+    )
     {
         senderSsrc = 0;
         reportTimestamp = 0;
         foreach (RtcpElement element in RtcpCompound.Enumerate(packet))
         {
-            if (element.PacketType != RtcpPacketType.TransportFeedback || element.ReportCount != Fmt || element.Body.Length < 8)
+            if (
+                element.PacketType != RtcpPacketType.TransportFeedback
+                || element.ReportCount != Fmt
+                || element.Body.Length < 8
+            )
             {
                 continue;
             }
@@ -88,7 +116,11 @@ public static class Ccfb
                 for (int i = 0; i < numReports && o + 2 <= end; i++, o += 2)
                 {
                     ushort value = BinaryPrimitives.ReadUInt16BigEndian(body[o..]);
-                    metrics[i] = new CcfbMetric((value & 0x8000) != 0, (byte)((value >> 13) & 0x3), (ushort)(value & 0x1FFF));
+                    metrics[i] = new CcfbMetric(
+                        (value & 0x8000) != 0,
+                        (byte)((value >> 13) & 0x3),
+                        (ushort)(value & 0x1FFF)
+                    );
                 }
 
                 if (numReports % 2 != 0)

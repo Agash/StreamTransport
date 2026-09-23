@@ -23,7 +23,9 @@ internal sealed class H265RtpDepacketizer : IRtpDepacketizer
     private readonly H265Depacketizer _inner = new();
 
     public PooledBuffer? Push(ReadOnlySpan<byte> payload, bool marker) =>
-        _inner.Push(payload, marker, out byte[] accessUnit, out int length) ? new PooledBuffer(accessUnit, length) : null;
+        _inner.Push(payload, marker, out byte[] accessUnit, out int length)
+            ? new PooledBuffer(accessUnit, length)
+            : null;
 
     public void Dispose() => _inner.Dispose();
 }
@@ -55,7 +57,5 @@ internal sealed class PassthroughDepacketizer : IRtpDepacketizer
         return new PooledBuffer(buffer, payload.Length);
     }
 
-    public void Dispose()
-    {
-    }
+    public void Dispose() { }
 }

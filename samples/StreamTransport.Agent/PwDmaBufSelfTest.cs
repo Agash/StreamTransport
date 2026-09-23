@@ -47,7 +47,9 @@ internal static class PwDmaBufSelfTest
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLineInterpolated($"[yellow]VAAPI presentation pool unavailable: {ex.Message}[/]");
+            AnsiConsole.MarkupLineInterpolated(
+                $"[yellow]VAAPI presentation pool unavailable: {ex.Message}[/]"
+            );
             return 1;
         }
 
@@ -60,7 +62,14 @@ internal static class PwDmaBufSelfTest
         int framesConsumed = 0;
         int dmaBufConsumed = 0;
 
-        var output = new PipeWireVideoOutput(ctx, "stx-dmabuf-selftest", width, height, PwPixelFormat.Nv12, 30);
+        var output = new PipeWireVideoOutput(
+            ctx,
+            "stx-dmabuf-selftest",
+            width,
+            height,
+            PwPixelFormat.Nv12,
+            30
+        );
         output.AllocateDmaBuf += (_, bufferIndex, _, _, _, planes) =>
         {
             if (bufferIndex >= poolCount)
@@ -79,7 +88,11 @@ internal static class PwDmaBufSelfTest
 
             return n;
         };
-        output.FillDmaBuf += (_, _) => { Interlocked.Increment(ref framesProduced); return true; };
+        output.FillDmaBuf += (_, _) =>
+        {
+            Interlocked.Increment(ref framesProduced);
+            return true;
+        };
         output.StateChanged += (_, _, newS) => streaming = newS == PipeWireStreamState.Streaming;
         output.ConnectDmaBuf([modifier]);
 
@@ -94,7 +107,9 @@ internal static class PwDmaBufSelfTest
             }
         }
 
-        AnsiConsole.MarkupLineInterpolated($"[grey]producer node id = {nodeId}, modifier = 0x{pool.Modifier:x}[/]");
+        AnsiConsole.MarkupLineInterpolated(
+            $"[grey]producer node id = {nodeId}, modifier = 0x{pool.Modifier:x}[/]"
+        );
 
         var capture = new PipeWireVideoCapture(ctx);
         capture.FrameReady += (_, frame) =>
@@ -109,7 +124,18 @@ internal static class PwDmaBufSelfTest
 
         // Drive the DRIVER producer at ~30 fps once it is streaming (no real frames here - the pool surfaces
         // are published as-is; this verifies negotiation + dmabuf delivery, not pixel content).
-        using var driver = new Timer(_ => { if (streaming) { output.TriggerFrame(); } }, null, 100, 33);
+        using var driver = new Timer(
+            _ =>
+            {
+                if (streaming)
+                {
+                    output.TriggerFrame();
+                }
+            },
+            null,
+            100,
+            33
+        );
 
         await Task.Delay(TimeSpan.FromSeconds(4)).ConfigureAwait(false);
 
@@ -119,11 +145,14 @@ internal static class PwDmaBufSelfTest
         await ctx.DisposeAsync().ConfigureAwait(false);
 
         AnsiConsole.MarkupLineInterpolated(
-            $"produced={framesProduced} consumed={framesConsumed} (dmabuf={dmaBufConsumed})");
+            $"produced={framesProduced} consumed={framesConsumed} (dmabuf={dmaBufConsumed})"
+        );
         bool pass = dmaBufConsumed >= 10;
-        AnsiConsole.MarkupLine(pass
-            ? "[green]PWDMABUF-PASS[/] (GPU zero-copy dmabuf producer->consumer verified in-process)"
-            : "[red]PWDMABUF-FAIL[/] (no dmabuf frames delivered - see whether the daemon negotiated the format)");
+        AnsiConsole.MarkupLine(
+            pass
+                ? "[green]PWDMABUF-PASS[/] (GPU zero-copy dmabuf producer->consumer verified in-process)"
+                : "[red]PWDMABUF-FAIL[/] (no dmabuf frames delivered - see whether the daemon negotiated the format)"
+        );
         return pass ? 0 : 1;
     }
 }

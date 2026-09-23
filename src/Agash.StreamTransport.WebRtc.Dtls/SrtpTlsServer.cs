@@ -9,7 +9,8 @@ namespace Agash.StreamTransport.WebRtc.Dtls;
 /// offer, requests and records the client certificate fingerprint, presents the local certificate, and
 /// exports the SRTP keying material on completion. DTLS 1.2, ECDHE_ECDSA + AES-GCM only.
 /// </summary>
-internal sealed class SrtpTlsServer(TlsCrypto crypto, DtlsCertificate certificate) : DefaultTlsServer(crypto)
+internal sealed class SrtpTlsServer(TlsCrypto crypto, DtlsCertificate certificate)
+    : DefaultTlsServer(crypto)
 {
     /// <summary>The selected SRTP protection profile (BouncyCastle code point).</summary>
     public int SelectedProfile { get; private set; }
@@ -23,10 +24,10 @@ internal sealed class SrtpTlsServer(TlsCrypto crypto, DtlsCertificate certificat
     protected override ProtocolVersion[] GetSupportedVersions() => ProtocolVersion.DTLSv12.Only();
 
     protected override int[] GetSupportedCipherSuites() =>
-    [
-        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-    ];
+        [
+            CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+            CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+        ];
 
     public override void ProcessClientExtensions(IDictionary<int, byte[]> clientExtensions)
     {
@@ -47,8 +48,12 @@ internal sealed class SrtpTlsServer(TlsCrypto crypto, DtlsCertificate certificat
 
     public override IDictionary<int, byte[]> GetServerExtensions()
     {
-        IDictionary<int, byte[]> extensions = base.GetServerExtensions() ?? new Dictionary<int, byte[]>();
-        TlsSrtpUtilities.AddUseSrtpExtension(extensions, new UseSrtpData([SelectedProfile], TlsUtilities.EmptyBytes));
+        IDictionary<int, byte[]> extensions =
+            base.GetServerExtensions() ?? new Dictionary<int, byte[]>();
+        TlsSrtpUtilities.AddUseSrtpExtension(
+            extensions,
+            new UseSrtpData([SelectedProfile], TlsUtilities.EmptyBytes)
+        );
         return extensions;
     }
 
@@ -75,18 +80,26 @@ internal sealed class SrtpTlsServer(TlsCrypto crypto, DtlsCertificate certificat
 
     protected override TlsCredentialedSigner GetECDsaSignerCredentials()
     {
-        var algorithm = new SignatureAndHashAlgorithm(HashAlgorithm.sha256, SignatureAlgorithm.ecdsa);
+        var algorithm = new SignatureAndHashAlgorithm(
+            HashAlgorithm.sha256,
+            SignatureAlgorithm.ecdsa
+        );
         return new BcDefaultTlsCredentialedSigner(
             new TlsCryptoParameters(m_context),
             (BcTlsCrypto)m_context.Crypto,
             certificate.PrivateKey,
             certificate.Certificate,
-            algorithm);
+            algorithm
+        );
     }
 
     public override void NotifyHandshakeComplete()
     {
         base.NotifyHandshakeComplete();
-        KeyingMaterial = m_context.ExportKeyingMaterial(ExporterLabel.dtls_srtp, null, SrtpProfiles.KeyingMaterialLength(SelectedProfile));
+        KeyingMaterial = m_context.ExportKeyingMaterial(
+            ExporterLabel.dtls_srtp,
+            null,
+            SrtpProfiles.KeyingMaterialLength(SelectedProfile)
+        );
     }
 }

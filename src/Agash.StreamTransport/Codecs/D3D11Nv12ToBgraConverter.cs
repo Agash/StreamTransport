@@ -45,24 +45,35 @@ public sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
             _ps = device.CreatePixelShader(psBlob.AsSpan());
         }
 
-        _sampler = device.CreateSamplerState(new SamplerDescription
-        {
-            Filter = Filter.MinMagMipLinear,
-            AddressU = TextureAddressMode.Clamp,
-            AddressV = TextureAddressMode.Clamp,
-            AddressW = TextureAddressMode.Clamp,
-            MaxLOD = float.MaxValue,
-        });
+        _sampler = device.CreateSamplerState(
+            new SamplerDescription
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                MaxLOD = float.MaxValue,
+            }
+        );
     }
 
     private static Blob Compile(string entryPoint, string profile)
     {
-        Compiler.Compile(Hlsl, entryPoint, "nv12_to_bgra.hlsl", profile, out Blob blob, out Blob? errors);
+        Compiler.Compile(
+            Hlsl,
+            entryPoint,
+            "nv12_to_bgra.hlsl",
+            profile,
+            out Blob blob,
+            out Blob? errors
+        );
         using (errors)
         {
             if (blob is null)
             {
-                throw new InvalidOperationException($"Failed to compile {entryPoint}: {errors?.AsString()}");
+                throw new InvalidOperationException(
+                    $"Failed to compile {entryPoint}: {errors?.AsString()}"
+                );
             }
         }
 
@@ -73,8 +84,13 @@ public sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
     public VideoFrame Nv12ToBgra(in VideoFrame nv12, long presentationTimeNs) =>
         VideoFrame.FromD3D11Texture(
             ConvertCore(nv12.Surface, nv12.Width, nv12.Height),
-            nv12.Width, nv12.Height, presentationTimeNs)
-            with { PixelFormat = VideoPixelFormat.Bgra };
+            nv12.Width,
+            nv12.Height,
+            presentationTimeNs
+        ) with
+        {
+            PixelFormat = VideoPixelFormat.Bgra,
+        };
 
     private nint ConvertCore(nint nv12Texture, int width, int height)
     {
@@ -82,18 +98,24 @@ public sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
 
         using var nv12 = new ID3D11Texture2D(nv12Texture);
         nv12.AddRef();
-        using ID3D11ShaderResourceView yView = _device.CreateShaderResourceView(nv12, new ShaderResourceViewDescription
-        {
-            Format = Format.R8_UNorm,
-            ViewDimension = ShaderResourceViewDimension.Texture2D,
-            Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
-        });
-        using ID3D11ShaderResourceView uvView = _device.CreateShaderResourceView(nv12, new ShaderResourceViewDescription
-        {
-            Format = Format.R8G8_UNorm,
-            ViewDimension = ShaderResourceViewDimension.Texture2D,
-            Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
-        });
+        using ID3D11ShaderResourceView yView = _device.CreateShaderResourceView(
+            nv12,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.R8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
+            }
+        );
+        using ID3D11ShaderResourceView uvView = _device.CreateShaderResourceView(
+            nv12,
+            new ShaderResourceViewDescription
+            {
+                Format = Format.R8G8_UNorm,
+                ViewDimension = ShaderResourceViewDimension.Texture2D,
+                Texture2D = new Texture2DShaderResourceView { MipLevels = 1 },
+            }
+        );
 
         _context.OMSetRenderTargets(_rtv!);
         _context.RSSetViewport(new Viewport(0, 0, width, height));
@@ -118,18 +140,20 @@ public sealed class D3D11Nv12ToBgraConverter : IDisposable, INv12ToBgra
 
         _rtv?.Dispose();
         _bgra?.Dispose();
-        _bgra = _device.CreateTexture2D(new Texture2DDescription
-        {
-            Width = (uint)width,
-            Height = (uint)height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Format.B8G8R8A8_UNorm,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Default,
-            BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
-            CPUAccessFlags = CpuAccessFlags.None,
-        });
+        _bgra = _device.CreateTexture2D(
+            new Texture2DDescription
+            {
+                Width = (uint)width,
+                Height = (uint)height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None,
+            }
+        );
         _rtv = _device.CreateRenderTargetView(_bgra);
         _width = width;
         _height = height;

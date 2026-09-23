@@ -27,7 +27,12 @@ public enum NetworkAdapterType
 /// <param name="Name">The interface name, for diagnostics.</param>
 /// <param name="AdapterType">The classified link type.</param>
 /// <param name="IsUp">Whether the interface is operational.</param>
-public readonly record struct NetworkPathInfo(string Id, string Name, NetworkAdapterType AdapterType, bool IsUp);
+public readonly record struct NetworkPathInfo(
+    string Id,
+    string Name,
+    NetworkAdapterType AdapterType,
+    bool IsUp
+);
 
 /// <summary>
 /// Observes the host's network interfaces and reports when they change - an interface added/removed, a link

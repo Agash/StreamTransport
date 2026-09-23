@@ -21,8 +21,20 @@ public sealed class AudioLoopbackTests
         receiverSignaling.Peer = senderSignaling;
 
         var sink = new CollectingAudioSink(target: 10);
-        await using var receiver = new WebRtcMediaReceiver(new MediaTransportOptions(), TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, audio: sink);
-        await using var sender = new WebRtcMediaSender(new MediaTransportOptions(), TestMedia.Codecs, TestMedia.Dtls, TestMedia.Loggers, audio: new ToneAudioSource());
+        await using var receiver = new WebRtcMediaReceiver(
+            new MediaTransportOptions(),
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            audio: sink
+        );
+        await using var sender = new WebRtcMediaSender(
+            new MediaTransportOptions(),
+            TestMedia.Codecs,
+            TestMedia.Dtls,
+            TestMedia.Loggers,
+            audio: new ToneAudioSource()
+        );
 
         // Receiver subscribes first so it is ready to answer the sender's offer.
         await receiver.StartAsync(receiverSignaling);
@@ -37,6 +49,7 @@ public sealed class AudioLoopbackTests
 
         Assert.IsTrue(
             ReferenceEquals(finished, sink.Reached) && sink.Count >= 10,
-            $"Expected at least 10 decoded audio frames at the sink, got {sink.Count}.");
+            $"Expected at least 10 decoded audio frames at the sink, got {sink.Count}."
+        );
     }
 }

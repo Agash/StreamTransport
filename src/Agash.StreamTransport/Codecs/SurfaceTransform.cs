@@ -61,9 +61,23 @@ internal sealed class CpuSurfaceTransform : IAlphaPacker, IAlphaUnpacker
 {
     public VideoFrame PackAlpha(in VideoFrame colourBgra, long presentationTimeNs)
     {
-        byte[] packed = new byte[AlphaPacking.PackedNv12Length(colourBgra.Width, colourBgra.Height)];
-        AlphaPacking.PackBgraToNv12(colourBgra.Pixels.Span, colourBgra.Width * 4, colourBgra.Width, colourBgra.Height, packed);
-        return VideoFrame.FromPixels(packed, VideoPixelFormat.Nv12, colourBgra.Width * 2, colourBgra.Height, presentationTimeNs);
+        byte[] packed = new byte[
+            AlphaPacking.PackedNv12Length(colourBgra.Width, colourBgra.Height)
+        ];
+        AlphaPacking.PackBgraToNv12(
+            colourBgra.Pixels.Span,
+            colourBgra.Width * 4,
+            colourBgra.Width,
+            colourBgra.Height,
+            packed
+        );
+        return VideoFrame.FromPixels(
+            packed,
+            VideoPixelFormat.Nv12,
+            colourBgra.Width * 2,
+            colourBgra.Height,
+            presentationTimeNs
+        );
     }
 
     public VideoFrame UnpackAlpha(in VideoFrame packed, long presentationTimeNs)
@@ -72,10 +86,19 @@ internal sealed class CpuSurfaceTransform : IAlphaPacker, IAlphaUnpacker
         int height = packed.Height;
 
         // Normalise to NV12 first (a software decoder may emit I420) so the unpack reads the layout it expects.
-        byte[] nv12 = packed.PixelFormat == VideoPixelFormat.Nv12 ? packed.Pixels.ToArray() : I420ToNv12(packed.Pixels.Span, width, height);
+        byte[] nv12 =
+            packed.PixelFormat == VideoPixelFormat.Nv12
+                ? packed.Pixels.ToArray()
+                : I420ToNv12(packed.Pixels.Span, width, height);
         byte[] bgra = new byte[(width / 2) * height * 4];
         AlphaPacking.UnpackNv12ToBgra(nv12, width, height, bgra);
-        return VideoFrame.FromPixels(bgra, VideoPixelFormat.Bgra, width / 2, height, presentationTimeNs);
+        return VideoFrame.FromPixels(
+            bgra,
+            VideoPixelFormat.Bgra,
+            width / 2,
+            height,
+            presentationTimeNs
+        );
     }
 
     /// <summary>Normalise an opaque CPU frame to NV12 for the encoder (passthrough NV12, convert I420). Last-resort only.</summary>
@@ -88,11 +111,19 @@ internal sealed class CpuSurfaceTransform : IAlphaPacker, IAlphaUnpacker
 
         if (frame.PixelFormat != VideoPixelFormat.I420)
         {
-            throw new NotSupportedException($"Pixel format {frame.PixelFormat} is not supported for encode yet.");
+            throw new NotSupportedException(
+                $"Pixel format {frame.PixelFormat} is not supported for encode yet."
+            );
         }
 
         byte[] nv12 = I420ToNv12(frame.Pixels.Span, frame.Width, frame.Height);
-        return VideoFrame.FromPixels(nv12, VideoPixelFormat.Nv12, frame.Width, frame.Height, presentationTimeNs);
+        return VideoFrame.FromPixels(
+            nv12,
+            VideoPixelFormat.Nv12,
+            frame.Width,
+            frame.Height,
+            presentationTimeNs
+        );
     }
 
     private static byte[] I420ToNv12(ReadOnlySpan<byte> i420, int width, int height)

@@ -68,7 +68,10 @@ public sealed partial class PeerConnection
         FecRecoveredPacket? recovered;
         lock (_fecGate)
         {
-            recovered = FlexFec.TryRecover(fecBody, seq => _fecRecvCache.TryGetValue(seq, out FecSourcePacket s) ? s : null);
+            recovered = FlexFec.TryRecover(
+                fecBody,
+                seq => _fecRecvCache.TryGetValue(seq, out FecSourcePacket s) ? s : null
+            );
         }
 
         if (recovered is not { } r)

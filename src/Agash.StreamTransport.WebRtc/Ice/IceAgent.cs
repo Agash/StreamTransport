@@ -34,8 +34,12 @@ public sealed partial class IceAgent : IAsyncDisposable
     private readonly List<IceCandidate> _remoteCandidates = [];
     private readonly List<CandidatePair> _pairs = [];
     private readonly List<IPEndPoint> _stunServers = [];
-    private readonly ConcurrentDictionary<string, CandidatePair> _inFlight = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, GatherTransaction> _gatherInFlight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CandidatePair> _inFlight = new(
+        StringComparer.Ordinal
+    );
+    private readonly ConcurrentDictionary<string, GatherTransaction> _gatherInFlight = new(
+        StringComparer.Ordinal
+    );
     private readonly Lock _gate = new();
 
     private IceCredentials _remote;
@@ -55,7 +59,8 @@ public sealed partial class IceAgent : IAsyncDisposable
         bool includeLoopback = false,
         ILogger<IceAgent>? logger = null,
         IIceSocketFactory? socketFactory = null,
-        IceTimings? timings = null)
+        IceTimings? timings = null
+    )
     {
         LocalCredentials = localCredentials;
         _role = role;
@@ -149,7 +154,12 @@ public sealed partial class IceAgent : IAsyncDisposable
 
                 RandomNumberGenerator.Fill(txId);
                 byte[] buffer = new byte[64];
-                var writer = new StunMessageWriter(buffer, StunMessageClass.Request, StunMethod.Binding, txId);
+                var writer = new StunMessageWriter(
+                    buffer,
+                    StunMessageClass.Request,
+                    StunMethod.Binding,
+                    txId
+                );
                 writer.AddFingerprint();
                 _gatherInFlight[Convert.ToHexString(txId)] = new GatherTransaction(local, server);
                 _ = local.Socket.SendAsync(buffer.AsMemory(0, writer.Length), server);
@@ -179,7 +189,10 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// recovery (consent loss / network change) the datagram is dropped rather than thrown - those packets
     /// would be lost on the dead path anyway, and the media pump must not fault while ICE re-nominates.
     /// </summary>
-    public async ValueTask SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    public async ValueTask SendAsync(
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default
+    )
     {
         CandidatePair? pair = _selected;
         if (pair is null)
@@ -187,7 +200,9 @@ public sealed partial class IceAgent : IAsyncDisposable
             return;
         }
 
-        await pair.Local.Socket.SendAsync(data, pair.Remote.Endpoint, cancellationToken).ConfigureAwait(false);
+        await pair
+            .Local.Socket.SendAsync(data, pair.Remote.Endpoint, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -272,9 +287,20 @@ public sealed partial class IceAgent : IAsyncDisposable
 
             IPEndPoint bound = socket.LocalEndPoint;
             int index = _candidateIndex++;
-            uint priority = IceCandidate.ComputePriority(IceCandidateKind.Host, address.AddressFamily, IceCandidate.RtpComponent, index);
+            uint priority = IceCandidate.ComputePriority(
+                IceCandidateKind.Host,
+                address.AddressFamily,
+                IceCandidate.RtpComponent,
+                index
+            );
             string foundation = Foundation(IceCandidateKind.Host, address);
-            var candidate = new IceCandidate(foundation, IceCandidate.RtpComponent, priority, bound, IceCandidateKind.Host);
+            var candidate = new IceCandidate(
+                foundation,
+                IceCandidate.RtpComponent,
+                priority,
+                bound,
+                IceCandidateKind.Host
+            );
 
             var ep = new LocalEndpoint(candidate, socket);
             _localEndpoints.Add(ep);
@@ -283,21 +309,25 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
-    private static string Foundation(IceCandidateKind kind, IPAddress baseAddress)
-        => $"{(int)kind}-{baseAddress}";
+    private static string Foundation(IceCandidateKind kind, IPAddress baseAddress) =>
+        $"{(int)kind}-{baseAddress}";
 
     private void FormPairsFor(IceCandidate remote)
     {
         foreach (LocalEndpoint local in _localEndpoints)
         {
-            if (local.Candidate.Endpoint.AddressFamily != remote.Endpoint.AddressFamily
-                || local.Candidate.ComponentId != remote.ComponentId)
+            if (
+                local.Candidate.Endpoint.AddressFamily != remote.Endpoint.AddressFamily
+                || local.Candidate.ComponentId != remote.ComponentId
+            )
             {
                 continue; // pairs are within an address family and component.
             }
 
-            uint controlling = _role == IceRole.Controlling ? local.Candidate.Priority : remote.Priority;
-            uint controlled = _role == IceRole.Controlling ? remote.Priority : local.Candidate.Priority;
+            uint controlling =
+                _role == IceRole.Controlling ? local.Candidate.Priority : remote.Priority;
+            uint controlled =
+                _role == IceRole.Controlling ? remote.Priority : local.Candidate.Priority;
             ulong pairPriority = IceCandidate.ComputePairPriority(controlling, controlled);
             _pairs.Add(new CandidatePair(local, remote, pairPriority));
         }
@@ -360,7 +390,11 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
-    private void HandleBindingRequest(StunMessageReader stun, LocalEndpoint local, IPEndPoint source)
+    private void HandleBindingRequest(
+        StunMessageReader stun,
+        LocalEndpoint local,
+        IPEndPoint source
+    )
     {
         // Authenticate: USERNAME must be localUfrag:remoteUfrag, MESSAGE-INTEGRITY keyed by our password.
         if (!stun.VerifyMessageIntegrity(_localPwdBytes))
@@ -372,7 +406,12 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         // Respond: XOR-MAPPED-ADDRESS of the source, MI keyed by our password, FINGERPRINT.
         byte[] response = new byte[128];
-        var writer = new StunMessageWriter(response, StunMessageClass.SuccessResponse, StunMethod.Binding, stun.TransactionId);
+        var writer = new StunMessageWriter(
+            response,
+            StunMessageClass.SuccessResponse,
+            StunMethod.Binding,
+            stun.TransactionId
+        );
         writer.AddXorMappedAddress(source);
         writer.AddMessageIntegrity(_localPwdBytes);
         writer.AddFingerprint();
@@ -420,7 +459,10 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         // Response MI is keyed by the responder's (remote) password.
-        if (_remote.Password is { Length: > 0 } && !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password)))
+        if (
+            _remote.Password is { Length: > 0 }
+            && !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
+        )
         {
             return;
         }
@@ -455,11 +497,20 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         int index = _candidateIndex++;
-        uint priority = IceCandidate.ComputePriority(IceCandidateKind.ServerReflexive, mapped.AddressFamily, IceCandidate.RtpComponent, index);
+        uint priority = IceCandidate.ComputePriority(
+            IceCandidateKind.ServerReflexive,
+            mapped.AddressFamily,
+            IceCandidate.RtpComponent,
+            index
+        );
         var candidate = new IceCandidate(
             Foundation(IceCandidateKind.ServerReflexive, gather.Local.Candidate.Endpoint.Address),
-            IceCandidate.RtpComponent, priority, mapped, IceCandidateKind.ServerReflexive,
-            relatedAddress: gather.Local.Candidate.Endpoint);
+            IceCandidate.RtpComponent,
+            priority,
+            mapped,
+            IceCandidateKind.ServerReflexive,
+            relatedAddress: gather.Local.Candidate.Endpoint
+        );
 
         LogLocalCandidate(_logger, candidate.Kind, candidate.Endpoint);
         LocalCandidateGathered?.Invoke(candidate);
@@ -491,11 +542,28 @@ public sealed partial class IceAgent : IAsyncDisposable
                 }
             }
 
-            uint prflxPriority = IceCandidate.ComputePriority(IceCandidateKind.PeerReflexive, source.AddressFamily, IceCandidate.RtpComponent, _candidateIndex++);
-            var prflx = new IceCandidate(Foundation(IceCandidateKind.PeerReflexive, source.Address), IceCandidate.RtpComponent, prflxPriority, source, IceCandidateKind.PeerReflexive);
-            uint controlling = _role == IceRole.Controlling ? local.Candidate.Priority : prflx.Priority;
-            uint controlled = _role == IceRole.Controlling ? prflx.Priority : local.Candidate.Priority;
-            var pair = new CandidatePair(local, prflx, IceCandidate.ComputePairPriority(controlling, controlled));
+            uint prflxPriority = IceCandidate.ComputePriority(
+                IceCandidateKind.PeerReflexive,
+                source.AddressFamily,
+                IceCandidate.RtpComponent,
+                _candidateIndex++
+            );
+            var prflx = new IceCandidate(
+                Foundation(IceCandidateKind.PeerReflexive, source.Address),
+                IceCandidate.RtpComponent,
+                prflxPriority,
+                source,
+                IceCandidateKind.PeerReflexive
+            );
+            uint controlling =
+                _role == IceRole.Controlling ? local.Candidate.Priority : prflx.Priority;
+            uint controlled =
+                _role == IceRole.Controlling ? prflx.Priority : local.Candidate.Priority;
+            var pair = new CandidatePair(
+                local,
+                prflx,
+                IceCandidate.ComputePairPriority(controlling, controlled)
+            );
             _pairs.Add(pair);
             _pairs.Sort(static (a, b) => b.Priority.CompareTo(a.Priority));
             return pair;
@@ -519,9 +587,7 @@ public sealed partial class IceAgent : IAsyncDisposable
                 MaintainHotStandby();
             }
         }
-        catch (OperationCanceledException)
-        {
-        }
+        catch (OperationCanceledException) { }
     }
 
     // Keep non-selected succeeded pairs warm: a low-frequency STUN ping on each (RFC 7675 cadence) so an
@@ -566,7 +632,11 @@ public sealed partial class IceAgent : IAsyncDisposable
             CandidatePair? best = null;
             foreach (CandidatePair p in _pairs)
             {
-                if (ReferenceEquals(p, exclude) || p.State != PairState.Succeeded || now - p.LastResponseUtc > _timings.ConsentTimeout)
+                if (
+                    ReferenceEquals(p, exclude)
+                    || p.State != PairState.Succeeded
+                    || now - p.LastResponseUtc > _timings.ConsentTimeout
+                )
                 {
                     continue;
                 }
@@ -654,18 +724,38 @@ public sealed partial class IceAgent : IAsyncDisposable
         RandomNumberGenerator.Fill(txId);
 
         byte[] buffer = new byte[160];
-        var writer = new StunMessageWriter(buffer, StunMessageClass.Request, StunMethod.Binding, txId);
+        var writer = new StunMessageWriter(
+            buffer,
+            StunMessageClass.Request,
+            StunMethod.Binding,
+            txId
+        );
 
-        string username = IceCredentials.CheckUsername(_remote.UsernameFragment, LocalCredentials.UsernameFragment);
+        string username = IceCredentials.CheckUsername(
+            _remote.UsernameFragment,
+            LocalCredentials.UsernameFragment
+        );
         writer.AddAttribute(StunAttributeType.Username, Encoding.UTF8.GetBytes(username));
 
         Span<byte> priority = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(priority, IceCandidate.ComputePriority(IceCandidateKind.PeerReflexive, pair.Local.Candidate.Endpoint.AddressFamily, IceCandidate.RtpComponent));
+        BinaryPrimitives.WriteUInt32BigEndian(
+            priority,
+            IceCandidate.ComputePriority(
+                IceCandidateKind.PeerReflexive,
+                pair.Local.Candidate.Endpoint.AddressFamily,
+                IceCandidate.RtpComponent
+            )
+        );
         writer.AddAttribute(StunAttributeType.Priority, priority);
 
         Span<byte> tie = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(tie, _tieBreaker);
-        writer.AddAttribute(_role == IceRole.Controlling ? StunAttributeType.IceControlling : StunAttributeType.IceControlled, tie);
+        writer.AddAttribute(
+            _role == IceRole.Controlling
+                ? StunAttributeType.IceControlling
+                : StunAttributeType.IceControlled,
+            tie
+        );
 
         if (_role == IceRole.Controlling && pair.NominationCheck)
         {
@@ -741,7 +831,11 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         if (_checkLoop is { } loop)
         {
-            try { await loop.ConfigureAwait(false); } catch (OperationCanceledException) { }
+            try
+            {
+                await loop.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { }
         }
 
         foreach (LocalEndpoint ep in _localEndpoints)
@@ -753,30 +847,58 @@ public sealed partial class IceAgent : IAsyncDisposable
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ICE local candidate {Kind} {Endpoint}")]
-    private static partial void LogLocalCandidate(ILogger logger, IceCandidateKind kind, IPEndPoint endpoint);
+    private static partial void LogLocalCandidate(
+        ILogger logger,
+        IceCandidateKind kind,
+        IPEndPoint endpoint
+    );
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ICE remote candidate {Kind} {Endpoint}")]
-    private static partial void LogRemoteCandidate(ILogger logger, IceCandidateKind kind, IPEndPoint endpoint);
+    private static partial void LogRemoteCandidate(
+        ILogger logger,
+        IceCandidateKind kind,
+        IPEndPoint endpoint
+    );
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ICE pair succeeded {Local} -> {Remote}")]
-    private static partial void LogPairSucceeded(ILogger logger, IPEndPoint local, IPEndPoint remote);
+    private static partial void LogPairSucceeded(
+        ILogger logger,
+        IPEndPoint local,
+        IPEndPoint remote
+    );
 
     [LoggerMessage(Level = LogLevel.Information, Message = "ICE selected pair {Local} -> {Remote}")]
-    private static partial void LogSelectedPair(ILogger logger, IPEndPoint local, IPEndPoint remote);
+    private static partial void LogSelectedPair(
+        ILogger logger,
+        IPEndPoint local,
+        IPEndPoint remote
+    );
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "ICE consent lost to {Remote}")]
     private static partial void LogConsentLost(ILogger logger, IPEndPoint remote);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "ICE recovery: re-probing candidate pairs (SRTP session preserved)")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "ICE recovery: re-probing candidate pairs (SRTP session preserved)"
+    )]
     private static partial void LogRecovery(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "ICE switched to warm pair {Local} -> {Remote} (SRTP session preserved)")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "ICE switched to warm pair {Local} -> {Remote} (SRTP session preserved)"
+    )]
     private static partial void LogSwitched(ILogger logger, IPEndPoint local, IPEndPoint remote);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "ICE restart: re-gathering under fresh credentials (SRTP session preserved)")]
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "ICE restart: re-gathering under fresh credentials (SRTP session preserved)"
+    )]
     private static partial void LogRestart(ILogger logger);
 
-    private readonly record struct GatherTransaction(IceAgent.LocalEndpoint Local, IPEndPoint Server);
+    private readonly record struct GatherTransaction(
+        IceAgent.LocalEndpoint Local,
+        IPEndPoint Server
+    );
 
     private sealed class LocalEndpoint(IceCandidate candidate, IIceSocket socket)
     {
@@ -794,7 +916,11 @@ public sealed partial class IceAgent : IAsyncDisposable
         Failed,
     }
 
-    private sealed class CandidatePair(IceAgent.LocalEndpoint local, IceCandidate remote, ulong priority)
+    private sealed class CandidatePair(
+        IceAgent.LocalEndpoint local,
+        IceCandidate remote,
+        ulong priority
+    )
     {
         public LocalEndpoint Local { get; } = local;
         public IceCandidate Remote { get; } = remote;
