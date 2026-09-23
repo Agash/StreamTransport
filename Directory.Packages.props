@@ -29,7 +29,7 @@
   <ItemGroup>
     <!-- Pure-managed Opus, driven directly for stereo. -->
     <PackageVersion Include="Concentus" Version="2.2.2" />
-    <PackageVersion Include="FFmpeg.AutoGen" Version="8.1.0" />
+    <PackageVersion Include="FFmpeg.AutoGen" Version="9.0.1.1" />
     <!-- Robust typed D3D11 interop for the Windows zero-copy texture path (Windows runtime only). -->
     <PackageVersion Include="Vortice.Direct3D11" Version="3.8.3" />
     <!-- Runtime HLSL compilation for the NV12<->BGRA GPU colour-conversion shaders (publish path). -->

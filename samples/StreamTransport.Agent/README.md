@@ -27,14 +27,14 @@ receive agent:  publish <- H.265/Opus decode  <- WebRTC --------/
 ## Prerequisites
 
 - The .NET 11 SDK to run from source, or a published single-file binary from the GitHub release.
-- An FFmpeg 8.1 shared build (see the next section). Audio-only runs do not need it.
+- An FFmpeg 9.0 shared build (see the next section). Audio-only runs do not need it.
 - For GPU capture/publish: Spout (Windows), Syphon (macOS), or PipeWire (Linux). Camera and synthetic sources
   need none of these.
 
 ## FFmpeg: providing the right build
 
-The agent binds to **FFmpeg 8.1** (the `avcodec-62` ABI) through `FFmpeg.AutoGen`. A different major version
-(7.x is `avcodec-61`, a future 9.x is `avcodec-63`) will not load. This matters on machines that already have
+The agent binds to **FFmpeg 9** (the `avcodec-63` ABI) through `FFmpeg.AutoGen`. A different major version
+(8.x is `avcodec-62`) will not load. This matters on machines that already have
 some other FFmpeg installed by unrelated software (a media player, a previous toolchain): you must make the
 agent pick up the correct build rather than the wrong global one.
 
@@ -54,7 +54,7 @@ wins over a system install:
 
 ### Overriding a wrong global FFmpeg
 
-Because locations 1 to 3 are checked before the system path, drop the correct 8.1 shared libraries into one of
+Because locations 1 to 3 are checked before the system path, drop the correct 9.0 shared libraries into one of
 them and the agent ignores whatever is installed globally. The simplest is a `native/ffmpeg/<rid>/` folder next
 to the agent, or directly beside the executable.
 
@@ -64,20 +64,19 @@ to the agent, or directly beside the executable.
 ./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or linux-x64 / linux-arm64
 ```
 
-Or copy the shared libraries yourself next to the executable: `avcodec-62.dll`, `avformat-62.dll`,
-`avutil-60.dll`, `swscale-9.dll`, `swresample-6.dll` on Windows; the matching `libav*.so.*` on Linux.
+Or copy the shared libraries yourself next to the executable: `avcodec-63.dll`, `avformat-63.dll`,
+`avutil-61.dll`, `swscale-10.dll`, `swresample-7.dll` on Windows; the matching `libav*.so.*` on Linux.
 
-**macOS** - install Homebrew's `ffmpeg@8` (VideoToolbox-enabled; the unversioned `ffmpeg` formula is 9.x, which
-these bindings cannot load). The agent probes its keg-only prefix on its own; to be explicit, symlink the
-libraries next to the agent:
+**macOS** - install Homebrew's `ffmpeg` (VideoToolbox-enabled, currently 9.x). The agent probes Homebrew's
+prefix on its own; to be explicit, symlink the libraries next to the agent:
 
 ```bash
-brew install ffmpeg@8
+brew install ffmpeg
 mkdir -p native/ffmpeg/osx-arm64
-ln -sf "$(brew --prefix ffmpeg@8)"/lib/*.dylib native/ffmpeg/osx-arm64/
+ln -sf "$(brew --prefix ffmpeg)"/lib/*.dylib native/ffmpeg/osx-arm64/
 ```
 
-The published macOS binary does not bundle FFmpeg, so a Homebrew (or hand-placed) 8.x build is required there.
+The published macOS binary does not bundle FFmpeg, so a Homebrew (or hand-placed) 9.x build is required there.
 The Windows and Linux release binaries bundle the correct natives next to the executable, so they already
 override any global install.
 

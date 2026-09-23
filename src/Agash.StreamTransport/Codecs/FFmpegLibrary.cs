@@ -5,7 +5,7 @@ using FFmpeg.AutoGen;
 namespace Agash.StreamTransport.Codecs;
 
 /// <summary>
-/// Points FFmpeg.AutoGen at the bundled native FFmpeg 8.1 shared libraries and loads them once. The
+/// Points FFmpeg.AutoGen at the bundled native FFmpeg shared libraries and loads them once. The
 /// libraries ship under <c>runtimes/&lt;rid&gt;/native</c>; during development they are fetched into a
 /// gitignored <c>native/ffmpeg</c> folder. Call <see cref="EnsureLoaded()"/> before any FFmpeg use.
 /// </summary>
@@ -14,7 +14,7 @@ public static class FFmpegLibrary
     private static readonly object s_gate = new();
     private static bool s_loaded;
 
-    /// <summary>The FFmpeg version string reported by the loaded libraries (e.g. "8.1").</summary>
+    /// <summary>The FFmpeg version string reported by the loaded libraries (e.g. "9.0").</summary>
     public static string? VersionInfo { get; private set; }
 
     /// <summary>
@@ -33,7 +33,8 @@ public static class FFmpegLibrary
         // Prefer the bundled, ABI-pinned per-RID build. If none is found, fall back to the OS default library
         // search path so a system-installed FFmpeg is used too - Windows resolves by name off PATH / the app
         // directory, Linux off ldconfig / LD_LIBRARY_PATH, macOS off the dyld path - as long as it is a
-        // compatible 8.x build (avcodec-62). An empty RootPath tells the bindings to load by bare name.
+        // build of the major these bindings target (see AvcodecMajor). An empty RootPath tells the bindings to
+        // load by bare name.
         string? directory = ResolveNativeDirectory();
         if (directory is not null)
         {
@@ -48,15 +49,18 @@ public static class FFmpegLibrary
         catch (DllNotFoundException ex)
         {
             throw new DllNotFoundException(
-                $"Could not locate FFmpeg. Expected the bundled 8.1 build under runtimes/{Rid}/native, the "
-                    + $"application directory, or native/ffmpeg/{Rid}, and no compatible system FFmpeg (avcodec-62) "
-                    + "was found on the OS default library search path.",
+                $"Could not locate FFmpeg. Expected the bundled build under runtimes/{Rid}/native, the "
+                    + $"application directory, or native/ffmpeg/{Rid}, and no compatible system FFmpeg "
+                    + $"(avcodec {AvcodecMajor}) was found on the OS default library search path.",
                 ex
             );
         }
     }
 
     private static string Rid => RuntimeInformation.RuntimeIdentifier;
+
+    // The avcodec ABI major the bindings were generated for. Any other major fails to load.
+    private static string AvcodecMajor => ffmpeg.LibraryVersionMap["avcodec"].ToString(CultureInfo.InvariantCulture);
 
     private static string? ResolveNativeDirectory()
     {
@@ -85,16 +89,15 @@ public static class FFmpegLibrary
         }
 
         // macOS: Homebrew installs FFmpeg under a prefix that is not on the default dyld search path
-        // (/opt/homebrew on Apple Silicon, /usr/local on Intel), so a bare-name load would miss it. Homebrew's
-        // `ffmpeg` formula tracks the newest major; the pinned 8.x ships as the keg-only `ffmpeg@8`, which
-        // lives under opt/ffmpeg@8 and is never linked into lib, so probe that first.
+        // (/opt/homebrew on Apple Silicon, /usr/local on Intel), so a bare-name load would miss it. The opt/
+        // link survives `brew unlink`; the major check below skips an install of the wrong major.
         if (OperatingSystem.IsMacOS())
         {
             foreach (
                 string brewLib in (string[])
                     [
-                        "/opt/homebrew/opt/ffmpeg@8/lib",
-                        "/usr/local/opt/ffmpeg@8/lib",
+                        "/opt/homebrew/opt/ffmpeg/lib",
+                        "/usr/local/opt/ffmpeg/lib",
                         "/opt/homebrew/lib",
                         "/usr/local/lib",
                     ]
@@ -119,12 +122,12 @@ public static class FFmpegLibrary
             return false;
         }
 
-        string major = ffmpeg.LibraryVersionMap["avcodec"].ToString(CultureInfo.InvariantCulture);
+        string major = AvcodecMajor;
         return Directory.EnumerateFiles(directory).Any(f => IsAvcodec(Path.GetFileName(f), major));
     }
 
-    // The avcodec shared library under every platform's naming: Windows "avcodec-62.dll", Linux
-    // "libavcodec.so.62" (plus its full-version file), macOS "libavcodec.62.dylib" (likewise).
+    // The avcodec shared library under every platform's naming: Windows "avcodec-63.dll", Linux
+    // "libavcodec.so.63" (plus its full-version file), macOS "libavcodec.63.dylib" (likewise).
     private static bool IsAvcodec(string fileName, string major) =>
         fileName.Equals($"avcodec-{major}.dll", StringComparison.OrdinalIgnoreCase)
         || fileName.Equals($"libavcodec.so.{major}", StringComparison.Ordinal)
@@ -154,8 +157,8 @@ public static class FFmpegLibrary
             catch (Exception ex)
             {
                 throw new DllNotFoundException(
-                    $"Could not load FFmpeg shared libraries from '{nativeDirectory}'. Ensure the FFmpeg 8.1 "
-                        + "shared build (avcodec-62, avutil-60, ...) is present and loadable.",
+                    $"Could not load FFmpeg shared libraries from '{nativeDirectory}'. Ensure a shared FFmpeg "
+                        + $"build with avcodec {AvcodecMajor} is present and loadable.",
                     ex
                 );
             }

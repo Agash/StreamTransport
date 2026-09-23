@@ -132,7 +132,7 @@ jobs:
       # macOS: NativeAOT .app. PublishAot is on once a RID is set (verified: the inner binary links only
       # libSystem - no CoreCLR/Mono). CreatePackage=false yields a .app, not a .pkg installer. `-o` mishandles
       # -macos bundles (mirrors the absolute build path), so publish to the default bin location and stage the
-      # .app below. FFmpeg is not bundled on macOS - the agent auto-detects a `brew install ffmpeg@8`.
+      # .app below. FFmpeg is not bundled on macOS - the agent auto-detects a `brew install ffmpeg`.
       - name: Publish NativeAOT agent (macOS)
         if: runner.os == 'macOS'
         run: >
@@ -153,7 +153,7 @@ jobs:
           SH
           chmod +x "publish/${{ matrix.rid }}/streamtransport-agent"
 
-      # Windows/Linux ship the FFmpeg shared libraries next to the executable; macOS relies on `brew install ffmpeg@8`.
+      # Windows/Linux ship the FFmpeg shared libraries next to the executable; macOS relies on `brew install ffmpeg`.
       - name: Bundle FFmpeg natives (Windows/Linux)
         if: runner.os != 'macOS'
         shell: pwsh

@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace Agash.StreamTransport.Codecs;
 
-// Hand-defined mirror of FFmpeg's libavutil/hwcontext_drm.h structs, which FFmpeg.AutoGen 8.1.0 does not
-// expose. A DRM-PRIME AVFrame carries a pointer to AVDRMFrameDescriptor in data[0]; these let us read the
+// Hand-defined mirror of FFmpeg's libavutil/hwcontext_drm.h structs, which FFmpeg.AutoGen does not
+// expose (checked through 9.0.1.1). A DRM-PRIME AVFrame carries a pointer to AVDRMFrameDescriptor in data[0]; these let us read the
 // dmabuf objects (fds + modifier) and layers/planes (offset + pitch) of an exported VAAPI surface, and -
 // in reverse - hand a dmabuf to FFmpeg to import as a VAAPI surface. Layout must match the C ABI exactly
 // (LayoutKind.Sequential + natural alignment reproduces the C padding on 64-bit Linux); the field types are

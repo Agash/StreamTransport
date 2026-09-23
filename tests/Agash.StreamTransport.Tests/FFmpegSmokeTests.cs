@@ -29,10 +29,16 @@ public sealed class FFmpegSmokeTests
             FFmpegLibrary.VersionInfo,
             "FFmpeg version info should be populated after load."
         );
-        StringAssert.Contains(
+        // The bindings pin one avcodec ABI major; the loaded build must report the matching release.
+        string expectedMajor = FFmpeg.AutoGen.ffmpeg.LibraryVersionMap["avcodec"] switch
+        {
+            63 => "9.",
+            int other => throw new AssertFailedException($"No FFmpeg release mapped for avcodec {other}."),
+        };
+        Assert.Contains(
+            expectedMajor,
             FFmpegLibrary.VersionInfo,
-            "8.1",
-            $"Expected FFmpeg 8.1, got '{FFmpegLibrary.VersionInfo}'."
+            $"Expected FFmpeg {expectedMajor}x, got '{FFmpegLibrary.VersionInfo}'."
         );
 
         // The bundled build must expose at least one hardware HEVC encoder, but which one is platform- and

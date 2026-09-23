@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Fetches the pinned FFmpeg 8.1 shared libraries for one or more RIDs into native/ffmpeg/<rid>/.
+# Fetches the pinned FFmpeg 9.0 shared libraries for one or more RIDs into native/ffmpeg/<rid>/.
 # These are LGPL builds that include the hardware encoders (nvenc / amf / qsv / videotoolbox / vaapi)
 # and exclude the GPL-only software encoders (x264 / x265). The libraries are shipped with the package
 # under runtimes/<rid>/native and are gitignored in this repo (fetched on demand).
@@ -14,12 +14,12 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $dest = Join-Path $root 'native/ffmpeg'
 
-# Pinned FFmpeg 8.1 shared builds per RID. Desktop RIDs use BtbN's LGPL builds; linux-arm64 uses the
-# jellyfin-ffmpeg Rockchip build (rkmpp) for RK3588-class IRL boards.
+# Pinned FFmpeg 9.0 shared builds per RID, all BtbN LGPL builds. The linux-arm64 build is generic and
+# has no Rockchip rkmpp encoders; the RK3588 field-agent lane needs a rkmpp-enabled build (#16).
 $sources = @{
-    'win-x64'     = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip'
-    'linux-x64'   = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-lgpl-shared-8.1.tar.xz'
-    'linux-arm64' = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linuxarm64-lgpl-shared-8.1.tar.xz'
+    'win-x64'     = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip'
+    'linux-x64'   = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-lgpl-shared-9.0.tar.xz'
+    'linux-arm64' = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linuxarm64-lgpl-shared-9.0.tar.xz'
     # macOS shared dylibs are taken from a pinned Homebrew bottle at package time; see eng/README.md.
 }
 
@@ -53,7 +53,11 @@ foreach ($rid in $Rids) {
     if ($archive.EndsWith('.zip')) {
         Expand-Archive -Path $archive -DestinationPath $extract -Force
     } else {
-        tar -xf $archive -C $extract
+        # On Windows, a Git for Windows GNU tar earlier on PATH reads "C:" as a remote host;
+        # the bsdtar that ships with Windows handles drive paths and .tar.xz.
+        $tar = if ($IsWindows) { Join-Path $env:SystemRoot 'System32/tar.exe' } else { 'tar' }
+        & $tar -xf $archive -C $extract
+        if ($LASTEXITCODE -ne 0) { throw "tar failed for $archive" }
     }
 
     # Flatten the shared libraries (found anywhere in the archive) into native/ffmpeg/<rid>/.

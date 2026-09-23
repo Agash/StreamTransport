@@ -70,7 +70,7 @@ Zero-copy GPU sharing libraries that feed the capture seam, published separately
 
 ## Build
 
-Needs the .NET 11 SDK pinned in `global.json`. FFmpeg 8.1 natives are fetched per platform first:
+Needs the .NET 11 SDK pinned in `global.json`. FFmpeg 9.0 natives are fetched per platform first:
 
 ```bash
 ./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or linux-x64 / linux-arm64 / osx-arm64

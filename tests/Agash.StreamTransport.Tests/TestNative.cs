@@ -26,7 +26,7 @@ internal static class TestNative
             {
                 // Match the avcodec shared library by THIS OS's extension so a multi-RID dev checkout (e.g.
                 // both win-x64 and linux-x64 fetched) only ever picks the build that can actually load here:
-                // Windows "avcodec-62.dll", Linux "libavcodec.so.62", macOS "libavcodec.62.dylib".
+                // Windows "avcodec-63.dll", Linux "libavcodec.so.63", macOS "libavcodec.63.dylib".
                 string?[] dirs =
                 [
                     .. Directory
