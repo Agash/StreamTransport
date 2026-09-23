@@ -20,9 +20,9 @@ namespace StreamTransport.Agent;
 /// A console process has no Cocoa run loop, so all directory and client interaction is funnelled onto a
 /// single owned thread that pumps the run loop (<see cref="SyphonServerDirectory.PumpEvents"/>); the
 /// directory's documentation requires discovery and frame notifications to be driven from the thread
-/// that created it. Received <see cref="SyphonFrame"/>s retain their backing surface, so the latest two
-/// frames are kept alive (double-buffered) until superseded, bounding retention while leaving the
-/// surface valid for the encoder that consumes the handle.
+/// that created it. Frames belong to the <see cref="SyphonClient"/>, which keeps the latest one retained;
+/// a server publishes into one recycled surface, so disposing a frame here would zero the handle the
+/// server and every later call share.
 /// </remarks>
 [SupportedOSPlatform("macos")]
 internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
@@ -114,8 +114,6 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
     {
         SyphonServerDirectory? directory = null;
         SyphonClient? client = null;
-        IOSurface.IOSurface? current = null;
-        IOSurface.IOSurface? previous = null;
         try
         {
             directory = new SyphonServerDirectory(_loggerFactory);
@@ -154,12 +152,6 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
                     continue;
                 }
 
-                // Keep the just-received surface (and the one before it) alive so it stays valid while the
-                // encoder consumes the handle; release (CFRelease via dispose) anything older.
-                previous?.Dispose();
-                previous = current;
-                current = surface;
-
                 lock (_gate)
                 {
                     _surface = surface.Handle.Handle;
@@ -177,8 +169,6 @@ internal sealed class SyphonVideoCaptureSource : IVideoFrameSource, IDisposable
         }
         finally
         {
-            current?.Dispose();
-            previous?.Dispose();
             client?.Dispose();
             directory?.Dispose();
         }

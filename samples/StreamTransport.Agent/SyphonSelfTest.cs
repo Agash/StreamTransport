@@ -107,8 +107,8 @@ internal static class SyphonSelfTest
             {
                 server.Publish(decodedView);
                 SyphonServer.PumpEvents(TimeSpan.FromMilliseconds(5));
-                using IOSurface.IOSurface? frame = client.TryGetFrame();
-                if (frame is { } f)
+                // The frame belongs to the client; read it, never dispose it.
+                if (client.TryGetFrame() is { } f)
                 {
                     looped = true;
                     Console.WriteLine(

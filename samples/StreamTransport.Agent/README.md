@@ -26,7 +26,7 @@ receive agent:  publish <- H.265/Opus decode  <- WebRTC --------/
 
 ## Prerequisites
 
-- The .NET 11 preview SDK to run from source, or a published single-file binary from the GitHub release.
+- The .NET 11 SDK to run from source, or a published single-file binary from the GitHub release.
 - An FFmpeg 8.1 shared build (see the next section). Audio-only runs do not need it.
 - For GPU capture/publish: Spout (Windows), Syphon (macOS), or PipeWire (Linux). Camera and synthetic sources
   need none of these.
