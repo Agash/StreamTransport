@@ -18,6 +18,8 @@ internal sealed class InMemoryIceNetwork
     private readonly Lock _gate = new();
     private int _nextPort = 50_000;
     private double _lossRate;
+    private Func<IPEndPoint, byte[], bool>? _hold;
+    private readonly List<(IPEndPoint From, IPEndPoint To, byte[] Data)> _held = [];
     private Random? _lossRng;
 
     /// <summary>A socket factory that offers <paramref name="addresses"/> as this agent's local interfaces.</summary>
@@ -38,6 +40,32 @@ internal sealed class InMemoryIceNetwork
     /// weak cellular signal. Seeded for reproducibility. Unlike <see cref="Cut"/>, the path stays up, so consent
     /// freshness retries should keep the connection alive.
     /// </summary>
+    // Holds back datagrams the predicate matches (from, data) until ReleaseHeld, to reorder a
+    // handshake deterministically.
+    public void Hold(Func<IPEndPoint, byte[], bool> predicate)
+    {
+        lock (_gate)
+        {
+            _hold = predicate;
+        }
+    }
+
+    public void ReleaseHeld()
+    {
+        List<(IPEndPoint From, IPEndPoint To, byte[] Data)> held;
+        lock (_gate)
+        {
+            _hold = null;
+            held = [.. _held];
+            _held.Clear();
+        }
+
+        foreach ((IPEndPoint from, IPEndPoint to, byte[] data) in held)
+        {
+            Deliver(from, to, data);
+        }
+    }
+
     public void SetLossRate(double rate, int seed = 12345)
     {
         lock (_gate)
@@ -68,6 +96,15 @@ internal sealed class InMemoryIceNetwork
         if (IsCut(from.Address) || IsCut(to.Address))
         {
             return; // dropped: this path is dark.
+        }
+
+        lock (_gate)
+        {
+            if (_hold is not null && _hold(from, data))
+            {
+                _held.Add((from, to, data));
+                return;
+            }
         }
 
         if (ShouldDropRandomly())

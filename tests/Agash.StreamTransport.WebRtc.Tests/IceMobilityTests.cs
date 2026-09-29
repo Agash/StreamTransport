@@ -49,6 +49,36 @@ public sealed class IceMobilityTests
 
     [TestMethod]
     [Timeout(40_000)]
+    public async Task Controlled_NominationBeforeOwnCheckSucceeds_SelectsPairOnceItDoes()
+    {
+        var net = new InMemoryIceNetwork();
+        var controllingAddress = IPAddress.Parse("10.0.0.1");
+
+        // Hold the controlling agent's binding success responses: its own checks succeed and it
+        // nominates while every check of the controlled agent is still unanswered.
+        net.Hold(
+            (from, data) => from.Address.Equals(controllingAddress) && data is [0x01, 0x01, ..]
+        );
+        (IceAgent a, IceAgent b, Task aConnected, Task bConnected) = CreatePair(
+            net,
+            [controllingAddress],
+            [IPAddress.Parse("10.0.0.2")]
+        );
+
+        await using (a)
+        await using (b)
+        {
+            await aConnected.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsFalse(bConnected.IsCompleted);
+
+            net.ReleaseHeld();
+
+            await bConnected.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [TestMethod]
+    [Timeout(40_000)]
     public async Task HotStandby_SwitchesToWarmPair_WhenSelectedPathIsCut()
     {
         var net = new InMemoryIceNetwork();
@@ -155,6 +185,27 @@ public sealed class IceMobilityTests
         IPAddress[] bAddrs
     )
     {
+        (IceAgent a, IceAgent b, Task aConnected, Task bConnected) = CreatePair(
+            net,
+            aAddrs,
+            bAddrs
+        );
+
+        // Generous: under full-suite CPU contention the 20 ms check cadence stretches, but connect is quick.
+        await Task.WhenAll(aConnected, bConnected).WaitAsync(TimeSpan.FromSeconds(25));
+
+        // Let hot-standby keep-alives validate the alternate pairs before any failover test.
+        await Task.Delay(250);
+        return (a, b);
+    }
+
+    // Starts a controlling agent A and a controlled agent B that trickle candidates to each other.
+    private static (IceAgent A, IceAgent B, Task AConnected, Task BConnected) CreatePair(
+        InMemoryIceNetwork net,
+        IPAddress[] aAddrs,
+        IPAddress[] bAddrs
+    )
+    {
         var credsA = IceCredentials.Generate();
         var credsB = IceCredentials.Generate();
         var a = new IceAgent(
@@ -177,35 +228,25 @@ public sealed class IceMobilityTests
         a.SetRemoteCredentials(credsB);
         b.SetRemoteCredentials(credsA);
 
-        var aConnected = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        var bConnected = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        a.StateChanged += s =>
-        {
-            if (s == IceConnectionState.Connected)
-            {
-                aConnected.TrySetResult();
-            }
-        };
-        b.StateChanged += s =>
-        {
-            if (s == IceConnectionState.Connected)
-            {
-                bConnected.TrySetResult();
-            }
-        };
-
+        Task aConnected = Connected(a);
+        Task bConnected = Connected(b);
         a.Start();
         b.Start();
+        return (a, b, aConnected, bConnected);
+    }
 
-        // Generous: under full-suite CPU contention the 20 ms check cadence stretches, but connect is quick.
-        await Task.WhenAll(aConnected.Task, bConnected.Task).WaitAsync(TimeSpan.FromSeconds(25));
-
-        // Let hot-standby keep-alives validate the alternate pairs before any failover test.
-        await Task.Delay(250);
-        return (a, b);
+    private static Task Connected(IceAgent agent)
+    {
+        var connected = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        agent.StateChanged += s =>
+        {
+            if (s == IceConnectionState.Connected)
+            {
+                connected.TrySetResult();
+            }
+        };
+        return connected.Task;
     }
 }

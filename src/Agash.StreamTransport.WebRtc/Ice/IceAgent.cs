@@ -222,6 +222,7 @@ public sealed partial class IceAgent : IAsyncDisposable
                 p.State = PairState.Waiting;
                 p.Nominated = false;
                 p.NominationCheck = false;
+                p.NominatedByPeer = false;
                 p.TriggeredCheck = false;
                 p.Transmits = 0;
             }
@@ -430,9 +431,19 @@ public sealed partial class IceAgent : IAsyncDisposable
         // our check *responses* (round-trip survival) and discards the peer's checks (one-way survival),
         // tripping false consent loss under loss that an alive path should ride out.
         pair.LastResponseUtc = DateTime.UtcNow;
-        if (useCandidate && _role == IceRole.Controlled && pair.State == PairState.Succeeded)
+        // A nomination can arrive before our own check on the pair has succeeded; the controlling agent
+        // does not repeat it, so remember it and select the pair when that check succeeds (RFC 8445
+        // section 7.3.1.5).
+        if (useCandidate && _role == IceRole.Controlled)
         {
-            Nominate(pair);
+            if (pair.State == PairState.Succeeded)
+            {
+                Nominate(pair);
+            }
+            else
+            {
+                pair.NominatedByPeer = true;
+            }
         }
 
         if (pair.State is PairState.Frozen or PairState.Failed)
@@ -471,7 +482,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         pair.LastResponseUtc = DateTime.UtcNow;
         LogPairSucceeded(_logger, pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
 
-        if (pair.NominationCheck)
+        if (pair.NominationCheck || (pair.NominatedByPeer && _role == IceRole.Controlled))
         {
             Nominate(pair);
         }
@@ -686,7 +697,13 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
 
             toCheck.TriggeredCheck = false;
-            toCheck.State = PairState.InProgress;
+
+            // Re-checking a valid pair (a triggered check, a keep-alive) must not take it out of the
+            // valid list: a nomination that arrives meanwhile would find it not succeeded.
+            if (toCheck.State != PairState.Succeeded)
+            {
+                toCheck.State = PairState.InProgress;
+            }
             toCheck.LastSentUtc = now;
             toCheck.Transmits++;
         }
@@ -801,7 +818,6 @@ public sealed partial class IceAgent : IAsyncDisposable
         if (now - selected.LastSentUtc > _timings.ConsentInterval)
         {
             selected.LastSentUtc = now;
-            selected.State = PairState.InProgress;
             SendBindingCheck(selected);
         }
     }
@@ -929,6 +945,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         public bool TriggeredCheck { get; set; }
         public bool NominationCheck { get; set; }
         public bool Nominated { get; set; }
+        public bool NominatedByPeer { get; set; }
         public bool RemoteRequestSeen { get; set; }
         public DateTime LastSentUtc { get; set; }
         public DateTime LastResponseUtc { get; set; }

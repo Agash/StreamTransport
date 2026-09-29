@@ -19,14 +19,6 @@ namespace Agash.StreamTransport.Tests;
 // The per-component logic is covered deterministically by the WebRtc unit tests and the in-memory loopback
 // tests.
 //
-// Publisher_FansOutToTwoSubscribers_OverRealRelay fails every run, not intermittently. This was previously
-// described as a load-dependent connect race and papered over with a retry; both were wrong. Instrumenting
-// the body showed every step completes — both subscribers start and the publisher starts — and the test then
-// hangs past the point where its own 20s Task.Delay should have released the wait. The hang is therefore at
-// or after the assertion, in either the log dump or the async disposal of a second subscriber, not in
-// connect. Note also that nothing here ever ran in parallel: MSTest is sequential unless [assembly:
-// Parallelize] is present, and it is not, so the DoNotParallelize attributes across this suite are no-ops
-// and host load was never the explanation. Tracked: Agash/StreamTransport#1.
 [TestClass]
 [TestCategory("Integration")]
 public sealed class RelayIntegrationTests
