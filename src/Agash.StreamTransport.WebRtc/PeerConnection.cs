@@ -1,11 +1,13 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Security;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
+using Dtls.NET;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,7 +21,7 @@ namespace Agash.StreamTransport.WebRtc;
 public sealed partial class PeerConnection : IAsyncDisposable
 {
     private readonly PeerConnectionOptions _options;
-    private readonly IDtlsTransportFactory _dtlsFactory;
+    private readonly RtcCertificate _certificate;
     private readonly ILogger _logger;
     private IceCredentials _localIceCredentials = IceCredentials.Generate();
     private readonly List<IceCandidate> _bufferedRemoteCandidates = [];
@@ -30,7 +32,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private uint _rtcpSenderSsrc;
 
     private IceAgent? _iceAgent;
-    private IDtlsTransport? _dtls;
+    private IceDatagramTransport? _dtlsTransport;
+    private DtlsConnection? _dtls;
+    private int _dtlsStarted;
     private SrtpSession? _srtp;
     private SdpDescription? _remoteDescription;
     private DtlsRole _dtlsRole = DtlsRole.Client;
@@ -39,9 +43,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     private readonly ILoggerFactory _loggerFactory;
 
-    /// <summary>Creates a peer connection. The DTLS factory supplies the certificate and handshake engine.</summary>
+    /// <summary>Creates a peer connection.</summary>
     /// <param name="options">The media and ICE configuration.</param>
-    /// <param name="dtlsFactory">The DTLS-SRTP engine.</param>
+    /// <param name="certificate">The certificate its DTLS handshake authenticates with; not disposed by it.</param>
     /// <param name="loggerFactory">Optional logging.</param>
     /// <param name="controller">
     /// Optional send-side congestion controller. When supplied, inbound RFC 8888 feedback drives it and the
@@ -50,13 +54,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// </param>
     public PeerConnection(
         PeerConnectionOptions options,
-        IDtlsTransportFactory dtlsFactory,
+        RtcCertificate certificate,
         ILoggerFactory? loggerFactory = null,
         INetworkController? controller = null
     )
     {
         _options = options;
-        _dtlsFactory = dtlsFactory;
+        ArgumentNullException.ThrowIfNull(certificate);
+        _certificate = certificate;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<PeerConnection>();
         _controller = controller;
@@ -102,7 +107,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     public IReadOnlyList<NegotiatedMediaInfo> NegotiatedMedia { get; private set; } = [];
 
     /// <summary>The local DTLS certificate fingerprint (advertised in offers/answers).</summary>
-    public DtlsFingerprint LocalFingerprint => _dtlsFactory.LocalFingerprint;
+    public DtlsFingerprint LocalFingerprint => _certificate.Fingerprint;
 
     /// <summary>Creates the offer, generates local credentials, and starts gathering ICE candidates.</summary>
     public SdpDescription CreateOffer()
@@ -415,6 +420,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         agent.LocalCandidateGathered += c => LocalIceCandidate?.Invoke(c);
+        _dtlsTransport = new IceDatagramTransport(agent);
         agent.DataReceived += OnTransportData;
         agent.StateChanged += OnIceStateChanged;
 
@@ -443,7 +449,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         switch (iceState)
         {
-            case IceConnectionState.Connected when _dtls is null:
+            case IceConnectionState.Connected when Interlocked.Exchange(ref _dtlsStarted, 1) == 0:
                 _ = RunDtlsHandshakeAsync();
                 break;
             case IceConnectionState.Failed:
@@ -456,30 +462,30 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     private async Task RunDtlsHandshakeAsync()
     {
-        IceAgent agent = _iceAgent!;
-        IDtlsTransport dtls = _dtlsFactory.Create(_dtlsRole, record => _ = agent.SendAsync(record));
-        _dtls = dtls;
+        // The remote certificate is authenticated during the handshake by the fingerprint the peer
+        // signalled; a description without one never reaches here, SdpReader rejects it.
+        RemoteCertificateValidationCallback validate = _expectedRemoteFingerprint is { } expected
+            ? expected.CreateValidationCallback()
+            : static (_, _, _, _) => false;
+        IceDatagramTransport transport = _dtlsTransport!;
 
         try
         {
-            SrtpKeyingMaterial keying = await dtls.HandshakeAsync(CancellationToken.None)
-                .ConfigureAwait(false);
+            DtlsConnection dtls =
+                _dtlsRole == DtlsRole.Client
+                    ? await DtlsConnection
+                        .ConnectAsync(transport, ClientOptions(validate))
+                        .ConfigureAwait(false)
+                    : await DtlsConnection
+                        .AcceptAsync(transport, ServerOptions(validate))
+                        .ConfigureAwait(false);
+            _dtls = dtls;
 
-            if (
-                _expectedRemoteFingerprint is { } expected
-                && dtls.RemoteFingerprint is { } actual
-                && !expected
-                    .ToSdpValue()
-                    .Equals(actual.ToSdpValue(), StringComparison.OrdinalIgnoreCase)
-            )
-            {
-                LogFingerprintMismatch(_logger);
-                SetState(PeerConnectionState.Failed);
-                return;
-            }
-
+            SrtpKeyingMaterial keying =
+                dtls.SrtpKeyingMaterial
+                ?? throw new DtlsException("The peer negotiated no SRTP protection profile.");
             _srtp = new SrtpSession(keying, _dtlsRole == DtlsRole.Client);
-            LogConnected(_logger, keying.Profile);
+            LogConnected(_logger, dtls.NegotiatedProtocol, keying.Profile);
             SetState(PeerConnectionState.Connected);
         }
         catch (Exception ex)
@@ -488,6 +494,37 @@ public sealed partial class PeerConnection : IAsyncDisposable
             SetState(PeerConnectionState.Failed);
         }
     }
+
+    private DtlsClientConnectionOptions ClientOptions(
+        RemoteCertificateValidationCallback validate
+    ) =>
+        new()
+        {
+            SrtpProtectionProfiles = [.. SrtpSession.Profiles],
+            LoggerFactory = _loggerFactory,
+            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            {
+                ClientCertificates = [_certificate.Certificate],
+                RemoteCertificateValidationCallback = validate,
+            },
+        };
+
+    // No cookie exchange: ICE connectivity checks have already proven the peer owns its address.
+    private DtlsServerConnectionOptions ServerOptions(
+        RemoteCertificateValidationCallback validate
+    ) =>
+        new()
+        {
+            SrtpProtectionProfiles = [.. SrtpSession.Profiles],
+            LoggerFactory = _loggerFactory,
+            CookieExchange = false,
+            ServerAuthenticationOptions = new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _certificate.Certificate,
+                ClientCertificateRequired = true,
+                RemoteCertificateValidationCallback = validate,
+            },
+        };
 
     private void OnTransportData(Memory<byte> data, IPEndPoint source, byte ecn)
     {
@@ -500,7 +537,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         byte first = span[0];
         if (first is >= 20 and <= 63)
         {
-            _dtls?.ReceiveRecord(data); // DTLS record (Memory implicitly converts to ReadOnlyMemory)
+            _dtlsTransport?.Deliver(span);
             return;
         }
 
@@ -742,7 +779,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Codecs = codecs,
             IceUfrag = _localIceCredentials.UsernameFragment,
             IcePwd = _localIceCredentials.Password,
-            Fingerprint = _dtlsFactory.LocalFingerprint,
+            Fingerprint = _certificate.Fingerprint,
             Setup = setup,
             Ssrc = ssrc == 0 ? null : ssrc,
             Cname = "streamtransport",
@@ -807,6 +844,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             await dtls.DisposeAsync().ConfigureAwait(false);
         }
 
+        _dtlsTransport?.Complete();
+
         if (_iceAgent is { } agent)
         {
             await agent.DisposeAsync().ConfigureAwait(false);
@@ -825,15 +864,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     [LoggerMessage(
         Level = LogLevel.Information,
-        Message = "PeerConnection established (SRTP {Profile})"
+        Message = "PeerConnection established ({Protocol}, SRTP {Profile})"
     )]
-    private static partial void LogConnected(ILogger logger, SrtpProtectionProfile profile);
-
-    [LoggerMessage(
-        Level = LogLevel.Error,
-        Message = "PeerConnection DTLS fingerprint mismatch - aborting"
-    )]
-    private static partial void LogFingerprintMismatch(ILogger logger);
+    private static partial void LogConnected(
+        ILogger logger,
+        DtlsProtocols protocol,
+        SrtpProtectionProfile profile
+    );
 
     [LoggerMessage(Level = LogLevel.Error, Message = "PeerConnection DTLS handshake failed")]
     private static partial void LogHandshakeFailed(ILogger logger, Exception exception);

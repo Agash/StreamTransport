@@ -1,4 +1,4 @@
-using Agash.StreamTransport.WebRtc.Dtls;
+using Agash.StreamTransport.WebRtc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -21,7 +21,7 @@ public sealed class SystemPipelineTests
     public async Task VideoOrchestration_FakeCodec_NegotiatesEncodesAndDeliversFrames()
     {
         var registry = new MediaCodecRegistry([new FakeVideoCodec()], []);
-        var dtls = new DtlsTransportFactory();
+        using var dtls = RtcCertificate.Generate();
         var loggers = NullLoggerFactory.Instance;
 
         const int width = 320;

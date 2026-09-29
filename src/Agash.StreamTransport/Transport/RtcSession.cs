@@ -18,21 +18,20 @@ internal sealed partial class RtcSession : IAsyncDisposable
     private readonly ILogger _logger;
 
     /// <summary>
-    /// Create a session over <paramref name="signaling"/>. The DTLS-SRTP engine is supplied as
-    /// <paramref name="dtlsFactory"/> (the pluggable seam - BouncyCastle today, a first-party BCL stack later)
-    /// rather than constructed here, so the whole peer connection is built from injected services.
+    /// Create a session over <paramref name="signaling"/>. The DTLS certificate is supplied as
+    /// <paramref name="certificate"/> rather than generated here, so the whole peer connection is built from injected services.
     /// </summary>
     public RtcSession(
         ISignalingChannel signaling,
         PeerConnectionOptions peerOptions,
-        IDtlsTransportFactory dtlsFactory,
+        RtcCertificate certificate,
         ILoggerFactory loggerFactory,
         INetworkController? controller = null
     )
     {
         _signaling = signaling;
         _logger = loggerFactory.CreateLogger<RtcSession>();
-        Pc = new PeerConnection(peerOptions, dtlsFactory, loggerFactory, controller);
+        Pc = new PeerConnection(peerOptions, certificate, loggerFactory, controller);
         Pc.LocalIceCandidate += OnLocalIceCandidate;
     }
 

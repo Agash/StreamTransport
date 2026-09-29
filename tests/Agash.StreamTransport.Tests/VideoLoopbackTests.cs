@@ -112,14 +112,14 @@ public sealed class VideoLoopbackTests
         await using var receiver = new WebRtcMediaReceiver(
             new MediaTransportOptions(),
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             video: sink
         );
         await using var sender = new WebRtcMediaSender(
             options,
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             video: new PatternVideoSource(width, height)
         );

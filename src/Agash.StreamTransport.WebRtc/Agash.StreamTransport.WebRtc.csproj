@@ -5,7 +5,7 @@
     <AssemblyName>Agash.StreamTransport.WebRtc</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc</PackageId>
-    <Description>A small, modern, libwebrtc-aligned WebRTC stack for .NET: ICE/STUN, SRTP, RTP/RTCP, SDP/JSEP and a peer connection. BCL crypto only; DTLS-SRTP plugs in via Agash.StreamTransport.WebRtc.Dtls. The first-party transport for Agash.StreamTransport.</Description>
+    <Description>A small, modern, libwebrtc-aligned WebRTC stack for .NET: ICE/STUN, SRTP, RTP/RTCP, SDP/JSEP and a peer connection. DTLS-SRTP over Dtls.NET; platform cryptography only. The first-party transport for Agash.StreamTransport.</Description>
     <PackageTags>webrtc;ice;stun;srtp;rtp;rtcp;sdp;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Abstractions\Agash.StreamTransport.WebRtc.Abstractions.csproj" />
+    <ProjectReference Include="$(DtlsNetProject)" Condition="'$(UseLocalDtlsNet)' == 'true'" />
+    <PackageReference Include="Dtls.NET" Condition="'$(UseLocalDtlsNet)' != 'true'" />
   </ItemGroup>
 
   <ItemGroup>

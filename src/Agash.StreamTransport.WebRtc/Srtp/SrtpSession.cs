@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using Dtls.NET;
 
 namespace Agash.StreamTransport.WebRtc.Srtp;
 
@@ -22,6 +23,13 @@ public sealed class SrtpSession
     private readonly ConcurrentDictionary<uint, SenderRollover> _sendRoc = new();
     private readonly ConcurrentDictionary<uint, ReceiverRollover> _recvRoc = new();
     private int _srtcpSendIndex;
+
+    // The profiles this session implements, most preferred first.
+    internal static readonly SrtpProtectionProfile[] Profiles =
+    [
+        SrtpProtectionProfile.AeadAes256Gcm,
+        SrtpProtectionProfile.AeadAes128Gcm,
+    ];
 
     /// <summary>
     /// Builds the session from exported keying material. <paramref name="isDtlsClient"/> selects which

@@ -7,9 +7,9 @@ decode). Behaviour is aligned with libwebrtc where interop and correctness requi
 unwrap, and `h26x_packet_buffer` are ports of their libwebrtc counterparts; the shape is idiomatic modern .NET
 (spans, `ArrayPool`, `readonly record struct`, source-generated logging).
 
-Crypto uses the BCL only (`AesGcm`, `Aes`/`HMACSHA1`, `CertificateRequest`). DTLS - the one piece the BCL
-does not provide - is supplied by `Agash.StreamTransport.WebRtc.Dtls` (BouncyCastle, isolated there) via a
-pluggable factory, so this package itself has no third-party runtime dependency.
+Crypto is the platform's own (`AesGcm`, `Aes`/`HMACSHA1`, `CertificateRequest`). DTLS 1.2 and 1.3 come
+from [Dtls.NET](https://github.com/Agash/Dtls.NET), which is built on the same primitives, so there is no
+native or third-party crypto dependency.
 
 This is the first-party transport that replaces SIPSorcery in
 [`Agash.StreamTransport`](https://github.com/Agash/StreamTransport).

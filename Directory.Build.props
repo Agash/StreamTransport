@@ -24,4 +24,11 @@
     <RepositoryUrl>https://github.com/Agash/StreamTransport</RepositoryUrl>
     <PackageProjectUrl>https://github.com/Agash/StreamTransport</PackageProjectUrl>
   </PropertyGroup>
+  <!-- Owned libraries build from a local clone when one sits where the StreamWeaver checkout keeps
+       it, so a change to one of them is exercised here before it is released; elsewhere, and on CI,
+       the published package is used. Set UseLocal<Library>=false to build against the package. -->
+  <PropertyGroup>
+    <DtlsNetProject Condition="'$(DtlsNetProject)' == ''">$(MSBuildThisFileDirectory)../../../Dtls.NET/src/Dtls.NET/Dtls.NET.csproj</DtlsNetProject>
+    <UseLocalDtlsNet Condition="'$(UseLocalDtlsNet)' == '' and Exists('$(DtlsNetProject)')">true</UseLocalDtlsNet>
+  </PropertyGroup>
 </Project>

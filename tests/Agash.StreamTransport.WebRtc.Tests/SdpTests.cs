@@ -1,5 +1,7 @@
+using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.Sdp;
+using Dtls.NET;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 
@@ -8,7 +10,10 @@ public sealed class SdpTests
 {
     private static SdpDescription SampleOffer()
     {
-        var fingerprint = CertificateFingerprint.Sha256([0x01, 0x02, 0x03, 0x04]);
+        var fingerprint = new DtlsFingerprint(
+            HashAlgorithmName.SHA256,
+            [.. SHA256.HashData([0x01, 0x02, 0x03, 0x04])]
+        );
         return new SdpDescription
         {
             Media =
@@ -99,7 +104,7 @@ public sealed class SdpTests
         SdpMediaDescription video = parsed.Media[1];
         Assert.AreEqual("H264", video.Codecs[0].EncodingName);
         CollectionAssert.Contains(video.Codecs[0].RtcpFeedback.ToArray(), "nack pli");
-        Assert.AreEqual(original.Media[1].Fingerprint.ToSdpValue(), video.Fingerprint.ToSdpValue());
+        Assert.AreEqual(original.Media[1].Fingerprint, video.Fingerprint);
     }
 
     [TestMethod]
@@ -110,7 +115,7 @@ public sealed class SdpTests
             "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
             + "a=group:BUNDLE 0\r\n"
             + "a=ice-ufrag:sess\r\na=ice-pwd:sesspasswordsesspassword00\r\n"
-            + "a=fingerprint:sha-256 AA:BB:CC:DD\r\n"
+            + "a=fingerprint:sha-256 00:01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F\r\n"
             + "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\n"
             + "a=rtcp-mux\r\na=setup:active\r\na=mid:0\r\na=sendrecv\r\n"
             + "a=rtpmap:111 opus/48000/2\r\n";
@@ -119,7 +124,7 @@ public sealed class SdpTests
         SdpMediaDescription audio = parsed.Media[0];
         Assert.AreEqual("sess", audio.IceUfrag);
         Assert.AreEqual("sesspasswordsesspassword00", audio.IcePwd);
-        Assert.AreEqual("sha-256", audio.Fingerprint.Algorithm);
+        Assert.AreEqual(HashAlgorithmName.SHA256, audio.Fingerprint.Algorithm);
         Assert.AreEqual(SdpSetup.Active, audio.Setup);
         Assert.AreEqual(111, audio.Codecs[0].PayloadType);
     }
@@ -129,7 +134,10 @@ public sealed class SdpTests
     {
         // The registry-driven negotiation offers several codecs per m-line, each with its own dynamic payload
         // type, fmtp, and rtcp-fb. The wire format must round-trip all of them, in order.
-        var fingerprint = CertificateFingerprint.Sha256([0x0A, 0x0B, 0x0C, 0x0D]);
+        var fingerprint = new DtlsFingerprint(
+            HashAlgorithmName.SHA256,
+            [.. SHA256.HashData([0x0A, 0x0B, 0x0C, 0x0D])]
+        );
         var offer = new SdpDescription
         {
             Media =

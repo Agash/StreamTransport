@@ -114,7 +114,7 @@ public sealed class MediaTimingTests
         await using var receiver = new WebRtcMediaReceiver(
             new MediaTransportOptions(),
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             video: videoSink,
             audio: audioSink
@@ -122,7 +122,7 @@ public sealed class MediaTimingTests
         await using var sender = new WebRtcMediaSender(
             new MediaTransportOptions(),
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             video: new StructuredVideoSource(width, height),
             audio: new ToneAudioSource()

@@ -17,7 +17,6 @@
     <Project Path="src/Agash.StreamTransport.Stun/Agash.StreamTransport.Stun.csproj" />
     <Project Path="src/Agash.StreamTransport.WebRtc.Abstractions/Agash.StreamTransport.WebRtc.Abstractions.csproj" />
     <Project Path="src/Agash.StreamTransport.WebRtc/Agash.StreamTransport.WebRtc.csproj" />
-    <Project Path="src/Agash.StreamTransport.WebRtc.Dtls/Agash.StreamTransport.WebRtc.Dtls.csproj" />
     <Project Path="src/Agash.StreamTransport.WebRtc.CongestionControl/Agash.StreamTransport.WebRtc.CongestionControl.csproj" />
     <Project Path="src/Agash.StreamTransport.WebRtc.DependencyInjection/Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
   </Folder>

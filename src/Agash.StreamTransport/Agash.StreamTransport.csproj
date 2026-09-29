@@ -139,7 +139,6 @@
     <ProjectReference Include="..\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />
     <!-- First-party WebRTC stack. -->
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
-    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Dtls\Agash.StreamTransport.WebRtc.Dtls.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc.DependencyInjection\Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
   </ItemGroup>
 

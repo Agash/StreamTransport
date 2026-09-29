@@ -5,14 +5,14 @@ namespace Agash.StreamTransport;
 
 /// <summary>
 /// The default <see cref="IMediaTransport"/>: WebRTC senders/receivers (ICE + DTLS-SRTP + RTP). It owns the
-/// transport-specific services - the codec <see cref="IMediaCodecRegistry"/>, the DTLS-SRTP
-/// <see cref="IDtlsTransportFactory"/>, and logging - and threads them into each per-peer endpoint, so
+/// transport-specific services - the codec <see cref="IMediaCodecRegistry"/>, the DTLS
+/// <see cref="RtcCertificate"/>, and logging - and threads them into each per-peer endpoint, so
 /// callers (and the orchestration layer) never name the WebRTC types. Replace the <see cref="IMediaTransport"/>
 /// registration to run the same orchestration over a different wire transport.
 /// </summary>
 internal sealed class WebRtcMediaTransport(
     IMediaCodecRegistry codecs,
-    IDtlsTransportFactory dtlsFactory,
+    RtcCertificate certificate,
     ILoggerFactory loggerFactory,
     Func<INetworkController> controllerFactory,
     MobilityEngine mobility
@@ -29,7 +29,7 @@ internal sealed class WebRtcMediaTransport(
         new WebRtcMediaSender(
             options,
             codecs,
-            dtlsFactory,
+            certificate,
             loggerFactory,
             video,
             audio,
@@ -42,5 +42,5 @@ internal sealed class WebRtcMediaTransport(
         MediaTransportOptions options,
         IVideoFrameSink? video = null,
         IAudioFrameSink? audio = null
-    ) => new WebRtcMediaReceiver(options, codecs, dtlsFactory, loggerFactory, video, audio);
+    ) => new WebRtcMediaReceiver(options, codecs, certificate, loggerFactory, video, audio);
 }

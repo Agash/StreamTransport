@@ -116,14 +116,14 @@ public sealed class VideoContentTests
         await using var receiver = new WebRtcMediaReceiver(
             new MediaTransportOptions(),
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             video: sink
         );
         await using var sender = new WebRtcMediaSender(
             options,
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             video: new StructuredVideoSource(width, height)
         );

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Dtls.NET;
 
 namespace Agash.StreamTransport.WebRtc.Sdp;
 
@@ -62,10 +63,7 @@ public static class SdpWriter
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-ufrag:{media.IceUfrag}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-pwd:{media.IcePwd}\r\n");
         sb.Append("a=ice-options:trickle\r\n");
-        sb.Append(
-            CultureInfo.InvariantCulture,
-            $"a=fingerprint:{media.Fingerprint.ToSdpValue()}\r\n"
-        );
+        sb.Append(CultureInfo.InvariantCulture, $"a=fingerprint:{media.Fingerprint}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=setup:{SetupText(media.Setup)}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=mid:{media.Mid}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a={DirectionText(media.Direction)}\r\n");

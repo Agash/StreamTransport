@@ -20,7 +20,7 @@ capture (camera / Spout / Syphon / PipeWire) -> HW H.265 -> WebRTC P2P -> HW H.2
 ## What you get
 
 - A complete, dependency-light **WebRTC** stack: ICE, STUN, DTLS-SRTP (GCM), RTP/RTCP, SDP/JSEP, and a
-  `PeerConnection`, BCL crypto, with one BouncyCastle dependency for the DTLS handshake.
+  `PeerConnection`, on the platform's own cryptography, with DTLS 1.2 and 1.3 from Dtls.NET.
 - **Hardware H.265** encode/decode through FFmpeg (NVENC, AMF, QSV, VAAPI, VideoToolbox) with a software
   fallback, plus pure-managed **Opus** audio on the same connection, kept in lip-sync.
 - **Resilience for real links**: SCReAM congestion control (RFC 8298 / 8888), sequence-aware H.265 reassembly,
@@ -62,7 +62,6 @@ Zero-copy GPU sharing libraries that feed the capture seam, published separately
 | `Agash.StreamTransport.Abstractions` | Capture + signaling contracts. BCL only. |
 | `Agash.StreamTransport.WebRtc` | The WebRTC core: ICE, STUN, SRTP, RTP/RTCP, SDP, `PeerConnection`. |
 | `Agash.StreamTransport.WebRtc.Abstractions` | Seams for the WebRTC stack. |
-| `Agash.StreamTransport.WebRtc.Dtls` | DTLS-SRTP handshake (the one BouncyCastle dependency). |
 | `Agash.StreamTransport.WebRtc.CongestionControl` | SCReAM controller + pacing. |
 | `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()` wiring. |
 | `Agash.StreamTransport.Signaling` | Room router + a WebSocket signaling transport. |

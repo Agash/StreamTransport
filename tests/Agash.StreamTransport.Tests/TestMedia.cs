@@ -1,7 +1,6 @@
 using Agash.StreamTransport.Codecs;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
-using Agash.StreamTransport.WebRtc.Dtls;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,13 +18,13 @@ internal static class TestMedia
         [new H265VideoCodecDescriptor()],
         [new OpusAudioCodecDescriptor()]
     );
-    public static readonly IDtlsTransportFactory Dtls = new DtlsTransportFactory();
+    public static readonly RtcCertificate Certificate = RtcCertificate.Generate();
     public static readonly ILoggerFactory Loggers = NullLoggerFactory.Instance;
 
     /// <summary>The default WebRTC wire transport, as <c>AddWebRtcMediaTransport</c> registers it.</summary>
     public static readonly IMediaTransport Transport = new WebRtcMediaTransport(
         Codecs,
-        Dtls,
+        Certificate,
         Loggers,
         static () => new ScreamCongestionController(),
         new MobilityEngine(new NetworkChangeMonitor())
@@ -37,7 +36,7 @@ internal static class TestMedia
         loggers = new CapturingLoggerFactory();
         return new WebRtcMediaTransport(
             Codecs,
-            Dtls,
+            Certificate,
             loggers,
             static () => new ScreamCongestionController(),
             new MobilityEngine(new NetworkChangeMonitor())

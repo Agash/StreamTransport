@@ -1,12 +1,11 @@
 using System.Diagnostics;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
-using Agash.StreamTransport.WebRtc.Dtls;
 using Agash.StreamTransport.WebRtc.Sdp;
 
 // A NativeAOT smoke test for the first-party WebRTC stack: two peer connections negotiate over loopback,
 // complete ICE -> DTLS-SRTP, and exchange an encrypted RTP packet. If this runs as an AOT single-file
-// binary, the stack (incl. BouncyCastle DTLS and the SCReAM controller) is AOT-safe end to end.
+// binary, the stack (including Dtls.NET and the SCReAM controller) is AOT-safe end to end.
 
 var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
 PeerConnectionOptions Options(uint ssrc) =>
@@ -16,8 +15,9 @@ PeerConnectionOptions Options(uint ssrc) =>
         Media = [new MediaLine("0", SdpMediaKind.Audio, ssrc, [opusCodec])],
     };
 
-await using var offerer = new PeerConnection(Options(0x1111_1111), new DtlsTransportFactory());
-await using var answerer = new PeerConnection(Options(0x2222_2222), new DtlsTransportFactory());
+using var certificate = RtcCertificate.Generate();
+await using var offerer = new PeerConnection(Options(0x1111_1111), certificate);
+await using var answerer = new PeerConnection(Options(0x2222_2222), certificate);
 
 offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
 answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);

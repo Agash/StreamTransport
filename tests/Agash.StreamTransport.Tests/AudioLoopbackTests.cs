@@ -24,14 +24,14 @@ public sealed class AudioLoopbackTests
         await using var receiver = new WebRtcMediaReceiver(
             new MediaTransportOptions(),
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             audio: sink
         );
         await using var sender = new WebRtcMediaSender(
             new MediaTransportOptions(),
             TestMedia.Codecs,
-            TestMedia.Dtls,
+            TestMedia.Certificate,
             TestMedia.Loggers,
             audio: new ToneAudioSource()
         );

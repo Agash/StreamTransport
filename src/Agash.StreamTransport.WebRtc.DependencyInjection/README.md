@@ -2,7 +2,7 @@
 
 `Microsoft.Extensions.DependencyInjection` wiring for the
 [Agash.StreamTransport](https://github.com/Agash/StreamTransport) WebRTC stack. One call registers the
-DTLS-SRTP factory (BouncyCastle, isolated in `.Dtls`), the SCReAM congestion controller, and a
+DTLS certificate, the SCReAM congestion controller, and a
 `PeerConnectionFactory`:
 
 ```csharp
@@ -16,5 +16,5 @@ services.AddStreamTransportWebRtc(scream =>
 PeerConnection pc = factory.Create(new PeerConnectionOptions { /* media lines */ });
 ```
 
-The core transport never depends on a particular DTLS implementation or congestion-control algorithm -
-both are resolved here, so they can be swapped without touching the transport.
+The congestion-control algorithm is resolved here, so it can be swapped without touching the transport.
+Register an `RtcCertificate` before calling it to keep one identity across runs.

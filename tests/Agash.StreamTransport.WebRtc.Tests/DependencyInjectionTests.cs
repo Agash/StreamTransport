@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
 using Agash.StreamTransport.WebRtc.DependencyInjection;
@@ -16,8 +17,9 @@ public sealed class DependencyInjectionTests
         services.AddStreamTransportWebRtc(scream => scream.MaxBitrateBps = 12_000_000);
         await using var provider = services.BuildServiceProvider();
 
-        var dtls = provider.GetRequiredService<IDtlsTransportFactory>();
-        Assert.AreEqual("sha-256", dtls.LocalFingerprint.Algorithm);
+        var certificate = provider.GetRequiredService<RtcCertificate>();
+        Assert.AreEqual(HashAlgorithmName.SHA256, certificate.Fingerprint.Algorithm);
+        Assert.AreSame(certificate, provider.GetRequiredService<RtcCertificate>());
 
         var factory = provider.GetRequiredService<PeerConnectionFactory>();
         var options = new PeerConnectionOptions
@@ -36,10 +38,7 @@ public sealed class DependencyInjectionTests
 
         SdpDescription offer = pc.CreateOffer();
         Assert.AreEqual(1, offer.Media.Count);
-        Assert.AreEqual(
-            dtls.LocalFingerprint.ToSdpValue(),
-            offer.Media[0].Fingerprint.ToSdpValue()
-        );
+        Assert.AreEqual(certificate.Fingerprint, offer.Media[0].Fingerprint);
 
         var controller = provider.GetRequiredService<INetworkController>();
         Assert.IsInstanceOfType<ScreamCongestionController>(controller);

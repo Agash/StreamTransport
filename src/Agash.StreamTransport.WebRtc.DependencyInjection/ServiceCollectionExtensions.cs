@@ -1,5 +1,4 @@
 using Agash.StreamTransport.WebRtc.CongestionControl;
-using Agash.StreamTransport.WebRtc.Dtls;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -10,7 +9,7 @@ namespace Agash.StreamTransport.WebRtc.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the WebRTC stack: the DTLS-SRTP factory (singleton, stable certificate/fingerprint), a
+    /// Registers the WebRTC stack: the DTLS certificate (singleton, so the fingerprint is stable), a
     /// <see cref="PeerConnectionFactory"/>, and a per-connection SCReAM <see cref="INetworkController"/>.
     /// </summary>
     public static IServiceCollection AddStreamTransportWebRtc(
@@ -20,7 +19,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IDtlsTransportFactory, DtlsTransportFactory>();
+        services.TryAddSingleton(static _ => RtcCertificate.Generate());
         services.TryAddSingleton<PeerConnectionFactory>();
 
         // The controller is stateful per connection, so it is transient; options are bound from IOptions.

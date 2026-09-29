@@ -25,7 +25,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
 {
     private readonly MediaTransportOptions _options;
     private readonly IMediaCodecRegistry _registry;
-    private readonly IDtlsTransportFactory _dtlsFactory;
+    private readonly RtcCertificate _certificate;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly Channel<(PooledBuffer Buffer, uint Timestamp)> _videoQueue =
@@ -115,13 +115,13 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
 
     /// <summary>
     /// Create a receiver. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
-    /// The codec set (<paramref name="registry"/>), DTLS-SRTP engine (<paramref name="dtlsFactory"/>), and
+    /// The codec set (<paramref name="registry"/>), DTLS certificate (<paramref name="certificate"/>), and
     /// logging are injected so the receiver is built entirely from pluggable services.
     /// </summary>
     public WebRtcMediaReceiver(
         MediaTransportOptions options,
         IMediaCodecRegistry registry,
-        IDtlsTransportFactory dtlsFactory,
+        RtcCertificate certificate,
         ILoggerFactory loggerFactory,
         IVideoFrameSink? video = null,
         IAudioFrameSink? audio = null
@@ -134,7 +134,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
 
         _options = options;
         _registry = registry;
-        _dtlsFactory = dtlsFactory;
+        _certificate = certificate;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<WebRtcMediaReceiver>();
         _preserveAlpha = options.PreserveAlpha;
@@ -183,7 +183,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         _session = new RtcSession(
             signaling,
             MediaConfig.Build(_registry, _options, AudioSink is not null, VideoSink is not null),
-            _dtlsFactory,
+            _certificate,
             _loggerFactory
         );
         PeerConnection pc = _session.Pc;

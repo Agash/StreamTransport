@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
-using Agash.StreamTransport.WebRtc.Dtls;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 
@@ -20,6 +19,9 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 [TestClass]
 public sealed class PeerConnectionTests
 {
+    // Both peers may share one identity: each authenticates the other by the fingerprint it signalled.
+    private static readonly RtcCertificate Certificate = RtcCertificate.Generate();
+
     [TestMethod]
     [Timeout(90_000)]
     [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
@@ -37,8 +39,8 @@ public sealed class PeerConnectionTests
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x2222_2222, [opusCodec])],
         };
 
-        await using var offerer = new PeerConnection(offererOptions, new DtlsTransportFactory());
-        await using var answerer = new PeerConnection(answererOptions, new DtlsTransportFactory());
+        await using var offerer = new PeerConnection(offererOptions, Certificate);
+        await using var answerer = new PeerConnection(answererOptions, Certificate);
 
         // Trickle ICE both ways.
         offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
@@ -123,8 +125,8 @@ public sealed class PeerConnectionTests
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x2222_2222, [opus])],
         };
 
-        await using var offerer = new PeerConnection(offererOptions, new DtlsTransportFactory());
-        await using var answerer = new PeerConnection(answererOptions, new DtlsTransportFactory());
+        await using var offerer = new PeerConnection(offererOptions, Certificate);
+        await using var answerer = new PeerConnection(answererOptions, Certificate);
 
         offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
         answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
@@ -203,8 +205,8 @@ public sealed class PeerConnectionTests
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x4444_4444, [opus])],
         };
 
-        await using var offerer = new PeerConnection(offererOptions, new DtlsTransportFactory());
-        await using var answerer = new PeerConnection(answererOptions, new DtlsTransportFactory());
+        await using var offerer = new PeerConnection(offererOptions, Certificate);
+        await using var answerer = new PeerConnection(answererOptions, Certificate);
 
         offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
         answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
@@ -302,10 +304,10 @@ public sealed class PeerConnectionTests
 
         await using var sender = new PeerConnection(
             senderOptions,
-            new DtlsTransportFactory(),
+            Certificate,
             controller: new ScreamCongestionController()
         );
-        await using var receiver = new PeerConnection(receiverOptions, new DtlsTransportFactory());
+        await using var receiver = new PeerConnection(receiverOptions, Certificate);
 
         sender.LocalIceCandidate += c => receiver.AddRemoteIceCandidate(c);
         receiver.LocalIceCandidate += c => sender.AddRemoteIceCandidate(c);
@@ -372,8 +374,8 @@ public sealed class PeerConnectionTests
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0001, [h265])],
         };
 
-        await using var offerer = new PeerConnection(offererOptions, new DtlsTransportFactory());
-        await using var answerer = new PeerConnection(answererOptions, new DtlsTransportFactory());
+        await using var offerer = new PeerConnection(offererOptions, Certificate);
+        await using var answerer = new PeerConnection(answererOptions, Certificate);
 
         SdpDescription offer = offerer.CreateOffer();
         Assert.AreEqual(2, offer.Media[0].Codecs.Count, "the offer advertises both codecs.");
@@ -423,8 +425,8 @@ public sealed class PeerConnectionTests
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0001, [videoCodec])],
         };
 
-        await using var sender = new PeerConnection(senderOptions, new DtlsTransportFactory());
-        await using var receiver = new PeerConnection(receiverOptions, new DtlsTransportFactory());
+        await using var sender = new PeerConnection(senderOptions, Certificate);
+        await using var receiver = new PeerConnection(receiverOptions, Certificate);
 
         sender.LocalIceCandidate += c => receiver.AddRemoteIceCandidate(c);
         receiver.LocalIceCandidate += c => sender.AddRemoteIceCandidate(c);

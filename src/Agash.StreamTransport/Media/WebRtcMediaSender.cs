@@ -19,7 +19,7 @@ public sealed partial class WebRtcMediaSender : IMediaSender
 
     private readonly MediaTransportOptions _options;
     private readonly IMediaCodecRegistry _registry;
-    private readonly IDtlsTransportFactory _dtlsFactory;
+    private readonly RtcCertificate _certificate;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly INetworkController? _controller;
@@ -61,14 +61,14 @@ public sealed partial class WebRtcMediaSender : IMediaSender
 
     /// <summary>
     /// Create a sender. At least one of <paramref name="video"/> or <paramref name="audio"/> must be non-null.
-    /// The codec set (<paramref name="registry"/>), DTLS-SRTP engine (<paramref name="dtlsFactory"/>), and
+    /// The codec set (<paramref name="registry"/>), DTLS certificate (<paramref name="certificate"/>), and
     /// logging are injected so the sender is built entirely from pluggable services.
     /// <paramref name="gpuDeviceHandle"/> is an optional shared <c>ID3D11Device*</c> for zero-copy GPU encode.
     /// </summary>
     public WebRtcMediaSender(
         MediaTransportOptions options,
         IMediaCodecRegistry registry,
-        IDtlsTransportFactory dtlsFactory,
+        RtcCertificate certificate,
         ILoggerFactory loggerFactory,
         IVideoFrameSource? video = null,
         IAudioFrameSource? audio = null,
@@ -84,7 +84,7 @@ public sealed partial class WebRtcMediaSender : IMediaSender
 
         _options = options;
         _registry = registry;
-        _dtlsFactory = dtlsFactory;
+        _certificate = certificate;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<WebRtcMediaSender>();
         _controller = controller;
@@ -128,7 +128,7 @@ public sealed partial class WebRtcMediaSender : IMediaSender
                 AudioSource is not null,
                 VideoSource is not null
             ),
-            _dtlsFactory,
+            _certificate,
             _loggerFactory,
             _controller
         );

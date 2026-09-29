@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Srtp;
+using Dtls.NET;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 

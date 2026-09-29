@@ -1,4 +1,5 @@
 using System.Globalization;
+using Dtls.NET;
 
 namespace Agash.StreamTransport.WebRtc.Sdp;
 
@@ -142,25 +143,8 @@ public static class SdpReader
         return false;
     }
 
-    internal static DtlsFingerprint? ParseFingerprint(string value)
-    {
-        int space = value.IndexOf(' ', StringComparison.Ordinal);
-        if (space <= 0)
-        {
-            return null;
-        }
-
-        string algorithm = value[..space];
-        string hex = value[(space + 1)..].Replace(":", "", StringComparison.Ordinal).Trim();
-        try
-        {
-            return new DtlsFingerprint(algorithm, Convert.FromHexString(hex));
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
-    }
+    internal static DtlsFingerprint? ParseFingerprint(string value) =>
+        DtlsFingerprint.TryParse(value, out DtlsFingerprint fingerprint) ? fingerprint : null;
 
     private sealed class MediaBuilder
     {
