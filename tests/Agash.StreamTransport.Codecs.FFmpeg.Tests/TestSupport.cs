@@ -153,3 +153,41 @@ internal static class Reference
         return frames;
     }
 }
+
+internal static class Streams
+{
+    // The moving gradient, encoded in software where it can be.
+    public static List<(byte[] Data, MediaTimestamp Timestamp)> Encode(VideoCodecId codec, int frameCount)
+    {
+        VideoEncoderConfiguration configuration = new(
+            new VideoCodecFormat(codec),
+            Pictures.Size,
+            new RateTarget(4_000_000, 30)
+        );
+        FFmpegVideoEncoderFactory factory =
+            FFmpegVideoEncoderFactory
+                .CreateAll()
+                .OrderBy(static f => f.IsHardwareAccelerated)
+                .FirstOrDefault(f =>
+                    f.QueryCapabilities(configuration.Format, device: null) is { } info
+                    && info.Input.PixelFormats.Any(static p =>
+                        p is PixelFormat.Nv12 or PixelFormat.I420
+                    )
+                )
+            ?? throw new AssertInconclusiveException($"Nothing on this machine encodes {codec}.");
+        using IVideoEncoder encoder = factory.Create(configuration, device: null);
+        PixelFormat format = encoder.Info.Input.PixelFormats.First(static f =>
+            f is PixelFormat.Nv12 or PixelFormat.I420
+        );
+        Collector collector = new();
+        for (int i = 0; i < frameCount; i++)
+        {
+            byte[] pixels = Pictures.Make(format, i);
+            VideoFrame frame = Pictures.CpuFrame(format, pixels, i);
+            encoder.Encode(in frame, new EncodeRequest(Keyframe: i == 0), collector);
+        }
+
+        encoder.Flush(collector);
+        return [.. collector.Units.Select(static u => (u.Data, u.Timestamp))];
+    }
+}

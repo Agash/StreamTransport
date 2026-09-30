@@ -5,6 +5,7 @@ using Agash.StreamTransport.Sync;
 using Agash.StreamTransport.Transport;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.Rtp;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport;
@@ -28,12 +29,12 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
     private readonly RtcCertificate _certificate;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
-    private readonly Channel<(PooledBuffer Buffer, uint Timestamp)> _videoQueue =
-        Channel.CreateUnbounded<(PooledBuffer, uint)>(
+    private readonly Channel<(EncodedFrameBuffer Buffer, uint Timestamp)> _videoQueue =
+        Channel.CreateUnbounded<(EncodedFrameBuffer, uint)>(
             new UnboundedChannelOptions { SingleReader = true, SingleWriter = true }
         );
-    private readonly Channel<(PooledBuffer Buffer, uint Timestamp)> _audioQueue =
-        Channel.CreateUnbounded<(PooledBuffer, uint)>(
+    private readonly Channel<(EncodedFrameBuffer Buffer, uint Timestamp)> _audioQueue =
+        Channel.CreateUnbounded<(EncodedFrameBuffer, uint)>(
             new UnboundedChannelOptions { SingleReader = true, SingleWriter = true }
         );
 
@@ -45,8 +46,8 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
 
     // Resolved from the negotiated media once connected.
     private IVideoDecoder? _video;
-    private IRtpDepacketizer? _videoDepacketizer;
-    private WebRtc.Rtp.H265PacketBuffer? _videoPacketBuffer; // sequence-aware reassembly for H.265 (the modern path).
+    private Agash.StreamTransport.IRtpDepacketizer? _videoDepacketizer;
+    private RtpFrameBuffer? _videoPacketBuffer; // sequence-aware reassembly for every known payload format.
     private uint _videoSsrc;
     private byte _videoPayloadType;
     private IAudioDecoder? _audio;
@@ -232,11 +233,11 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
                 _videoPayloadType = (byte)codec.PayloadType;
                 _videoSsrc = media.LocalSsrc;
 
-                // H.265 uses the modern sequence-aware packet buffer (reorders + only emits complete frames, so
-                // NACK/RTX can repair a hole in order); other codecs keep the arrival-order depacketizer.
-                if (string.Equals(codec.EncodingName, "H265", StringComparison.OrdinalIgnoreCase))
+                // Known payload formats use the sequence-aware packet buffer (reorders and only emits complete
+                // frames, so NACK/RTX can repair a hole in order); other codecs keep the arrival-order depacketizer.
+                if (RtpPayloadFormatRegistry.BuiltIn.TryGet(codec, out RtpPayloadFormat? format))
                 {
-                    _videoPacketBuffer = new WebRtc.Rtp.H265PacketBuffer();
+                    _videoPacketBuffer = new RtpFrameBuffer(format);
                 }
                 else
                 {
@@ -334,16 +335,16 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             {
                 // Sequence-aware path: reorder and assemble only complete frames; a hole holds the frame for
                 // NACK/RTX. Each completed frame's access unit is pool-owned - hand it to the decode worker.
-                WebRtc.Rtp.H265PacketBuffer.InsertResult result = packetBuffer.Insert(
+                RtpFrameBuffer.InsertResult result = packetBuffer.Insert(
                     header.SequenceNumber,
                     header.Timestamp,
                     header.Marker,
                     payload.Span
                 );
-                foreach (WebRtc.Rtp.H265PacketBuffer.AssembledFrame frame in result.Frames)
+                foreach (RtpFrameBuffer.AssembledFrame frame in result.Frames)
                 {
                     _auAssembled++;
-                    var unit = new PooledBuffer(frame.AccessUnit, frame.Length);
+                    EncodedFrameBuffer unit = frame.Frame;
                     if (!_videoQueue.Writer.TryWrite((unit, frame.Timestamp)))
                     {
                         unit.Dispose();
@@ -356,8 +357,12 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             {
                 // Arrival-order fallback (non-H.265): depacketize on the receive thread and enqueue.
                 PooledBuffer? accessUnit = _videoDepacketizer!.Push(payload.Span, header.Marker);
-                if (accessUnit is { } videoUnit)
+                if (accessUnit is { } assembled)
                 {
+                    byte[] copy = ArrayPool<byte>.Shared.Rent(assembled.Memory.Length);
+                    assembled.Memory.Span.CopyTo(copy);
+                    EncodedFrameBuffer videoUnit = new(copy, assembled.Memory.Length);
+                    assembled.Dispose();
                     _auAssembled++;
                     if (!_videoQueue.Writer.TryWrite((videoUnit, header.Timestamp)))
                     {
@@ -381,7 +386,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
             // Copy the borrowed payload into a pool-rented buffer for the cross-thread hand-off to the decoder.
             byte[] rented = ArrayPool<byte>.Shared.Rent(payload.Length);
             payload.Span.CopyTo(rented);
-            var audioUnit = new PooledBuffer(rented, payload.Length);
+            EncodedFrameBuffer audioUnit = new(rented, payload.Length);
             if (!_audioQueue.Writer.TryWrite((audioUnit, header.Timestamp)))
             {
                 audioUnit.Dispose();
@@ -654,7 +659,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         try
         {
             await foreach (
-                (PooledBuffer accessUnit, uint timestamp) in _videoQueue
+                (EncodedFrameBuffer accessUnit, uint timestamp) in _videoQueue
                     .Reader.ReadAllAsync(cancellationToken)
                     .ConfigureAwait(false)
             )
@@ -698,7 +703,7 @@ public sealed partial class WebRtcMediaReceiver : IMediaReceiver
         try
         {
             await foreach (
-                (PooledBuffer payload, uint timestamp) in _audioQueue
+                (EncodedFrameBuffer payload, uint timestamp) in _audioQueue
                     .Reader.ReadAllAsync(cancellationToken)
                     .ConfigureAwait(false)
             )

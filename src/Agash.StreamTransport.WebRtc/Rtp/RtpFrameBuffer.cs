@@ -4,39 +4,26 @@ using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 namespace Agash.StreamTransport.WebRtc.Rtp;
 
 /// <summary>
-/// Sequence-aware H.265 packet buffer: a C# port of libwebrtc's modern <c>H26xPacketBuffer</c>
-/// (<c>modules/video_coding/h26x_packet_buffer.cc</c>), the preferred receive-side frame-assembly path.
-/// It reorders received RTP packets by sequence number (RFC 3550) and only emits a frame once <i>every</i>
-/// packet from its first NAL to its marker packet is present and contiguous. A packet lost inside a frame
-/// holds the whole frame in the buffer - giving NACK/RTX retransmission (RFC 4588) time to fill it in order -
-/// instead of the old arrival-order depacketizer feeding a corrupt, or frame-merged (lost marker), access unit
-/// to the decoder and cascading the HEVC reference chain. It resyncs on a new coded video sequence (a packet
-/// carrying a VPS NAL), so a keyframe always restarts assembly after unrecoverable loss.
+/// Reorders the RTP packets of one video stream by sequence number (RFC 3550) and hands over a frame only
+/// once every packet from its first to its marker packet is present, so NACK and RTX (RFC 4588) have time
+/// to fill a loss before the decoder sees the frame. A keyframe comes out only with the parameter sets its
+/// payload format says it needs, and after unrecoverable loss the buffer starts again at the next coded
+/// sequence. Follows libwebrtc's <c>H26xPacketBuffer</c>, for any <see cref="RtpPayloadFormat"/>.
 /// </summary>
 /// <remarks>
-/// Frame reassembly (FU/AP/single-NAL to Annex-B per RFC 7798) is delegated to <see cref="H265Depacketizer"/>,
-/// fed the frame's packets in sequence order. The buffer owns a copy of each packet's payload (pool-rented)
-/// until the frame assembles or the slot is reused.
+/// The buffer keeps a pool-rented copy of each payload until its frame assembles or the slot is reused,
+/// and assembles frames with the format's depacketizer, feeding it the frame's packets in order.
 /// </remarks>
-public sealed class H265PacketBuffer : IDisposable
+public sealed class RtpFrameBuffer : IDisposable
 {
     private const int BufferSize = 2048; // ring size, indexed by seq % size (libwebrtc kBufferSize).
     private const int TrackedSequences = 5; // parallel continuity runs (libwebrtc kNumTrackedSequences).
 
-    // H.265 NAL unit types (H.265 Table 7-1 / RFC 7798): parameter sets, aggregation, fragmentation, and the
-    // IRAP VCL range (BLA/IDR/CRA) that marks a keyframe.
-    private const int NalAp = 48;
-    private const int NalFu = 49;
-    private const int NalVps = 32;
-    private const int NalSps = 33;
-    private const int NalPps = 34;
-    private const int IrapLow = 16;
-    private const int IrapHigh = 23;
-
+    private readonly RtpPayloadFormat _format;
+    private readonly IRtpDepacketizer _assembler;
     private readonly Slot[] _buffer = new Slot[BufferSize];
     private readonly long[] _lastContinuous = new long[TrackedSequences];
     private int _lastContinuousIndex;
-    private readonly H265Depacketizer _assembler = new();
 
     private long _lastUnwrapped;
     private int _lastSeq16 = -1;
@@ -53,14 +40,22 @@ public sealed class H265PacketBuffer : IDisposable
         public int Length;
     }
 
-    /// <summary>Creates an empty buffer.</summary>
-    public H265PacketBuffer() => Array.Fill(_lastContinuous, long.MinValue);
+    /// <summary>An empty buffer for a stream of one payload format.</summary>
+    /// <param name="format">The stream's payload format.</param>
+    public RtpFrameBuffer(RtpPayloadFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(format);
+        _format = format;
+        _assembler = format.CreateDepacketizer();
+        Array.Fill(_lastContinuous, long.MinValue);
+    }
 
-    /// <summary>A completed frame: the assembled Annex-B access unit (pool-rented; the caller owns it and must
-    /// return <see cref="AccessUnit"/> to <see cref="ArrayPool{T}.Shared"/>), its kind, and its RTP timestamp.</summary>
+    /// <summary>A completed frame, owned by the caller, who disposes it.</summary>
+    /// <param name="Frame">The encoded frame.</param>
+    /// <param name="IsKeyframe">Whether a decoder can start from it.</param>
+    /// <param name="Timestamp">Its RTP timestamp.</param>
     public readonly record struct AssembledFrame(
-        byte[] AccessUnit,
-        int Length,
+        EncodedFrameBuffer Frame,
         bool IsKeyframe,
         uint Timestamp
     );
@@ -131,12 +126,12 @@ public sealed class H265PacketBuffer : IDisposable
 
         ref Slot first = ref _buffer[EuclideanMod(unwrappedSeq, BufferSize)];
 
-        // Establish continuity: the packet must follow a tracked continuous run, or begin a new coded video
-        // sequence (carry a VPS), otherwise it is stranded behind a gap and nothing can be assembled yet.
+        // Establish continuity: the packet must follow a tracked continuous run, or begin a new coded
+        // sequence, otherwise it is stranded behind a gap and nothing can be assembled yet.
         int runIndex = FindContinuousRun(unwrappedSeq);
         if (runIndex < 0)
         {
-            if (!BeginningOfStream(first.Payload!, first.Length))
+            if ((_format.Inspect(first.Payload.AsSpan(0, first.Length)) & RtpPayloadTraits.SequenceStart) == 0)
             {
                 return false;
             }
@@ -183,7 +178,7 @@ public sealed class H265PacketBuffer : IDisposable
     }
 
     // Validate that the frame [start..end] is a complete, decodable unit and, if so, assemble it. Mirrors
-    // H26xPacketBuffer::MaybeAssembleFrame (H.265 path).
+    // H26xPacketBuffer::MaybeAssembleFrame.
     private bool MaybeAssembleFrame(
         long start,
         long end,
@@ -191,44 +186,37 @@ public sealed class H265PacketBuffer : IDisposable
         ref bool keyframeRequired
     )
     {
-        bool hasVps = false,
-            hasSps = false,
-            hasPps = false,
-            hasIrap = false;
+        RtpPayloadTraits traits = RtpPayloadTraits.None;
         for (long seq = start; seq <= end; ++seq)
         {
             ref Slot p = ref _buffer[EuclideanMod(seq, BufferSize)];
-            ScanNalTypes(p.Payload!, p.Length, ref hasVps, ref hasSps, ref hasPps, ref hasIrap);
+            traits |= _format.Inspect(p.Payload.AsSpan(0, p.Length));
         }
 
-        // An IRAP (keyframe) is only decodable with its parameter sets in the same access unit; otherwise wait
-        // (and ask for a fresh keyframe that carries them).
-        if (hasIrap && (!hasVps || !hasSps || !hasPps))
+        // A keyframe decodes only with the parameter sets it needs in the same frame; otherwise wait and ask
+        // for a fresh keyframe that carries them.
+        bool keyframe = (traits & RtpPayloadTraits.Keyframe) != 0;
+        if (keyframe && (traits & _format.KeyframeRequires) != _format.KeyframeRequires)
         {
             keyframeRequired = true;
             return false;
         }
 
         // A delta frame that does not directly follow the previously emitted frame references a frame we never
-        // decoded (a whole-frame gap) - emit it but ask for a keyframe to reset the reference chain.
-        if (!hasIrap && _lastEmittedEnd != long.MinValue && start != _lastEmittedEnd + 1)
+        // decoded (a whole-frame gap): emit it but ask for a keyframe to reset the reference chain.
+        if (!keyframe && _lastEmittedEnd != long.MinValue && start != _lastEmittedEnd + 1)
         {
             keyframeRequired = true;
         }
 
-        // Reassemble Annex-B (RFC 7798) by feeding the frame's packets to the depacketizer in sequence order.
         uint timestamp = _buffer[EuclideanMod(end, BufferSize)].Timestamp;
-        byte[] accessUnit = [];
-        int length = 0;
+        EncodedFrameBuffer frame = default;
         for (long seq = start; seq <= end; ++seq)
         {
             ref Slot p = ref _buffer[EuclideanMod(seq, BufferSize)];
-            if (
-                _assembler.Push(p.Payload.AsSpan(0, p.Length), p.Marker, out byte[] au, out int len)
-            )
+            if (_assembler.TryPush(p.Payload.AsSpan(0, p.Length), seq == end, out EncodedFrameBuffer completed))
             {
-                accessUnit = au;
-                length = len;
+                frame = completed;
             }
         }
 
@@ -245,104 +233,8 @@ public sealed class H265PacketBuffer : IDisposable
         }
 
         _lastEmittedEnd = end;
-        frames.Add(new AssembledFrame(accessUnit, length, hasIrap, timestamp));
+        frames.Add(new AssembledFrame(frame, keyframe, timestamp));
         return true;
-    }
-
-    // True if the packet starts a new coded video sequence (carries a VPS) - the resync point after loss.
-    private static bool BeginningOfStream(byte[] payload, int length)
-    {
-        bool vps = false,
-            sps = false,
-            pps = false,
-            irap = false;
-        ScanNalTypes(payload, length, ref vps, ref sps, ref pps, ref irap);
-        return vps;
-    }
-
-    // Inspect one RTP payload (single NAL, Aggregation Packet, or Fragmentation Unit) for the NAL types it
-    // carries (RFC 7798 §4.4). For an FU, only the start fragment carries the original NAL type.
-    private static void ScanNalTypes(
-        byte[] payload,
-        int length,
-        ref bool hasVps,
-        ref bool hasSps,
-        ref bool hasPps,
-        ref bool hasIrap
-    )
-    {
-        if (length < 2)
-        {
-            return;
-        }
-
-        int type = (payload[0] >> 1) & 0x3F;
-        switch (type)
-        {
-            case NalFu:
-                if (length >= 3 && (payload[2] & 0x80) != 0) // start fragment carries the original type.
-                {
-                    Classify(payload[2] & 0x3F, ref hasVps, ref hasSps, ref hasPps, ref hasIrap);
-                }
-
-                break;
-
-            case NalAp:
-                // Aggregation Packet: 2-byte PayloadHdr, then [2-byte size][NAL] records.
-                int offset = 2;
-                while (offset + 2 <= length)
-                {
-                    int size = (payload[offset] << 8) | payload[offset + 1];
-                    offset += 2;
-                    if (size <= 0 || offset + size > length)
-                    {
-                        break;
-                    }
-
-                    Classify(
-                        (payload[offset] >> 1) & 0x3F,
-                        ref hasVps,
-                        ref hasSps,
-                        ref hasPps,
-                        ref hasIrap
-                    );
-                    offset += size;
-                }
-
-                break;
-
-            default:
-                Classify(type, ref hasVps, ref hasSps, ref hasPps, ref hasIrap);
-                break;
-        }
-    }
-
-    private static void Classify(
-        int nalType,
-        ref bool hasVps,
-        ref bool hasSps,
-        ref bool hasPps,
-        ref bool hasIrap
-    )
-    {
-        switch (nalType)
-        {
-            case NalVps:
-                hasVps = true;
-                break;
-            case NalSps:
-                hasSps = true;
-                break;
-            case NalPps:
-                hasPps = true;
-                break;
-            default:
-                if (nalType is >= IrapLow and <= IrapHigh)
-                {
-                    hasIrap = true;
-                }
-                break;
-        }
     }
 
     private int FindContinuousRun(long unwrappedSeq)

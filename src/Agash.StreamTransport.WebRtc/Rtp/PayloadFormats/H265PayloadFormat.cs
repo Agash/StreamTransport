@@ -1,276 +1,191 @@
-using System.Buffers;
+using System.Collections.Immutable;
+using Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 
 /// <summary>
-/// Packetizes an HEVC (H.265) access unit into RTP payloads per RFC 7798: each NAL unit is sent as a
-/// single-NAL-unit packet when it fits the MTU, or split into Fragmentation Units (FUs, type 49) when it
-/// does not. Aggregation Packets and the DON fields are not produced (we do not reorder). The caller sets
-/// the RTP marker bit on the last payload of the access unit.
+/// The H.265 RTP payload format (RFC 7798) without decoding order numbers (sprop-max-don-diff=0), Main
+/// profile by default.
 /// </summary>
-public static class H265Packetizer
+public sealed class H265PayloadFormat : RtpPayloadFormat
 {
-    private const int FragmentationUnitType = 49;
-    private const int PayloadHeaderSize = 2;
-    private const int FuHeaderSize = 1;
+    internal const int AggregationPacket = 48;
+    internal const int FragmentationUnit = 49;
+    internal const int PaciPacket = 50;
+    private const int IrapFirst = 16;
+    private const int IrapLast = 23;
+    private const int Vps = 32;
+    private const int Sps = 33;
+    private const int Pps = 34;
 
-    /// <summary>
-    /// Splits an Annex-B access unit (NAL units prefixed by start codes) into RTP payloads, each at most
-    /// <paramref name="maxPayloadSize"/> bytes, writing them into <paramref name="writer"/> with no per-payload
-    /// allocation. The last produced payload is the end of the access unit. Single pass over the input, so no
-    /// intermediate range list is allocated.
-    /// </summary>
-    /// <param name="annexBAccessUnit">The encoded access unit, NAL units separated by Annex-B start codes.</param>
-    /// <param name="writer">Reusable destination storage; it is reset before writing this frame's payloads.</param>
-    /// <param name="maxPayloadSize">The maximum RTP payload size in bytes.</param>
-    public static void Packetize(
-        ReadOnlySpan<byte> annexBAccessUnit,
-        RtpPayloadWriter writer,
-        int maxPayloadSize = 1100
-    )
+    private H265PayloadFormat() { }
+
+    /// <summary>The format.</summary>
+    public static H265PayloadFormat Instance { get; } = new();
+
+    /// <inheritdoc/>
+    public override string EncodingName => "H265";
+
+    /// <inheritdoc/>
+    public override SdpMediaKind Kind => SdpMediaKind.Video;
+
+    /// <inheritdoc/>
+    public override int ClockRate => 90_000;
+
+    /// <inheritdoc/>
+    public override ImmutableArray<string> RtcpFeedback => ["nack", "nack pli"];
+
+    /// <inheritdoc/>
+    public override RtpPayloadTraits KeyframeRequires =>
+        RtpPayloadTraits.VideoParameters
+        | RtpPayloadTraits.SequenceParameters
+        | RtpPayloadTraits.PictureParameters;
+
+    /// <inheritdoc/>
+    public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
+        new H265Packetizer(maxPayloadSize);
+
+    /// <inheritdoc/>
+    public override IRtpDepacketizer CreateDepacketizer() => new H265Depacketizer();
+
+    /// <inheritdoc/>
+    public override RtpPayloadTraits Inspect(ReadOnlySpan<byte> payload)
     {
-        writer.Reset();
-
-        int i = 0;
-        int nalStart = -1;
-        while (i + 2 < annexBAccessUnit.Length)
+        if (payload.Length < 2)
         {
-            if (
-                annexBAccessUnit[i] == 0
-                && annexBAccessUnit[i + 1] == 0
-                && annexBAccessUnit[i + 2] == 1
-            )
-            {
-                if (nalStart >= 0)
-                {
-                    int end = i;
-                    if (end > 0 && annexBAccessUnit[end - 1] == 0)
-                    {
-                        end--;
-                    }
-
-                    PacketizeNal(annexBAccessUnit[nalStart..end], writer, maxPayloadSize);
-                }
-
-                i += 3;
-                nalStart = i;
-            }
-            else
-            {
-                i++;
-            }
+            return RtpPayloadTraits.None;
         }
 
-        if (nalStart >= 0 && nalStart < annexBAccessUnit.Length)
+        switch (NalType(payload[0]))
         {
-            PacketizeNal(annexBAccessUnit[nalStart..], writer, maxPayloadSize);
+            case AggregationPacket:
+                RtpPayloadTraits traits = RtpPayloadTraits.None;
+                foreach (ReadOnlySpan<byte> nal in new AggregatedNalUnits(payload[2..]))
+                {
+                    traits |= Classify(NalType(nal[0]));
+                }
+
+                return traits;
+            case FragmentationUnit:
+                // Only the first fragment names the NAL unit's type.
+                return payload.Length >= 3 && (payload[2] & 0x80) != 0
+                    ? Classify(payload[2] & 0x3F)
+                    : RtpPayloadTraits.None;
+            case int type:
+                return Classify(type);
         }
     }
 
-    private static void PacketizeNal(
-        ReadOnlySpan<byte> nal,
-        RtpPayloadWriter writer,
-        int maxPayloadSize
+    internal static int NalType(byte header) => (header >> 1) & 0x3F;
+
+    private static RtpPayloadTraits Classify(int nalType) =>
+        nalType switch
+        {
+            >= IrapFirst and <= IrapLast => RtpPayloadTraits.Keyframe,
+            Vps => RtpPayloadTraits.VideoParameters | RtpPayloadTraits.SequenceStart,
+            Sps => RtpPayloadTraits.SequenceParameters,
+            Pps => RtpPayloadTraits.PictureParameters,
+            _ => RtpPayloadTraits.None,
+        };
+}
+
+/// <summary>
+/// Packetizes H.265 access units per RFC 7798: consecutive small NAL units share an Aggregation Packet,
+/// a NAL unit that fits alone is a single-NAL-unit packet, and a larger one is split into Fragmentation
+/// Units.
+/// </summary>
+/// <param name="maxPayloadSize">The largest RTP payload in bytes; at least 4.</param>
+public sealed class H265Packetizer(int maxPayloadSize)
+    : NalUnitPacketizer(maxPayloadSize, nalHeaderSize: 2, fragmentHeaderSize: 3)
+{
+    /// <inheritdoc/>
+    /// <remarks>The F bit of any unit and the lowest LayerId and TemporalId of all of them, with type 48.</remarks>
+    protected override void WriteAggregationHeader(Span<byte> header, ReadOnlySpan<byte> run)
+    {
+        int forbidden = 0;
+        int layerId = 0x3F;
+        int temporalId = 0x7;
+        foreach (Range range in new AnnexBNalUnits(run, startsWithNal: true))
+        {
+            ReadOnlySpan<byte> nal = run[range];
+            forbidden |= nal[0] & 0x80;
+            layerId = Math.Min(layerId, ((nal[0] & 0x1) << 5) | (nal[1] >> 3));
+            temporalId = Math.Min(temporalId, nal[1] & 0x7);
+        }
+
+        header[0] = (byte)(forbidden | (H265PayloadFormat.AggregationPacket << 1) | (layerId >> 5));
+        header[1] = (byte)(((layerId & 0x1F) << 3) | temporalId);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>PayloadHdr: the NAL header with type 49. FU header: start, end, and the NAL's type.</remarks>
+    protected override void WriteFragmentHeader(
+        Span<byte> header,
+        ReadOnlySpan<byte> nalHeader,
+        bool first,
+        bool last
     )
     {
-        if (nal.Length < PayloadHeaderSize)
-        {
-            return;
-        }
-
-        if (nal.Length <= maxPayloadSize)
-        {
-            nal.CopyTo(writer.Add(nal.Length)); // single NAL unit packet
-            return;
-        }
-
-        // Fragmentation Units: PayloadHdr (NAL header with type rewritten to 49) + FU header + data.
-        int nalType = (nal[0] >> 1) & 0x3F;
-        byte payloadHdr0 = (byte)((nal[0] & 0x81) | (FragmentationUnitType << 1));
-        byte payloadHdr1 = nal[1];
-        ReadOnlySpan<byte> nalData = nal[PayloadHeaderSize..];
-
-        int maxFragment = maxPayloadSize - PayloadHeaderSize - FuHeaderSize;
-        int offset = 0;
-        bool first = true;
-        while (offset < nalData.Length)
-        {
-            int chunk = Math.Min(maxFragment, nalData.Length - offset);
-            bool last = offset + chunk >= nalData.Length;
-
-            Span<byte> packet = writer.Add(PayloadHeaderSize + FuHeaderSize + chunk);
-            packet[0] = payloadHdr0;
-            packet[1] = payloadHdr1;
-            packet[2] = (byte)((first ? 0x80 : 0) | (last ? 0x40 : 0) | nalType); // S|E|FuType
-            nalData.Slice(offset, chunk).CopyTo(packet[3..]);
-
-            offset += chunk;
-            first = false;
-        }
+        header[0] = (byte)((nalHeader[0] & 0x81) | (H265PayloadFormat.FragmentationUnit << 1));
+        header[1] = nalHeader[1];
+        header[2] = (byte)(
+            (first ? 0x80 : 0) | (last ? 0x40 : 0) | H265PayloadFormat.NalType(nalHeader[0])
+        );
     }
 }
 
 /// <summary>
-/// Reassembles HEVC access units from received RTP payloads (RFC 7798): single-NAL packets, Aggregation
-/// Packets (type 48), and Fragmentation Units (type 49). Stateful - feed payloads in order and it emits a
-/// complete Annex-B access unit when a payload carrying the RTP marker bit is pushed. The completed access
-/// unit is returned in a buffer rented from <see cref="ArrayPool{T}.Shared"/> whose ownership passes to the
-/// caller, so the frame can cross to a decode worker with no per-frame allocation.
+/// Reassembles H.265 access units per RFC 7798 without decoding order numbers: single NAL unit packets,
+/// Aggregation Packets and Fragmentation Units, fed in sequence order. The access unit comes out in
+/// Annex-B form on the marker bit. A fragmented NAL unit missing its first or last fragment is dropped.
 /// </summary>
-public sealed class H265Depacketizer : IDisposable
+public sealed class H265Depacketizer : IRtpDepacketizer
 {
-    private static readonly byte[] StartCode = [0, 0, 0, 1];
-    private byte[] _accessUnit = ArrayPool<byte>.Shared.Rent(64 * 1024);
-    private int _accessUnitLength;
-    private byte[] _fragment = new byte[64 * 1024];
-    private int _fragmentLength;
+    private readonly AnnexBAssembler _assembler = new();
 
-    /// <summary>
-    /// Pushes one RTP payload and its marker bit. When <paramref name="marker"/> is set (end of frame) returns
-    /// the assembled Annex-B access unit in a pool-rented <paramref name="accessUnit"/> of <paramref name="length"/>
-    /// bytes, whose ownership passes to the caller (return it to <see cref="ArrayPool{T}.Shared"/> when done);
-    /// otherwise returns false while still assembling.
-    /// </summary>
-    /// <param name="payload">The received RTP payload (borrowed for this call).</param>
-    /// <param name="marker">The RTP marker bit, set on the last payload of an access unit.</param>
-    /// <param name="accessUnit">On return true, the pool-rented buffer holding the assembled access unit.</param>
-    /// <param name="length">On return true, the number of valid bytes at the start of <paramref name="accessUnit"/>.</param>
-    /// <returns>True when a complete access unit was produced; false while still assembling.</returns>
-    public bool Push(ReadOnlySpan<byte> payload, bool marker, out byte[] accessUnit, out int length)
+    /// <inheritdoc/>
+    public bool TryPush(ReadOnlySpan<byte> payload, bool marker, out EncodedFrameBuffer frame)
     {
         if (payload.Length >= 2)
         {
-            int type = (payload[0] >> 1) & 0x3F;
-            switch (type)
+            switch (H265PayloadFormat.NalType(payload[0]))
             {
-                case 49:
-                    HandleFragmentationUnit(payload);
+                case H265PayloadFormat.AggregationPacket:
+                    foreach (ReadOnlySpan<byte> nal in new AggregatedNalUnits(payload[2..]))
+                    {
+                        _assembler.AppendNal(nal);
+                    }
+
                     break;
-                case 48:
-                    HandleAggregationPacket(payload);
+                case H265PayloadFormat.FragmentationUnit when payload.Length >= 3:
+                    byte header = payload[2];
+                    if ((header & 0x80) != 0)
+                    {
+                        // The NAL header is the PayloadHdr with the original type restored.
+                        _assembler.StartFragment(
+                            [(byte)((payload[0] & 0x81) | ((header & 0x3F) << 1)), payload[1]]
+                        );
+                    }
+
+                    _assembler.AppendFragment(payload[3..]);
+                    if ((header & 0x40) != 0)
+                    {
+                        _assembler.EndFragment();
+                    }
+
+                    break;
+                case H265PayloadFormat.PaciPacket:
+                    // PACI packets carry layered-coding information that is never negotiated.
                     break;
                 default:
-                    AppendNal(payload);
+                    _assembler.AppendNal(payload);
                     break;
             }
         }
 
-        if (!marker)
-        {
-            accessUnit = [];
-            length = 0;
-            return false;
-        }
-
-        // Transfer ownership of the assembled buffer to the caller and rent a fresh one for the next frame.
-        accessUnit = _accessUnit;
-        length = _accessUnitLength;
-        _accessUnit = ArrayPool<byte>.Shared.Rent(Math.Max(64 * 1024, _accessUnitLength));
-        _accessUnitLength = 0;
-        return true;
+        return _assembler.TryComplete(marker, out frame);
     }
 
-    private void HandleFragmentationUnit(ReadOnlySpan<byte> payload)
-    {
-        if (payload.Length < 3)
-        {
-            return;
-        }
-
-        byte fuHeader = payload[2];
-        bool start = (fuHeader & 0x80) != 0;
-        bool end = (fuHeader & 0x40) != 0;
-        int fuType = fuHeader & 0x3F;
-
-        if (start)
-        {
-            _fragmentLength = 0;
-            // Rebuild the NAL header from the PayloadHdr, restoring the original type.
-            AppendFragment((byte)((payload[0] & 0x81) | (fuType << 1)));
-            AppendFragment(payload[1]);
-        }
-
-        AppendFragment(payload[3..]);
-
-        if (end && _fragmentLength >= 2)
-        {
-            AppendNal(_fragment.AsSpan(0, _fragmentLength));
-            _fragmentLength = 0;
-        }
-    }
-
-    private void HandleAggregationPacket(ReadOnlySpan<byte> payload)
-    {
-        int offset = 2; // skip the 2-byte PayloadHdr
-        while (offset + 2 <= payload.Length)
-        {
-            int size = (payload[offset] << 8) | payload[offset + 1];
-            offset += 2;
-            if (size <= 0 || offset + size > payload.Length)
-            {
-                break;
-            }
-
-            AppendNal(payload.Slice(offset, size));
-            offset += size;
-        }
-    }
-
-    private void AppendNal(ReadOnlySpan<byte> nal)
-    {
-        EnsureAccessUnitCapacity(StartCode.Length + nal.Length);
-        StartCode.CopyTo(_accessUnit.AsSpan(_accessUnitLength));
-        _accessUnitLength += StartCode.Length;
-        nal.CopyTo(_accessUnit.AsSpan(_accessUnitLength));
-        _accessUnitLength += nal.Length;
-    }
-
-    private void EnsureAccessUnitCapacity(int additional)
-    {
-        if (_accessUnitLength + additional <= _accessUnit.Length)
-        {
-            return;
-        }
-
-        byte[] grown = ArrayPool<byte>.Shared.Rent(
-            Math.Max(_accessUnit.Length * 2, _accessUnitLength + additional)
-        );
-        _accessUnit.AsSpan(0, _accessUnitLength).CopyTo(grown);
-        ArrayPool<byte>.Shared.Return(_accessUnit);
-        _accessUnit = grown;
-    }
-
-    private void AppendFragment(byte value)
-    {
-        if (_fragmentLength + 1 > _fragment.Length)
-        {
-            Array.Resize(ref _fragment, _fragment.Length * 2);
-        }
-
-        _fragment[_fragmentLength++] = value;
-    }
-
-    private void AppendFragment(ReadOnlySpan<byte> data)
-    {
-        if (_fragmentLength + data.Length > _fragment.Length)
-        {
-            Array.Resize(
-                ref _fragment,
-                Math.Max(_fragment.Length * 2, _fragmentLength + data.Length)
-            );
-        }
-
-        data.CopyTo(_fragment.AsSpan(_fragmentLength));
-        _fragmentLength += data.Length;
-    }
-
-    /// <summary>Returns the in-flight assembly buffer to the shared pool.</summary>
-    public void Dispose()
-    {
-        if (_accessUnit.Length > 0)
-        {
-            ArrayPool<byte>.Shared.Return(_accessUnit);
-            _accessUnit = [];
-        }
-    }
+    /// <inheritdoc/>
+    public void Dispose() => _assembler.Dispose();
 }

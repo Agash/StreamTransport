@@ -19,7 +19,7 @@ public sealed class DecoderTests
         VideoCodecId codec
     )
     {
-        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Stream(codec);
+        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(codec, FrameCount);
         FFmpegVideoDecoderFactory factory = new(backend);
         var output = VideoConstraints.Cpu(PixelFormat.Nv12);
         if (factory.QueryCapabilities(new VideoCodecFormat(codec), output) is null)
@@ -49,7 +49,7 @@ public sealed class DecoderTests
     [TestMethod]
     public void Retain_DecodedFrame_KeepsItsPixelsAfterTheDecoderMovesOn()
     {
-        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Stream(VideoCodecId.H264);
+        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(VideoCodecId.H264, FrameCount);
         FFmpegVideoDecoderFactory factory = new(DecoderBackend.Software);
         using IVideoDecoder decoder = factory.Create(
             new VideoCodecFormat(VideoCodecId.H264),
@@ -129,7 +129,7 @@ public sealed class DecoderTests
         );
         Collector collector = new();
         Relay relay = new(encoder, collector);
-        foreach ((byte[] data, MediaTimestamp timestamp) in Stream(codec))
+        foreach ((byte[] data, MediaTimestamp timestamp) in Streams.Encode(codec, FrameCount))
         {
             decoder.Decode(new EncodedVideoFrame(data, codec, false, timestamp), relay);
         }
@@ -142,41 +142,6 @@ public sealed class DecoderTests
         {
             Assert.AreEqual(Pictures.MeanLuma(i), decoded[i].MeanLuma, 8.0, $"Frame {i}.");
         }
-    }
-
-    // The test stream: the moving gradient, encoded in software.
-    private static List<(byte[] Data, MediaTimestamp Timestamp)> Stream(VideoCodecId codec)
-    {
-        VideoEncoderConfiguration configuration = new(
-            new VideoCodecFormat(codec),
-            Pictures.Size,
-            new RateTarget(4_000_000, 30)
-        );
-        FFmpegVideoEncoderFactory factory =
-            FFmpegVideoEncoderFactory
-                .CreateAll()
-                .OrderBy(static f => f.IsHardwareAccelerated)
-                .FirstOrDefault(f =>
-                    f.QueryCapabilities(configuration.Format, device: null) is { } info
-                    && info.Input.PixelFormats.Any(static p =>
-                        p is PixelFormat.Nv12 or PixelFormat.I420
-                    )
-                )
-            ?? throw new AssertInconclusiveException($"Nothing on this machine encodes {codec}.");
-        using IVideoEncoder encoder = factory.Create(configuration, device: null);
-        PixelFormat format = encoder.Info.Input.PixelFormats.First(static f =>
-            f is PixelFormat.Nv12 or PixelFormat.I420
-        );
-        Collector collector = new();
-        for (int i = 0; i < FrameCount; i++)
-        {
-            byte[] pixels = Pictures.Make(format, i);
-            VideoFrame frame = Pictures.CpuFrame(format, pixels, i);
-            encoder.Encode(in frame, new EncodeRequest(Keyframe: i == 0), collector);
-        }
-
-        encoder.Flush(collector);
-        return [.. collector.Units.Select(static u => (u.Data, u.Timestamp))];
     }
 
     private sealed class LumaRecorder : IVideoFrameConsumer

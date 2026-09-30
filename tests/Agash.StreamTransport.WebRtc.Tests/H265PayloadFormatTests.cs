@@ -57,16 +57,12 @@ public sealed class H265PayloadFormatTests
         for (int i = 0; i < packets.Count; i++)
         {
             bool marker = i == packets.Count - 1;
-            bool completed = depacketizer.Push(
-                packets[i],
-                marker,
-                out byte[] result,
-                out int length
-            );
+            bool completed = depacketizer.TryPush(packets[i], marker, out EncodedFrameBuffer result);
             if (marker)
             {
                 Assert.IsTrue(completed, "the marker payload completes the access unit");
-                assembled = result[..length];
+                assembled = result.Span.ToArray();
+                result.Dispose();
             }
             else
             {
@@ -89,27 +85,74 @@ public sealed class H265PayloadFormatTests
         byte[] fuEnd = [0x62, 0x01, (byte)(0x40 | 19), 0xAA, 0xBB];
 
         // No exception is the assertion; whatever it returns, a subsequent clean frame must still work.
-        _ = depacketizer.Push(fuEnd, marker: true, out _, out _);
+        Assert.IsTrue(depacketizer.TryPush(fuEnd, marker: true, out EncodedFrameBuffer stray));
+        stray.Dispose();
         byte[] single = [0x40, 0x01, 0x11, 0x22];
-        bool completed = depacketizer.Push(
-            single,
-            marker: true,
-            out byte[] next,
-            out int nextLength
-        );
+        bool completed = depacketizer.TryPush(single, marker: true, out EncodedFrameBuffer next);
+        int nextLength = next.Length;
+        next.Dispose();
         Assert.IsTrue(
             completed,
             "the depacketizer must recover and assemble the next complete access unit."
         );
         Assert.IsTrue(nextLength > 0, "the recovered access unit must be non-empty.");
-        _ = next;
+    }
+
+    [TestMethod]
+    public void Packetize_ParameterSetsAndSlice_AggregatesThemIntoAnAggregationPacket()
+    {
+        byte[] vps = MakeNal(nalType: 32, length: 20);
+        byte[] sps = MakeNal(nalType: 33, length: 40);
+        byte[] pps = MakeNal(nalType: 34, length: 8);
+        byte[] slice = MakeNal(nalType: 19, length: 200);
+
+        List<byte[]> packets = Packetize(
+            Concat(WithStartCode(vps), WithStartCode(sps), WithStartCode(pps), WithStartCode(slice)),
+            maxPayloadSize: 1100
+        );
+
+        Assert.HasCount(1, packets);
+        Assert.AreEqual(48, (packets[0][0] >> 1) & 0x3F, "Aggregation Packet");
+        Assert.AreEqual(0x01, packets[0][1], "LayerId 0, TID 1 like its units");
+        Assert.AreEqual(2 + (4 * 2) + 20 + 40 + 8 + 200, packets[0].Length);
+    }
+
+    [TestMethod]
+    [DataRow(1100)]
+    [DataRow(200)]
+    [DataRow(4)]
+    public void RoundTrip_MixedAccessUnit_ReassemblesItExactly(int maxPayloadSize)
+    {
+        byte[] au = Concat(
+            WithStartCode(MakeNal(nalType: 35, length: 3)),
+            WithStartCode(MakeNal(nalType: 32, length: 24)),
+            WithStartCode(MakeNal(nalType: 33, length: 50)),
+            WithStartCode(MakeNal(nalType: 34, length: 9)),
+            WithStartCode(MakeNal(nalType: 19, length: 4000)),
+            WithStartCode(MakeNal(nalType: 1, length: 120))
+        );
+        List<byte[]> packets = Packetize(au, maxPayloadSize);
+
+        using H265Depacketizer depacketizer = new();
+        byte[]? assembled = null;
+        for (int i = 0; i < packets.Count; i++)
+        {
+            Assert.IsLessThanOrEqualTo(maxPayloadSize, packets[i].Length);
+            if (depacketizer.TryPush(packets[i], i == packets.Count - 1, out EncodedFrameBuffer unit))
+            {
+                assembled = unit.Span.ToArray();
+                unit.Dispose();
+            }
+        }
+
+        CollectionAssert.AreEqual(au, assembled);
     }
 
     // Runs the zero-alloc writer-based packetizer and materializes the produced payloads as arrays for assertions.
     private static List<byte[]> Packetize(byte[] accessUnit, int maxPayloadSize)
     {
         var writer = new RtpPayloadWriter();
-        H265Packetizer.Packetize(accessUnit, writer, maxPayloadSize);
+        new H265Packetizer(maxPayloadSize).Packetize(accessUnit, writer);
         var list = new List<byte[]>(writer.Count);
         for (int i = 0; i < writer.Count; i++)
         {

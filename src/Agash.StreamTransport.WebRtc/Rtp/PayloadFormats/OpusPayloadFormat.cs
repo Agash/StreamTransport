@@ -1,18 +1,76 @@
+using System.Buffers;
+using Agash.StreamTransport.WebRtc.Sdp;
+
 namespace Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 
 /// <summary>
-/// The Opus RTP payload format (RFC 7587): one Opus packet per RTP packet, the payload carried verbatim
-/// with no aggregation or fragmentation. Packetization and depacketization are therefore the identity -
-/// this type exists to make the audio path symmetric with the H.265 one and to document the contract.
+/// The Opus RTP payload format (RFC 7587): each Opus packet is one RTP payload, at a 48 kHz RTP clock
+/// whatever the audio's sample rate, offered as stereo with in-band forward error correction.
 /// </summary>
-public static class OpusPayloadFormat
+public sealed class OpusPayloadFormat : RtpPayloadFormat
 {
-    /// <summary>The RTP clock rate Opus always uses in RTP (RFC 7587 §4.1), regardless of audio sample rate.</summary>
-    public const int ClockRate = 48000;
+    private OpusPayloadFormat() { }
 
-    /// <summary>An Opus packet is its own RTP payload; this returns it unchanged.</summary>
-    public static ReadOnlyMemory<byte> Packetize(ReadOnlyMemory<byte> opusPacket) => opusPacket;
+    /// <summary>The format.</summary>
+    public static OpusPayloadFormat Instance { get; } = new();
 
-    /// <summary>An RTP payload is a whole Opus packet; this returns it unchanged.</summary>
-    public static ReadOnlyMemory<byte> Depacketize(ReadOnlyMemory<byte> rtpPayload) => rtpPayload;
+    /// <inheritdoc/>
+    public override string EncodingName => "opus";
+
+    /// <inheritdoc/>
+    public override SdpMediaKind Kind => SdpMediaKind.Audio;
+
+    /// <inheritdoc/>
+    public override int ClockRate => 48_000;
+
+    /// <inheritdoc/>
+    public override int? Channels => 2;
+
+    /// <inheritdoc/>
+    public override string? FormatParameters => "minptime=10;useinbandfec=1";
+
+    /// <inheritdoc/>
+    public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
+        new SingleFramePacketizer(maxPayloadSize);
+
+    /// <inheritdoc/>
+    public override IRtpDepacketizer CreateDepacketizer() => new SingleFrameDepacketizer();
+}
+
+/// <summary>Packetizes a format whose frames each travel whole in one RTP payload.</summary>
+/// <param name="maxPayloadSize">The largest RTP payload in bytes.</param>
+public sealed class SingleFramePacketizer(int maxPayloadSize) : IRtpPacketizer
+{
+    /// <inheritdoc/>
+    /// <exception cref="ArgumentException">The frame is larger than a payload may be.</exception>
+    public void Packetize(ReadOnlySpan<byte> frame, RtpPayloadWriter writer)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        if (frame.Length > maxPayloadSize)
+        {
+            throw new ArgumentException(
+                $"The frame is {frame.Length} bytes; a payload holds at most {maxPayloadSize}.",
+                nameof(frame)
+            );
+        }
+
+        writer.Reset();
+        frame.CopyTo(writer.Add(frame.Length));
+    }
+}
+
+/// <summary>Depacketizes a format whose frames each travel whole in one RTP payload.</summary>
+public sealed class SingleFrameDepacketizer : IRtpDepacketizer
+{
+    /// <inheritdoc/>
+    public bool TryPush(ReadOnlySpan<byte> payload, bool marker, out EncodedFrameBuffer frame)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(Math.Max(payload.Length, 1));
+        payload.CopyTo(buffer);
+        frame = new EncodedFrameBuffer(buffer, payload.Length);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public void Dispose() { }
 }
