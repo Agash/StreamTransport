@@ -153,8 +153,8 @@ public sealed class PeerConnectionTests
             }
         };
 
-        var received = new ConcurrentDictionary<uint, byte>();
-        answerer.RtpReceived += (header, _) => received.TryAdd(header.Timestamp, 0);
+        Arrivals received = new();
+        answerer.RtpReceived += (header, _) => received.Record(header.Timestamp);
 
         SdpDescription offer = offerer.CreateOffer();
         answerer.SetRemoteDescription(offer, SdpType.Offer);
@@ -166,24 +166,20 @@ public sealed class PeerConnectionTests
 
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE];
         await offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 1000, marker: true, payload);
-        await PollAsync(() => received.ContainsKey(1000), TimeSpan.FromSeconds(5));
-        Assert.IsTrue(
-            received.ContainsKey(1000),
-            "the first packet should arrive before recovery."
-        );
+        await received.Of(1000).WaitAsync(TimeSpan.FromSeconds(5));
 
         // Force the path recovery. The PeerConnection stays Connected (DTLS/SRTP never drop - the whole point);
         // only ICE re-probes underneath. Re-send the post-recovery packet until ICE re-nominates and it lands
         // (sends during the brief no-pair window are dropped). It decrypts only if keys + ROC survived.
         offerer.TriggerNetworkRecovery();
-        for (int i = 0; i < 100 && !received.ContainsKey(2000); i++)
-        {
-            await offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 2000, marker: true, payload);
-            await Task.Delay(100);
-        }
-
+        await Cadence.SendUntilAsync(
+            () => offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 2000, marker: true, payload),
+            received.Of(2000),
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromSeconds(10)
+        );
         Assert.IsTrue(
-            received.ContainsKey(2000),
+            received.Of(2000).IsCompleted,
             "a packet sent after recovery must still decrypt (SRTP preserved)."
         );
     }
@@ -232,8 +228,8 @@ public sealed class PeerConnectionTests
             }
         };
 
-        var received = new ConcurrentDictionary<uint, byte>();
-        answerer.RtpReceived += (header, _) => received.TryAdd(header.Timestamp, 0);
+        Arrivals received = new();
+        answerer.RtpReceived += (header, _) => received.Record(header.Timestamp);
 
         SdpDescription offer = offerer.CreateOffer();
         answerer.SetRemoteDescription(offer, SdpType.Offer);
@@ -244,8 +240,7 @@ public sealed class PeerConnectionTests
         string ufragBefore = offer.Media[0].IceUfrag;
         byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF];
         await offerer.SendRtp(111, 0x3333_3333, rtpTimestamp: 1000, marker: true, payload);
-        await PollAsync(() => received.ContainsKey(1000), TimeSpan.FromSeconds(5));
-        Assert.IsTrue(received.ContainsKey(1000), "first packet should arrive before the restart.");
+        await received.Of(1000).WaitAsync(TimeSpan.FromSeconds(5));
 
         // Full ICE restart: fresh credentials + re-gather, re-offered; the answerer restarts on the new ufrag.
         SdpDescription restartOffer = offerer.RestartIce();
@@ -258,26 +253,17 @@ public sealed class PeerConnectionTests
         offerer.SetRemoteDescription(answerer.CreateAnswer(), SdpType.Answer);
 
         // A packet sent after the restart must still decrypt - the DTLS-SRTP keys + ROC survived the rollover.
-        for (int i = 0; i < 200 && !received.ContainsKey(2000); i++)
-        {
-            await offerer.SendRtp(111, 0x3333_3333, rtpTimestamp: 2000, marker: true, payload);
-            await Task.Delay(100);
-        }
-
+        await Cadence.SendUntilAsync(
+            () => offerer.SendRtp(111, 0x3333_3333, rtpTimestamp: 2000, marker: true, payload),
+            received.Of(2000),
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromSeconds(20)
+        );
         Assert.IsTrue(
-            received.ContainsKey(2000),
+            received.Of(2000).IsCompleted,
             "a packet after the ICE restart must still decrypt (SRTP preserved)."
         );
         Assert.AreEqual(PeerConnectionState.Connected, offerer.State);
-    }
-
-    private static async Task PollAsync(Func<bool> condition, TimeSpan timeout)
-    {
-        DateTime deadline = DateTime.UtcNow + timeout;
-        while (!condition() && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(25);
-        }
     }
 
     [TestMethod]
@@ -341,13 +327,14 @@ public sealed class PeerConnectionTests
 
         // Send media so the receiver has arrivals to report back via CCFB.
         byte[] payload = new byte[800];
-        for (int i = 0; i < 60; i++)
-        {
-            await sender.SendRtp(96, 0xCCCC_0001, (uint)(i * 3000), marker: true, payload);
-            await Task.Delay(10);
-        }
-
-        BitrateEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        uint rtp = 0;
+        await Cadence.SendUntilAsync(
+            () => sender.SendRtp(96, 0xCCCC_0001, rtp += 3000, marker: true, payload),
+            estimate.Task,
+            TimeSpan.FromMilliseconds(10),
+            TimeSpan.FromSeconds(30)
+        );
+        BitrateEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.IsTrue(
             got.TargetBitrateBps > 0,
             "the controller should produce a positive target bitrate."

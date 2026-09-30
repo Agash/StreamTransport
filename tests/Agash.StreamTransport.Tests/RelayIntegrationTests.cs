@@ -118,7 +118,14 @@ public sealed class RelayIntegrationTests
         );
         publisher.Start();
 
-        _ = await Task.WhenAny(Task.WhenAll(sink1.Reached, sink2.Reached), Task.Delay(20_000));
+        try
+        {
+            await Task.WhenAll(sink1.Reached, sink2.Reached).WaitAsync(TimeSpan.FromSeconds(20));
+        }
+        catch (TimeoutException)
+        {
+            // Reported by the assertion below, with the log.
+        }
 
         Assert.IsTrue(
             sink1.Frames >= 10 && sink2.Frames >= 10,

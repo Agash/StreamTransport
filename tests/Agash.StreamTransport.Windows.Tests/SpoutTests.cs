@@ -31,11 +31,15 @@ public sealed class SpoutTests
         Keeper keeper = new();
         using IDisposable connection = source.Connect(keeper, sink.Constraints);
 
-        for (int i = 0; i < 300 && !keeper.Kept.IsCompleted; i++)
+        // Published at a frame rate, as a real sender does, until the receiver has one; a frame is a
+        // view for one call, so each is made for its call.
+        using (PeriodicTimer frames = new(TimeSpan.FromMilliseconds(10)))
+        using (CancellationTokenSource expiry = new(TimeSpan.FromSeconds(10)))
         {
-            // A frame is a view for one call; it does not live across the await.
-            Publish(sink, texture, gpu.Adapter);
-            await Task.Delay(10);
+            do
+            {
+                Publish(sink, texture, gpu.Adapter);
+            } while (!keeper.Kept.IsCompleted && await frames.WaitForNextTickAsync(expiry.Token));
         }
 
         using VideoFrameLease kept = await keeper.Kept.WaitAsync(TimeSpan.FromSeconds(5));

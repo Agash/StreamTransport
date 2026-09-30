@@ -100,10 +100,16 @@ public sealed class RoomClientControlTests
             CancellationToken cancellationToken = default
         ) => _session.ReceiveAsync(message, cancellationToken);
 
-        // Delivery is push-driven by the router sink, so the pump just idles until cancelled.
-        public Task RunAsync(CancellationToken cancellationToken = default) =>
-            Task.Delay(Timeout.Infinite, cancellationToken)
-                .ContinueWith(static _ => { }, TaskScheduler.Default);
+        // Delivery is push-driven by the router sink, so the pump only ends when cancelled.
+        public Task RunAsync(CancellationToken cancellationToken = default)
+        {
+            TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = cancellationToken.Register(
+                static s => ((TaskCompletionSource)s!).TrySetResult(),
+                stopped
+            );
+            return stopped.Task;
+        }
 
         public ValueTask DisposeAsync() => _session.DisposeAsync();
 
