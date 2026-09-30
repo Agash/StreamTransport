@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
@@ -32,5 +32,27 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
     <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <!--
+    The pinned FFmpeg shared libraries, fetched per RID into native/ffmpeg/<rid>/ by
+    eng/fetch-ffmpeg.ps1 (gitignored), packed as runtimes/<rid>/native so a consumer restoring for a
+    RID gets only that platform's libraries. FFmpeg is LGPL; its licence text goes with them.
+  -->
+  <ItemGroup>
+    <_FFmpegNative Include="../../native/ffmpeg/**/*.dll;../../native/ffmpeg/**/*.so*;../../native/ffmpeg/**/*.dylib" />
+    <None
+      Include="@(_FFmpegNative)"
+      Pack="true"
+      PackagePath="runtimes/%(RecursiveDir)native/%(Filename)%(Extension)"
+      Visible="false"
+    />
+    <None
+      Include="../../native/ffmpeg/FFMPEG-LICENSE.txt"
+      Condition="Exists('../../native/ffmpeg/FFMPEG-LICENSE.txt')"
+      Pack="true"
+      PackagePath=""
+      Visible="false"
+    />
   </ItemGroup>
 </Project>
