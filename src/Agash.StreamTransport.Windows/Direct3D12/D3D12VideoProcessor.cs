@@ -129,7 +129,7 @@ internal sealed unsafe class D3D12VideoProcessor(
     public void Process(in VideoFrame frame, IVideoFrameConsumer consumer)
     {
         ArgumentNullException.ThrowIfNull(consumer);
-        if (!frame.Storage.TryGetValue(out D3D12Image image))
+        if (frame.Storage.Kind != VideoStorageKind.D3D12)
         {
             throw new ArgumentException("The frame is not a Direct3D 12 texture.", nameof(frame));
         }
@@ -137,25 +137,31 @@ internal sealed unsafe class D3D12VideoProcessor(
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            D3D12Engine engine = Engine(image.Resource);
-            ReleaseFinishedInputs(engine);
 
-            PooledTexture output = _pool!.Rent();
+            // The GPU reads the frame after this call returns, so it reads a retained frame: a producer
+            // may reuse what it lent once the call is over.
             VideoFrameLease input = frame.Retain();
+            PooledTexture? output = null;
+            D3D12Engine engine;
             ulong done;
             VideoColor colour;
             try
             {
+                VideoFrame kept = input.Frame;
+                _ = kept.Storage.TryGetValue(out D3D12Image image);
+                engine = Engine(image.Resource);
+                ReleaseFinishedInputs(engine);
+                output = _pool!.Rent();
                 engine.WaitForProducer(image.Sync);
                 (done, colour) =
                     Info.Output.PixelFormat == PixelFormat.Nv12
-                        ? ToYuv(engine, image, in frame, output)
-                        : ToRgb(engine, image, in frame, output);
+                        ? ToYuv(engine, image, in kept, output)
+                        : ToRgb(engine, image, in kept, output);
             }
             catch
             {
                 input.Dispose();
-                output.Release();
+                output?.Release();
                 throw;
             }
 
