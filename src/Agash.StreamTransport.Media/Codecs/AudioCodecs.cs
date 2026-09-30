@@ -149,3 +149,10 @@ public interface IAudioLossRecovery
         IAudioFrameConsumer consumer
     );
 }
+
+/// <summary>A consumer of audio that states the PCM it accepts.</summary>
+public interface IAudioSink : IAudioFrameConsumer
+{
+    /// <summary>The PCM it takes as it is.</summary>
+    AudioConstraints Constraints { get; }
+}

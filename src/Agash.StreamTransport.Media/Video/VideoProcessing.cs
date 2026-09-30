@@ -83,3 +83,13 @@ public interface IVideoProcessorFactory
     /// <returns>The processor.</returns>
     IVideoProcessor Create(VideoStreamDescription input, VideoProcessing processing);
 }
+
+/// <summary>
+/// A consumer of frames that states what it accepts, so a producer (a decoder, a processor) can hand it
+/// frames it takes without a conversion.
+/// </summary>
+public interface IVideoSink : IVideoFrameConsumer
+{
+    /// <summary>The storages, formats and GPU it accepts.</summary>
+    VideoConstraints Constraints { get; }
+}

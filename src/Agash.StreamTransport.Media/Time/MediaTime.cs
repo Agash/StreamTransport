@@ -143,6 +143,9 @@ public readonly record struct MediaTimestamp(
     /// <param name="time">The time.</param>
     /// <returns>The timestamp.</returns>
     public static MediaTimestamp Observed(MediaTime time) => new(time, TimestampKind.Observation);
+
+    /// <summary>When the media was made, as best known: the time less the producer's reported latency.</summary>
+    public MediaTime Origin => Time - ProducerLatency;
 }
 
 /// <summary>A media clock rate: samples or ticks per second.</summary>
