@@ -6,8 +6,27 @@ namespace Agash.StreamTransport.Media;
 /// <summary>The video codecs StreamTransport implements.</summary>
 public enum VideoCodecId
 {
+    /// <summary>H.264 / AVC, the codec every WebRTC peer and WHIP client speaks.</summary>
+    H264,
+
     /// <summary>H.265 / HEVC.</summary>
     H265,
+
+    /// <summary>AV1.</summary>
+    AV1,
+}
+
+/// <summary>What an encoder's rate control and latency settings are chosen for.</summary>
+public enum EncodeTuning
+{
+    /// <summary>Lowest delay: a shallow rate-control buffer and no lookahead or reordering.</summary>
+    Interactive,
+
+    /// <summary>Screen content: sharper text and more bits per picture, at a little more delay.</summary>
+    ScreenContent,
+
+    /// <summary>A lossy, varying uplink: a deeper rate-control buffer that rides out rate swings.</summary>
+    LossResilient,
 }
 
 /// <summary>The audio codecs StreamTransport implements.</summary>
@@ -58,13 +77,15 @@ public readonly record struct EncodeRequest(bool Keyframe = false);
 /// <param name="Size">The picture size.</param>
 /// <param name="Rate">The initial rate target.</param>
 /// <param name="KeyframeInterval">The longest gap between keyframes; zero for none unless requested.</param>
-/// <param name="PreserveAlpha">Whether the encoded stream carries the alpha channel.</param>
+/// <param name="Tuning">What rate control and latency are tuned for.</param>
+/// <param name="Color">The colour the encoded stream signals; frames are converted to it if needed.</param>
 public sealed record VideoEncoderConfiguration(
     VideoCodecFormat Format,
     VideoSize Size,
     RateTarget Rate,
     TimeSpan KeyframeInterval = default,
-    bool PreserveAlpha = false
+    EncodeTuning Tuning = EncodeTuning.Interactive,
+    VideoColor Color = default
 );
 
 /// <summary>What an encoder takes and can do, so a pipeline can feed it without converting.</summary>
@@ -88,7 +109,10 @@ public sealed record VideoEncoderInfo(
 /// <summary>
 /// An encoded video access unit, borrowed from the encoder: valid only for the call it is passed to.
 /// </summary>
-/// <param name="data">The access unit, in the codec's byte-stream format (Annex B for H.265).</param>
+/// <param name="data">
+/// The access unit in the codec's byte-stream format: Annex B for H.264 and H.265, low-overhead OBUs
+/// with temporal delimiters for AV1.
+/// </param>
 /// <param name="codec">The codec.</param>
 /// <param name="keyframe">Whether it can be decoded on its own.</param>
 /// <param name="timestamp">The timestamp of the frame it encodes.</param>

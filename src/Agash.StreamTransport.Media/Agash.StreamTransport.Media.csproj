@@ -1,11 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
     <RootNamespace>Agash.StreamTransport.Media</RootNamespace>
     <PackageId>Agash.StreamTransport.Media</PackageId>
-    <Description>The media model StreamTransport's packages share: video and audio frames with their storage (CPU, Direct3D 11, IOSurface, DMA-BUF), colour, layout, device and synchronisation; borrowed views and owning leases; typed media time; and the encoder, decoder and source contracts. No dependencies beyond the BCL.</Description>
-    <PackageTags>video;audio;frames;codecs;zero-copy;dmabuf;d3d11;iosurface;streaming;dotnet</PackageTags>
+    <Description>The media model StreamTransport's packages share: video and audio frames with their storage (CPU, Direct3D 12, Direct3D 11, IOSurface, DMA-BUF), colour, layout, device and synchronisation; borrowed views and owning leases; typed media time; and the encoder, decoder and source contracts. No dependencies beyond the BCL.</Description>
+    <PackageTags>video;audio;frames;codecs;zero-copy;dmabuf;d3d12;d3d11;iosurface;streaming;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>

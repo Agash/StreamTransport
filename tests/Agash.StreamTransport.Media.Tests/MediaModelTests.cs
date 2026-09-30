@@ -95,6 +95,7 @@ public sealed class VideoStorageTests
         storage switch
         {
             CpuImage cpu => cpu.Planes[0].Stride,
+            D3D12Image d3d12 => (int)d3d12.Resource,
             D3D11Image d3d11 => (int)d3d11.Texture,
             IOSurfaceImage surface => (int)surface.Surface,
             DmaBufImage dmaBuf => dmaBuf[0].Fd,

@@ -8,6 +8,9 @@ public enum VideoStorageKind
     /// <summary>CPU memory: <see cref="CpuImage"/>.</summary>
     Cpu,
 
+    /// <summary>A Direct3D 12 resource: <see cref="D3D12Image"/>.</summary>
+    D3D12,
+
     /// <summary>A Direct3D 11 texture: <see cref="D3D11Image"/>.</summary>
     D3D11,
 
@@ -24,6 +27,26 @@ public enum VideoStorageKind
 /// </summary>
 /// <param name="Planes">Where each plane is in <see cref="VideoFrame.CpuData"/>.</param>
 public readonly record struct CpuImage(PlaneLayout Planes);
+
+/// <summary>
+/// When a Direct3D 12 resource is ready: after the work already submitted to
+/// <paramref name="ProducerQueue"/>, or when <paramref name="Fence"/> reaches <paramref name="Value"/>.
+/// Both zero means it is ready when the frame is delivered.
+/// </summary>
+/// <param name="ProducerQueue">The ID3D12CommandQueue the resource was written on, or zero.</param>
+/// <param name="Fence">An ID3D12Fence to wait on, or zero.</param>
+/// <param name="Value">The value <paramref name="Fence"/> reaches when the resource is ready.</param>
+public readonly record struct D3D12Sync(nint ProducerQueue = 0, nint Fence = 0, ulong Value = 0);
+
+/// <summary>A Direct3D 12 texture (Windows): one 2D resource with one mip level and array slice.</summary>
+/// <param name="Resource">The ID3D12Resource, borrowed, in D3D12_RESOURCE_STATE_COMMON.</param>
+/// <param name="Adapter">The adapter the resource lives on.</param>
+/// <param name="Sync">How to wait for the producer.</param>
+public readonly record struct D3D12Image(
+    nint Resource,
+    GpuIdentity Adapter,
+    D3D12Sync Sync = default
+);
 
 /// <summary>How the producer and consumer of a Direct3D 11 texture take turns with it.</summary>
 public enum D3D11SyncKind
@@ -212,7 +235,7 @@ public readonly struct DmaBufImage : IEquatable<DmaBufImage>
 }
 
 /// <summary>
-/// Where a frame's pixels are: one of <see cref="CpuImage"/>, <see cref="D3D11Image"/>,
+/// Where a frame's pixels are: one of <see cref="CpuImage"/>, <see cref="D3D12Image"/>, <see cref="D3D11Image"/>,
 /// <see cref="IOSurfaceImage"/> or <see cref="DmaBufImage"/>. A closed union: every <c>switch</c> over
 /// it must handle each case, so adding a storage breaks the build wherever one is missed. Matching
 /// does not box.
@@ -221,6 +244,7 @@ public readonly struct DmaBufImage : IEquatable<DmaBufImage>
 public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
 {
     private readonly CpuImage _cpu;
+    private readonly D3D12Image _d3d12;
     private readonly D3D11Image _d3d11;
     private readonly IOSurfaceImage _ioSurface;
     private readonly DmaBufImage _dmaBuf;
@@ -231,6 +255,14 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
     {
         Kind = VideoStorageKind.Cpu;
         _cpu = image;
+    }
+
+    /// <summary>Direct3D 12 storage.</summary>
+    /// <param name="image">The resource.</param>
+    public VideoStorage(D3D12Image image)
+    {
+        Kind = VideoStorageKind.D3D12;
+        _d3d12 = image;
     }
 
     /// <summary>Direct3D 11 storage.</summary>
@@ -264,6 +296,7 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
     public GpuIdentity? Device =>
         Kind switch
         {
+            VideoStorageKind.D3D12 => _d3d12.Adapter,
             VideoStorageKind.D3D11 => _d3d11.Adapter,
             VideoStorageKind.IOSurface => _ioSurface.Device,
             VideoStorageKind.DmaBuf => _dmaBuf.Device,
@@ -275,6 +308,7 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
         Kind switch
         {
             VideoStorageKind.Cpu => _cpu,
+            VideoStorageKind.D3D12 => _d3d12,
             VideoStorageKind.D3D11 => _d3d11,
             VideoStorageKind.IOSurface => _ioSurface,
             _ => _dmaBuf,
@@ -287,6 +321,15 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
     {
         value = _cpu;
         return Kind == VideoStorageKind.Cpu;
+    }
+
+    /// <summary>The Direct3D 12 resource, when that is the storage.</summary>
+    /// <param name="value">The resource.</param>
+    /// <returns>Whether the storage is Direct3D 12.</returns>
+    public bool TryGetValue(out D3D12Image value)
+    {
+        value = _d3d12;
+        return Kind == VideoStorageKind.D3D12;
     }
 
     /// <summary>The Direct3D 11 case.</summary>
@@ -320,6 +363,10 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
     /// <param name="image">The layout.</param>
     public static implicit operator VideoStorage(CpuImage image) => new(image);
 
+    /// <summary>Direct3D 12 storage.</summary>
+    /// <param name="image">The resource.</param>
+    public static implicit operator VideoStorage(D3D12Image image) => new(image);
+
     /// <summary>Direct3D 11 storage.</summary>
     /// <param name="image">The texture.</param>
     public static implicit operator VideoStorage(D3D11Image image) => new(image);
@@ -338,6 +385,7 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
         && Kind switch
         {
             VideoStorageKind.Cpu => _cpu == other._cpu,
+            VideoStorageKind.D3D12 => _d3d12 == other._d3d12,
             VideoStorageKind.D3D11 => _d3d11 == other._d3d11,
             VideoStorageKind.IOSurface => _ioSurface == other._ioSurface,
             _ => _dmaBuf == other._dmaBuf,
@@ -351,6 +399,7 @@ public readonly struct VideoStorage : IUnion, IEquatable<VideoStorage>
         Kind switch
         {
             VideoStorageKind.Cpu => _cpu.GetHashCode(),
+            VideoStorageKind.D3D12 => _d3d12.GetHashCode(),
             VideoStorageKind.D3D11 => _d3d11.GetHashCode(),
             VideoStorageKind.IOSurface => _ioSurface.GetHashCode(),
             _ => _dmaBuf.GetHashCode(),
