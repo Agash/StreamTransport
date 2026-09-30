@@ -192,3 +192,23 @@ internal static class Streams
         return [.. collector.Units.Select(static u => (u.Data, u.Timestamp))];
     }
 }
+
+// Keeps a GPU frame made from an FFmpeg surface by holding a reference to the surface, as a producer
+// that pools surfaces does.
+internal sealed class SurfaceRetainer(FF.Frame surface) : IVideoFrameRetainer
+{
+    public VideoFrameLease Retain(in VideoFrame frame) => new Lease(in frame, surface.Clone());
+
+    private sealed class Lease(in VideoFrame frame, FF.Frame reference)
+        : VideoFrameLease(
+            frame.Storage,
+            frame.Format,
+            frame.Timestamp,
+            frame.Color,
+            frame.Orientation,
+            frame.Duration
+        )
+    {
+        protected override void Release() => reference.Dispose();
+    }
+}

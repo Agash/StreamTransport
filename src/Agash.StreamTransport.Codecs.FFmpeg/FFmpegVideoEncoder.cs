@@ -23,6 +23,9 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     private readonly ILogger _logger;
     private readonly Lock _gate = new();
     private readonly TimestampRing _timestamps = new();
+
+    // GPU frames the encoder reads after Encode returns, kept until the packet made from each comes out.
+    private readonly Queue<(long Pts, VideoFrameLease Frame)> _reading = new();
     private VideoEncoderConfiguration _configuration;
     private Session? _session;
     private bool _reopen;
@@ -112,6 +115,10 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
 
             _lastPts = pts;
             _timestamps.Add(pts, frame.Timestamp);
+            if (frame.Storage.Kind != VideoStorageKind.Cpu)
+            {
+                _reading.Enqueue((pts, frame.Retain()));
+            }
             session.Frame.PresentationTimestamp = pts;
             session.Frame.TimeBase = TimeBase;
             session.Frame.PictureType =
@@ -185,6 +192,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             _disposed = true;
             _session?.Dispose();
             _session = null;
+            ReleaseRead(long.MaxValue);
         }
     }
 
@@ -339,6 +347,18 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         {
             Emit(packet, consumer);
         }
+
+        ReleaseRead(long.MaxValue);
+    }
+
+    // Releases the GPU frames of every packet up to and including a pts: the encoder has read them.
+    private void ReleaseRead(long pts)
+    {
+        while (_reading.TryPeek(out (long Pts, VideoFrameLease Frame) oldest) && oldest.Pts <= pts)
+        {
+            _ = _reading.Dequeue();
+            oldest.Frame.Dispose();
+        }
     }
 
     private void Emit(FF.Packet packet, IEncodedVideoConsumer consumer)
@@ -348,6 +368,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         consumer.OnEncoded(
             new EncodedVideoFrame(packet.Data, _codecId, packet.IsKeyFrame, timestamp)
         );
+        ReleaseRead(pts);
     }
 
     private static long ToPts(MediaTime time) =>

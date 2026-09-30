@@ -94,7 +94,8 @@ public sealed class GpuInputTests
             VideoFrame frame = new(
                 image,
                 new VideoFormat(PixelFormat.Nv12, Pictures.Width, Pictures.Height),
-                Pictures.Timestamp(i)
+                Pictures.Timestamp(i),
+                retainer: new SurfaceRetainer(surface)
             );
             encoder.Encode(in frame, new EncodeRequest(Keyframe: i == 0), collector);
         }
