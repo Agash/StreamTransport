@@ -12,7 +12,7 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 
 // Turns a borrowed Media frame into the FFmpeg frame an encoder takes. One per storage kind, chosen
 // when the encoder opens on its first frame; the frame's device decides the encoder's device, so an
-// input from another GPU than the one it opened on is refused rather than copied across adapters.
+// input from another GPU than the one it opened on is refused.
 internal abstract class EncoderInput : IDisposable
 {
     // The pixel format the encoder context is opened with: a hardware format for surface input.
@@ -247,7 +247,7 @@ internal sealed class D3D12Input : EncoderInput
         else
         {
             throw new NotSupportedException(
-                "A Direct3D 12 frame larger than the picture must be ordered by a fence, not a producer queue."
+                "A Direct3D 12 frame larger than the picture is copied, and the copy is ordered by a fence: give the frame's fence."
             );
         }
     }

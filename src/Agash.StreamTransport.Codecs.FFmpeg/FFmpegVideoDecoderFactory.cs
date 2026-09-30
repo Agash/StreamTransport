@@ -207,7 +207,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         : FF.HardwareDevice.Create(type, adapter);
 
     // Encodes a few frames and decodes them through this backend; a hardware backend
-    // passes only if its frames really come out on the GPU, not from a silent software fallback.
+    // passes only if its frames come out on the GPU.
     private bool RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {
         try

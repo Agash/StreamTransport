@@ -3,7 +3,7 @@ using Agash.StreamTransport.Media;
 namespace Agash.StreamTransport.Codecs.FFmpeg.Tests;
 
 // Every backend this machine can run, for every codec it offers. A backend the machine lacks (no
-// such GPU, driver or runtime) reports no capabilities and its cases are inconclusive, not passed.
+// such GPU, driver or runtime) reports no capabilities and its cases are inconclusive.
 [TestClass]
 public sealed class EncoderTests
 {

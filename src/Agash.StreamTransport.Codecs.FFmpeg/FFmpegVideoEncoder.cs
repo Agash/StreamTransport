@@ -228,8 +228,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         {
             RateTarget rate = _configuration.Rate;
             // The colour the stream signals: the configuration's, else the first frame's, else BT.709
-            // in video range, what HD capture and every WebRTC peer assume, rather than each encoder's
-            // own guess.
+            // in video range, which HD capture produces and every WebRTC peer assumes.
             VideoColor color =
                 _configuration.Color != default ? _configuration.Color
                 : frame.Color != default ? frame.Color

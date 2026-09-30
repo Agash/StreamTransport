@@ -72,7 +72,7 @@ public readonly record struct RateTarget(long BitsPerSecond, double FramesPerSec
 /// <param name="Keyframe">Make it a keyframe (an IDR), as for a new receiver or loss recovery.</param>
 public readonly record struct EncodeRequest(bool Keyframe = false);
 
-/// <summary>How an encoder is set up; backend choices are the factory's, not the caller's.</summary>
+/// <summary>How an encoder is set up. The factory makes the backend choices.</summary>
 /// <param name="Format">The codec and its parameters.</param>
 /// <param name="Size">The picture size.</param>
 /// <param name="Rate">The initial rate target.</param>

@@ -11,7 +11,7 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 /// Makes FFmpeg video encoders of one <see cref="EncoderBackend"/>. Whether the backend works on a GPU
 /// is found out by opening a small encoder and encoding a frame through it, once per encoder and GPU;
 /// a backend whose encoder is in the FFmpeg build but whose hardware, driver or codec support is
-/// missing reports no capabilities rather than failing later.
+/// missing reports no capabilities.
 /// </summary>
 public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
 {
@@ -185,8 +185,8 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         };
 
     // Opens the encoder for real and encodes a few frames through the system-memory path, which every
-    // backend takes; a driver without the codec, a missing GPU and an absent runtime all fail here
-    // instead of on a live stream. The third frame asks for a keyframe, to learn whether the encoder
+    // backend takes; a driver without the codec, a missing GPU and an absent runtime all fail here.
+    // The third frame asks for a keyframe, to learn whether the encoder
     // honours a forced picture type or has to be reopened for one.
     private Probe? RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {

@@ -32,22 +32,21 @@ Vulkan ahead of VA-API. Every backend takes system memory as well.
 
 ## Behaviour
 
-- **Probed, not assumed.** Whether a backend works on a GPU is found out once by opening a real
-  encoder or decoder and pushing frames through it. A driver without the codec, a missing GPU or a
-  silent software fallback reports no capabilities instead of failing on a live stream.
-- **Real-time settings** per encoder: no reordering or lookahead, constant bit rate under a
-  rate-control buffer sized for the tuning (interactive, screen content, loss resilient). FFmpeg
-  rejects an option an encoder does not know, so a renamed option fails loudly.
-- **Congestion control reaches every backend.** Encoders that take a rate change while running get it
-  between frames; the others reopen at the next frame with a keyframe.
-- **Keyframe requests** are honoured on every backend; one that ignores a forced picture type is
-  reopened for the keyframe.
-- **Decoded frames are not copied.** They are views over FFmpeg's buffers or surfaces, and retaining
-  one takes a reference.
-- **Colour** is signalled in the stream: the configuration's, else the first frame's, else BT.709.
+- Each factory opens a real encoder or decoder once per codec and GPU and pushes frames through it.
+  A backend whose driver lacks the codec, whose GPU is missing, or that falls back to software
+  reports no capabilities.
+- Encoders run with no reordering or lookahead, and constant bit rate under a rate-control buffer
+  sized for the tuning (interactive, screen content, loss resilient). FFmpeg rejects an option an
+  encoder does not know, so a renamed option fails the open.
+- Congestion control reaches every backend. NVENC takes a rate change between frames; the other
+  encoders reopen at the next frame, starting with a keyframe.
+- Every backend honours keyframe requests. An encoder that ignores a forced picture type is reopened
+  for the keyframe.
+- Decoded frames are views over FFmpeg's buffers or surfaces. Retaining one takes a reference to them.
+- The stream signals the configuration's colour, or the first frame's, or BT.709 when neither gives one.
 
 ## Native libraries
 
-The package carries the FFmpeg 9 shared libraries per runtime (`runtimes/<rid>/native`): BtbN's LGPL
-builds for Windows and Linux, pinned and verified by SHA-256, and FFmpeg's licence text. They include
-the hardware encoders and the LGPL software codecs, not the GPL x264 and x265.
+The package carries the FFmpeg 9 shared libraries per runtime (`runtimes/<rid>/native`) and FFmpeg's
+licence text. Windows and Linux use BtbN's LGPL builds, pinned and verified by SHA-256. They include
+the hardware encoders and the LGPL software codecs. The GPL x264 and x265 are left out.

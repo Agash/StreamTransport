@@ -7,7 +7,7 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 // Real-time settings per encoder. Every encoder opens with no reordering, no lookahead and constant
 // bit rate under a rate-control buffer sized by the tuning; the private options below are each
 // vendor's names for the same intent. FFmpeg rejects an option the encoder did not consume, so a name
-// that drifts between FFmpeg releases fails the encoder's open instead of being ignored.
+// that drifts between FFmpeg releases fails the encoder's open.
 internal static class EncoderSettings
 {
     // The rate-control buffer, in seconds of the target bit rate. A shallow buffer keeps latency low
@@ -55,7 +55,7 @@ internal static class EncoderSettings
                 ("rc-lookahead", "0"),
                 ("forced-idr", "1")
             ),
-            // forced_idr: a requested keyframe is an IDR, not an I frame a receiver cannot start from.
+            // forced_idr: a requested keyframe is an IDR, which a receiver can start decoding from.
             "h264_amf" or "hevc_amf" or "av1_amf" => Options(
                 ("usage", screen ? "lowlatency_high_quality" : "ultralowlatency"),
                 ("rc", "cbr"),
