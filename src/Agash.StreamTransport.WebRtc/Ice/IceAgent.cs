@@ -1,10 +1,6 @@
-using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
+using Agash.StreamTransport.Threading;
 using Agash.StreamTransport.WebRtc.Stun;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,43 +9,33 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>
 /// A full-ICE agent (RFC 8445) over UDP with trickle (RFC 8838): it gathers host candidates (one socket
-/// per local address, so the source address is pinned - the durable fix for IPv6 source rotation), runs
-/// STUN connectivity checks against trickled remote candidates, performs regular nomination, and maintains
-/// consent freshness (RFC 7675) on the selected pair. Non-STUN datagrams on the agent's sockets (DTLS,
-/// SRTP) are surfaced via <see cref="DataReceived"/>; outbound media goes through <see cref="SendAsync"/>.
+/// per local address, so the source address is pinned), runs STUN connectivity checks against trickled
+/// remote candidates, nominates, and keeps consent (RFC 7675) on the selected pair and warm alternates.
+/// Non-STUN datagrams on its sockets (DTLS, SRTP) are surfaced through <see cref="DataReceived"/>;
+/// outbound media goes through <see cref="SendAsync"/>.
 /// </summary>
+/// <remarks>
+/// The protocol is an <see cref="IceStateMachine"/>; this drives it: it owns the sockets and their
+/// receive loops, hands the machine datagrams and the time, sends what it asks, raises its events, and
+/// sleeps on the injected clock until the machine next needs the time.
+/// </remarks>
 public sealed partial class IceAgent : IAsyncDisposable
 {
-    private const int MaxCheckTransmits = 7;
-    private readonly IceTimings _timings;
+    private readonly IceStateMachine _machine;
+    private readonly ILogger _logger;
     private readonly TimeProvider _time;
     private readonly long _origin;
-
-    private readonly IceRole _role;
-    private readonly ulong _tieBreaker;
     private readonly bool _includeLoopback;
-    private readonly ILogger _logger;
-    private byte[] _localPwdBytes;
     private readonly IIceSocketFactory _socketFactory;
-
-    private readonly List<LocalEndpoint> _localEndpoints = [];
-    private readonly List<IceCandidate> _remoteCandidates = [];
-    private readonly List<CandidatePair> _pairs = [];
-    private readonly List<IPEndPoint> _stunServers = [];
-    private readonly ConcurrentDictionary<string, CandidatePair> _inFlight = new(
-        StringComparer.Ordinal
-    );
-    private readonly ConcurrentDictionary<string, GatherTransaction> _gatherInFlight = new(
-        StringComparer.Ordinal
-    );
+    private readonly WakeSignal _wake;
     private readonly Lock _gate = new();
-
-    private IceCredentials _remote;
-    private CandidatePair? _selected;
+    private readonly Dictionary<int, LocalSocket> _sockets = [];
     private CancellationTokenSource? _cts;
-    private Task? _checkLoop;
-    private int _candidateIndex;
+    private Task? _timerLoop;
+    private int _nextHandle;
     private int _state = (int)IceConnectionState.New;
+    private LocalSocket? _selectedSocket;
+    private IPEndPoint? _selectedRemote;
 
     /// <summary>
     /// Creates an agent. <paramref name="role"/> follows the offer/answer (offerer = controlling).
@@ -74,16 +60,16 @@ public sealed partial class IceAgent : IAsyncDisposable
     {
         _time = timeProvider ?? TimeProvider.System;
         _origin = _time.GetTimestamp();
-        LocalCredentials = localCredentials;
-        _role = role;
         _includeLoopback = includeLoopback;
-        _logger = logger ?? NullLogger<IceAgent>.Instance;
         _socketFactory = socketFactory ?? new UdpIceSocketFactory();
-        _timings = timings ?? IceTimings.Default;
-        _localPwdBytes = Encoding.UTF8.GetBytes(localCredentials.Password);
-        Span<byte> tb = stackalloc byte[8];
-        RandomNumberGenerator.Fill(tb);
-        _tieBreaker = BinaryPrimitives.ReadUInt64BigEndian(tb);
+        _logger = logger ?? NullLogger<IceAgent>.Instance;
+        _machine = new IceStateMachine(
+            localCredentials,
+            role,
+            timings ?? IceTimings.Default,
+            _logger
+        );
+        _wake = new WakeSignal(_time, () => Now);
     }
 
     /// <summary>Raised once per gathered local candidate (trickle these to the peer).</summary>
@@ -94,10 +80,9 @@ public sealed partial class IceAgent : IAsyncDisposable
 
     /// <summary>
     /// Raised for every non-STUN datagram received (DTLS / SRTP), with the source endpoint and the packet's
-    /// 2-bit ECN mark (0 when the platform does not surface it). The buffer is the agent's <b>reused</b> receive
+    /// 2-bit ECN mark (0 when the platform does not surface it). The buffer is the agent's reused receive
     /// buffer, borrowed only for the synchronous duration of the handler: the handler may read and mutate it in
-    /// place (e.g. SRTP decrypts into it) but <b>must copy anything it retains</b> beyond the call, because the
-    /// next datagram overwrites it. This is zero-copy by design.
+    /// place (SRTP decrypts into it) but must copy anything it keeps beyond the call.
     /// </summary>
     public event Action<Memory<byte>, IPEndPoint, byte>? DataReceived;
 
@@ -105,761 +90,140 @@ public sealed partial class IceAgent : IAsyncDisposable
     public IceConnectionState State => (IceConnectionState)Volatile.Read(ref _state);
 
     /// <summary>The local endpoint of the currently selected candidate pair, or null if none is selected.</summary>
-    public IPEndPoint? SelectedLocalEndpoint => _selected?.Local.Candidate.Endpoint;
+    public IPEndPoint? SelectedLocalEndpoint =>
+        Volatile.Read(ref _selectedSocket)?.Socket.LocalEndPoint;
 
     /// <summary>This agent's local credentials (rotated on an ICE restart).</summary>
-    public IceCredentials LocalCredentials { get; private set; }
-
-    /// <summary>Sets the remote agent's credentials (from the peer's SDP). Required before checks can pass.</summary>
-    public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
-
-    /// <summary>
-    /// Adds a STUN server to query for server-reflexive candidates (the public mapping behind a NAT).
-    /// IPv6 global addresses already appear as host candidates, so this is chiefly the IPv4 NAT-punch path.
-    /// Call before <see cref="Start"/>.
-    /// </summary>
-    public void AddStunServer(IPEndPoint server) => _stunServers.Add(server);
-
-    /// <summary>
-    /// Binds a UDP socket per local address and raises <see cref="LocalCandidateGathered"/> for each host
-    /// candidate, then starts the connectivity-check loop. Idempotent gathering is not supported - call once.
-    /// </summary>
-    public void Start()
+    public IceCredentials LocalCredentials
     {
-        GatherHostCandidates();
-
-        // Pair against any remote candidates that arrived (trickled) before we gathered.
-        lock (_gate)
+        get
         {
-            foreach (IceCandidate remote in _remoteCandidates)
+            lock (_gate)
             {
-                FormPairsFor(remote);
+                return _machine.LocalCredentials;
             }
-        }
-
-        _cts = new CancellationTokenSource();
-        foreach (LocalEndpoint ep in _localEndpoints)
-        {
-            ep.ReceiveTask = ReceiveLoopAsync(ep, _cts.Token);
-        }
-
-        _checkLoop = CheckLoopAsync(_cts.Token);
-        SetState(IceConnectionState.Checking);
-
-        if (_stunServers.Count > 0)
-        {
-            SendServerReflexiveProbes();
-        }
-    }
-
-    private void SendServerReflexiveProbes()
-    {
-        Span<byte> txId = stackalloc byte[StunHeader.TransactionIdLength];
-        foreach (LocalEndpoint local in _localEndpoints)
-        {
-            foreach (IPEndPoint server in _stunServers)
-            {
-                if (server.AddressFamily != local.Candidate.Endpoint.AddressFamily)
-                {
-                    continue;
-                }
-
-                RandomNumberGenerator.Fill(txId);
-                byte[] buffer = new byte[64];
-                var writer = new StunMessageWriter(
-                    buffer,
-                    StunMessageClass.Request,
-                    StunMethod.Binding,
-                    txId
-                );
-                writer.AddFingerprint();
-                _gatherInFlight[Convert.ToHexString(txId)] = new GatherTransaction(local, server);
-                _ = local.Socket.SendAsync(buffer.AsMemory(0, writer.Length), server);
-            }
-        }
-    }
-
-    /// <summary>Adds a remote candidate learned via signaling (trickle ICE).</summary>
-    public void AddRemoteCandidate(IceCandidate candidate)
-    {
-        lock (_gate)
-        {
-            if (_remoteCandidates.Contains(candidate))
-            {
-                return;
-            }
-
-            _remoteCandidates.Add(candidate);
-            FormPairsFor(candidate);
-        }
-
-        LogRemoteCandidate(_logger, candidate.Kind, candidate.Endpoint);
-    }
-
-    /// <summary>
-    /// Sends a media/DTLS datagram over the selected pair. During the brief no-pair window of a mobility
-    /// recovery (consent loss / network change) the datagram is dropped rather than thrown - those packets
-    /// would be lost on the dead path anyway, and the media pump must not fault while ICE re-nominates.
-    /// </summary>
-    public async ValueTask SendAsync(
-        ReadOnlyMemory<byte> data,
-        CancellationToken cancellationToken = default
-    )
-    {
-        CandidatePair? pair = _selected;
-        if (pair is null)
-        {
-            return;
-        }
-
-        await pair
-            .Local.Socket.SendAsync(data, pair.Remote.Endpoint, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Re-probe all candidate pairs and re-nominate (mobility recovery): on consent loss or a network change,
-    /// drop the selected pair and re-run connectivity checks so the agent fails over to whatever path now
-    /// works - including a peer-reflexive pair from the peer's new source address. The DTLS-SRTP session is
-    /// untouched (it is bound to the peer's certificate, not the path), so keys + the RTP rollover counter are
-    /// preserved across the switch - QUIC-style connection migration applied to SRTP.
-    /// </summary>
-    public void TriggerRecovery()
-    {
-        lock (_gate)
-        {
-            _selected = null;
-            foreach (CandidatePair p in _pairs)
-            {
-                p.State = PairState.Waiting;
-                p.Nominated = false;
-                p.NominationCheck = false;
-                p.NominatedByPeer = false;
-                p.TriggeredCheck = false;
-                p.Transmits = 0;
-            }
-        }
-
-        SetState(IceConnectionState.Checking);
-        LogRecovery(_logger);
-    }
-
-    /// <summary>
-    /// Full ICE restart (RFC 8445 §9 / RFC 8829): adopt fresh local credentials, re-gather host candidates
-    /// (new ports, re-trickled to the peer), and re-pair/re-check under the new credentials. The DTLS-SRTP
-    /// session is untouched - keys + the RTP rollover counter survive - so media continues across the restart.
-    /// Used when a credential rollover is needed (e.g. a full network re-attach), beyond what
-    /// <see cref="TriggerRecovery"/> (re-probe existing pairs) covers.
-    /// </summary>
-    public void Restart(IceCredentials newLocalCredentials)
-    {
-        lock (_gate)
-        {
-            LocalCredentials = newLocalCredentials;
-            _localPwdBytes = Encoding.UTF8.GetBytes(newLocalCredentials.Password);
-            _selected = null;
-            _inFlight.Clear();
-            _pairs.Clear();
-
-            foreach (LocalEndpoint ep in _localEndpoints)
-            {
-                ep.Socket.Dispose();
-            }
-            _localEndpoints.Clear();
-        }
-        // Re-gather fresh host candidates under the new credentials and re-trickle them.
-        GatherHostCandidates();
-
-        CancellationToken ct = _cts?.Token ?? CancellationToken.None;
-        lock (_gate)
-        {
-            foreach (LocalEndpoint ep in _localEndpoints)
-            {
-                ep.ReceiveTask ??= ReceiveLoopAsync(ep, ct);
-            }
-
-            // Re-pair the freshly gathered local candidates against the remote candidates we already know.
-            foreach (IceCandidate remote in _remoteCandidates)
-            {
-                FormPairsFor(remote);
-            }
-        }
-
-        SetState(IceConnectionState.Checking);
-        LogRestart(_logger);
-    }
-
-    private void GatherHostCandidates()
-    {
-        foreach (IPAddress address in _socketFactory.GetLocalAddresses(_includeLoopback))
-        {
-            if (!_socketFactory.TryBind(address, out IIceSocket socket))
-            {
-                continue; // family unavailable / address not bindable - skip.
-            }
-
-            IPEndPoint bound = socket.LocalEndPoint;
-            int index = _candidateIndex++;
-            uint priority = IceCandidate.ComputePriority(
-                IceCandidateKind.Host,
-                address.AddressFamily,
-                IceCandidate.RtpComponent,
-                index
-            );
-            string foundation = Foundation(IceCandidateKind.Host, address);
-            var candidate = new IceCandidate(
-                foundation,
-                IceCandidate.RtpComponent,
-                priority,
-                bound,
-                IceCandidateKind.Host
-            );
-
-            var ep = new LocalEndpoint(candidate, socket);
-            _localEndpoints.Add(ep);
-            LogLocalCandidate(_logger, candidate.Kind, candidate.Endpoint);
-            LocalCandidateGathered?.Invoke(candidate);
-        }
-    }
-
-    private static string Foundation(IceCandidateKind kind, IPAddress baseAddress) =>
-        $"{(int)kind}-{baseAddress}";
-
-    private void FormPairsFor(IceCandidate remote)
-    {
-        foreach (LocalEndpoint local in _localEndpoints)
-        {
-            if (
-                local.Candidate.Endpoint.AddressFamily != remote.Endpoint.AddressFamily
-                || local.Candidate.ComponentId != remote.ComponentId
-            )
-            {
-                continue; // pairs are within an address family and component.
-            }
-
-            uint controlling =
-                _role == IceRole.Controlling ? local.Candidate.Priority : remote.Priority;
-            uint controlled =
-                _role == IceRole.Controlling ? remote.Priority : local.Candidate.Priority;
-            ulong pairPriority = IceCandidate.ComputePairPriority(controlling, controlled);
-            _pairs.Add(new CandidatePair(local, remote, pairPriority));
-        }
-
-        _pairs.Sort(static (a, b) => b.Priority.CompareTo(a.Priority));
-    }
-
-    private async Task ReceiveLoopAsync(LocalEndpoint local, CancellationToken ct)
-    {
-        byte[] buffer = new byte[2048];
-        while (!ct.IsCancellationRequested)
-        {
-            IceReceiveResult result;
-            try
-            {
-                result = await local.Socket.ReceiveAsync(buffer, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
-            catch (SocketException)
-            {
-                continue; // transient ICMP port-unreachable etc.
-            }
-
-            IPEndPoint source = result.RemoteEndPoint;
-            ReadOnlySpan<byte> datagram = buffer.AsSpan(0, result.Length);
-
-            if (StunMessageReader.TryParse(datagram, out StunMessageReader stun))
-            {
-                HandleStun(stun, local, source);
-            }
-            else
-            {
-                // DTLS / SRTP - hand the reused receive buffer directly (zero copy). The handler runs
-                // synchronously before the next receive, so it may decrypt in place and read it freely; it
-                // must copy anything it keeps beyond the call (see DataReceived's contract).
-                DataReceived?.Invoke(buffer.AsMemory(0, result.Length), source, result.Ecn);
-            }
-        }
-    }
-
-    private void HandleStun(StunMessageReader stun, LocalEndpoint local, IPEndPoint source)
-    {
-        switch (stun.Class)
-        {
-            case StunMessageClass.Request when stun.Method == StunMethod.Binding:
-                HandleBindingRequest(stun, local, source);
-                break;
-            case StunMessageClass.SuccessResponse when stun.Method == StunMethod.Binding:
-                HandleBindingSuccess(stun, source);
-                break;
-            default:
-                break; // error responses / indications: ignored for now.
-        }
-    }
-
-    private void HandleBindingRequest(
-        StunMessageReader stun,
-        LocalEndpoint local,
-        IPEndPoint source
-    )
-    {
-        // Authenticate: USERNAME must be localUfrag:remoteUfrag, MESSAGE-INTEGRITY keyed by our password.
-        if (!stun.VerifyMessageIntegrity(_localPwdBytes))
-        {
-            return;
-        }
-
-        bool useCandidate = stun.TryFindAttribute(StunAttributeType.UseCandidate, out _);
-
-        // Respond: XOR-MAPPED-ADDRESS of the source, MI keyed by our password, FINGERPRINT.
-        byte[] response = new byte[128];
-        var writer = new StunMessageWriter(
-            response,
-            StunMessageClass.SuccessResponse,
-            StunMethod.Binding,
-            stun.TransactionId
-        );
-        writer.AddXorMappedAddress(source);
-        writer.AddMessageIntegrity(_localPwdBytes);
-        writer.AddFingerprint();
-        _ = local.Socket.SendAsync(response.AsMemory(0, writer.Length), source);
-
-        CandidatePair pair = EnsurePairForPeerReflexive(local, source);
-
-        // The remote reached us → this pair is usable from their side. Trigger a check back (triggered
-        // check), and on the controlled side honour USE-CANDIDATE nomination.
-        pair.RemoteRequestSeen = true;
-
-        // An authenticated inbound binding request proves this path is alive in the receive direction right
-        // now, independent of whether our own outbound consent check happened to be lost. Consent is
-        // bidirectional in practice (both agents probe the selected pair), so refresh liveness on it too,
-        // mirroring libwebrtc's last-received tracking. Without this, a flaky link refreshes consent only on
-        // our check *responses* (round-trip survival) and discards the peer's checks (one-way survival),
-        // tripping false consent loss under loss that an alive path should ride out.
-        pair.LastResponse = Now;
-        // A nomination can arrive before our own check on the pair has succeeded; the controlling agent
-        // does not repeat it, so remember it and select the pair when that check succeeds (RFC 8445
-        // section 7.3.1.5).
-        if (useCandidate && _role == IceRole.Controlled)
-        {
-            if (pair.State == PairState.Succeeded)
-            {
-                Nominate(pair);
-            }
-            else
-            {
-                pair.NominatedByPeer = true;
-            }
-        }
-
-        if (pair.State is PairState.Frozen or PairState.Failed)
-        {
-            pair.State = PairState.Waiting;
-        }
-
-        pair.TriggeredCheck = true;
-    }
-
-    private void HandleBindingSuccess(StunMessageReader stun, IPEndPoint source)
-    {
-        string txKey = Convert.ToHexString(stun.TransactionId);
-
-        if (_gatherInFlight.TryRemove(txKey, out GatherTransaction gather))
-        {
-            HandleServerReflexiveResponse(stun, gather);
-            return;
-        }
-
-        if (!_inFlight.TryRemove(txKey, out CandidatePair? pair))
-        {
-            return;
-        }
-
-        // Response MI is keyed by the responder's (remote) password.
-        if (
-            _remote.Password is { Length: > 0 }
-            && !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
-        )
-        {
-            return;
-        }
-
-        pair.State = PairState.Succeeded;
-        pair.LastResponse = Now;
-        LogPairSucceeded(_logger, pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
-
-        if (pair.NominationCheck || (pair.NominatedByPeer && _role == IceRole.Controlled))
-        {
-            Nominate(pair);
-        }
-        else if (_role == IceRole.Controlling && _selected is null)
-        {
-            // Regular nomination: nominate the highest-priority valid pair.
-            pair.NominationCheck = true;
-            pair.TriggeredCheck = true;
-        }
-    }
-
-    private void HandleServerReflexiveResponse(StunMessageReader stun, GatherTransaction gather)
-    {
-        if (!stun.TryGetXorMappedAddress(out IPEndPoint mapped))
-        {
-            return;
-        }
-
-        // No NAT in front of this interface (mapped == base) → the host candidate already covers it.
-        if (mapped.Equals(gather.Local.Candidate.Endpoint))
-        {
-            return;
-        }
-
-        int index = _candidateIndex++;
-        uint priority = IceCandidate.ComputePriority(
-            IceCandidateKind.ServerReflexive,
-            mapped.AddressFamily,
-            IceCandidate.RtpComponent,
-            index
-        );
-        var candidate = new IceCandidate(
-            Foundation(IceCandidateKind.ServerReflexive, gather.Local.Candidate.Endpoint.Address),
-            IceCandidate.RtpComponent,
-            priority,
-            mapped,
-            IceCandidateKind.ServerReflexive,
-            relatedAddress: gather.Local.Candidate.Endpoint
-        );
-
-        LogLocalCandidate(_logger, candidate.Kind, candidate.Endpoint);
-        LocalCandidateGathered?.Invoke(candidate);
-    }
-
-    private void Nominate(CandidatePair pair)
-    {
-        if (_selected is not null)
-        {
-            return;
-        }
-
-        pair.Nominated = true;
-        _selected = pair;
-        pair.LastResponse = Now;
-        LogSelectedPair(_logger, pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
-        SetState(IceConnectionState.Connected);
-    }
-
-    private CandidatePair EnsurePairForPeerReflexive(LocalEndpoint local, IPEndPoint source)
-    {
-        lock (_gate)
-        {
-            foreach (CandidatePair p in _pairs)
-            {
-                if (ReferenceEquals(p.Local, local) && p.Remote.Endpoint.Equals(source))
-                {
-                    return p;
-                }
-            }
-
-            uint prflxPriority = IceCandidate.ComputePriority(
-                IceCandidateKind.PeerReflexive,
-                source.AddressFamily,
-                IceCandidate.RtpComponent,
-                _candidateIndex++
-            );
-            var prflx = new IceCandidate(
-                Foundation(IceCandidateKind.PeerReflexive, source.Address),
-                IceCandidate.RtpComponent,
-                prflxPriority,
-                source,
-                IceCandidateKind.PeerReflexive
-            );
-            uint controlling =
-                _role == IceRole.Controlling ? local.Candidate.Priority : prflx.Priority;
-            uint controlled =
-                _role == IceRole.Controlling ? prflx.Priority : local.Candidate.Priority;
-            var pair = new CandidatePair(
-                local,
-                prflx,
-                IceCandidate.ComputePairPriority(controlling, controlled)
-            );
-            _pairs.Add(pair);
-            _pairs.Sort(static (a, b) => b.Priority.CompareTo(a.Priority));
-            return pair;
         }
     }
 
     // Monotonic time since the agent was created; wall-clock steps do not move it.
     private TimeSpan Now => _time.GetElapsedTime(_origin);
 
-    // How long ago something happened; forever when it never did.
-    private static TimeSpan Since(TimeSpan? at, TimeSpan now) =>
-        at is { } then ? now - then : TimeSpan.MaxValue;
-
-    // Paces connectivity checks, consent and hot-standby pings at Ta (RFC 8445 14.2) on the agent's clock.
-    private async Task CheckLoopAsync(CancellationToken ct)
-    {
-        using PeriodicTimer pacing = new(_timings.Ta, _time);
-        try
-        {
-            while (await pacing.WaitForNextTickAsync(ct).ConfigureAwait(false))
-            {
-                if (_remote.Password is not { Length: > 0 })
-                {
-                    continue; // can't key checks until we have the remote password.
-                }
-
-                SendNextCheck();
-                MaintainConsent();
-                MaintainHotStandby();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Deliberately not logged: cancellation is how the agent stops pacing.
-        }
-    }
-
-    // Keep non-selected succeeded pairs warm: a low-frequency STUN ping on each (RFC 7675 cadence) so an
-    // alternate path stays validated and ready, and a failover can promote it in ~one RTT instead of a fresh
-    // gather. libwebrtc's continual-gathering model (stable_writable_connection_ping_interval).
-    private void MaintainHotStandby()
-    {
-        TimeSpan now = Now;
-        List<CandidatePair>? toPing = null;
-        lock (_gate)
-        {
-            foreach (CandidatePair p in _pairs)
-            {
-                if (ReferenceEquals(p, _selected) || p.State != PairState.Succeeded)
-                {
-                    continue;
-                }
-
-                if (Since(p.LastSent, now) > _timings.ConsentInterval)
-                {
-                    p.LastSent = now;
-                    (toPing ??= []).Add(p);
-                }
-            }
-        }
-
-        if (toPing is not null)
-        {
-            foreach (CandidatePair p in toPing)
-            {
-                SendBindingCheck(p);
-            }
-        }
-    }
-
-    // The highest-priority validated alternate that has answered within the consent window - a pre-warmed pair
-    // ready to take over.
-    private CandidatePair? BestWarmAlternate(TimeSpan now, CandidatePair exclude)
+    /// <summary>Sets the remote agent's credentials (from the peer's SDP). Required before checks can pass.</summary>
+    /// <param name="remote">The remote credentials.</param>
+    public void SetRemoteCredentials(IceCredentials remote)
     {
         lock (_gate)
         {
-            CandidatePair? best = null;
-            foreach (CandidatePair p in _pairs)
-            {
-                if (
-                    ReferenceEquals(p, exclude)
-                    || p.State != PairState.Succeeded
-                    || Since(p.LastResponse, now) > _timings.ConsentTimeout
-                )
-                {
-                    continue;
-                }
-
-                if (best is null || p.Priority > best.Priority)
-                {
-                    best = p;
-                }
-            }
-
-            return best;
+            _machine.SetRemoteCredentials(remote);
         }
     }
 
-    private void SwitchTo(CandidatePair pair)
+    /// <summary>
+    /// Adds a STUN server to query for server-reflexive candidates (the public mapping behind a NAT).
+    /// Call before <see cref="Start"/>.
+    /// </summary>
+    /// <param name="server">The server.</param>
+    public void AddStunServer(IPEndPoint server)
     {
         lock (_gate)
         {
-            _selected = pair;
-            pair.Nominated = true;
+            _machine.AddStunServer(server);
         }
-
-        LogSwitched(_logger, pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
-        SetState(IceConnectionState.Connected);
     }
 
-    private void SendNextCheck()
+    /// <summary>
+    /// Binds a UDP socket per local address and raises <see cref="LocalCandidateGathered"/> for each host
+    /// candidate, then starts checking. Call once.
+    /// </summary>
+    public void Start()
     {
-        CandidatePair? toCheck = null;
-        TimeSpan now = Now;
+        _cts = new CancellationTokenSource();
         lock (_gate)
         {
-            // Triggered checks first, then the highest-priority waiting/retransmit-due pair.
-            foreach (CandidatePair p in _pairs)
-            {
-                if (p.TriggeredCheck)
-                {
-                    toCheck = p;
-                    break;
-                }
-            }
-
-            toCheck ??= NextOrdinaryCheck(now);
-            if (toCheck is null)
-            {
-                return;
-            }
-
-            toCheck.TriggeredCheck = false;
-
-            // Re-checking a valid pair (a triggered check, a keep-alive) must not take it out of the
-            // valid list: a nomination that arrives meanwhile would find it not succeeded.
-            if (toCheck.State != PairState.Succeeded)
-            {
-                toCheck.State = PairState.InProgress;
-            }
-            toCheck.LastSent = now;
-            toCheck.Transmits++;
+            Gather(_cts.Token);
+            _machine.Start(Now);
         }
 
-        SendBindingCheck(toCheck);
+        Report();
+        _timerLoop = TimerLoopAsync(_cts.Token);
     }
 
-    private CandidatePair? NextOrdinaryCheck(TimeSpan now)
+    /// <summary>Adds a remote candidate learned via signaling (trickle ICE).</summary>
+    /// <param name="candidate">The candidate.</param>
+    public void AddRemoteCandidate(IceCandidate candidate)
     {
-        foreach (CandidatePair p in _pairs)
+        lock (_gate)
         {
-            if (p.State is PairState.Frozen or PairState.Waiting)
-            {
-                return p;
-            }
-
-            if (p.State == PairState.InProgress && Since(p.LastSent, now) > _timings.CheckRto)
-            {
-                if (p.Transmits >= MaxCheckTransmits)
-                {
-                    p.State = PairState.Failed;
-                    continue;
-                }
-
-                return p; // retransmit
-            }
+            _machine.AddRemoteCandidate(candidate);
         }
-
-        return null;
     }
 
-    private void SendBindingCheck(CandidatePair pair)
+    /// <summary>
+    /// Sends a media or DTLS datagram over the selected pair. While no pair is selected (during a
+    /// recovery) the datagram is dropped: it would be lost on the dead path anyway, and the media pump
+    /// must not fault while ICE re-nominates.
+    /// </summary>
+    /// <param name="data">The datagram.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed to the socket.</returns>
+    public async ValueTask SendAsync(
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default
+    )
     {
-        Span<byte> txId = stackalloc byte[StunHeader.TransactionIdLength];
-        RandomNumberGenerator.Fill(txId);
-
-        byte[] buffer = new byte[160];
-        var writer = new StunMessageWriter(
-            buffer,
-            StunMessageClass.Request,
-            StunMethod.Binding,
-            txId
-        );
-
-        string username = IceCredentials.CheckUsername(
-            _remote.UsernameFragment,
-            LocalCredentials.UsernameFragment
-        );
-        writer.AddAttribute(StunAttributeType.Username, Encoding.UTF8.GetBytes(username));
-
-        Span<byte> priority = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(
-            priority,
-            IceCandidate.ComputePriority(
-                IceCandidateKind.PeerReflexive,
-                pair.Local.Candidate.Endpoint.AddressFamily,
-                IceCandidate.RtpComponent
-            )
-        );
-        writer.AddAttribute(StunAttributeType.Priority, priority);
-
-        Span<byte> tie = stackalloc byte[8];
-        BinaryPrimitives.WriteUInt64BigEndian(tie, _tieBreaker);
-        writer.AddAttribute(
-            _role == IceRole.Controlling
-                ? StunAttributeType.IceControlling
-                : StunAttributeType.IceControlled,
-            tie
-        );
-
-        if (_role == IceRole.Controlling && pair.NominationCheck)
-        {
-            writer.AddAttribute(StunAttributeType.UseCandidate, default);
-        }
-
-        writer.AddMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password));
-        writer.AddFingerprint();
-
-        _inFlight[Convert.ToHexString(txId)] = pair;
-        _ = pair.Local.Socket.SendAsync(buffer.AsMemory(0, writer.Length), pair.Remote.Endpoint);
-    }
-
-    private void MaintainConsent()
-    {
-        if (_selected is not { } selected)
+        LocalSocket? socket = Volatile.Read(ref _selectedSocket);
+        IPEndPoint? remote = Volatile.Read(ref _selectedRemote);
+        if (socket is null || remote is null)
         {
             return;
         }
 
-        // Consent is tracked per the SELECTED pair, not globally: hot-standby keep-alives on the alternates
-        // also produce binding responses, so a global timer would never see the selected path die.
-        TimeSpan now = Now;
-        if (Since(selected.LastResponse, now) > _timings.ConsentTimeout)
-        {
-            LogConsentLost(_logger, selected.Remote.Endpoint);
-
-            // Prefer an instant switch to a pre-warmed alternate (hot-standby) - ~one RTT. Only if none is
-            // warm do we fall back to a full re-probe (path recovery). Either way SRTP is preserved.
-            CandidatePair? warm = BestWarmAlternate(now, selected);
-            if (warm is not null)
-            {
-                SwitchTo(warm);
-            }
-            else
-            {
-                TriggerRecovery();
-            }
-
-            return;
-        }
-
-        if (Since(selected.LastSent, now) > _timings.ConsentInterval)
-        {
-            selected.LastSent = now;
-            SendBindingCheck(selected);
-        }
+        await socket.Socket.SendAsync(data, remote, cancellationToken).ConfigureAwait(false);
     }
 
-    private void SetState(IceConnectionState state)
+    /// <summary>
+    /// Re-probes all candidate pairs and re-nominates, on consent loss or a network change, so the agent
+    /// fails over to whatever path now works. The DTLS-SRTP session above is bound to the peer's
+    /// certificate, so its keys and rollover counter carry across the switch.
+    /// </summary>
+    public void TriggerRecovery()
     {
-        if (Volatile.Read(ref _state) == (int)state)
+        lock (_gate)
         {
-            return;
+            _machine.TriggerRecovery();
         }
 
-        Volatile.Write(ref _state, (int)state);
-        StateChanged?.Invoke(state);
+        Report();
+        _wake.Signal();
+    }
+
+    /// <summary>
+    /// Full ICE restart (RFC 8445 section 9): fresh local credentials, freshly gathered host candidates
+    /// (trickled again), and new checks under the new credentials. The DTLS-SRTP session carries on.
+    /// </summary>
+    /// <param name="newLocalCredentials">The new credentials.</param>
+    public void Restart(IceCredentials newLocalCredentials)
+    {
+        lock (_gate)
+        {
+            foreach (LocalSocket socket in _sockets.Values)
+            {
+                socket.Socket.Dispose();
+            }
+
+            _sockets.Clear();
+            _machine.Restart(newLocalCredentials);
+            Gather(_cts?.Token ?? CancellationToken.None);
+        }
+
+        Report();
+        _wake.Signal();
     }
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        // Idempotent: callers commonly StopAsync() then dispose, which routes here twice.
+        // Idempotent: callers commonly stop and then dispose, which routes here twice.
         CancellationTokenSource? cts = Interlocked.Exchange(ref _cts, null);
         if (cts is null)
         {
@@ -867,111 +231,209 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         await cts.CancelAsync().ConfigureAwait(false);
-
-        if (_checkLoop is { } loop)
+        if (_timerLoop is { } loop)
         {
-            try
-            {
-                await loop.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { }
+            await loop.ConfigureAwait(false);
         }
 
-        foreach (LocalEndpoint ep in _localEndpoints)
+        lock (_gate)
         {
-            ep.Socket.Dispose();
+            foreach (LocalSocket socket in _sockets.Values)
+            {
+                socket.Socket.Dispose();
+            }
+
+            _sockets.Clear();
         }
 
         cts.Dispose();
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ICE local candidate {Kind} {Endpoint}")]
-    private static partial void LogLocalCandidate(
-        ILogger logger,
-        IceCandidateKind kind,
-        IPEndPoint endpoint
-    );
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ICE remote candidate {Kind} {Endpoint}")]
-    private static partial void LogRemoteCandidate(
-        ILogger logger,
-        IceCandidateKind kind,
-        IPEndPoint endpoint
-    );
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ICE pair succeeded {Local} -> {Remote}")]
-    private static partial void LogPairSucceeded(
-        ILogger logger,
-        IPEndPoint local,
-        IPEndPoint remote
-    );
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "ICE selected pair {Local} -> {Remote}")]
-    private static partial void LogSelectedPair(
-        ILogger logger,
-        IPEndPoint local,
-        IPEndPoint remote
-    );
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "ICE consent lost to {Remote}")]
-    private static partial void LogConsentLost(ILogger logger, IPEndPoint remote);
-
-    [LoggerMessage(
-        Level = LogLevel.Information,
-        Message = "ICE recovery: re-probing candidate pairs (SRTP session preserved)"
-    )]
-    private static partial void LogRecovery(ILogger logger);
-
-    [LoggerMessage(
-        Level = LogLevel.Information,
-        Message = "ICE switched to warm pair {Local} -> {Remote} (SRTP session preserved)"
-    )]
-    private static partial void LogSwitched(ILogger logger, IPEndPoint local, IPEndPoint remote);
-
-    [LoggerMessage(
-        Level = LogLevel.Information,
-        Message = "ICE restart: re-gathering under fresh credentials (SRTP session preserved)"
-    )]
-    private static partial void LogRestart(ILogger logger);
-
-    private readonly record struct GatherTransaction(
-        IceAgent.LocalEndpoint Local,
-        IPEndPoint Server
-    );
-
-    private sealed class LocalEndpoint(IceCandidate candidate, IIceSocket socket)
+    // Binds a socket per usable local address and hands each to the machine. Called holding the lock.
+    private void Gather(CancellationToken cancellationToken)
     {
-        public IceCandidate Candidate { get; } = candidate;
+        foreach (IPAddress address in _socketFactory.GetLocalAddresses(_includeLoopback))
+        {
+            if (!_socketFactory.TryBind(address, out IIceSocket socket))
+            {
+                continue; // The family is unavailable or the address is not bindable.
+            }
+
+            int handle = _nextHandle++;
+            LocalSocket local = new(handle, socket);
+            _sockets[handle] = local;
+            _machine.AddLocalEndpoint(handle, socket.LocalEndPoint);
+            local.Receiving = ReceiveLoopAsync(local, cancellationToken);
+        }
+    }
+
+    // Sends what the machine asks, then sleeps until it next needs the time or until a call from outside
+    // leaves it something to send.
+    private async Task TimerLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                TimeSpan? deadline;
+                lock (_gate)
+                {
+                    _machine.HandleTimeout(Now);
+                    deadline = _machine.NextTimeout;
+                }
+
+                Report();
+                await SendPendingAsync(cancellationToken).ConfigureAwait(false);
+                if (deadline is { } next)
+                {
+                    _ = await _wake.WaitUntilAsync(next, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _wake.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Deliberately not logged: cancellation is how the agent stops.
+        }
+    }
+
+    private async Task ReceiveLoopAsync(LocalSocket local, CancellationToken cancellationToken)
+    {
+        byte[] buffer = new byte[2048];
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            IceReceiveResult result;
+            try
+            {
+                result = await local
+                    .Socket.ReceiveAsync(buffer, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Deliberately not logged: cancellation is how the agent stops receiving.
+                return;
+            }
+            catch (ObjectDisposedException)
+            {
+                // Deliberately not logged: a restart closed this socket.
+                return;
+            }
+            catch (SocketException)
+            {
+                // Deliberately not logged: an ICMP port-unreachable from a check to a dead candidate
+                // surfaces here, once per such check.
+                continue;
+            }
+
+            if (
+                StunMessageReader.TryParse(
+                    buffer.AsSpan(0, result.Length),
+                    out StunMessageReader stun
+                )
+            )
+            {
+                lock (_gate)
+                {
+                    _machine.HandleStun(local.Handle, result.RemoteEndPoint, stun, Now);
+                }
+
+                Report();
+                await SendPendingAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // DTLS or SRTP, in the reused buffer: the handler runs before the next receive.
+                DataReceived?.Invoke(
+                    buffer.AsMemory(0, result.Length),
+                    result.RemoteEndPoint,
+                    result.Ecn
+                );
+            }
+        }
+    }
+
+    // Raises what the machine reported and publishes its selection, outside the lock.
+    private void Report()
+    {
+        List<IceEvent> events = [];
+        lock (_gate)
+        {
+            while (_machine.TryPollEvent(out IceEvent iceEvent))
+            {
+                events.Add(iceEvent);
+            }
+
+            (int Local, IPEndPoint Remote)? selected = _machine.Selected;
+            Volatile.Write(
+                ref _selectedSocket,
+                selected is { } pair && _sockets.TryGetValue(pair.Local, out LocalSocket? chosen)
+                    ? chosen
+                    : null
+            );
+            Volatile.Write(ref _selectedRemote, selected?.Remote);
+        }
+
+        foreach (IceEvent iceEvent in events)
+        {
+            if (iceEvent.Candidate is { } candidate)
+            {
+                LocalCandidateGathered?.Invoke(candidate);
+            }
+            else if (Interlocked.Exchange(ref _state, (int)iceEvent.State) != (int)iceEvent.State)
+            {
+                StateChanged?.Invoke(iceEvent.State);
+            }
+        }
+    }
+
+    // Sends what the machine asked to send.
+    private async ValueTask SendPendingAsync(CancellationToken cancellationToken)
+    {
+        List<(IIceSocket Socket, IceTransmit Transmit)> transmits = [];
+        lock (_gate)
+        {
+            while (_machine.TryPollTransmit(out IceTransmit transmit))
+            {
+                if (_sockets.TryGetValue(transmit.Local, out LocalSocket? socket))
+                {
+                    transmits.Add((socket.Socket, transmit));
+                }
+            }
+        }
+
+        foreach ((IIceSocket socket, IceTransmit transmit) in transmits)
+        {
+            try
+            {
+                await socket
+                    .SendAsync(transmit.Data, transmit.Destination, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (SocketException exception)
+            {
+                // A check to an unreachable candidate; the machine retransmits or gives up on the pair.
+                LogSendFailed(exception, transmit.Destination);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Deliberately not logged: a restart closed the socket, and its pairs went with it.
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ICE send to {Destination} failed")]
+    private partial void LogSendFailed(Exception exception, IPEndPoint destination);
+
+    private sealed class LocalSocket(int handle, IIceSocket socket)
+    {
+        public int Handle { get; } = handle;
+
         public IIceSocket Socket { get; } = socket;
-        public Task? ReceiveTask { get; set; }
-    }
 
-    private enum PairState
-    {
-        Frozen,
-        Waiting,
-        InProgress,
-        Succeeded,
-        Failed,
-    }
-
-    private sealed class CandidatePair(
-        IceAgent.LocalEndpoint local,
-        IceCandidate remote,
-        ulong priority
-    )
-    {
-        public LocalEndpoint Local { get; } = local;
-        public IceCandidate Remote { get; } = remote;
-        public ulong Priority { get; } = priority;
-        public PairState State { get; set; } = PairState.Waiting;
-        public bool TriggeredCheck { get; set; }
-        public bool NominationCheck { get; set; }
-        public bool Nominated { get; set; }
-        public bool NominatedByPeer { get; set; }
-        public bool RemoteRequestSeen { get; set; }
-        public TimeSpan? LastSent { get; set; }
-        public TimeSpan? LastResponse { get; set; }
-        public int Transmits { get; set; }
+        public Task? Receiving { get; set; }
     }
 }

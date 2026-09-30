@@ -27,6 +27,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Shared\WakeSignal.cs" Link="Threading\WakeSignal.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Agash.StreamTransport.Tests" />
   </ItemGroup>
 

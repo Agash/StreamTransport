@@ -6,112 +6,21 @@ using Agash.StreamTransport.WebRtc.Ice;
 namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
-/// An in-memory ICE datagram network for deterministic tests: <see cref="IIceSocket"/>s route datagrams to
-/// each other by endpoint with no real sockets or wall-clock timing, and a path can be "cut" to simulate a
-/// link going dark (a cellular handover, a Wi-Fi drop). This is what makes ICE candidate switching / failover
-/// testable - the whole point of abstracting the datagram layer.
+/// An in-memory datagram network: <see cref="IIceSocket"/>s that route datagrams to each other by
+/// endpoint, so an <see cref="IceAgent"/> runs without real sockets.
 /// </summary>
 internal sealed class InMemoryIceNetwork
 {
     private readonly ConcurrentDictionary<IPEndPoint, FakeSocket> _sockets = new();
-    private readonly HashSet<IPAddress> _cut = [];
     private readonly Lock _gate = new();
     private int _nextPort = 50_000;
-    private double _lossRate;
-    private Func<IPEndPoint, byte[], bool>? _hold;
-    private readonly List<(IPEndPoint From, IPEndPoint To, byte[] Data)> _held = [];
-    private Random? _lossRng;
 
     /// <summary>A socket factory that offers <paramref name="addresses"/> as this agent's local interfaces.</summary>
     public IIceSocketFactory Factory(params IPAddress[] addresses) =>
         new FakeFactory(this, addresses);
 
-    /// <summary>Cut all traffic to and from <paramref name="address"/> (the path goes dark).</summary>
-    public void Cut(IPAddress address)
-    {
-        lock (_gate)
-        {
-            _cut.Add(address);
-        }
-    }
-
-    /// <summary>
-    /// Drop a fraction (0..1) of datagrams at random to simulate a flaky link that is degraded but not cut - a
-    /// weak cellular signal. Seeded for reproducibility. Unlike <see cref="Cut"/>, the path stays up, so consent
-    /// freshness retries should keep the connection alive.
-    /// </summary>
-    // Holds back datagrams the predicate matches (from, data) until ReleaseHeld, to reorder a
-    // handshake deterministically.
-    public void Hold(Func<IPEndPoint, byte[], bool> predicate)
-    {
-        lock (_gate)
-        {
-            _hold = predicate;
-        }
-    }
-
-    public void ReleaseHeld()
-    {
-        List<(IPEndPoint From, IPEndPoint To, byte[] Data)> held;
-        lock (_gate)
-        {
-            _hold = null;
-            held = [.. _held];
-            _held.Clear();
-        }
-
-        foreach ((IPEndPoint from, IPEndPoint to, byte[] data) in held)
-        {
-            Deliver(from, to, data);
-        }
-    }
-
-    public void SetLossRate(double rate, int seed = 12345)
-    {
-        lock (_gate)
-        {
-            _lossRate = rate;
-            _lossRng = new Random(seed);
-        }
-    }
-
-    private bool IsCut(IPAddress address)
-    {
-        lock (_gate)
-        {
-            return _cut.Contains(address);
-        }
-    }
-
-    private bool ShouldDropRandomly()
-    {
-        lock (_gate)
-        {
-            return _lossRng is not null && _lossRng.NextDouble() < _lossRate;
-        }
-    }
-
     private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data)
     {
-        if (IsCut(from.Address) || IsCut(to.Address))
-        {
-            return; // dropped: this path is dark.
-        }
-
-        lock (_gate)
-        {
-            if (_hold is not null && _hold(from, data))
-            {
-                _held.Add((from, to, data));
-                return;
-            }
-        }
-
-        if (ShouldDropRandomly())
-        {
-            return; // dropped: the flaky link lost this datagram.
-        }
-
         if (_sockets.TryGetValue(to, out FakeSocket? destination))
         {
             destination.Enqueue(from, data);
