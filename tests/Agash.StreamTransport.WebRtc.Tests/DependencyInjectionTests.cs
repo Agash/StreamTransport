@@ -39,6 +39,10 @@ public sealed class DependencyInjectionTests
         SdpDescription offer = pc.CreateOffer();
         Assert.AreEqual(1, offer.Media.Count);
         Assert.AreEqual(certificate.Fingerprint, offer.Media[0].Fingerprint);
+        Assert.IsTrue(
+            pc.CurrentBitrateEstimate.TargetBitrateBps > 0,
+            "the connection runs the registered congestion controller"
+        );
 
         var controller = provider.GetRequiredService<INetworkController>();
         Assert.IsInstanceOfType<ScreamCongestionController>(controller);
@@ -46,5 +50,17 @@ public sealed class DependencyInjectionTests
         Assert.IsTrue(
             controller.CurrentEstimate.PacingRateBps >= controller.CurrentEstimate.TargetBitrateBps
         );
+    }
+
+    [TestMethod]
+    public void AddStreamTransportWebRtc_KeepsAHostsTimeProvider()
+    {
+        var services = new ServiceCollection();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        services.AddSingleton<TimeProvider>(clock);
+        services.AddStreamTransportWebRtc();
+        using var provider = services.BuildServiceProvider();
+
+        Assert.AreSame(clock, provider.GetRequiredService<TimeProvider>());
     }
 }

@@ -10,7 +10,8 @@ namespace Agash.StreamTransport.WebRtc.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the WebRTC stack: the DTLS certificate (singleton, so the fingerprint is stable), a
+    /// Registers the WebRTC stack: the system <see cref="TimeProvider"/> unless one is registered, the DTLS
+    /// certificate (singleton, so the fingerprint is stable), a
     /// <see cref="PeerConnectionFactory"/>, a per-connection SCReAM <see cref="INetworkController"/>, and
     /// the RTP payload formats this library implements with the <see cref="RtpPayloadFormatRegistry"/>
     /// built from every registered <see cref="RtpPayloadFormat"/>.
@@ -22,6 +23,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(static _ => RtcCertificate.Generate());
         services.TryAddSingleton<PeerConnectionFactory>();
 
