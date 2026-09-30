@@ -38,7 +38,7 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
         _timeline = timeline;
         _clock = clock;
         _logger = logger ?? NullLogger.Instance;
-        _wake = new WakeSignal(clock.TimeProvider);
+        _wake = new WakeSignal(clock.TimeProvider, () => clock.Now.ToTimeSpan());
         _loop = Task.Run(() => RunAsync(_stop.Token));
     }
 
@@ -98,7 +98,7 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
                 if (due is { } next)
                 {
                     _ = await _wake
-                        .WaitAsync(next - _clock.Now, cancellationToken)
+                        .WaitUntilAsync(next.ToTimeSpan(), cancellationToken)
                         .ConfigureAwait(false);
                 }
                 else

@@ -51,7 +51,6 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     /// <param name="registry">Where encoders and processors come from.</param>
     /// <param name="options">The session options.</param>
     /// <param name="pacer">Where packets go.</param>
-    /// <param name="timeProvider">The clock the worker waits on.</param>
     /// <param name="logger">The logger.</param>
     public VideoSendStream(
         IVideoSource source,
@@ -59,7 +58,6 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         MediaCodecRegistry registry,
         MediaSessionOptions options,
         RtpPacer pacer,
-        TimeProvider timeProvider,
         ILogger logger
     )
     {
@@ -69,7 +67,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         _pacer = pacer;
         _logger = logger;
         _bitsPerSecond = setup.StartBitsPerSecond;
-        _wake = new WakeSignal(timeProvider);
+        _wake = new WakeSignal();
         _encoded = new EncodedConsumer(this);
 
         // The source is asked for what the encoder takes, so it can produce that directly; whatever it

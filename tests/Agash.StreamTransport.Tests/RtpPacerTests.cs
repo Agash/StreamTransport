@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Collections.Concurrent;
 using Agash.StreamTransport.Rtp;
 using Microsoft.Extensions.Time.Testing;
 
@@ -11,167 +10,210 @@ public sealed class RtpPacerTests
     private const uint VideoSsrc = 1;
     private const uint AudioSsrc = 2;
 
-    [TestMethod]
-    public async Task Video_IsSpreadOverTimeAtThePacingRate()
-    {
-        FakeTimeProvider time = new();
-        ConcurrentQueue<(uint Ssrc, TimeSpan At)> sent = [];
-        DateTimeOffset start = time.GetUtcNow();
-        await using RtpPacer pacer = new(Recorder(sent, time, start), 800_000, time);
-
-        // 20 packets of 1000 bytes at 100 kB/s take about 200 ms.
-        for (int i = 0; i < 20; i++)
-        {
-            pacer.EnqueueVideo(Packet(VideoSsrc, 1000));
-        }
-
-        await RunAsync(time, TimeSpan.FromMilliseconds(250), () => sent.Count == 20);
-        TimeSpan last = sent.Last().At;
-        Assert.IsTrue(
-            last >= TimeSpan.FromMilliseconds(180) && last <= TimeSpan.FromMilliseconds(220),
-            $"The last packet went at {last.TotalMilliseconds} ms."
-        );
-    }
+    // Guards against a hang; every wait here ends on a signal long before it.
+    private static readonly TimeSpan Guard = TimeSpan.FromSeconds(10);
 
     [TestMethod]
-    public async Task Audio_GoesAheadOfWaitingVideo()
+    public void Queue_SpreadsVideoOverTimeAtTheRate()
     {
-        FakeTimeProvider time = new();
-        ConcurrentQueue<(uint Ssrc, TimeSpan At)> sent = [];
-        DateTimeOffset start = time.GetUtcNow();
-        await using RtpPacer pacer = new(Recorder(sent, time, start), 800_000, time);
+        // 20 packets of 1000 bytes at 100 kB/s take 200 ms.
+        PacingQueue queue = new() { BitsPerSecond = 800_000 };
         for (int i = 0; i < 20; i++)
         {
-            pacer.EnqueueVideo(Packet(VideoSsrc, 1000));
+            queue.EnqueueVideo(Packet(VideoSsrc, 1000), TimeSpan.Zero);
         }
 
-        await RunAsync(time, TimeSpan.FromMilliseconds(50), () => false);
-        pacer.EnqueueAudio(Packet(AudioSsrc, 100));
-        await WaitForAsync(() => sent.Any(static p => p.Ssrc == AudioSsrc));
+        List<(uint Ssrc, TimeSpan At)> sent = Run(queue, TimeSpan.Zero);
 
-        (uint _, TimeSpan audioAt) = sent.First(static p => p.Ssrc == AudioSsrc);
+        Assert.HasCount(20, sent);
         Assert.AreEqual(
-            50,
-            audioAt.TotalMilliseconds,
             10,
-            "audio left without waiting for the video budget"
+            sent[0].At.TotalMilliseconds,
+            0.01,
+            "the first waits for its own budget"
         );
-        Assert.IsLessThan(
-            20,
-            sent.Count(static p => p.Ssrc == VideoSsrc),
-            "video was still queued"
-        );
+        Assert.AreEqual(200, sent[^1].At.TotalMilliseconds, 0.01);
     }
 
     [TestMethod]
-    public async Task StandingQueue_DrainsWithinTheQueueDelayLimit()
+    public void Queue_AudioGoesAheadOfWaitingVideo()
     {
-        FakeTimeProvider time = new();
-        ConcurrentQueue<(uint Ssrc, TimeSpan At)> sent = [];
-        DateTimeOffset start = time.GetUtcNow();
+        PacingQueue queue = new() { BitsPerSecond = 800_000 };
+        for (int i = 0; i < 5; i++)
+        {
+            queue.EnqueueVideo(Packet(VideoSsrc, 1000), TimeSpan.Zero);
+        }
 
-        // 100 kB at 100 kB/s would take a second; the limit caps the wait at 250 ms.
-        await using RtpPacer pacer = new(Recorder(sent, time, start), 800_000, time);
+        Assert.IsNull(queue.Next(TimeSpan.Zero).Packet, "video waits for budget");
+        queue.EnqueueAudio(Packet(AudioSsrc, 100));
+        Assert.AreEqual(AudioSsrc, queue.Next(TimeSpan.Zero).Packet?.Ssrc, "audio does not");
+    }
+
+    [TestMethod]
+    public void Queue_StandingQueueDrainsWithinTheDelayLimit()
+    {
+        // 100 kB at 100 kB/s would take a second; the limit caps the wait.
+        PacingQueue queue = new() { BitsPerSecond = 800_000 };
         for (int i = 0; i < 100; i++)
         {
-            pacer.EnqueueVideo(Packet(VideoSsrc, 1000));
+            queue.EnqueueVideo(Packet(VideoSsrc, 1000), TimeSpan.Zero);
         }
 
-        await RunAsync(time, TimeSpan.FromMilliseconds(400), () => sent.Count == 100);
-        Assert.IsLessThanOrEqualTo(
-            RtpPacer.MaxQueueDelay + TimeSpan.FromMilliseconds(20),
-            sent.Last().At
-        );
+        List<(uint Ssrc, TimeSpan At)> sent = Run(queue, TimeSpan.Zero);
+
+        Assert.HasCount(100, sent);
+        Assert.IsLessThanOrEqualTo(PacingQueue.MaxQueueDelay, sent[^1].At);
     }
 
     [TestMethod]
-    public async Task ZeroRate_SendsAtOnce()
+    public void Queue_IdleTimeSavesOnlyAShortBurst()
     {
-        FakeTimeProvider time = new();
-        ConcurrentQueue<(uint Ssrc, TimeSpan At)> sent = [];
-        await using RtpPacer pacer = new(Recorder(sent, time, time.GetUtcNow()), 0, time);
+        PacingQueue queue = new() { BitsPerSecond = 800_000 };
+        queue.EnqueueVideo(Packet(VideoSsrc, 1000), TimeSpan.Zero);
+        _ = Run(queue, TimeSpan.Zero);
+
+        // After a second idle, ten packets do not all leave at once.
+        var later = TimeSpan.FromSeconds(1);
         for (int i = 0; i < 10; i++)
         {
-            pacer.EnqueueVideo(Packet(VideoSsrc, 1000));
+            queue.EnqueueVideo(Packet(VideoSsrc, 1000), later);
         }
 
-        await WaitForAsync(() => sent.Count == 10);
-        Assert.IsTrue(sent.All(static p => p.At == TimeSpan.Zero));
+        List<(uint Ssrc, TimeSpan At)> sent = Run(queue, later);
+        Assert.AreEqual(later, sent[0].At, "one packet's budget was saved");
+        Assert.IsGreaterThan(later, sent[1].At, "the rest are paced");
     }
 
     [TestMethod]
-    public async Task FailedSend_IsDroppedAndTheNextOneGoes()
+    public void Queue_ZeroRate_SendsAtOnce()
+    {
+        PacingQueue queue = new();
+        for (int i = 0; i < 10; i++)
+        {
+            queue.EnqueueVideo(Packet(VideoSsrc, 1000), TimeSpan.Zero);
+        }
+
+        Assert.IsTrue(Run(queue, TimeSpan.Zero).All(static p => p.At == TimeSpan.Zero));
+    }
+
+    [TestMethod]
+    public async Task Pacer_SendsWhenTheClockReachesEachPacketsTurn()
     {
         FakeTimeProvider time = new();
-        int attempts = 0;
-        ConcurrentQueue<uint> sent = [];
-        await using RtpPacer pacer = new(
-            (packet, _) =>
-            {
-                if (Interlocked.Increment(ref attempts) == 1)
-                {
-                    throw new InvalidOperationException("The socket closed.");
-                }
+        Sends sends = new(time);
+        await using RtpPacer pacer = new(sends.Send, 800_000, time);
+        pacer.EnqueueVideo(Packet(VideoSsrc, 1000));
+        pacer.EnqueueVideo(Packet(VideoSsrc, 1000));
 
-                sent.Enqueue(packet.Ssrc);
-                return ValueTask.CompletedTask;
-            },
-            0,
-            time
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        await sends.WaitForAsync(1);
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        await sends.WaitForAsync(2);
+
+        CollectionAssert.AreEqual(
+            new[] { TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20) },
+            sends.Times
         );
+    }
+
+    [TestMethod]
+    public async Task Pacer_FailedSendIsDroppedAndTheNextOneGoes()
+    {
+        FakeTimeProvider time = new();
+        Sends sends = new(time, failFirst: true);
+        await using RtpPacer pacer = new(sends.Send, 0, time);
 
         pacer.EnqueueVideo(Packet(VideoSsrc, 100));
         pacer.EnqueueVideo(Packet(VideoSsrc, 100));
 
-        await WaitForAsync(() => sent.Count == 1);
-        Assert.AreEqual(2, attempts);
+        await sends.WaitForAsync(1);
+        Assert.AreEqual(2, sends.Attempts);
+    }
+
+    // Steps the queue as the pacer's loop does, jumping to each wait's end.
+    private static List<(uint Ssrc, TimeSpan At)> Run(PacingQueue queue, TimeSpan now)
+    {
+        List<(uint, TimeSpan)> sent = [];
+        while (true)
+        {
+            PacingStep step = queue.Next(now);
+            if (step.Packet is { } packet)
+            {
+                sent.Add((packet.Ssrc, now));
+                ArrayPool<byte>.Shared.Return(packet.Buffer);
+            }
+            else if (step.Wait is { } wait)
+            {
+                now += wait;
+            }
+            else
+            {
+                return sent;
+            }
+        }
     }
 
     private static PacedPacket Packet(uint ssrc, int length) =>
         new(96, ssrc, 0, false, ArrayPool<byte>.Shared.Rent(length), length, 0);
 
-    private static Func<PacedPacket, CancellationToken, ValueTask> Recorder(
-        ConcurrentQueue<(uint, TimeSpan)> sent,
-        FakeTimeProvider time,
-        DateTimeOffset start
-    ) =>
-        (packet, _) =>
+    // Records when each packet went, on the fake clock, and signals as the count grows.
+    private sealed class Sends(FakeTimeProvider time, bool failFirst = false)
+    {
+        private readonly DateTimeOffset _start = time.GetUtcNow();
+        private readonly Lock _gate = new();
+        private readonly List<TimeSpan> _times = [];
+        private readonly List<(int Count, TaskCompletionSource Reached)> _waiting = [];
+        private int _attempts;
+
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        public TimeSpan[] Times
         {
-            sent.Enqueue((packet.Ssrc, time.GetUtcNow() - start));
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _times];
+                }
+            }
+        }
+
+        public ValueTask Send(PacedPacket packet, CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _attempts) == 1 && failFirst)
+            {
+                throw new InvalidOperationException("The socket closed.");
+            }
+
+            lock (_gate)
+            {
+                _times.Add(time.GetUtcNow() - _start);
+                foreach ((int count, TaskCompletionSource reached) in _waiting)
+                {
+                    if (_times.Count >= count)
+                    {
+                        reached.TrySetResult();
+                    }
+                }
+            }
+
             return ValueTask.CompletedTask;
-        };
-
-    // Advances simulated time in 1 ms steps, letting the pacer's loop run between them.
-    private static async Task RunAsync(FakeTimeProvider time, TimeSpan duration, Func<bool> done)
-    {
-        for (
-            TimeSpan elapsed = TimeSpan.Zero;
-            elapsed < duration && !done();
-            elapsed += TimeSpan.FromMilliseconds(1)
-        )
-        {
-            await SettleAsync();
-            time.Advance(TimeSpan.FromMilliseconds(1));
         }
 
-        await SettleAsync();
-    }
-
-    private static async Task SettleAsync()
-    {
-        for (int i = 0; i < 3; i++)
+        public Task WaitForAsync(int count)
         {
-            await Task.Delay(1);
-        }
-    }
+            TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_gate)
+            {
+                if (_times.Count >= count)
+                {
+                    return Task.CompletedTask;
+                }
 
-    private static async Task WaitForAsync(Func<bool> condition)
-    {
-        for (int i = 0; i < 300 && !condition(); i++)
-        {
-            await Task.Delay(10);
-        }
+                _waiting.Add((count, reached));
+            }
 
-        Assert.IsTrue(condition());
+            return reached.Task.WaitAsync(Guard);
+        }
     }
 }

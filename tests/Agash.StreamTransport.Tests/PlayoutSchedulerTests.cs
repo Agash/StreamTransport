@@ -78,63 +78,60 @@ public sealed class PlayoutSchedulerTests
     public async Task Scheduler_ReleasesInCaptureOrderWhenDue()
     {
         FakeTimeProvider time = new();
-        MediaClock clock = new(time);
-        ConcurrentQueue<int> played = [];
+        Played played = new(time);
         await using PlayoutScheduler scheduler = new(
             new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
-            clock
+            new MediaClock(time)
         );
         var start = NtpTime.From(time.GetUtcNow());
 
-        scheduler.Schedule(start + TimeSpan.FromMilliseconds(20), new Entry(2, played));
-        scheduler.Schedule(start, new Entry(0, played));
-        scheduler.Schedule(start + TimeSpan.FromMilliseconds(10), new Entry(1, played));
-
-        await Settle();
-        Assert.IsEmpty(played, "nothing plays before its slot");
+        scheduler.Schedule(start + TimeSpan.FromMilliseconds(20), played.Entry(2));
+        scheduler.Schedule(start, played.Entry(0));
+        scheduler.Schedule(start + TimeSpan.FromMilliseconds(10), played.Entry(1));
 
         time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
-        await WaitForAsync(() => played.Count == 3);
-        CollectionAssert.AreEqual(new[] { 0, 1, 2 }, played.ToArray());
+        await played.WaitForAsync(3);
+        CollectionAssert.AreEqual(new[] { 0, 1, 2 }, played.Ids);
     }
 
     [TestMethod]
-    public async Task Scheduler_HoldsAnEntryUntilItsSlot()
+    public async Task Scheduler_PlaysAnEntryWhenItsSlotComes()
     {
         FakeTimeProvider time = new();
-        ConcurrentQueue<int> played = [];
+        Played played = new(time);
         await using PlayoutScheduler scheduler = new(
             new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
             new MediaClock(time)
         );
 
-        scheduler.Schedule(NtpTime.From(time.GetUtcNow()), new Entry(0, played));
+        scheduler.Schedule(NtpTime.From(time.GetUtcNow()), played.Entry(0));
         time.Advance(Fixed - TimeSpan.FromMilliseconds(1));
-        await Settle();
-        Assert.IsEmpty(played);
-
         time.Advance(TimeSpan.FromMilliseconds(1));
-        await WaitForAsync(() => played.Count == 1);
+        await played.WaitForAsync(1);
+
+        Assert.AreEqual(Fixed, played.Times[0], "played at its slot, not before");
     }
 
     [TestMethod]
     public async Task Scheduler_ExtraDelay_ShiftsTheSlot()
     {
         FakeTimeProvider time = new();
-        ConcurrentQueue<int> played = [];
+        Played played = new(time);
         await using PlayoutScheduler scheduler = new(
             new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
             new MediaClock(time)
         );
         var now = NtpTime.From(time.GetUtcNow());
 
-        scheduler.Schedule(now, new Entry(1, played), TimeSpan.FromMilliseconds(50));
-        scheduler.Schedule(now, new Entry(0, played));
+        scheduler.Schedule(now, played.Entry(1), TimeSpan.FromMilliseconds(50));
+        scheduler.Schedule(now, played.Entry(0));
         time.Advance(Fixed);
-        await WaitForAsync(() => played.Count == 1);
+        await played.WaitForAsync(1);
         time.Advance(TimeSpan.FromMilliseconds(50));
-        await WaitForAsync(() => played.Count == 2);
-        CollectionAssert.AreEqual(new[] { 0, 1 }, played.ToArray());
+        await played.WaitForAsync(2);
+
+        CollectionAssert.AreEqual(new[] { 0, 1 }, played.Ids);
+        Assert.AreEqual(Fixed + TimeSpan.FromMilliseconds(50), played.Times[1]);
     }
 
     [TestMethod]
@@ -185,17 +182,76 @@ public sealed class PlayoutSchedulerTests
 
     private static MediaTime Local(long milliseconds) => new(milliseconds * 1_000_000);
 
-    // Lets the scheduler's loop run after the fake clock moves.
-    private static Task Settle() => Task.Delay(50);
-
-    private static async Task WaitForAsync(Func<bool> condition)
+    // Records which entries played, and when on the fake clock, and signals as they do.
+    private sealed class Played(FakeTimeProvider time)
     {
-        for (int i = 0; i < 200 && !condition(); i++)
+        private static readonly TimeSpan Guard = TimeSpan.FromSeconds(10);
+        private readonly DateTimeOffset _start = time.GetUtcNow();
+        private readonly Lock _gate = new();
+        private readonly List<(int Id, TimeSpan At)> _played = [];
+        private readonly List<(int Count, TaskCompletionSource Reached)> _waiting = [];
+
+        public int[] Ids
         {
-            await Task.Delay(10);
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _played.Select(static p => p.Id)];
+                }
+            }
         }
 
-        Assert.IsTrue(condition());
+        public TimeSpan[] Times
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _played.Select(static p => p.At)];
+                }
+            }
+        }
+
+        public IPlayoutEntry Entry(int id) => new Recording(this, id);
+
+        public Task WaitForAsync(int count)
+        {
+            TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_gate)
+            {
+                if (_played.Count >= count)
+                {
+                    return Task.CompletedTask;
+                }
+
+                _waiting.Add((count, reached));
+            }
+
+            return reached.Task.WaitAsync(Guard);
+        }
+
+        private void Record(int id)
+        {
+            lock (_gate)
+            {
+                _played.Add((id, time.GetUtcNow() - _start));
+                foreach ((int count, TaskCompletionSource reached) in _waiting)
+                {
+                    if (_played.Count >= count)
+                    {
+                        reached.TrySetResult();
+                    }
+                }
+            }
+        }
+
+        private sealed class Recording(Played played, int id) : IPlayoutEntry
+        {
+            public void Play() => played.Record(id);
+
+            public void Dispose() { }
+        }
     }
 
     private sealed class Entry(int id, ConcurrentQueue<int> played) : IPlayoutEntry

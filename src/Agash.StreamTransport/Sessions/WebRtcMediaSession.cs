@@ -377,7 +377,6 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 _services.Codecs,
                 _options,
                 _pacer!,
-                _services.Clock.TimeProvider,
                 _logger
             );
         }
