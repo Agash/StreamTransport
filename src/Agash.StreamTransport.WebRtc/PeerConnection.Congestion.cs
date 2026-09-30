@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Diagnostics;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Srtp;
 
@@ -20,12 +19,12 @@ public sealed partial class PeerConnection
     private readonly Dictionary<uint, Dictionary<ushort, ArrivalInfo>> _arrivals = []; // ssrc -> (seq -> arrival µs + ECN)
     private readonly List<PacketResult> _feedbackScratch = [];
     private readonly List<CcfbStreamReport> _ccfbScratch = [];
-    private Timer? _ccfbTimer;
-    private Timer? _processTimer;
+    private ITimer? _ccfbTimer;
+    private ITimer? _processTimer;
     private double _lossRate;
 
-    private const int FeedbackIntervalMs = 50; // how often the receiver emits CCFB
-    private const int ProcessIntervalMs = 25; // how often the sender's controller self-adapts
+    private static readonly TimeSpan FeedbackInterval = TimeSpan.FromMilliseconds(50); // how often the receiver emits CCFB
+    private static readonly TimeSpan ProcessInterval = TimeSpan.FromMilliseconds(25); // how often the sender's controller self-adapts
     private const int MaxReportRun = 256; // cap a CCFB run so one packet stays small
 
     /// <summary>
@@ -79,7 +78,8 @@ public sealed partial class PeerConnection
         }
     }
 
-    private static long NowMicros() => Stopwatch.GetTimestamp() * 1_000_000L / Stopwatch.Frequency;
+    // Microseconds on the connection's monotonic clock, counted from its creation.
+    private long NowMicros() => _time.GetElapsedTime(_origin).Ticks / TimeSpan.TicksPerMicrosecond;
 
     private static long Key(uint ssrc, ushort seq) => ((long)ssrc << 16) | seq;
 
@@ -136,7 +136,7 @@ public sealed partial class PeerConnection
     {
         // The feedback timer runs on both peers (whoever receives media sends CCFB). The process timer only
         // matters where a controller consumes feedback, but starting it unconditionally is harmless.
-        _ccfbTimer ??= new Timer(
+        _ccfbTimer ??= _time.CreateTimer(
             static s =>
             {
                 var pc = (PeerConnection)s!;
@@ -144,16 +144,16 @@ public sealed partial class PeerConnection
                 pc.ProcessNackResends();
             },
             this,
-            FeedbackIntervalMs,
-            FeedbackIntervalMs
+            FeedbackInterval,
+            FeedbackInterval
         );
         if (_controller is not null)
         {
-            _processTimer ??= new Timer(
+            _processTimer ??= _time.CreateTimer(
                 static s => ((PeerConnection)s!).RunProcessInterval(),
                 this,
-                ProcessIntervalMs,
-                ProcessIntervalMs
+                ProcessInterval,
+                ProcessInterval
             );
         }
     }

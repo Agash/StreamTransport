@@ -8,6 +8,7 @@
       Include="Microsoft.Extensions.DependencyInjection"
       Version="11.0.0-rc.1.26425.128"
     />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
     <PackageVersion Include="Dtls.NET" Version="0.1.0-alpha.1" />
     <PackageVersion Include="FFmpeg.Interop" Version="0.1.0-alpha.1" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.5" />

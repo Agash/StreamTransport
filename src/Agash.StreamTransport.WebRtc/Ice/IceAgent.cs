@@ -22,6 +22,8 @@ public sealed partial class IceAgent : IAsyncDisposable
 {
     private const int MaxCheckTransmits = 7;
     private readonly IceTimings _timings;
+    private readonly TimeProvider _time;
+    private readonly long _origin;
 
     private readonly IceRole _role;
     private readonly ulong _tieBreaker;
@@ -53,15 +55,25 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// Creates an agent. <paramref name="role"/> follows the offer/answer (offerer = controlling).
     /// <paramref name="socketFactory"/> defaults to real UDP; tests inject an in-memory one.
     /// </summary>
+    /// <param name="localCredentials">This agent's ufrag and password.</param>
+    /// <param name="role">Controlling or controlled.</param>
+    /// <param name="includeLoopback">Whether to gather loopback candidates.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="socketFactory">Creates the sockets candidates are gathered on.</param>
+    /// <param name="timings">Check pacing, retransmission and consent timing.</param>
+    /// <param name="timeProvider">The clock that paces checks and measures consent; the system's when null.</param>
     public IceAgent(
         IceCredentials localCredentials,
         IceRole role,
         bool includeLoopback = false,
         ILogger<IceAgent>? logger = null,
         IIceSocketFactory? socketFactory = null,
-        IceTimings? timings = null
+        IceTimings? timings = null,
+        TimeProvider? timeProvider = null
     )
     {
+        _time = timeProvider ?? TimeProvider.System;
+        _origin = _time.GetTimestamp();
         LocalCredentials = localCredentials;
         _role = role;
         _includeLoopback = includeLoopback;
@@ -430,7 +442,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         // mirroring libwebrtc's last-received tracking. Without this, a flaky link refreshes consent only on
         // our check *responses* (round-trip survival) and discards the peer's checks (one-way survival),
         // tripping false consent loss under loss that an alive path should ride out.
-        pair.LastResponseUtc = DateTime.UtcNow;
+        pair.LastResponse = Now;
         // A nomination can arrive before our own check on the pair has succeeded; the controlling agent
         // does not repeat it, so remember it and select the pair when that check succeeds (RFC 8445
         // section 7.3.1.5).
@@ -479,7 +491,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         pair.State = PairState.Succeeded;
-        pair.LastResponseUtc = DateTime.UtcNow;
+        pair.LastResponse = Now;
         LogPairSucceeded(_logger, pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
 
         if (pair.NominationCheck || (pair.NominatedByPeer && _role == IceRole.Controlled))
@@ -536,7 +548,7 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         pair.Nominated = true;
         _selected = pair;
-        pair.LastResponseUtc = DateTime.UtcNow;
+        pair.LastResponse = Now;
         LogSelectedPair(_logger, pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
         SetState(IceConnectionState.Connected);
     }
@@ -581,13 +593,20 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
+    // Monotonic time since the agent was created; wall-clock steps do not move it.
+    private TimeSpan Now => _time.GetElapsedTime(_origin);
+
+    // How long ago something happened; forever when it never did.
+    private static TimeSpan Since(TimeSpan? at, TimeSpan now) =>
+        at is { } then ? now - then : TimeSpan.MaxValue;
+
     private async Task CheckLoopAsync(CancellationToken ct)
     {
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(_timings.Ta, ct).ConfigureAwait(false);
+                await Task.Delay(_timings.Ta, _time, ct).ConfigureAwait(false);
                 if (_remote.Password is not { Length: > 0 })
                 {
                     continue; // can't key checks until we have the remote password.
@@ -606,7 +625,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     // gather. libwebrtc's continual-gathering model (stable_writable_connection_ping_interval).
     private void MaintainHotStandby()
     {
-        DateTime now = DateTime.UtcNow;
+        TimeSpan now = Now;
         List<CandidatePair>? toPing = null;
         lock (_gate)
         {
@@ -617,9 +636,9 @@ public sealed partial class IceAgent : IAsyncDisposable
                     continue;
                 }
 
-                if (now - p.LastSentUtc > _timings.ConsentInterval)
+                if (Since(p.LastSent, now) > _timings.ConsentInterval)
                 {
-                    p.LastSentUtc = now;
+                    p.LastSent = now;
                     (toPing ??= []).Add(p);
                 }
             }
@@ -636,7 +655,7 @@ public sealed partial class IceAgent : IAsyncDisposable
 
     // The highest-priority validated alternate that has answered within the consent window - a pre-warmed pair
     // ready to take over.
-    private CandidatePair? BestWarmAlternate(DateTime now, CandidatePair exclude)
+    private CandidatePair? BestWarmAlternate(TimeSpan now, CandidatePair exclude)
     {
         lock (_gate)
         {
@@ -646,7 +665,7 @@ public sealed partial class IceAgent : IAsyncDisposable
                 if (
                     ReferenceEquals(p, exclude)
                     || p.State != PairState.Succeeded
-                    || now - p.LastResponseUtc > _timings.ConsentTimeout
+                    || Since(p.LastResponse, now) > _timings.ConsentTimeout
                 )
                 {
                     continue;
@@ -677,7 +696,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     private void SendNextCheck()
     {
         CandidatePair? toCheck = null;
-        DateTime now = DateTime.UtcNow;
+        TimeSpan now = Now;
         lock (_gate)
         {
             // Triggered checks first, then the highest-priority waiting/retransmit-due pair.
@@ -704,14 +723,14 @@ public sealed partial class IceAgent : IAsyncDisposable
             {
                 toCheck.State = PairState.InProgress;
             }
-            toCheck.LastSentUtc = now;
+            toCheck.LastSent = now;
             toCheck.Transmits++;
         }
 
         SendBindingCheck(toCheck);
     }
 
-    private CandidatePair? NextOrdinaryCheck(DateTime now)
+    private CandidatePair? NextOrdinaryCheck(TimeSpan now)
     {
         foreach (CandidatePair p in _pairs)
         {
@@ -720,7 +739,7 @@ public sealed partial class IceAgent : IAsyncDisposable
                 return p;
             }
 
-            if (p.State == PairState.InProgress && now - p.LastSentUtc > _timings.CheckRto)
+            if (p.State == PairState.InProgress && Since(p.LastSent, now) > _timings.CheckRto)
             {
                 if (p.Transmits >= MaxCheckTransmits)
                 {
@@ -795,8 +814,8 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         // Consent is tracked per the SELECTED pair, not globally: hot-standby keep-alives on the alternates
         // also produce binding responses, so a global timer would never see the selected path die.
-        DateTime now = DateTime.UtcNow;
-        if (now - selected.LastResponseUtc > _timings.ConsentTimeout)
+        TimeSpan now = Now;
+        if (Since(selected.LastResponse, now) > _timings.ConsentTimeout)
         {
             LogConsentLost(_logger, selected.Remote.Endpoint);
 
@@ -815,9 +834,9 @@ public sealed partial class IceAgent : IAsyncDisposable
             return;
         }
 
-        if (now - selected.LastSentUtc > _timings.ConsentInterval)
+        if (Since(selected.LastSent, now) > _timings.ConsentInterval)
         {
-            selected.LastSentUtc = now;
+            selected.LastSent = now;
             SendBindingCheck(selected);
         }
     }
@@ -947,8 +966,8 @@ public sealed partial class IceAgent : IAsyncDisposable
         public bool Nominated { get; set; }
         public bool NominatedByPeer { get; set; }
         public bool RemoteRequestSeen { get; set; }
-        public DateTime LastSentUtc { get; set; }
-        public DateTime LastResponseUtc { get; set; }
+        public TimeSpan? LastSent { get; set; }
+        public TimeSpan? LastResponse { get; set; }
         public int Transmits { get; set; }
     }
 }

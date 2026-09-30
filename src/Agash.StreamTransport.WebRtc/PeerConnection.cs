@@ -42,6 +42,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private int _state = (int)PeerConnectionState.New;
 
     private readonly ILoggerFactory _loggerFactory;
+    private readonly TimeProvider _time;
+    private readonly long _origin;
 
     /// <summary>Creates a peer connection.</summary>
     /// <param name="options">The media and ICE configuration.</param>
@@ -52,14 +54,21 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// resulting <see cref="BitrateEstimateChanged"/> estimates retune the encoder/pacer; when null, only
     /// receive-side feedback generation runs.
     /// </param>
+    /// <param name="timeProvider">
+    /// The clock behind ICE pacing and consent, congestion feedback and retransmission timing; the system's
+    /// when null.
+    /// </param>
     public PeerConnection(
         PeerConnectionOptions options,
         RtcCertificate certificate,
         ILoggerFactory? loggerFactory = null,
-        INetworkController? controller = null
+        INetworkController? controller = null,
+        TimeProvider? timeProvider = null
     )
     {
         _options = options;
+        _time = timeProvider ?? TimeProvider.System;
+        _origin = _time.GetTimestamp();
         ArgumentNullException.ThrowIfNull(certificate);
         _certificate = certificate;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
@@ -412,7 +421,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             role,
             _options.IncludeLoopback,
             _loggerFactory.CreateLogger<IceAgent>(),
-            socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences)
+            socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences),
+            timeProvider: _time
         );
         foreach (IPEndPoint stun in _options.StunServers)
         {
