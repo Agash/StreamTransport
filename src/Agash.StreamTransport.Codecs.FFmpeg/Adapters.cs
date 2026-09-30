@@ -22,17 +22,22 @@ internal static class Adapters
         : adapter.DrmDeviceNumbers is [ulong first, ..] ? GpuIdentity.FromDrmDevice(first)
         : null;
 
-    // The adapter a backend would run on for a device requirement, or null when it cannot run there.
-    public static FF.GpuAdapter? For(EncoderBackend backend, GpuIdentity? device)
-    {
-        FF.GpuVendor? vendor = backend switch
-        {
-            EncoderBackend.Nvenc => FF.GpuVendor.Nvidia,
-            EncoderBackend.Amf => FF.GpuVendor.Amd,
-            EncoderBackend.Qsv => FF.GpuVendor.Intel,
-            _ => null,
-        };
+    // The adapter an encoder backend would run on for a device requirement, or null when it cannot.
+    public static FF.GpuAdapter? For(EncoderBackend backend, GpuIdentity? device) =>
+        For(
+            backend switch
+            {
+                EncoderBackend.Nvenc => FF.GpuVendor.Nvidia,
+                EncoderBackend.Amf => FF.GpuVendor.Amd,
+                EncoderBackend.Qsv => FF.GpuVendor.Intel,
+                _ => null,
+            },
+            device
+        );
 
+    // The named GPU if it is of the vendor, or the vendor's GPU with the most dedicated memory.
+    public static FF.GpuAdapter? For(FF.GpuVendor? vendor, GpuIdentity? device)
+    {
         if (device is { } identity)
         {
             FF.GpuAdapter? named = Find(identity);

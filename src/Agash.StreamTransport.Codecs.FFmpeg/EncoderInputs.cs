@@ -192,9 +192,11 @@ internal sealed class D3D12Input : EncoderInput
 {
     private readonly FF.HardwareDevice _device;
     private readonly FF.HardwareFramePool _pool;
+    private readonly VideoSize _size;
 
     public D3D12Input(D3D12Image image, PixelFormat format, VideoSize size)
     {
+        _size = size;
         _device = FF.HardwareDevice.FromD3D12Resource(image.Resource);
         _pool = FF.HardwareFramePool.Create(
             _device,
@@ -211,6 +213,9 @@ internal sealed class D3D12Input : EncoderInput
 
     public override FF.HardwareDevice Device => _device;
 
+    // A texture of exactly the picture is read in place; a larger one (a decoder pads its surfaces) or a
+    // slice of an array is first copied on the GPU, since the encoder reads whole single textures.
+    // Either way the encoder is ordered after the producer on the GPU.
     public override void Prepare(in VideoFrame frame, FF.Frame destination)
     {
         if (!frame.Storage.TryGetValue(out D3D12Image image))
@@ -218,21 +223,31 @@ internal sealed class D3D12Input : EncoderInput
             throw new ArgumentException("The frame is not a Direct3D 12 resource.", nameof(frame));
         }
 
-        if (image.Subresource != 0)
+        bool inPlace = image.Subresource == 0 && frame.Format.CodedSize == _size;
+        D3D12Sync sync = image.Sync;
+        if (inPlace && sync.Fence != 0 && sync.ProducerQueue == 0)
         {
-            throw new NotSupportedException(
-                "Direct3D 12 encoders read single textures; this frame is a slice of a texture array."
-            );
+            _pool.WrapD3D12Texture(image.Resource, sync.Fence, sync.Value, destination);
         }
-
-        // Ordered after the producer's queue when it names one, else after its fence, on the GPU.
-        if (image.Sync is { ProducerQueue: 0, Fence: not 0 } fenced)
+        else if (inPlace)
         {
-            _pool.WrapD3D12Texture(image.Resource, fenced.Fence, fenced.Value, destination);
+            _pool.WrapD3D12Texture(image.Resource, sync.ProducerQueue, destination);
+        }
+        else if (sync.ProducerQueue == 0)
+        {
+            _pool.CopyFromD3D12Texture(
+                image.Resource,
+                image.Subresource,
+                sync.Fence,
+                sync.Value,
+                destination
+            );
         }
         else
         {
-            _pool.WrapD3D12Texture(image.Resource, image.Sync.ProducerQueue, destination);
+            throw new NotSupportedException(
+                "A Direct3D 12 frame larger than the picture must be ordered by a fence, not a producer queue."
+            );
         }
     }
 
