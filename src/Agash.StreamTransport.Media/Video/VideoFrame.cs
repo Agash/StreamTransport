@@ -219,7 +219,9 @@ public interface IVideoFrameRetainer
 
 /// <summary>
 /// An owned frame. Disposing it releases the buffer (or signals the release point) exactly once;
-/// using <see cref="Frame"/> afterwards throws <see cref="ObjectDisposedException"/>.
+/// using <see cref="Frame"/> afterwards throws <see cref="ObjectDisposedException"/>. A holder that reads
+/// the frame on a GPU keeps the lease until that work has finished, since the producer may reuse the
+/// surface as soon as the lease is released.
 /// </summary>
 public abstract class VideoFrameLease : IDisposable
 {
