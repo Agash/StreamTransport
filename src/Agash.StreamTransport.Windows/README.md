@@ -42,8 +42,10 @@ to reach the speaker, for a session's audio output offset.
 
 ## Registration
 
-Register the processor with a codec registry like any processor:
+`AddWindowsMedia()` registers the processor, which sessions then choose for frames on the GPU:
 
 ```csharp
-services.TryAddEnumerable(ServiceDescriptor.Singleton<IVideoProcessorFactory, D3D12VideoProcessorFactory>());
+services.AddStreamTransport().AddFFmpegCodecs().AddWindowsMedia();
 ```
+
+Sources and sinks are made by the application, which names them.
