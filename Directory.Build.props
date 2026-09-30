@@ -30,5 +30,7 @@
   <PropertyGroup>
     <DtlsNetProject Condition="'$(DtlsNetProject)' == ''">$(MSBuildThisFileDirectory)../../../Dtls.NET/src/Dtls.NET/Dtls.NET.csproj</DtlsNetProject>
     <UseLocalDtlsNet Condition="'$(UseLocalDtlsNet)' == '' and Exists('$(DtlsNetProject)')">true</UseLocalDtlsNet>
+    <FFmpegInteropProject Condition="'$(FFmpegInteropProject)' == ''">$(MSBuildThisFileDirectory)../../../FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj</FFmpegInteropProject>
+    <UseLocalFFmpegInterop Condition="'$(UseLocalFFmpegInterop)' == '' and Exists('$(FFmpegInteropProject)')">true</UseLocalFFmpegInterop>
   </PropertyGroup>
 </Project>

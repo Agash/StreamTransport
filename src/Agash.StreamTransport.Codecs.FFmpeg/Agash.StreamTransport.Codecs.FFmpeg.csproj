@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Agash.StreamTransport.Codecs.FFmpeg</RootNamespace>
+    <PackageId>Agash.StreamTransport.Codecs.FFmpeg</PackageId>
+    <Description>H.264, H.265 and AV1 video encoders and decoders for Agash.StreamTransport on FFmpeg: Direct3D 12, NVENC, AMF, QSV, Vulkan, VA-API, VideoToolbox and software backends behind the Media codec contracts, fed from GPU surfaces without a copy where the backend allows. Bring FFmpeg 9 shared libraries.</Description>
+    <PackageTags>video;codec;encoder;decoder;h264;h265;hevc;av1;ffmpeg;d3d12;nvenc;amf;qsv;vaapi;vulkan;videotoolbox;streaming;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+    <ProjectReference
+      Include="$(FFmpegInteropProject)"
+      Condition="'$(UseLocalFFmpegInterop)' == 'true'"
+    />
+    <PackageReference Include="FFmpeg.Interop" Condition="'$(UseLocalFFmpegInterop)' != 'true'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <InternalsVisibleTo Include="Agash.StreamTransport.Codecs.FFmpeg.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
