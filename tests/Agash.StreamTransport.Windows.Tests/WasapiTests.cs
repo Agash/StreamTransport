@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Agash.StreamTransport.Audio;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Windows.Wasapi;
 

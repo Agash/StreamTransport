@@ -60,6 +60,10 @@
   </Target>
 
   <ItemGroup>
+    <Compile Include="..\Shared\FloatRing.cs" Link="Wasapi\FloatRing.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Agash.StreamTransport.Windows.Tests" />
   </ItemGroup>
 

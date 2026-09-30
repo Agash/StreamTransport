@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework Condition="'$(BuildMacOS)' == 'true'">net11.0-macos</TargetFramework>
+    <TargetFramework Condition="'$(BuildMacOS)' != 'true'">net11.0</TargetFramework>
+    <!-- IOSurface-backed Metal textures, shared events and AVAudioSourceNode as used here, and
+         Syphon.NET's floor. -->
+    <SupportedOSPlatformVersion Condition="'$(BuildMacOS)' == 'true'"
+      >15.0</SupportedOSPlatformVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Agash.StreamTransport.MacOS</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.MacOS</RootNamespace>
+    <PackageId>Agash.StreamTransport.MacOS</PackageId>
+    <Description>macOS media for Agash.StreamTransport: Metal video processors for colour conversion and side-by-side alpha on IOSurfaces, Syphon sources and sinks, and Core Audio through AVAudioEngine.</Description>
+    <PackageTags>webrtc;streaming;macos;metal;iosurface;syphon;coreaudio;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- Off macOS the project builds as an empty library and packs nothing. -->
+  <PropertyGroup Condition="'$(BuildMacOS)' != 'true'">
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BuildMacOS)' == 'true'">
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+    <ProjectReference Include="$(SyphonNetProject)" Condition="'$(UseLocalSyphonNet)' == 'true'" />
+    <PackageReference Include="Syphon.NET" Condition="'$(UseLocalSyphonNet)' != 'true'" />
+    <Compile Include="..\Shared\FloatRing.cs" Link="Audio\FloatRing.cs" />
+    <!-- Metal compiles the kernels for the device they run on when the processor is made. -->
+    <EmbeddedResource Include="Metal\VideoKernels.metal" LogicalName="VideoKernels.metal" />
+    <InternalsVisibleTo Include="Agash.StreamTransport.MacOS.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,4 @@
-namespace Agash.StreamTransport.Windows.Wasapi;
+namespace Agash.StreamTransport.Audio;
 
 // Interleaved samples between a producer and a device thread. When full, the oldest samples go, so the
 // output stays near real time instead of falling behind.

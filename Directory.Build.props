@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <PropertyGroup>
     <!-- Reproducibility is delegated to DotNet.ReproducibleBuilds rather than restated here.
          It sets DebugType to embedded (so the portable PDB with its Source Link map travels
@@ -41,5 +41,14 @@
       >$(MSBuildThisFileDirectory)../Spout2.NET/src/Spout2.NET/Spout2.NET.csproj</Spout2NetProject>
     <UseLocalSpout2Net Condition="'$(UseLocalSpout2Net)' == '' and Exists('$(Spout2NetProject)')"
       >true</UseLocalSpout2Net>
+    <SyphonNetProject Condition="'$(SyphonNetProject)' == ''"
+      >$(MSBuildThisFileDirectory)../Syphon.NET/src/Syphon.NET/Syphon.NET.csproj</SyphonNetProject>
+    <UseLocalSyphonNet Condition="'$(UseLocalSyphonNet)' == '' and Exists('$(SyphonNetProject)')"
+      >true</UseLocalSyphonNet>
+  </PropertyGroup>
+  <!-- The macOS package binds Apple's frameworks, which build only where the macos workload and
+       Xcode are. Elsewhere its projects build empty, so the solution builds on every OS. -->
+  <PropertyGroup>
+    <BuildMacOS Condition="'$(BuildMacOS)' == ''">$([MSBuild]::IsOSPlatform('OSX'))</BuildMacOS>
   </PropertyGroup>
 </Project>

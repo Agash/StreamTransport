@@ -63,6 +63,8 @@ and say what they accept.
 | `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, source and sink contracts. |
 | `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, with natives. |
 | `Agash.StreamTransport.Codecs.Opus` | Opus on Concentus. |
+| `Agash.StreamTransport.Windows` | Direct3D 12 processors, Spout, WASAPI. |
+| `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, Syphon, Core Audio. |
 | `Agash.StreamTransport.Abstractions` | Rooms and signaling contracts. |
 | `Agash.StreamTransport.WebRtc` | ICE, STUN, SRTP, RTP/RTCP, SDP, RTP payload formats, `PeerConnection`. |
 | `Agash.StreamTransport.WebRtc.Abstractions` | Network and congestion control contracts. |

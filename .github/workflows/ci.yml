@@ -58,6 +58,14 @@ jobs:
           ln -sf "$(brew --prefix ffmpeg)"/lib/*.dylib native/ffmpeg/${{ matrix.rid }}/
           ls -l native/ffmpeg/${{ matrix.rid }}/
 
+      # The macOS package targets net11.0-macos, which needs the macos workload. The image's default Xcode
+      # is its newest, which the unpinned workload manifest is built against; the log names it.
+      - name: Install macos workload (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version
+          dotnet workload install macos
+
       - name: Restore
         run: dotnet restore StreamTransport.slnx
 
