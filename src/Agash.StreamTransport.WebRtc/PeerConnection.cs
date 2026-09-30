@@ -158,18 +158,33 @@ public sealed partial class PeerConnection : IAsyncDisposable
             uint ssrc = LocalSsrcFor(remote.Mid, remote.Kind);
 
             // Answer with the offered codecs we also support (matched by encoding name + clock), keeping the
-            // offerer's payload types and preference order. If we support none, echo the offer (legacy peers).
+            // offerer's payload types and preference order and describing each with our own format
+            // parameters and feedback (RFC 3264). If we support none, echo the offer.
             IReadOnlyList<SdpCodec> local = LocalCodecsFor(remote.Kind);
-            List<SdpCodec> agreed =
-            [
-                .. remote.Codecs.Where(rc => local.Any(lc => CodecsMatch(lc, rc))),
-            ];
-            IReadOnlyList<SdpCodec> answerCodecs = agreed.Count > 0 ? agreed : remote.Codecs;
+            List<SdpCodec> offered = [];
+            List<SdpCodec> answered = [];
+            foreach (SdpCodec rc in remote.Codecs)
+            {
+                foreach (SdpCodec lc in local)
+                {
+                    if (CodecsMatch(lc, rc))
+                    {
+                        offered.Add(rc);
+                        answered.Add(lc with { PayloadType = rc.PayloadType });
+                        break;
+                    }
+                }
+            }
+
+            IReadOnlyList<SdpCodec> answerCodecs = answered.Count > 0 ? answered : remote.Codecs;
+            IReadOnlyList<SdpCodec> remoteCodecs = answered.Count > 0 ? offered : remote.Codecs;
 
             media.Add(
                 BuildMediaSection(remote.Mid, remote.Kind, answerCodecs, ssrc, SdpSetup.Active)
             );
-            negotiated.Add(new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs));
+            negotiated.Add(
+                new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs, remoteCodecs)
+            );
         }
 
         NegotiatedMedia = negotiated;
@@ -242,11 +257,22 @@ public sealed partial class PeerConnection : IAsyncDisposable
             var negotiated = new List<NegotiatedMediaInfo>(description.Media.Count);
             foreach (SdpMediaDescription answered in description.Media)
             {
+                IReadOnlyList<SdpCodec> offered = LocalCodecsFor(answered.Kind);
+                List<SdpCodec> ours =
+                [
+                    .. answered.Codecs.Select(ac =>
+                        offered.FirstOrDefault(oc => oc.PayloadType == ac.PayloadType)
+                            is { EncodingName: not null } oc
+                            ? oc
+                            : ac
+                    ),
+                ];
                 negotiated.Add(
                     new NegotiatedMediaInfo(
                         answered.Kind,
                         answered.Mid,
                         LocalSsrcFor(answered.Mid, answered.Kind),
+                        ours,
                         answered.Codecs
                     )
                 );

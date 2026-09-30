@@ -27,15 +27,22 @@ public sealed record MediaLine(
 }
 
 /// <summary>
-/// The outcome of offer/answer for one media section: the codec(s) both peers agreed on (in the offerer's
-/// payload-type space) plus the local SSRC this endpoint sends that media with. The media layer reads this
-/// to pick the negotiated encoder/decoder + payload type, rather than assuming a fixed codec.
+/// The outcome of offer/answer for one media section: the codecs both peers agreed on, most preferred
+/// first and in the offerer's payload types, and the SSRC this endpoint sends with. Each side describes
+/// the codecs itself (RFC 3264): <see cref="Codecs"/> holds this endpoint's format parameters, which
+/// describe what it sends, and <see cref="RemoteCodecs"/> the peer's, which describe what it sends.
 /// </summary>
+/// <param name="Kind">Audio or video.</param>
+/// <param name="Mid">The media identification tag.</param>
+/// <param name="LocalSsrc">The SSRC this endpoint sends with.</param>
+/// <param name="Codecs">The agreed codecs as this endpoint described them.</param>
+/// <param name="RemoteCodecs">The same codecs, in the same order, as the peer described them.</param>
 public sealed record NegotiatedMediaInfo(
     SdpMediaKind Kind,
     string Mid,
     uint LocalSsrc,
-    IReadOnlyList<SdpCodec> Codecs
+    IReadOnlyList<SdpCodec> Codecs,
+    IReadOnlyList<SdpCodec> RemoteCodecs
 );
 
 /// <summary>Configuration for a <see cref="PeerConnection"/>.</summary>

@@ -359,6 +359,62 @@ public sealed class PeerConnectionTests
     }
 
     [TestMethod]
+    public async Task OfferAnswer_EachSideDescribesTheCodecsItSends()
+    {
+        var offered = new SdpCodec(
+            102,
+            "H264",
+            90000,
+            null,
+            "packetization-mode=1;profile-level-id=42e01f",
+            []
+        );
+        var supported = new SdpCodec(
+            120,
+            "H264",
+            90000,
+            null,
+            "packetization-mode=1;profile-level-id=640c1f",
+            ["nack"]
+        );
+        await using var offerer = new PeerConnection(
+            new PeerConnectionOptions
+            {
+                Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xAAAA_0002, [offered])],
+            },
+            Certificate
+        );
+        await using var answerer = new PeerConnection(
+            new PeerConnectionOptions
+            {
+                Media =
+                [
+                    new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0002, [supported]),
+                ],
+            },
+            Certificate
+        );
+
+        answerer.SetRemoteDescription(offerer.CreateOffer(), SdpType.Offer);
+        SdpDescription answer = answerer.CreateAnswer();
+        offerer.SetRemoteDescription(answer, SdpType.Answer);
+
+        SdpCodec answered = answer.Media[0].Codecs.Single();
+        Assert.AreEqual(102, answered.PayloadType, "the answer keeps the offerer's payload type");
+        Assert.AreEqual(
+            supported.FormatParameters,
+            answered.FormatParameters,
+            "and its own parameters"
+        );
+        NegotiatedMediaInfo atAnswerer = answerer.NegotiatedMedia.Single();
+        Assert.AreEqual(supported.FormatParameters, atAnswerer.Codecs[0].FormatParameters);
+        Assert.AreEqual(offered.FormatParameters, atAnswerer.RemoteCodecs[0].FormatParameters);
+        NegotiatedMediaInfo atOfferer = offerer.NegotiatedMedia.Single();
+        Assert.AreEqual(offered.FormatParameters, atOfferer.Codecs[0].FormatParameters);
+        Assert.AreEqual(supported.FormatParameters, atOfferer.RemoteCodecs[0].FormatParameters);
+    }
+
+    [TestMethod]
     [Timeout(90_000)]
     public async Task OfferAnswer_NarrowsToMutuallySupportedCodec()
     {
