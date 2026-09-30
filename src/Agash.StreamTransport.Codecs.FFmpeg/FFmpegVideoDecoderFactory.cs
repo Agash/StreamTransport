@@ -58,8 +58,10 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
             ? []
             :
             [
-                .. Enum.GetValues<VideoCodecId>()
-                    .Where(codec => FF.Codec.TryFindDecoder(_spec.DecoderFor(codec), out _))
+                .. VideoCodecId
+                    .BuiltIn.Where(codec =>
+                        _spec.DecoderFor(codec) is { } name && FF.Codec.TryFindDecoder(name, out _)
+                    )
                     .Select(static codec => new VideoCodecFormat(codec)),
             ];
 
@@ -120,7 +122,8 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     {
         if (
             Rank == 0
-            || !FF.Codec.TryFindDecoder(_spec.DecoderFor(format.Codec), out FF.Codec codec)
+            || _spec.DecoderFor(format.Codec) is not { } name
+            || !FF.Codec.TryFindDecoder(name, out FF.Codec codec)
         )
         {
             return null;

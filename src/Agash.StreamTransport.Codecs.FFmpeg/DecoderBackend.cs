@@ -46,15 +46,12 @@ internal sealed record DecoderSpec(
         : 0;
 
     // FFmpeg's decoder for a codec: the built-in one, which every hardware API accelerates, except
-    // AV1 in software, where dav1d is FFmpeg's fast decoder.
-    public string DecoderFor(VideoCodecId codec) =>
-        codec switch
-        {
-            VideoCodecId.H264 => "h264",
-            VideoCodecId.H265 => "hevc",
-            VideoCodecId.AV1 => DeviceType is null ? "libdav1d" : "av1",
-            _ => throw new ArgumentOutOfRangeException(nameof(codec), codec, null),
-        };
+    // AV1 in software, where dav1d is FFmpeg's fast decoder. Null for a codec this package lacks.
+    public string? DecoderFor(VideoCodecId codec) =>
+        codec == VideoCodecId.H264 ? "h264"
+        : codec == VideoCodecId.H265 ? "hevc"
+        : codec == VideoCodecId.AV1 ? (DeviceType is null ? "libdav1d" : "av1")
+        : null;
 }
 
 internal static class DecoderCatalog

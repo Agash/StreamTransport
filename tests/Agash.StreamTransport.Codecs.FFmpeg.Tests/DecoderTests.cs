@@ -9,7 +9,7 @@ public sealed class DecoderTests
 
     public static IEnumerable<object[]> Cases =>
         from backend in Enum.GetValues<DecoderBackend>()
-        from codec in Enum.GetValues<VideoCodecId>()
+        from codec in VideoCodecId.BuiltIn
         select new object[] { backend, codec };
 
     [TestMethod]
@@ -95,7 +95,7 @@ public sealed class DecoderTests
         EncoderBackend encoderBackend
     )
     {
-        const VideoCodecId codec = VideoCodecId.H265;
+        VideoCodecId codec = VideoCodecId.H265;
         FFmpegVideoEncoderFactory encoders = new(encoderBackend);
         VideoEncoderInfo? encoderInfo = encoders.QueryCapabilities(
             new VideoCodecFormat(codec),

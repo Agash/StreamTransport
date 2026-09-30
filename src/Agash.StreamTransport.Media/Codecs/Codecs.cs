@@ -3,19 +3,6 @@ using System.Collections.Immutable;
 
 namespace Agash.StreamTransport.Media;
 
-/// <summary>The video codecs StreamTransport implements.</summary>
-public enum VideoCodecId
-{
-    /// <summary>H.264 / AVC, the codec every WebRTC peer and WHIP client speaks.</summary>
-    H264,
-
-    /// <summary>H.265 / HEVC.</summary>
-    H265,
-
-    /// <summary>AV1.</summary>
-    AV1,
-}
-
 /// <summary>What an encoder's rate control and latency settings are chosen for.</summary>
 public enum EncodeTuning
 {
@@ -27,13 +14,6 @@ public enum EncodeTuning
 
     /// <summary>A lossy, varying uplink: a deeper rate-control buffer that rides out rate swings.</summary>
     LossResilient,
-}
-
-/// <summary>The audio codecs StreamTransport implements.</summary>
-public enum AudioCodecId
-{
-    /// <summary>Opus.</summary>
-    Opus,
 }
 
 /// <summary>

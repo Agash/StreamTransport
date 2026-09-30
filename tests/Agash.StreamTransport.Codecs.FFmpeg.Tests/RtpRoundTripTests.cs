@@ -12,17 +12,18 @@ public sealed class RtpRoundTripTests
     private const int FrameCount = 20;
 
     [TestMethod]
-    [DataRow(VideoCodecId.H264, 1200)]
-    [DataRow(VideoCodecId.H264, 200)]
-    [DataRow(VideoCodecId.H265, 1200)]
-    [DataRow(VideoCodecId.H265, 200)]
-    [DataRow(VideoCodecId.AV1, 1200)]
-    [DataRow(VideoCodecId.AV1, 200)]
+    [DataRow("H264", 1200)]
+    [DataRow("H264", 200)]
+    [DataRow("H265", 1200)]
+    [DataRow("H265", 200)]
+    [DataRow("AV1", 1200)]
+    [DataRow("AV1", 200)]
     public void EncodedStream_ThroughRtpWithReorderedPackets_DecodesToThePictures(
-        VideoCodecId codec,
+        string codecName,
         int maxPayloadSize
     )
     {
+        VideoCodecId codec = new(codecName);
         List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(codec, FrameCount);
         Assert.IsTrue(
             RtpPayloadFormatRegistry.BuiltIn.TryGet(codec.ToString(), out RtpPayloadFormat? format)

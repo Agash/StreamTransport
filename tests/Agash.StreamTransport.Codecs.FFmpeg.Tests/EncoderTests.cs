@@ -11,7 +11,7 @@ public sealed class EncoderTests
 
     public static IEnumerable<object[]> Cases =>
         from backend in Enum.GetValues<EncoderBackend>()
-        from codec in Enum.GetValues<VideoCodecId>()
+        from codec in VideoCodecId.BuiltIn
         select new object[] { backend, codec };
 
     [TestMethod]

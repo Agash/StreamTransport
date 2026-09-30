@@ -105,12 +105,10 @@ internal static class Reference
         IEnumerable<byte[]> units
     )
     {
-        string name = codec switch
-        {
-            VideoCodecId.H264 => "h264",
-            VideoCodecId.H265 => "hevc",
-            _ => "libdav1d",
-        };
+        string name =
+            codec == VideoCodecId.H264 ? "h264"
+            : codec == VideoCodecId.H265 ? "hevc"
+            : "libdav1d";
         List<(int, int, double)> frames = [];
         using var decoder = FF.Decoder.Create(FF.Codec.FindDecoder(name));
         using FF.Packet packet = new();

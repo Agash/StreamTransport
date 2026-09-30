@@ -16,7 +16,7 @@ public sealed class GpuInputTests
 
     public static IEnumerable<object[]> Cases =>
         from backend in Enum.GetValues<EncoderBackend>()
-        from codec in Enum.GetValues<VideoCodecId>()
+        from codec in VideoCodecId.BuiltIn
         from storage in new[] { VideoStorageKind.D3D12, VideoStorageKind.D3D11 }
         select new object[] { backend, codec, storage };
 

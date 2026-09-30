@@ -6,14 +6,16 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 // Translations between the Media model and FFmpeg's names for the same things.
 internal static class Formats
 {
+    // FFmpeg's id for a codec this package implements.
     public static FF.CodecId ToCodecId(VideoCodecId codec) =>
-        codec switch
-        {
-            VideoCodecId.H264 => FF.CodecId.H264,
-            VideoCodecId.H265 => FF.CodecId.Hevc,
-            VideoCodecId.AV1 => FF.CodecId.Av1,
-            _ => throw new ArgumentOutOfRangeException(nameof(codec), codec, null),
-        };
+        codec == VideoCodecId.H264 ? FF.CodecId.H264
+        : codec == VideoCodecId.H265 ? FF.CodecId.Hevc
+        : codec == VideoCodecId.AV1 ? FF.CodecId.Av1
+        : throw new ArgumentOutOfRangeException(
+            nameof(codec),
+            codec,
+            "FFmpeg codecs here are H.264, H.265 and AV1."
+        );
 
     public static FF.PixelFormat ToFFmpeg(PixelFormat format) =>
         format switch
