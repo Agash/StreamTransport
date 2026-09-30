@@ -96,7 +96,8 @@ internal static unsafe class VulkanTransfer
     )
     {
         int planes = format == PixelFormat.Nv12 ? 2 : 1;
-        var imported = new VulkanImage[planes];
+        var leases = new ImportCache.Lease[planes];
+        int held = 0;
         try
         {
             for (int plane = 0; plane < planes; plane++)
@@ -108,8 +109,7 @@ internal static unsafe class VulkanTransfer
                         {
                             Offset = source[0].Offset + (source[0].Stride * height),
                         };
-                imported[plane] = VulkanImage.Import(
-                    engine,
+                leases[plane] = engine.Imports.Import(
                     from,
                     source.Modifier,
                     destination[plane].Format,
@@ -117,8 +117,10 @@ internal static unsafe class VulkanTransfer
                     destination[plane].Height,
                     VkImageUsageFlags.TransferSrc
                 );
+                held++;
             }
 
+            VulkanImage[] imported = [.. leases.Select(lease => lease.Image)];
             using VulkanEngine.Batch batch = engine.Begin();
             Recording.Acquire(engine, batch.Commands, imported);
             Recording.Acquire(engine, batch.Commands, destination);
@@ -156,9 +158,9 @@ internal static unsafe class VulkanTransfer
         }
         finally
         {
-            foreach (VulkanImage? image in imported)
+            for (int i = 0; i < held; i++)
             {
-                image?.Dispose();
+                leases[i].Dispose();
             }
         }
     }
@@ -199,8 +201,7 @@ internal static unsafe class VulkanTransfer
                     {
                         Offset = source[0].Offset + (source[0].Stride * height),
                     };
-            using var imported = VulkanImage.Import(
-                engine,
+            using ImportCache.Lease imported = engine.Imports.Import(
                 from,
                 source.Modifier,
                 vk,
@@ -208,7 +209,7 @@ internal static unsafe class VulkanTransfer
                 h,
                 VkImageUsageFlags.TransferSrc
             );
-            bytes[plane] = Download(engine, imported, texel);
+            bytes[plane] = Download(engine, imported.Image, texel);
         }
 
         return bytes;

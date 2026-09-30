@@ -145,6 +145,7 @@ internal sealed unsafe partial class VulkanEngine
             ],
             64
         );
+        Imports = new ImportCache(this);
         YuvToRgb = new ComputeKernel(
             this,
             "YuvToRgb.spv",
@@ -172,6 +173,9 @@ internal sealed unsafe partial class VulkanEngine
     public ComputeKernel RgbToYuv { get; }
 
     public ComputeKernel YuvToRgb { get; }
+
+    /// <summary>Producers' DMA-BUF planes, imported once and reused while they keep coming back.</summary>
+    public ImportCache Imports { get; }
 
     /// <summary>The engine of a GPU: the one a DRM device names, or the first that can do the work.</summary>
     /// <param name="device">A DRM device; null for the first suitable GPU.</param>

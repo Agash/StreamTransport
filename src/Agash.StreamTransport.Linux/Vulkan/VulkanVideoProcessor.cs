@@ -242,8 +242,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             format.PixelFormat == PixelFormat.Rgba
                 ? VkFormat.R8G8B8A8Unorm
                 : VkFormat.B8G8R8A8Unorm;
-        using var source = VulkanImage.Import(
-            _engine,
+        using ImportCache.Lease sourceLease = _engine.Imports.Import(
             image[0],
             image.Modifier,
             sourceFormat,
@@ -251,6 +250,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             format.CodedSize.Height,
             VkImageUsageFlags.Sampled
         );
+        VulkanImage source = sourceLease.Image;
         (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(_outputColour);
         VideoSize size = Info.Output.Size;
         bool pack = _processing.Alpha == AlphaLayout.PackSideBySide;
@@ -328,8 +328,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
     {
         int width = format.CodedSize.Width;
         int height = format.CodedSize.Height;
-        using var luma = VulkanImage.Import(
-            _engine,
+        using ImportCache.Lease lumaLease = _engine.Imports.Import(
             image[0],
             image.Modifier,
             VkFormat.R8Unorm,
@@ -337,8 +336,8 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             height,
             VkImageUsageFlags.Storage
         );
-        using var chroma = VulkanImage.Import(
-            _engine,
+        VulkanImage luma = lumaLease.Image;
+        using ImportCache.Lease chromaLease = _engine.Imports.Import(
             image.PlaneCount > 1
                 ? image[1]
                 : image[0] with
@@ -351,6 +350,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             (height + 1) / 2,
             VkImageUsageFlags.Storage
         );
+        VulkanImage chroma = chromaLease.Image;
 
         VideoColor source =
             inputColour.Matrix == ColorMatrix.Unspecified

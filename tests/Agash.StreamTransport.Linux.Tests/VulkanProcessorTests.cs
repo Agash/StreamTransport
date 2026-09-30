@@ -161,6 +161,41 @@ public sealed class VulkanProcessorTests
     }
 
     [TestMethod]
+    public void ABufferSeenAgain_IsImportedOnce()
+    {
+        using IVideoProcessor processor = Factory.Create(
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(Nv12Output())
+        );
+        PooledDmaBuf input = Bgra(Picture());
+        try
+        {
+            processor.Process(
+                TestDmaBufs.Frame(input, PixelFormat.Bgra, Width, Height, VideoColor.Srgb),
+                new Discarder()
+            );
+            int once = TestDmaBufs.Engine.Imports.Count;
+            for (int i = 0; i < 5; i++)
+            {
+                processor.Process(
+                    TestDmaBufs.Frame(input, PixelFormat.Bgra, Width, Height, VideoColor.Srgb),
+                    new Discarder()
+                );
+            }
+
+            Assert.AreEqual(
+                once,
+                TestDmaBufs.Engine.Imports.Count,
+                "the buffer's import is reused"
+            );
+        }
+        finally
+        {
+            input.Release();
+        }
+    }
+
+    [TestMethod]
     public void QueryCapabilities_RefusesWhatItCannotDo()
     {
         VideoStreamDescription bgra = Description(PixelFormat.Bgra, Width);
