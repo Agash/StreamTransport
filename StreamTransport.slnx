@@ -12,6 +12,7 @@
   <Folder Name="/src/">
     <Project Path="src/Agash.StreamTransport.Media/Agash.StreamTransport.Media.csproj" />
     <Project Path="src/Agash.StreamTransport.Codecs.FFmpeg/Agash.StreamTransport.Codecs.FFmpeg.csproj" />
+    <Project Path="src/Agash.StreamTransport.Codecs.Opus/Agash.StreamTransport.Codecs.Opus.csproj" />
     <Project Path="src/Agash.StreamTransport.Abstractions/Agash.StreamTransport.Abstractions.csproj" />
     <Project Path="src/Agash.StreamTransport/Agash.StreamTransport.csproj" />
     <Project Path="src/Agash.StreamTransport.Signaling/Agash.StreamTransport.Signaling.csproj" />
@@ -28,6 +29,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Agash.StreamTransport.Media.Tests/Agash.StreamTransport.Media.Tests.csproj" />
     <Project Path="tests/Agash.StreamTransport.Codecs.FFmpeg.Tests/Agash.StreamTransport.Codecs.FFmpeg.Tests.csproj" />
+    <Project Path="tests/Agash.StreamTransport.Codecs.Opus.Tests/Agash.StreamTransport.Codecs.Opus.Tests.csproj" />
     <Project Path="tests/Agash.StreamTransport.Tests/Agash.StreamTransport.Tests.csproj" />
     <Project Path="tests/Agash.StreamTransport.WebRtc.Tests/Agash.StreamTransport.WebRtc.Tests.csproj" />
   </Folder>
