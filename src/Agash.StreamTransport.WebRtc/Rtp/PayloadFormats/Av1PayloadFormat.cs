@@ -187,7 +187,11 @@ public sealed class Av1Packetizer : IRtpPacketizer
                 }
 
                 obus[element.Obu]
-                    .CopyElement(temporalUnit, element.Offset, packet.Slice(offset, element.Length));
+                    .CopyElement(
+                        temporalUnit,
+                        element.Offset,
+                        packet.Slice(offset, element.Length)
+                    );
                 offset += element.Length;
             }
 
@@ -411,7 +415,12 @@ internal readonly ref struct Av1Elements(ReadOnlySpan<byte> payload)
 }
 
 /// <summary>An OBU located in a temporal unit: its header bytes and where its payload lies.</summary>
-internal readonly record struct Obu(byte Header, byte Extension, int PayloadStart, int PayloadLength)
+internal readonly record struct Obu(
+    byte Header,
+    byte Extension,
+    int PayloadStart,
+    int PayloadLength
+)
 {
     public const int SequenceHeader = 1;
     public const int TemporalDelimiter = 2;

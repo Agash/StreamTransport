@@ -162,9 +162,10 @@ public sealed class H265Depacketizer : IRtpDepacketizer
                     if ((header & 0x80) != 0)
                     {
                         // The NAL header is the PayloadHdr with the original type restored.
-                        _assembler.StartFragment(
-                            [(byte)((payload[0] & 0x81) | ((header & 0x3F) << 1)), payload[1]]
-                        );
+                        _assembler.StartFragment([
+                            (byte)((payload[0] & 0x81) | ((header & 0x3F) << 1)),
+                            payload[1],
+                        ]);
                     }
 
                     _assembler.AppendFragment(payload[3..]);

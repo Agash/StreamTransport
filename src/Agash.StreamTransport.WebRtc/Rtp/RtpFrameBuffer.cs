@@ -131,7 +131,12 @@ public sealed class RtpFrameBuffer : IDisposable
         int runIndex = FindContinuousRun(unwrappedSeq);
         if (runIndex < 0)
         {
-            if ((_format.Inspect(first.Payload.AsSpan(0, first.Length)) & RtpPayloadTraits.SequenceStart) == 0)
+            if (
+                (
+                    _format.Inspect(first.Payload.AsSpan(0, first.Length))
+                    & RtpPayloadTraits.SequenceStart
+                ) == 0
+            )
             {
                 return false;
             }
@@ -214,7 +219,13 @@ public sealed class RtpFrameBuffer : IDisposable
         for (long seq = start; seq <= end; ++seq)
         {
             ref Slot p = ref _buffer[EuclideanMod(seq, BufferSize)];
-            if (_assembler.TryPush(p.Payload.AsSpan(0, p.Length), seq == end, out EncodedFrameBuffer completed))
+            if (
+                _assembler.TryPush(
+                    p.Payload.AsSpan(0, p.Length),
+                    seq == end,
+                    out EncodedFrameBuffer completed
+                )
+            )
             {
                 frame = completed;
             }

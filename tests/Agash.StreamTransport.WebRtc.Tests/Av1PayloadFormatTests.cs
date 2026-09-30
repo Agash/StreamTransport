@@ -16,7 +16,12 @@ public sealed class Av1PayloadFormatTests
     {
         byte[] sequence = Body(12);
         byte[] frame = Body(40);
-        byte[] unit = [.. Obu(TemporalDelimiter, []), .. Obu(SequenceHeader, sequence), .. Obu(Frame, frame)];
+        byte[] unit =
+        [
+            .. Obu(TemporalDelimiter, []),
+            .. Obu(SequenceHeader, sequence),
+            .. Obu(Frame, frame),
+        ];
 
         List<byte[]> packets = Packetize(unit, maxPayloadSize: 1100);
 
@@ -33,7 +38,13 @@ public sealed class Av1PayloadFormatTests
     [TestMethod]
     public void Packetize_ManyObus_LengthPrefixesEveryElement()
     {
-        byte[] unit = [.. Obu(Frame, Body(5)), .. Obu(Frame, Body(5)), .. Obu(Frame, Body(5)), .. Obu(Frame, Body(5))];
+        byte[] unit =
+        [
+            .. Obu(Frame, Body(5)),
+            .. Obu(Frame, Body(5)),
+            .. Obu(Frame, Body(5)),
+            .. Obu(Frame, Body(5)),
+        ];
 
         List<byte[]> packets = Packetize(unit, maxPayloadSize: 1100);
 
@@ -107,11 +118,17 @@ public sealed class Av1PayloadFormatTests
         Assert.IsTrue(packets.All(p => p.Length <= maxPayloadSize));
         CollectionAssert.AreEqual(unit, assembled);
         Assert.AreEqual(
-            RtpPayloadTraits.SequenceStart | RtpPayloadTraits.Keyframe | RtpPayloadTraits.SequenceParameters,
+            RtpPayloadTraits.SequenceStart
+                | RtpPayloadTraits.Keyframe
+                | RtpPayloadTraits.SequenceParameters,
             Av1PayloadFormat.Instance.Inspect(packets[0])
         );
         Assert.IsFalse(
-            packets.Skip(1).Any(static p => (Av1PayloadFormat.Instance.Inspect(p) & RtpPayloadTraits.SequenceStart) != 0)
+            packets
+                .Skip(1)
+                .Any(static p =>
+                    (Av1PayloadFormat.Instance.Inspect(p) & RtpPayloadTraits.SequenceStart) != 0
+                )
         );
     }
 
@@ -119,7 +136,10 @@ public sealed class Av1PayloadFormatTests
     public void Depacketize_ContinuationWithoutItsStart_IsDropped()
     {
         byte[] small = Obu(Frame, Body(20));
-        List<byte[]> packets = Packetize([.. Obu(Frame, Body(3000)), .. small], maxPayloadSize: 1000);
+        List<byte[]> packets = Packetize(
+            [.. Obu(Frame, Body(3000)), .. small],
+            maxPayloadSize: 1000
+        );
 
         byte[] assembled = Depacketize([.. packets.Skip(1)]);
 
@@ -177,7 +197,8 @@ public sealed class Av1PayloadFormatTests
     }
 
     // An OBU with its size field, as encoders write them.
-    private static byte[] Obu(int type, byte[] body) => [(byte)((type << 3) | 0x02), .. Leb128(body.Length), .. body];
+    private static byte[] Obu(int type, byte[] body) =>
+        [(byte)((type << 3) | 0x02), .. Leb128(body.Length), .. body];
 
     private static byte[] Leb128(int value)
     {

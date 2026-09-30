@@ -32,12 +32,7 @@ public sealed class RtpFrameBufferTests
         Assert.AreEqual(0, pb.Insert(seq++, ts, marker: false, SingleNal(Vps)).Frames.Count);
         Assert.AreEqual(0, pb.Insert(seq++, ts, marker: false, SingleNal(Sps)).Frames.Count);
         Assert.AreEqual(0, pb.Insert(seq++, ts, marker: false, SingleNal(Pps)).Frames.Count);
-        RtpFrameBuffer.InsertResult result = pb.Insert(
-            seq,
-            ts,
-            marker: true,
-            SingleNal(IdrWRadl)
-        );
+        RtpFrameBuffer.InsertResult result = pb.Insert(seq, ts, marker: true, SingleNal(IdrWRadl));
 
         Assert.AreEqual(1, result.Frames.Count, "the IDR marker packet completes the keyframe.");
         Assert.IsTrue(result.Frames[0].IsKeyframe, "VPS+SPS+PPS+IDR is a keyframe.");
@@ -107,7 +102,12 @@ public sealed class RtpFrameBufferTests
         List<byte[]> packets = Packets(H264PayloadFormat.Instance, accessUnit, 700);
         using RtpFrameBuffer buffer = new(H264PayloadFormat.Instance);
 
-        List<RtpFrameBuffer.AssembledFrame> frames = InsertReversedAfterFirst(buffer, packets, 500, 9000);
+        List<RtpFrameBuffer.AssembledFrame> frames = InsertReversedAfterFirst(
+            buffer,
+            packets,
+            500,
+            9000
+        );
 
         Assert.HasCount(1, frames);
         Assert.IsTrue(frames[0].IsKeyframe);
@@ -136,7 +136,12 @@ public sealed class RtpFrameBufferTests
         List<byte[]> keyPackets = Packets(Av1PayloadFormat.Instance, keyframe, 600);
         using RtpFrameBuffer buffer = new(Av1PayloadFormat.Instance);
 
-        List<RtpFrameBuffer.AssembledFrame> frames = InsertReversedAfterFirst(buffer, keyPackets, 60_000, 3000);
+        List<RtpFrameBuffer.AssembledFrame> frames = InsertReversedAfterFirst(
+            buffer,
+            keyPackets,
+            60_000,
+            3000
+        );
         Assert.HasCount(1, frames);
         Assert.IsTrue(frames[0].IsKeyframe);
         byte[] expected = [0x12, 0x00, .. keyframe];

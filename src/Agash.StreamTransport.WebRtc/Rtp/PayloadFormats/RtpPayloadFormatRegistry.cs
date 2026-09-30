@@ -31,14 +31,12 @@ public sealed class RtpPayloadFormatRegistry
 
     /// <summary>The formats this library implements: H.264, H.265, AV1 and Opus.</summary>
     public static RtpPayloadFormatRegistry BuiltIn { get; } =
-        new(
-            [
-                H264PayloadFormat.Instance,
-                H265PayloadFormat.Instance,
-                Av1PayloadFormat.Instance,
-                OpusPayloadFormat.Instance,
-            ]
-        );
+        new([
+            H264PayloadFormat.Instance,
+            H265PayloadFormat.Instance,
+            Av1PayloadFormat.Instance,
+            OpusPayloadFormat.Instance,
+        ]);
 
     /// <summary>Every registered format.</summary>
     public ImmutableArray<RtpPayloadFormat> Formats { get; }

@@ -49,7 +49,10 @@ public sealed class DecoderTests
     [TestMethod]
     public void Retain_DecodedFrame_KeepsItsPixelsAfterTheDecoderMovesOn()
     {
-        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(VideoCodecId.H264, FrameCount);
+        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(
+            VideoCodecId.H264,
+            FrameCount
+        );
         FFmpegVideoDecoderFactory factory = new(DecoderBackend.Software);
         using IVideoDecoder decoder = factory.Create(
             new VideoCodecFormat(VideoCodecId.H264),

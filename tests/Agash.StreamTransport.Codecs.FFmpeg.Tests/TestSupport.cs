@@ -157,7 +157,10 @@ internal static class Reference
 internal static class Streams
 {
     // The moving gradient, encoded in software where it can be.
-    public static List<(byte[] Data, MediaTimestamp Timestamp)> Encode(VideoCodecId codec, int frameCount)
+    public static List<(byte[] Data, MediaTimestamp Timestamp)> Encode(
+        VideoCodecId codec,
+        int frameCount
+    )
     {
         VideoEncoderConfiguration configuration = new(
             new VideoCodecFormat(codec),

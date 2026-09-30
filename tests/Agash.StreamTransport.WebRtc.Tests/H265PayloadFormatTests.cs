@@ -57,7 +57,11 @@ public sealed class H265PayloadFormatTests
         for (int i = 0; i < packets.Count; i++)
         {
             bool marker = i == packets.Count - 1;
-            bool completed = depacketizer.TryPush(packets[i], marker, out EncodedFrameBuffer result);
+            bool completed = depacketizer.TryPush(
+                packets[i],
+                marker,
+                out EncodedFrameBuffer result
+            );
             if (marker)
             {
                 Assert.IsTrue(completed, "the marker payload completes the access unit");
@@ -107,7 +111,12 @@ public sealed class H265PayloadFormatTests
         byte[] slice = MakeNal(nalType: 19, length: 200);
 
         List<byte[]> packets = Packetize(
-            Concat(WithStartCode(vps), WithStartCode(sps), WithStartCode(pps), WithStartCode(slice)),
+            Concat(
+                WithStartCode(vps),
+                WithStartCode(sps),
+                WithStartCode(pps),
+                WithStartCode(slice)
+            ),
             maxPayloadSize: 1100
         );
 
@@ -138,7 +147,13 @@ public sealed class H265PayloadFormatTests
         for (int i = 0; i < packets.Count; i++)
         {
             Assert.IsLessThanOrEqualTo(maxPayloadSize, packets[i].Length);
-            if (depacketizer.TryPush(packets[i], i == packets.Count - 1, out EncodedFrameBuffer unit))
+            if (
+                depacketizer.TryPush(
+                    packets[i],
+                    i == packets.Count - 1,
+                    out EncodedFrameBuffer unit
+                )
+            )
             {
                 assembled = unit.Span.ToArray();
                 unit.Dispose();

@@ -24,7 +24,9 @@ public sealed class RtpRoundTripTests
     )
     {
         List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(codec, FrameCount);
-        Assert.IsTrue(RtpPayloadFormatRegistry.BuiltIn.TryGet(codec.ToString(), out RtpPayloadFormat? format));
+        Assert.IsTrue(
+            RtpPayloadFormatRegistry.BuiltIn.TryGet(codec.ToString(), out RtpPayloadFormat? format)
+        );
         IRtpPacketizer packetizer = format.CreatePacketizer(maxPayloadSize);
         RtpPayloadWriter writer = new();
         using RtpFrameBuffer buffer = new(format);

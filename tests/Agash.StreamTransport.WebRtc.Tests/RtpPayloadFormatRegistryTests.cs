@@ -116,7 +116,9 @@ public sealed class RtpPayloadFormatRegistryTests
 
         packetizer.Packetize(packet, writer);
         Assert.AreEqual(1, writer.Count);
-        Assert.IsTrue(depacketizer.TryPush(writer[0].Span, marker: false, out EncodedFrameBuffer frame));
+        Assert.IsTrue(
+            depacketizer.TryPush(writer[0].Span, marker: false, out EncodedFrameBuffer frame)
+        );
         using (frame)
         {
             CollectionAssert.AreEqual(packet, frame.Span.ToArray());
