@@ -600,13 +600,14 @@ public sealed partial class IceAgent : IAsyncDisposable
     private static TimeSpan Since(TimeSpan? at, TimeSpan now) =>
         at is { } then ? now - then : TimeSpan.MaxValue;
 
+    // Paces connectivity checks, consent and hot-standby pings at Ta (RFC 8445 14.2) on the agent's clock.
     private async Task CheckLoopAsync(CancellationToken ct)
     {
+        using PeriodicTimer pacing = new(_timings.Ta, _time);
         try
         {
-            while (!ct.IsCancellationRequested)
+            while (await pacing.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
-                await Task.Delay(_timings.Ta, _time, ct).ConfigureAwait(false);
                 if (_remote.Password is not { Length: > 0 })
                 {
                     continue; // can't key checks until we have the remote password.
@@ -617,7 +618,10 @@ public sealed partial class IceAgent : IAsyncDisposable
                 MaintainHotStandby();
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            // Deliberately not logged: cancellation is how the agent stops pacing.
+        }
     }
 
     // Keep non-selected succeeded pairs warm: a low-frequency STUN ping on each (RFC 7675 cadence) so an
