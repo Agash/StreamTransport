@@ -461,8 +461,9 @@ internal sealed unsafe class D3D12VideoProcessor(
         DXGI_FORMAT actual = D3D12Engine.Describe(resource).Format;
         return actual switch
         {
-            DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM or DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM =>
-                actual,
+            DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM
+            or DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM
+            or DXGI_FORMAT.DXGI_FORMAT_B8G8R8X8_UNORM => actual,
             DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_TYPELESS => DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
             DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_TYPELESS => DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM,
             _ => throw new NotSupportedException(

@@ -18,3 +18,7 @@ CreateEvent
 WaitForSingleObject
 CloseHandle
 INFINITE
+D3D12CreateDevice
+CreateDXGIFactory2
+IDXGIFactory4
+IDXGIAdapter1

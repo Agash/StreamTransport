@@ -51,16 +51,20 @@ internal sealed unsafe class D3D12Engine : IDisposable
 
     /// <summary>An engine on a device, which it adds a reference to.</summary>
     /// <param name="device">The ID3D12Device.</param>
-    public D3D12Engine(nint device)
+    /// <param name="direct">
+    /// Run on a direct queue, which can also be handed to libraries that need one; a compute queue
+    /// otherwise.
+    /// </param>
+    public D3D12Engine(nint device, bool direct = false)
     {
+        D3D12_COMMAND_LIST_TYPE type = direct
+            ? D3D12_COMMAND_LIST_TYPE.D3D12_COMMAND_LIST_TYPE_DIRECT
+            : D3D12_COMMAND_LIST_TYPE.D3D12_COMMAND_LIST_TYPE_COMPUTE;
         _device = (ID3D12Device*)device;
         _ = _device->AddRef();
         Adapter = GpuIdentityOf(_device);
 
-        D3D12_COMMAND_QUEUE_DESC queue = new()
-        {
-            Type = D3D12_COMMAND_LIST_TYPE.D3D12_COMMAND_LIST_TYPE_COMPUTE,
-        };
+        D3D12_COMMAND_QUEUE_DESC queue = new() { Type = type };
         _device->CreateCommandQueue(in queue, out ID3D12CommandQueue* created);
         _queue = created;
         _device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, out ID3D12Fence* fence);
@@ -70,16 +74,13 @@ internal sealed unsafe class D3D12Engine : IDisposable
         _event = Win32.CreateEvent((SECURITY_ATTRIBUTES*)null, false, false, default(PCWSTR));
         for (int i = 0; i < Ring; i++)
         {
-            _device->CreateCommandAllocator(
-                D3D12_COMMAND_LIST_TYPE.D3D12_COMMAND_LIST_TYPE_COMPUTE,
-                out ID3D12CommandAllocator* allocator
-            );
+            _device->CreateCommandAllocator(type, out ID3D12CommandAllocator* allocator);
             _allocators[i] = allocator;
         }
 
         _device->CreateCommandList(
             0,
-            D3D12_COMMAND_LIST_TYPE.D3D12_COMMAND_LIST_TYPE_COMPUTE,
+            type,
             _allocators[0],
             null,
             out ID3D12GraphicsCommandList* list
@@ -106,6 +107,9 @@ internal sealed unsafe class D3D12Engine : IDisposable
 
     /// <summary>The device, borrowed.</summary>
     public nint Device => (nint)_device;
+
+    /// <summary>The engine's command queue, borrowed.</summary>
+    public nint Queue => (nint)_queue;
 
     /// <summary>The adapter the device is on.</summary>
     public Media.GpuIdentity Adapter { get; }
@@ -223,16 +227,29 @@ internal sealed unsafe class D3D12Engine : IDisposable
     /// <returns>The command list, open.</returns>
     public ID3D12GraphicsCommandList* Begin(D3D12Shader shader)
     {
+        ID3D12GraphicsCommandList* list = Open(
+            shader == D3D12Shader.RgbToYuv ? _rgbToYuv : _yuvToRgb
+        );
+        ID3D12DescriptorHeap* heap = _heap;
+        list->SetDescriptorHeaps(1, &heap);
+        list->SetComputeRootSignature(_rootSignature);
+        list->SetComputeRootDescriptorTable(1, GpuHandle(0));
+        list->SetComputeRootDescriptorTable(2, GpuHandle(2));
+        return list;
+    }
+
+    /// <summary>Opens a command list for copies alone.</summary>
+    /// <returns>The command list, open.</returns>
+    public ID3D12GraphicsCommandList* BeginCopy() => Open(null);
+
+    // The next ring slot's allocator, once its last work finished, with the list reset onto it.
+    private ID3D12GraphicsCommandList* Open(ID3D12PipelineState* pipeline)
+    {
         _slot = (_slot + 1) % Ring;
         WaitFor(_slotDone[_slot]);
         ID3D12CommandAllocator* allocator = _allocators[_slot];
         allocator->Reset();
-        _list->Reset(allocator, shader == D3D12Shader.RgbToYuv ? _rgbToYuv : _yuvToRgb);
-        ID3D12DescriptorHeap* heap = _heap;
-        _list->SetDescriptorHeaps(1, &heap);
-        _list->SetComputeRootSignature(_rootSignature);
-        _list->SetComputeRootDescriptorTable(1, GpuHandle(0));
-        _list->SetComputeRootDescriptorTable(2, GpuHandle(2));
+        _list->Reset(allocator, pipeline);
         return _list;
     }
 

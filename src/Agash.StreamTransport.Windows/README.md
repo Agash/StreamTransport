@@ -19,7 +19,20 @@ return to it when the last lease on their frame is released.
 The shaders ship as signed DXIL; building on Windows with the SDK's `dxc` recompiles them from
 `Shaders/*.hlsl`.
 
-Register it with a codec registry like any processor:
+## Spout
+
+`SpoutVideoSource` receives a Spout sender as Direct3D 12 textures, zero-copy while a consumer's call
+lasts; a consumer that keeps a frame gets a GPU copy. One receiver serves every connected consumer. Spout
+carries no capture time, so frames are stamped with when they were observed.
+
+`SpoutVideoSink` publishes 8-bit BGRA or RGBA Direct3D 12 textures on its GPU as a Spout sender; a
+processor makes those from what a decoder produces.
+
+Both run on Spout2.NET's native Direct3D 12 sharing, on a direct queue of their own.
+
+## Registration
+
+Register the processor with a codec registry like any processor:
 
 ```csharp
 services.TryAddEnumerable(ServiceDescriptor.Singleton<IVideoProcessorFactory, D3D12VideoProcessorFactory>());

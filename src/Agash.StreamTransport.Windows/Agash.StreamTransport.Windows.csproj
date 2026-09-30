@@ -16,6 +16,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+    <ProjectReference Include="$(Spout2NetProject)" Condition="'$(UseLocalSpout2Net)' == 'true'" />
+    <PackageReference Include="Spout2.NET" Condition="'$(UseLocalSpout2Net)' != 'true'" />
   </ItemGroup>
 
   <ItemGroup>

@@ -56,11 +56,17 @@ internal sealed class PooledTexture
 /// is disposed and every texture it handed out has come back, since frames in its textures carry the
 /// engine's fence.
 /// </summary>
+/// <param name="engine">The engine the textures are made on.</param>
+/// <param name="format">Their format.</param>
+/// <param name="width">Their width.</param>
+/// <param name="height">Their height.</param>
+/// <param name="shaderWritten">Whether shaders write them; copies only need them as copy targets.</param>
 internal sealed class D3D12TexturePool(
     D3D12Engine engine,
     DXGI_FORMAT format,
     int width,
-    int height
+    int height,
+    bool shaderWritten = true
 ) : IDisposable
 {
     private readonly D3D12Engine _engine = engine.Hold();
@@ -115,7 +121,7 @@ internal sealed class D3D12TexturePool(
             )
             : new PooledTexture(
                 this,
-                _engine.CreateTexture(format, width, height, true, Common),
+                _engine.CreateTexture(format, width, height, shaderWritten, Common),
                 0,
                 0
             );

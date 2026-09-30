@@ -37,5 +37,9 @@
     <UseLocalFFmpegInterop
       Condition="'$(UseLocalFFmpegInterop)' == '' and Exists('$(FFmpegInteropProject)')"
       >true</UseLocalFFmpegInterop>
+    <Spout2NetProject Condition="'$(Spout2NetProject)' == ''"
+      >$(MSBuildThisFileDirectory)../Spout2.NET/src/Spout2.NET/Spout2.NET.csproj</Spout2NetProject>
+    <UseLocalSpout2Net Condition="'$(UseLocalSpout2Net)' == '' and Exists('$(Spout2NetProject)')"
+      >true</UseLocalSpout2Net>
   </PropertyGroup>
 </Project>
