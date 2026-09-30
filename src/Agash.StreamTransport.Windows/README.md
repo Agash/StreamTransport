@@ -1,6 +1,7 @@
 # Agash.StreamTransport.Windows
 
-Windows media for [Agash.StreamTransport](https://github.com/Agash/StreamTransport).
+Windows media for [Agash.StreamTransport](https://github.com/Agash/StreamTransport): Direct3D 12 video
+processors, Spout, and WASAPI audio.
 
 ## Direct3D 12 video processors
 
@@ -29,6 +30,15 @@ carries no capture time, so frames are stamped with when they were observed.
 processor makes those from what a decoder produces.
 
 Both run on Spout2.NET's native Direct3D 12 sharing, on a direct queue of their own.
+
+## WASAPI
+
+`WasapiAudioSource` captures the default capture device, or what the default output plays (loopback);
+`WasapiAudioSink` plays on the default output. Both run shared-mode streams at 48 kHz stereo float,
+which WASAPI converts to and from the device's format, on event-driven threads registered with MMCSS.
+Captured audio carries WASAPI's own timestamps on the media clock: when the microphone captured it, or
+for loopback when it plays at the device. `WasapiAudioSink.OutputLatency` reports how long audio takes
+to reach the speaker, for a session's audio output offset.
 
 ## Registration
 
