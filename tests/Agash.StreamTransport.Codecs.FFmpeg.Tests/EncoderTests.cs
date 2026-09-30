@@ -117,7 +117,7 @@ public sealed class EncoderTests
     // without an error from the encoder.
     [TestMethod]
     [DynamicData(nameof(Cases))]
-    public void Reconfigure_StepsLikeCongestionControl_KeepsEncoding(
+    public void Reconfigure_StepsLikeCongestionControl_KeepsProducing(
         EncoderBackend backend,
         VideoCodecId codec
     )
@@ -153,7 +153,20 @@ public sealed class EncoderTests
         }
 
         encoder.Flush(collector);
-        Assert.HasCount(index, collector.Units, $"{info.ImplementationName} dropped frames.");
+        // An encoder may skip frames to hold a sudden low rate, as VideoToolbox does after the keyframe
+        // a reopen starts with; what it may not do is stop, so every step must still produce frames.
+        for (int step = 0; step < steps.Length; step++)
+        {
+            int first = step * 5;
+            int produced = collector.Units.Count(u =>
+                Enumerable.Range(first, 5).Any(i => u.Timestamp == Pictures.Timestamp(i))
+            );
+            Assert.IsGreaterThan(
+                0,
+                produced,
+                $"{info.ImplementationName} produced nothing at {steps[step]} b/s."
+            );
+        }
     }
 
     [TestMethod]
