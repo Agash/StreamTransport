@@ -28,49 +28,6 @@ internal abstract class EncoderInput : IDisposable
     public abstract void Prepare(in VideoFrame frame, FF.Frame destination);
 
     public virtual void Dispose() { }
-
-    // Copies a CPU frame's planes into an FFmpeg frame allocated for them.
-    public static void CopyCpu(in VideoFrame frame, FF.Frame destination)
-    {
-        if (!frame.Storage.TryGetValue(out CpuImage image))
-        {
-            throw new ArgumentException("The frame is not in CPU memory.", nameof(frame));
-        }
-
-        VideoSize size = new(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
-        destination.AllocateVideo(
-            size.Width,
-            size.Height,
-            Formats.ToFFmpeg(frame.Format.PixelFormat)
-        );
-        for (int plane = 0; plane < image.Planes.Count; plane++)
-        {
-            ReadOnlySpan<byte> source = frame.GetPlane(plane);
-            int stride = image.Planes[plane].Stride;
-            FF.ImagePlane target = destination.GetWritablePlane(plane);
-            int rowLength = target.RowLength;
-            int top = RowOffset(frame.Format.PixelFormat, plane, frame.Format.VisibleRect.Y);
-            int left = ByteOffset(frame.Format.PixelFormat, plane, frame.Format.VisibleRect.X);
-            for (int row = 0; row < target.Height; row++)
-            {
-                source.Slice(((top + row) * stride) + left, rowLength).CopyTo(target.GetRow(row));
-            }
-        }
-    }
-
-    // The first row of a plane for a visible rectangle starting at luma row y.
-    private static int RowOffset(PixelFormat format, int plane, int y) =>
-        plane > 0 && format is PixelFormat.Nv12 or PixelFormat.P010 or PixelFormat.I420 ? y / 2 : y;
-
-    // The first byte of a row for a visible rectangle starting at luma column x.
-    private static int ByteOffset(PixelFormat format, int plane, int x) =>
-        format switch
-        {
-            PixelFormat.Nv12 => x,
-            PixelFormat.P010 => 2 * x,
-            PixelFormat.I420 => plane == 0 ? x : x / 2,
-            _ => 4 * x,
-        };
 }
 
 // System memory straight into the encoder, for encoders that take it; a hardware encoder that does
@@ -83,7 +40,7 @@ internal sealed class SystemMemoryInput(PixelFormat format, FF.HardwareDevice? d
     public override FF.HardwareDevice? Device => device;
 
     public override void Prepare(in VideoFrame frame, FF.Frame destination) =>
-        CopyCpu(in frame, destination);
+        FFmpegFrames.CopyFrom(in frame, destination);
 
     public override void Dispose() => device?.Dispose();
 }
@@ -114,7 +71,7 @@ internal sealed class UploadInput : EncoderInput
 
     public override void Prepare(in VideoFrame frame, FF.Frame destination)
     {
-        CopyCpu(in frame, _staging);
+        FFmpegFrames.CopyFrom(in frame, _staging);
         _pool.Upload(_staging, destination);
     }
 

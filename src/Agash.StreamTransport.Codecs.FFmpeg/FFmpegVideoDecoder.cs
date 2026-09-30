@@ -105,7 +105,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         FF.Frame current =
             _current
             ?? throw new InvalidOperationException("Frames are retained only while delivered.");
-        return new DecodedFrameLease(in frame, current.Clone());
+        return new FFmpegFrameLease(in frame, current.Clone());
     }
 
     public void Dispose()
@@ -288,40 +288,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
 
         _current = source;
         VideoFormat format = new(_cpuFormat, source.Width, source.Height);
-        consumer.OnFrame(Planes(source, format, timestamp, color, this));
-    }
-
-    internal static unsafe VideoFrame Planes(
-        FF.Frame frame,
-        VideoFormat format,
-        MediaTimestamp timestamp,
-        VideoColor color,
-        IVideoFrameRetainer? retainer
-    )
-    {
-        var native = frame.NativePointer;
-        int count = PlaneLayout.PlaneCount(format.PixelFormat);
-        ReadOnlySpan<byte> Plane(int index) =>
-            index < count
-                ? new ReadOnlySpan<byte>(
-                    native->data[index],
-                    native->linesize[index]
-                        * PlaneLayout.PlaneRows(format.PixelFormat, index, frame.Height)
-                )
-                : default;
-
-        return new VideoFrame(
-            format,
-            timestamp,
-            Plane(0),
-            native->linesize[0],
-            Plane(1),
-            count > 1 ? native->linesize[1] : 0,
-            Plane(2),
-            count > 2 ? native->linesize[2] : 0,
-            color,
-            retainer: retainer
-        );
+        consumer.OnFrame(FFmpegFrames.View(source, format, timestamp, color, this));
     }
 
     // The DRM fourcc of a multi-planar format as one image.
@@ -374,41 +341,4 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             );
         }
     }
-}
-
-// A decoded frame kept by reference: the FFmpeg frame, and with it its buffers or surface, stays alive
-// until the lease is disposed.
-internal sealed class DecodedFrameLease : VideoFrameLease, IVideoFrameRetainer
-{
-    private readonly FF.Frame _frame;
-
-    public DecodedFrameLease(in VideoFrame frame, FF.Frame reference)
-        : base(
-            frame.Storage,
-            frame.Format,
-            frame.Timestamp,
-            frame.Color,
-            frame.Orientation,
-            frame.Duration
-        )
-    {
-        _frame = reference;
-    }
-
-    protected override IVideoFrameRetainer KeepAgain => this;
-
-    public VideoFrameLease Retain(in VideoFrame frame) =>
-        new DecodedFrameLease(in frame, _frame.Clone());
-
-    protected override unsafe ReadOnlySpan<byte> GetPlane(int index)
-    {
-        var native = _frame.NativePointer;
-        return new ReadOnlySpan<byte>(
-            native->data[index],
-            native->linesize[index]
-                * PlaneLayout.PlaneRows(Format.PixelFormat, index, _frame.Height)
-        );
-    }
-
-    protected override void Release() => _frame.Dispose();
 }

@@ -27,6 +27,9 @@ what it can do on which GPU and picks the best.
 | `VideoToolbox` | IOSurfaces | macOS |
 | `Software` (libavcodec, dav1d) | system memory | all |
 
+`FFmpegVideoProcessorFactory` converts frames in system memory (pixel format, size, colour) on
+swscale. It ranks below the GPU processors of the platform packages and serves as the fallback.
+
 Modern APIs rank first where there is a choice: Direct3D 12 ahead of the Direct3D 11 vendor paths,
 Vulkan ahead of VA-API. Every backend takes system memory as well.
 
