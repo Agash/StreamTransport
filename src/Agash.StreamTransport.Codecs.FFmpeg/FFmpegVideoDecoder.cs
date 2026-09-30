@@ -209,35 +209,47 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         _mapped.Reset();
         _mapped.PixelFormat = FF.PixelFormat.DrmPrime;
         decoded.MapTo(_mapped, FF.HardwareMapAccess.Read);
-        if (
-            !_mapped.TryGetDrmFrame(out FF.DrmFrameDescriptor descriptor)
-            || descriptor.LayerCount != 1
-        )
+        if (!_mapped.TryGetDrmFrame(out FF.DrmFrameDescriptor descriptor))
         {
             throw new NotSupportedException(
-                "The decoder's surface is not a single-layer DRM PRIME image."
+                "The decoder's surface did not map to a DRM PRIME image."
             );
         }
 
-        int planeCount = descriptor.GetPlaneCount(0);
-        Span<DmaBufPlane> planes = stackalloc DmaBufPlane[planeCount];
-        for (int i = 0; i < planeCount; i++)
+        // VA-API exports YUV as one layer per plane (R8 luma, GR88 chroma); the planes of every layer,
+        // in order, are the planes of the one image.
+        Span<DmaBufPlane> planes = stackalloc DmaBufPlane[VideoPlanes.MaximumPlanes];
+        int planeCount = 0;
+        for (int layer = 0; layer < descriptor.LayerCount; layer++)
         {
-            FF.DrmPlane plane = descriptor.GetPlane(0, i);
-            FF.DrmObject dmaBuf = descriptor.GetObject(plane.ObjectIndex);
-            planes[i] = new DmaBufPlane(dmaBuf.FileDescriptor, (int)plane.Offset, (int)plane.Pitch);
+            for (int i = 0; i < descriptor.GetPlaneCount(layer); i++)
+            {
+                FF.DrmPlane plane = descriptor.GetPlane(layer, i);
+                FF.DrmObject dmaBuf = descriptor.GetObject(plane.ObjectIndex);
+                planes[planeCount++] = new DmaBufPlane(
+                    dmaBuf.FileDescriptor,
+                    (int)plane.Offset,
+                    (int)plane.Pitch
+                );
+            }
         }
+
+        VideoFormat format = SurfaceFormat(decoded);
+        uint drmFormat =
+            descriptor.LayerCount == 1
+                ? descriptor.GetLayerFormat(0)
+                : DrmFourcc(format.PixelFormat);
 
         _current = _mapped;
         consumer.OnFrame(
             new VideoFrame(
                 new DmaBufImage(
-                    planes,
-                    descriptor.GetLayerFormat(0),
+                    planes[..planeCount],
+                    drmFormat,
                     descriptor.GetObject(0).Modifier,
                     _identity ?? default
                 ),
-                SurfaceFormat(decoded),
+                format,
                 timestamp,
                 color: color,
                 retainer: this
@@ -311,6 +323,15 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             retainer: retainer
         );
     }
+
+    // The DRM fourcc of a multi-planar format as one image.
+    private static uint DrmFourcc(PixelFormat format) =>
+        format switch
+        {
+            PixelFormat.Nv12 => 0x3231564E, // 'NV12'
+            PixelFormat.P010 => 0x30313050, // 'P010'
+            _ => throw new NotSupportedException($"{format} has no multi-planar DRM format."),
+        };
 
     private static VideoFormat SurfaceFormat(FF.Frame frame)
     {

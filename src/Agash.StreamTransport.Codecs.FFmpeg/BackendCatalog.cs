@@ -110,7 +110,9 @@ internal static class BackendCatalog
                 (VideoCodecId.AV1, "av1_vulkan"),
             ],
             FF.HardwareDeviceType.Vulkan,
-            OperatingSystem.IsLinux() ? [VideoStorageKind.DmaBuf] : [],
+            // A DMA-BUF mapped into Vulkan reached the encoder without its memory on RADV, and the video
+            // engine faulted; DMA-BUF frames are encoded through VA-API until that path is sound.
+            [],
             WindowsRank: 70,
             LinuxRank: 100,
             MacRank: 0

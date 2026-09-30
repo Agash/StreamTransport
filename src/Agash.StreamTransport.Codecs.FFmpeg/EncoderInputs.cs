@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using Agash.StreamTransport.Media;
 using FFmpeg.Interop.Native;
@@ -298,17 +299,35 @@ internal sealed class DmaBufInput : EncoderInput
             );
         }
 
-        var objects = new FF.DrmObject[image.PlaneCount];
-        var planes = new FF.DrmPlane[image.PlaneCount];
+        // Planes that share a file descriptor are one DMA-BUF object; sizes are read from the objects.
+        var objects = ImmutableArray.CreateBuilder<FF.DrmObject>(image.PlaneCount);
+        var planes = ImmutableArray.CreateBuilder<FF.DrmPlane>(image.PlaneCount);
         for (int i = 0; i < image.PlaneCount; i++)
         {
             DmaBufPlane plane = image[i];
-            objects[i] = new FF.DrmObject(plane.Fd, 0, image.Modifier);
-            planes[i] = new FF.DrmPlane(i, plane.Offset, plane.Stride);
+            int index = -1;
+            for (int o = 0; o < objects.Count; o++)
+            {
+                if (objects[o].FileDescriptor == plane.Fd)
+                {
+                    index = o;
+                }
+            }
+
+            if (index < 0)
+            {
+                index = objects.Count;
+                objects.Add(new FF.DrmObject(plane.Fd, 0, image.Modifier));
+            }
+
+            planes.Add(new FF.DrmPlane(index, plane.Offset, plane.Stride));
         }
 
         using var imported = FF.Frame.FromDrmPrime(
-            new FF.DrmPrimeImage([.. objects], [new FF.DrmLayer(image.DrmFormat, [.. planes])]),
+            new FF.DrmPrimeImage(
+                objects.DrainToImmutable(),
+                [new FF.DrmLayer(image.DrmFormat, planes.DrainToImmutable())]
+            ),
             _size.Width,
             _size.Height
         );

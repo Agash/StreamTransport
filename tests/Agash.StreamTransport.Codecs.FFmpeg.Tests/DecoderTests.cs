@@ -80,10 +80,12 @@ public sealed class DecoderTests
     // GPU frames from the decoder straight into an encoder on the same GPU, and the result decoded in
     // software: a transcode that never leaves the GPU.
     [TestMethod]
-    [OSCondition(OperatingSystems.Windows)]
     [DataRow(DecoderBackend.D3D12, VideoStorageKind.D3D12, EncoderBackend.D3D12)]
     [DataRow(DecoderBackend.D3D11, VideoStorageKind.D3D11, EncoderBackend.Nvenc)]
     [DataRow(DecoderBackend.D3D11, VideoStorageKind.D3D11, EncoderBackend.Amf)]
+    [DataRow(DecoderBackend.Vaapi, VideoStorageKind.DmaBuf, EncoderBackend.Vaapi)]
+    [DataRow(DecoderBackend.Vulkan, VideoStorageKind.DmaBuf, EncoderBackend.Vulkan)]
+    [DataRow(DecoderBackend.VideoToolbox, VideoStorageKind.IOSurface, EncoderBackend.VideoToolbox)]
     public void Transcode_OnTheGpu_KeepsThePictures(
         DecoderBackend decoderBackend,
         VideoStorageKind storage,
@@ -101,7 +103,8 @@ public sealed class DecoderTests
             Assert.Inconclusive($"{encoderBackend} does not take {storage} {codec} frames here.");
         }
 
-        GpuIdentity gpu = encoderInfo.Input.Device!.Value;
+        // Null on a single-GPU Mac, which has neither a LUID nor a DRM device.
+        GpuIdentity? gpu = encoderInfo.Input.Device;
         VideoConstraints gpuOutput = new([storage], [PixelFormat.Nv12], gpu);
         FFmpegVideoDecoderFactory decoders = new(decoderBackend);
         VideoDecoderInfo? decoderInfo = decoders.QueryCapabilities(
