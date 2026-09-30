@@ -130,7 +130,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         }
 
         _processor?.Dispose();
-        _encoder?.Dispose();
+        EndEncoder();
         _stop.Dispose();
     }
 
@@ -214,7 +214,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         VideoSize size = new(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
         if (_encoder is null || size != _encoderSize)
         {
-            _encoder?.Dispose();
+            EndEncoder();
             _encoder = CreateEncoder(size, frame.Storage.Device);
             _encoderSize = size;
             Volatile.Write(ref _keyframeRequested, 1);
@@ -261,10 +261,30 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     {
         _processor?.Dispose();
         _processor = null;
-        _encoder?.Dispose();
-        _encoder = null;
+        EndEncoder();
         _described = null;
         Volatile.Write(ref _keyframeRequested, 1);
+    }
+
+    // Ends the encoder's stream before closing it; what it still held is not sent, since the stream
+    // it belonged to is ending.
+    private void EndEncoder()
+    {
+        if (_encoder is { } encoder)
+        {
+            _encoder = null;
+            try
+            {
+                encoder.Flush(Discarded.Instance);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // An encoder that failed mid-stream may refuse to end it; it is closed all the same.
+                LogFlushFailed(exception);
+            }
+
+            encoder.Dispose();
+        }
     }
 
     [LoggerMessage(
@@ -273,6 +293,16 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         "A video frame could not be sent; the pipeline restarts with the next one."
     )]
     private partial void LogFrameFailed(Exception exception);
+
+    [LoggerMessage(2041, LogLevel.Debug, "Ending the encoder's stream failed; it is closed.")]
+    private partial void LogFlushFailed(Exception exception);
+
+    private sealed class Discarded : IEncodedVideoConsumer
+    {
+        public static Discarded Instance { get; } = new();
+
+        public void OnEncoded(in EncodedVideoFrame frame) { }
+    }
 
     // Takes processed frames into the encoder and encoded frames into RTP.
     private sealed class EncodedConsumer(VideoSendStream stream)
