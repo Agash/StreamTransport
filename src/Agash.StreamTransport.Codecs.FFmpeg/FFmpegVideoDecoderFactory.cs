@@ -206,7 +206,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         : adapter is null ? FF.HardwareDevice.Create(type)
         : FF.HardwareDevice.Create(type, adapter);
 
-    // Encodes a few frames in software and decodes them through this backend; a hardware backend
+    // Encodes a few frames and decodes them through this backend; a hardware backend
     // passes only if its frames really come out on the GPU, not from a silent software fallback.
     private bool RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {
@@ -283,7 +283,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         }
     }
 
-    // A few frames of the codec from the software encoder, shared by every probe of the codec.
+    // A few frames of the codec, shared by every probe of the codec.
     private static readonly ConcurrentDictionary<VideoCodecId, ImmutableArray<byte[]>> s_samples =
         new();
 
@@ -292,17 +292,11 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
             id,
             static codec =>
             {
-                FFmpegVideoEncoderFactory software = new(EncoderBackend.Software);
                 VideoSize size = new(256, 256);
-                using IVideoEncoder encoder = software.Create(
-                    new VideoEncoderConfiguration(
-                        new VideoCodecFormat(codec),
-                        size,
-                        new RateTarget(500_000, 30)
-                    ),
-                    device: null
+                using IVideoEncoder encoder = AnyEncoder(codec, size);
+                PixelFormat format = encoder.Info.Input.PixelFormats.First(static f =>
+                    f is PixelFormat.Nv12 or PixelFormat.I420
                 );
-                PixelFormat format = encoder.Info.Input.PixelFormats[0];
                 byte[] pixels = new byte[PlaneLayout.PackedSize(format, size)];
                 pixels.AsSpan().Fill(96);
                 SampleCollector collector = new();
@@ -321,6 +315,37 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
                 return [.. collector.Units];
             }
         );
+
+    // An encoder for the codec to make probe streams with: software first, since it depends on no GPU,
+    // then whatever hardware this machine has (macOS FFmpeg builds carry no software H.264 or H.265).
+    private static IVideoEncoder AnyEncoder(VideoCodecId codec, VideoSize size)
+    {
+        VideoEncoderConfiguration configuration = new(
+            new VideoCodecFormat(codec),
+            size,
+            new RateTarget(500_000, 30)
+        );
+        foreach (
+            FFmpegVideoEncoderFactory factory in FFmpegVideoEncoderFactory
+                .CreateAll()
+                .OrderBy(static f => f.IsHardwareAccelerated)
+        )
+        {
+            if (
+                factory.QueryCapabilities(configuration.Format, device: null) is { } info
+                && info.Input.PixelFormats.Any(static f =>
+                    f is PixelFormat.Nv12 or PixelFormat.I420
+                )
+            )
+            {
+                return factory.Create(configuration, device: null);
+            }
+        }
+
+        throw new NotSupportedException(
+            $"No encoder on this machine makes {codec} to probe decoders with."
+        );
+    }
 
     private sealed record Resolved(
         FF.Codec Codec,

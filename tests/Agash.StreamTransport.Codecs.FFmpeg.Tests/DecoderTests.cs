@@ -144,16 +144,26 @@ public sealed class DecoderTests
     // The test stream: the moving gradient, encoded in software.
     private static List<(byte[] Data, MediaTimestamp Timestamp)> Stream(VideoCodecId codec)
     {
-        FFmpegVideoEncoderFactory software = new(EncoderBackend.Software);
-        using IVideoEncoder encoder = software.Create(
-            new VideoEncoderConfiguration(
-                new VideoCodecFormat(codec),
-                Pictures.Size,
-                new RateTarget(4_000_000, 30)
-            ),
-            device: null
+        VideoEncoderConfiguration configuration = new(
+            new VideoCodecFormat(codec),
+            Pictures.Size,
+            new RateTarget(4_000_000, 30)
         );
-        PixelFormat format = encoder.Info.Input.PixelFormats[0];
+        FFmpegVideoEncoderFactory factory =
+            FFmpegVideoEncoderFactory
+                .CreateAll()
+                .OrderBy(static f => f.IsHardwareAccelerated)
+                .FirstOrDefault(f =>
+                    f.QueryCapabilities(configuration.Format, device: null) is { } info
+                    && info.Input.PixelFormats.Any(static p =>
+                        p is PixelFormat.Nv12 or PixelFormat.I420
+                    )
+                )
+            ?? throw new AssertInconclusiveException($"Nothing on this machine encodes {codec}.");
+        using IVideoEncoder encoder = factory.Create(configuration, device: null);
+        PixelFormat format = encoder.Info.Input.PixelFormats.First(static f =>
+            f is PixelFormat.Nv12 or PixelFormat.I420
+        );
         Collector collector = new();
         for (int i = 0; i < FrameCount; i++)
         {
