@@ -11,7 +11,7 @@ public sealed class OpusTests
     [TestMethod]
     public void Encode_TenMillisecondChunks_GivesTwentyMillisecondPacketsAtTheirCaptureTimes()
     {
-        using OpusAudioEncoder encoder = new(Stereo);
+        using IAudioEncoder encoder = Encoder(Stereo);
         Packets packets = new();
         for (int chunk = 0; chunk < 100; chunk++)
         {
@@ -33,14 +33,14 @@ public sealed class OpusTests
     [TestMethod]
     public void Decode_StereoTone_KeepsItsLevelInBothChannels()
     {
-        using OpusAudioEncoder encoder = new(Stereo);
+        using IAudioEncoder encoder = Encoder(Stereo);
         Packets packets = new();
         for (int chunk = 0; chunk < 100; chunk++)
         {
             Feed(encoder, Stereo, chunk, samples: 480, packets);
         }
 
-        using OpusAudioDecoder decoder = new();
+        using var decoder = (OpusAudioDecoder)Decoders.Create(Format);
         Pcm pcm = new();
         foreach ((byte[] data, MediaTimestamp timestamp, TimeSpan duration) in packets.All)
         {
@@ -62,14 +62,14 @@ public sealed class OpusTests
     public void Decode_MonoStream_ComesOutStereo()
     {
         AudioFormat mono = new(SampleFormat.S16, 48_000, 1);
-        using OpusAudioEncoder encoder = new(mono);
+        using IAudioEncoder encoder = Encoder(mono);
         Packets packets = new();
         for (int chunk = 0; chunk < 50; chunk++)
         {
             Feed(encoder, mono, chunk, samples: 960, packets);
         }
 
-        using OpusAudioDecoder decoder = new();
+        using var decoder = (OpusAudioDecoder)Decoders.Create(Format);
         Pcm pcm = new();
         foreach ((byte[] data, MediaTimestamp timestamp, TimeSpan duration) in packets.All)
         {
@@ -87,14 +87,14 @@ public sealed class OpusTests
     [TestMethod]
     public void Conceal_LostPacket_FillsItsDuration()
     {
-        using OpusAudioEncoder encoder = new(Stereo);
+        using IAudioEncoder encoder = Encoder(Stereo);
         Packets packets = new();
         for (int chunk = 0; chunk < 10; chunk++)
         {
             Feed(encoder, Stereo, chunk, samples: 480, packets);
         }
 
-        using OpusAudioDecoder decoder = new();
+        using var decoder = (OpusAudioDecoder)Decoders.Create(Format);
         Pcm pcm = new();
         (byte[] first, MediaTimestamp at, TimeSpan duration) = packets.All[0];
         decoder.Decode(new EncodedAudioFrame(first, AudioCodecId.Opus, at, duration), pcm);
@@ -110,17 +110,14 @@ public sealed class OpusTests
     [TestMethod]
     public void Recover_FromTheNextPacket_ProducesTheLostDuration()
     {
-        using OpusAudioEncoder encoder = new(
-            Stereo,
-            new OpusEncoderOptions { ExpectedLossPercent = 20 }
-        );
+        using IAudioEncoder encoder = Encoder(Stereo, expectedLossPercent: 20);
         Packets packets = new();
         for (int chunk = 0; chunk < 20; chunk++)
         {
             Feed(encoder, Stereo, chunk, samples: 480, packets);
         }
 
-        using OpusAudioDecoder decoder = new();
+        using var decoder = (OpusAudioDecoder)Decoders.Create(Format);
         Pcm pcm = new();
         for (int i = 0; i < 4; i++)
         {
@@ -144,10 +141,7 @@ public sealed class OpusTests
     [TestMethod]
     public void Reconfigure_LowerRate_ShrinksThePackets()
     {
-        using OpusAudioEncoder encoder = new(
-            Stereo,
-            new OpusEncoderOptions { BitsPerSecond = 128_000 }
-        );
+        using IAudioEncoder encoder = Encoder(Stereo, bitsPerSecond: 128_000);
         Packets packets = new();
         for (int chunk = 0; chunk < 100; chunk++)
         {
@@ -165,10 +159,27 @@ public sealed class OpusTests
     }
 
     private static readonly MediaTime Start = new(5_000_000_000);
+    private static readonly AudioCodecFormat Format = new(AudioCodecId.Opus);
+    private static readonly OpusAudioDecoderFactory Decoders = new();
+
+    // Encoders come from the factory, as a pipeline makes them.
+    private static IAudioEncoder Encoder(
+        AudioFormat input,
+        int bitsPerSecond = 64_000,
+        int expectedLossPercent = 10
+    ) =>
+        new OpusAudioEncoderFactory().Create(
+            new AudioEncoderConfiguration(
+                Format,
+                input,
+                bitsPerSecond,
+                ExpectedLossPercent: expectedLossPercent
+            )
+        );
 
     // A chunk of a 1 kHz sine at half scale (or noise), timestamped as captured.
     private static void Feed(
-        OpusAudioEncoder encoder,
+        IAudioEncoder encoder,
         AudioFormat format,
         int chunk,
         int samples,
@@ -238,4 +249,35 @@ public sealed class OpusTests
             return (Math.Sqrt(left / count), Math.Sqrt(right / count));
         }
     }
+
+    [TestMethod]
+    public void Factories_AnswerForOpusOnly()
+    {
+        OpusAudioEncoderFactory encoders = new();
+        AudioCodecFormat other = new(new AudioCodecId("G722"));
+
+        Assert.IsNotNull(encoders.QueryCapabilities(Format));
+        Assert.IsNull(encoders.QueryCapabilities(other));
+        Assert.IsNull(Decoders.QueryCapabilities(other));
+        Assert.IsTrue(encoders.QueryCapabilities(Format)!.Input.Accepts(Stereo));
+        Assert.IsFalse(
+            encoders
+                .QueryCapabilities(Format)!
+                .Input.Accepts(new AudioFormat(SampleFormat.F32, 44_100, 2))
+        );
+        Assert.ThrowsExactly<ArgumentException>(() => Decoders.Create(other));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            encoders.Create(
+                new AudioEncoderConfiguration(
+                    Format,
+                    new AudioFormat(SampleFormat.F32, 44_100, 2),
+                    64_000
+                )
+            )
+        );
+    }
+
+    [TestMethod]
+    public void Decoder_RecoversThroughTheLossRecoveryContract() =>
+        Assert.IsInstanceOfType<IAudioLossRecovery>(Decoders.Create(Format));
 }

@@ -5,41 +5,15 @@ using Concentus.Enums;
 
 namespace Agash.StreamTransport.Codecs.Opus;
 
-/// <summary>What the Opus encoder is tuned for.</summary>
-public enum OpusTuning
+/// <summary>Settings particular to Opus, beyond an <see cref="AudioEncoderConfiguration"/>.</summary>
+public sealed record OpusOptions
 {
-    /// <summary>Speech: the SILK layer, voice band limits.</summary>
-    Voice,
-
-    /// <summary>Music and mixed content: full band.</summary>
-    Music,
-}
-
-/// <summary>How an <see cref="OpusAudioEncoder"/> is set up.</summary>
-public sealed record OpusEncoderOptions
-{
-    /// <summary>The target bit rate.</summary>
-    public int BitsPerSecond { get; init; } = 64_000;
-
-    /// <summary>The duration of each packet: 10, 20, 40 or 60 ms.</summary>
-    public TimeSpan FrameDuration { get; init; } = TimeSpan.FromMilliseconds(20);
-
-    /// <summary>What the encoder is tuned for.</summary>
-    public OpusTuning Tuning { get; init; } = OpusTuning.Music;
-
-    /// <summary>
-    /// The packet loss the in-band forward error correction plans for, in percent; zero turns it off.
-    /// With it on, each packet carries a coarse copy of the one before, so a receiver recovers a lost
-    /// packet from the next.
-    /// </summary>
-    public int ExpectedLossPercent { get; init; } = 10;
-
     /// <summary>The encoder's effort, 0 (fastest) to 10 (best).</summary>
     public int Complexity { get; init; } = 7;
 }
 
 /// <summary>
-/// An Opus encoder. Capture frames of any length go in; packets of <see cref="OpusEncoderOptions.FrameDuration"/>
+/// An Opus encoder. Capture frames of any length go in; packets of <see cref="AudioEncoderConfiguration.FrameDuration"/>
 /// come out as they fill, each stamped with the capture time of its first sample.
 /// </summary>
 public sealed class OpusAudioEncoder : IAudioEncoder
@@ -57,51 +31,62 @@ public sealed class OpusAudioEncoder : IAudioEncoder
     private MediaTimestamp _pendingStart;
     private bool _disposed;
 
-    /// <summary>An encoder for PCM in a format.</summary>
-    /// <param name="input">The PCM format: 8, 12, 16, 24 or 48 kHz, one or two channels.</param>
-    /// <param name="options">The options; defaults when null.</param>
-    public OpusAudioEncoder(AudioFormat input, OpusEncoderOptions? options = null)
+    /// <summary>An encoder set up by a configuration.</summary>
+    /// <param name="configuration">
+    /// The Opus format, the PCM (8, 12, 16, 24 or 48 kHz, one or two channels), the rate, and a frame
+    /// duration of 10, 20, 40 or 60 ms; zero means 20 ms.
+    /// </param>
+    /// <param name="options">Opus settings; defaults when null.</param>
+    public OpusAudioEncoder(AudioEncoderConfiguration configuration, OpusOptions? options = null)
     {
-        if (input.SampleRate is not (8_000 or 12_000 or 16_000 or 24_000 or 48_000))
+        ArgumentNullException.ThrowIfNull(configuration);
+        if (configuration.Format.Codec != AudioCodecId.Opus)
         {
-            throw new ArgumentOutOfRangeException(
-                nameof(input),
-                input.SampleRate,
-                "Opus encodes 8, 12, 16, 24 or 48 kHz."
+            throw new ArgumentException(
+                $"This encoder encodes Opus; the configuration asks for {configuration.Format.Codec}.",
+                nameof(configuration)
             );
         }
 
-        ArgumentOutOfRangeException.ThrowIfLessThan(input.Channels, 1, nameof(input));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(input.Channels, 2, nameof(input));
-        options ??= new OpusEncoderOptions();
-        if (options.FrameDuration.TotalMilliseconds is not (10 or 20 or 40 or 60))
+        AudioFormat input = configuration.Input;
+        if (!OpusAudioEncoderFactory.Constraints.Accepts(input))
         {
             throw new ArgumentOutOfRangeException(
-                nameof(options),
-                options.FrameDuration,
+                nameof(configuration),
+                input,
+                "Opus encodes 8, 12, 16, 24 or 48 kHz, one or two channels, as F32 or S16."
+            );
+        }
+
+        TimeSpan duration =
+            configuration.FrameDuration == TimeSpan.Zero
+                ? TimeSpan.FromMilliseconds(20)
+                : configuration.FrameDuration;
+        if (duration.TotalMilliseconds is not (10 or 20 or 40 or 60))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(configuration),
+                duration,
                 "Opus packets here are 10, 20, 40 or 60 ms."
             );
         }
 
+        options ??= new OpusOptions();
+        bool speech = configuration.Content == AudioContent.Speech;
         Input = input;
-        _frameDuration = options.FrameDuration;
-        _frameSamples = (int)(input.SampleRate * options.FrameDuration.TotalSeconds);
+        _frameDuration = duration;
+        _frameSamples = (int)(input.SampleRate * duration.TotalSeconds);
         _pending = new float[_frameSamples * input.Channels];
         _encoder = OpusCodecFactory.CreateEncoder(
             input.SampleRate,
             input.Channels,
-            options.Tuning == OpusTuning.Voice
-                ? OpusApplication.OPUS_APPLICATION_VOIP
-                : OpusApplication.OPUS_APPLICATION_AUDIO
+            speech ? OpusApplication.OPUS_APPLICATION_VOIP : OpusApplication.OPUS_APPLICATION_AUDIO
         );
-        _encoder.Bitrate = options.BitsPerSecond;
+        _encoder.Bitrate = Math.Clamp(configuration.BitsPerSecond, 6_000, 510_000);
         _encoder.Complexity = Math.Clamp(options.Complexity, 0, 10);
-        _encoder.UseInbandFEC = options.ExpectedLossPercent > 0;
-        _encoder.PacketLossPercent = Math.Clamp(options.ExpectedLossPercent, 0, 100);
-        _encoder.SignalType =
-            options.Tuning == OpusTuning.Voice
-                ? OpusSignal.OPUS_SIGNAL_VOICE
-                : OpusSignal.OPUS_SIGNAL_MUSIC;
+        _encoder.UseInbandFEC = configuration.ExpectedLossPercent > 0;
+        _encoder.PacketLossPercent = Math.Clamp(configuration.ExpectedLossPercent, 0, 100);
+        _encoder.SignalType = speech ? OpusSignal.OPUS_SIGNAL_VOICE : OpusSignal.OPUS_SIGNAL_MUSIC;
     }
 
     /// <inheritdoc/>

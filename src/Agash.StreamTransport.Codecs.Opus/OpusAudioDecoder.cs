@@ -8,7 +8,7 @@ namespace Agash.StreamTransport.Codecs.Opus;
 /// An Opus decoder producing 48 kHz stereo float PCM, whatever the channel count and rate of the
 /// encoder: Opus decodes any stream at any of its rates and mixes or duplicates channels as asked.
 /// </summary>
-public sealed class OpusAudioDecoder : IAudioDecoder
+public sealed class OpusAudioDecoder : IAudioDecoder, IAudioLossRecovery
 {
     private const int SampleRate = 48_000;
     private const int Channels = 2;
@@ -61,15 +61,7 @@ public sealed class OpusAudioDecoder : IAudioDecoder
         }
     }
 
-    /// <summary>
-    /// Recovers a lost packet from the forward error correction in the packet after it, and delivers
-    /// the recovered audio; decode <paramref name="next"/> itself afterwards as usual. Falls back to
-    /// concealment when the packet carries no correction data.
-    /// </summary>
-    /// <param name="next">The packet that arrived after the lost one.</param>
-    /// <param name="lostDuration">How long the lost packet was.</param>
-    /// <param name="lostTimestamp">When the lost packet started.</param>
-    /// <param name="consumer">Where the recovered audio goes.</param>
+    /// <inheritdoc/>
     public void Recover(
         in EncodedAudioFrame next,
         TimeSpan lostDuration,
