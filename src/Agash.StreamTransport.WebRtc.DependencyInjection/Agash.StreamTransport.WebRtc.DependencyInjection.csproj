@@ -5,7 +5,7 @@
     <AssemblyName>Agash.StreamTransport.WebRtc.DependencyInjection</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc.DependencyInjection</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.DependencyInjection</PackageId>
-    <Description>Dependency-injection wiring for the Agash.StreamTransport WebRTC stack: registers the DTLS-SRTP factory, the congestion controller, and a peer-connection factory via Microsoft.Extensions.DependencyInjection.</Description>
+    <Description>Dependency-injection wiring for the Agash.StreamTransport WebRTC stack: registers the DTLS certificate, the congestion controller, and a peer-connection factory via Microsoft.Extensions.DependencyInjection.</Description>
     <PackageTags>webrtc;dependencyinjection;hosting;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

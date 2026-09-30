@@ -5,7 +5,7 @@
     <AssemblyName>Agash.StreamTransport.WebRtc.Abstractions</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.Abstractions</PackageId>
-    <Description>Contracts and options for the Agash.StreamTransport first-party WebRTC stack: ICE/DTLS/SRTP/RTP transport seams, peer-connection abstractions, and diagnostics. Only dependency beyond the BCL is Microsoft.Extensions.Logging.Abstractions.</Description>
+    <Description>Contracts shared by the Agash.StreamTransport WebRTC packages: ICE and DTLS roles, network-control seams for congestion control, and network change monitoring. BCL only.</Description>
     <PackageTags>webrtc;ice;dtls;srtp;rtp;abstractions;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <MinVerTagPrefix>v</MinVerTagPrefix>
