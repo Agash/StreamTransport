@@ -10,13 +10,19 @@ namespace Agash.StreamTransport.Media;
 /// </summary>
 public readonly ref struct VideoFrame
 {
+    private readonly ReadOnlySpan<byte> _plane0;
+    private readonly ReadOnlySpan<byte> _plane1;
+    private readonly ReadOnlySpan<byte> _plane2;
     private readonly IVideoFrameRetainer? _retainer;
 
-    /// <summary>A frame.</summary>
+    /// <summary>A frame in GPU memory, or in CPU memory as one buffer laid out as its storage says.</summary>
     /// <param name="storage">Where the pixels are.</param>
     /// <param name="format">The pixel format and geometry.</param>
     /// <param name="timestamp">When the frame was made.</param>
-    /// <param name="cpuData">The pixels, for <see cref="VideoStorageKind.Cpu"/> storage.</param>
+    /// <param name="cpuData">
+    /// The pixels, for <see cref="VideoStorageKind.Cpu"/> storage: every plane of the
+    /// <see cref="CpuImage.Planes"/> layout, at its offset.
+    /// </param>
     /// <param name="color">How samples map to colours.</param>
     /// <param name="orientation">How to turn the buffer upright.</param>
     /// <param name="duration">How long the frame is shown; zero when unknown.</param>
@@ -35,22 +41,88 @@ public readonly ref struct VideoFrame
         IVideoFrameRetainer? retainer = null
     )
     {
-        if (storage.Kind == VideoStorageKind.Cpu && cpuData.IsEmpty)
+        if (storage.TryGetValue(out CpuImage image))
         {
-            throw new ArgumentException("A CPU frame needs its pixels.", nameof(cpuData));
+            if (cpuData.IsEmpty)
+            {
+                throw new ArgumentException("A CPU frame needs its pixels.", nameof(cpuData));
+            }
+
+            PlaneLayout layout = image.Planes;
+            _plane0 = Slice(cpuData, format, layout, 0);
+            _plane1 = Slice(cpuData, format, layout, 1);
+            _plane2 = Slice(cpuData, format, layout, 2);
+            Storage = new CpuImage(Unpacked(layout));
+        }
+        else
+        {
+            Storage = storage;
         }
 
-        Storage = storage;
         Format = format;
         Timestamp = timestamp;
-        CpuData = cpuData;
         Color = color;
         Orientation = orientation;
         Duration = duration;
         _retainer = retainer;
     }
 
-    /// <summary>Where the pixels are.</summary>
+    /// <summary>
+    /// A frame in CPU memory whose planes are separate buffers, as decoders produce them. Pass the planes
+    /// the format has (<see cref="PlaneLayout.PlaneCount"/>) and leave the rest empty.
+    /// </summary>
+    /// <param name="format">The pixel format and geometry.</param>
+    /// <param name="timestamp">When the frame was made.</param>
+    /// <param name="plane0">The first plane: luma, or the packed pixels.</param>
+    /// <param name="stride0">Bytes from one row of <paramref name="plane0"/> to the next.</param>
+    /// <param name="plane1">The second plane, if the format has one.</param>
+    /// <param name="stride1">Its row pitch.</param>
+    /// <param name="plane2">The third plane, if the format has one.</param>
+    /// <param name="stride2">Its row pitch.</param>
+    /// <param name="color">How samples map to colours.</param>
+    /// <param name="orientation">How to turn the buffer upright.</param>
+    /// <param name="duration">How long the frame is shown; zero when unknown.</param>
+    /// <param name="retainer">How to keep the frame past the call; null to copy it.</param>
+    public VideoFrame(
+        VideoFormat format,
+        MediaTimestamp timestamp,
+        ReadOnlySpan<byte> plane0,
+        int stride0,
+        ReadOnlySpan<byte> plane1 = default,
+        int stride1 = 0,
+        ReadOnlySpan<byte> plane2 = default,
+        int stride2 = 0,
+        VideoColor color = default,
+        VideoOrientation orientation = default,
+        TimeSpan duration = default,
+        IVideoFrameRetainer? retainer = null
+    )
+    {
+        int count = PlaneLayout.PlaneCount(format.PixelFormat);
+        if (plane0.IsEmpty || (count > 1 && plane1.IsEmpty) || (count > 2 && plane2.IsEmpty))
+        {
+            throw new ArgumentException(
+                $"A {format.PixelFormat} frame has {count} planes and needs each of them."
+            );
+        }
+
+        ReadOnlySpan<VideoPlane> strides = [new(0, stride0), new(0, stride1), new(0, stride2)];
+        _plane0 = plane0;
+        _plane1 = count > 1 ? plane1 : default;
+        _plane2 = count > 2 ? plane2 : default;
+        Storage = new CpuImage(new PlaneLayout(strides[..count]));
+        Format = format;
+        Timestamp = timestamp;
+        Color = color;
+        Orientation = orientation;
+        Duration = duration;
+        _retainer = retainer;
+    }
+
+    /// <summary>
+    /// Where the pixels are. A CPU frame's layout has zero offsets: <see cref="GetPlane"/> returns each
+    /// plane from its first row.
+    /// </summary>
     public VideoStorage Storage { get; }
 
     /// <summary>The pixel format and geometry.</summary>
@@ -58,9 +130,6 @@ public readonly ref struct VideoFrame
 
     /// <summary>When the frame was made.</summary>
     public MediaTimestamp Timestamp { get; }
-
-    /// <summary>The pixels of a CPU frame, laid out as its <see cref="CpuImage.Planes"/> say; empty otherwise.</summary>
-    public ReadOnlySpan<byte> CpuData { get; }
 
     /// <summary>How samples map to colours.</summary>
     public VideoColor Color { get; }
@@ -70,6 +139,28 @@ public readonly ref struct VideoFrame
 
     /// <summary>How long the frame is shown; zero when unknown.</summary>
     public TimeSpan Duration { get; }
+
+    /// <summary>The planes of a CPU frame; zero for a GPU frame.</summary>
+    public int PlaneCount => Storage.TryGetValue(out CpuImage image) ? image.Planes.Count : 0;
+
+    /// <summary>A plane of a CPU frame, from its first row; its row pitch is the storage layout's stride.</summary>
+    /// <param name="index">Which plane.</param>
+    /// <returns>The plane's bytes.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The frame has no such plane.</exception>
+    public ReadOnlySpan<byte> GetPlane(int index)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            (uint)index,
+            (uint)PlaneCount,
+            nameof(index)
+        );
+        return index switch
+        {
+            0 => _plane0,
+            1 => _plane1,
+            _ => _plane2,
+        };
+    }
 
     /// <summary>
     /// Keeps the frame past the call it was passed to. Only the producer knows what that costs: a CPU
@@ -84,6 +175,37 @@ public readonly ref struct VideoFrame
         : throw new NotSupportedException(
             $"The producer of this {Storage.Kind} frame cannot keep it past the call."
         );
+
+    // A plane of a buffer laid out as layout says: from its offset, its rows at its stride.
+    private static ReadOnlySpan<byte> Slice(
+        ReadOnlySpan<byte> data,
+        VideoFormat format,
+        PlaneLayout layout,
+        int plane
+    )
+    {
+        if (plane >= layout.Count)
+        {
+            return default;
+        }
+
+        VideoPlane where = layout[plane];
+        int rows = PlaneLayout.PlaneRows(format.PixelFormat, plane, format.CodedSize.Height);
+        int length = Math.Min(rows * where.Stride, data.Length - where.Offset);
+        return data.Slice(where.Offset, length);
+    }
+
+    // The same strides with each plane starting its own span.
+    private static PlaneLayout Unpacked(PlaneLayout layout)
+    {
+        Span<VideoPlane> planes = stackalloc VideoPlane[layout.Count];
+        for (int i = 0; i < layout.Count; i++)
+        {
+            planes[i] = new VideoPlane(0, layout[i].Stride);
+        }
+
+        return new PlaneLayout(planes);
+    }
 }
 
 /// <summary>Keeps frames past the call that delivered them, in the producer's own way.</summary>
@@ -155,11 +277,30 @@ public abstract class VideoFrameLease : IDisposable
         get
         {
             ObjectDisposedException.ThrowIf(IsDisposed, this);
+            if (!Storage.TryGetValue(out CpuImage image))
+            {
+                return new VideoFrame(
+                    Storage,
+                    Format,
+                    Timestamp,
+                    default,
+                    Color,
+                    Orientation,
+                    Duration,
+                    KeepAgain
+                );
+            }
+
+            PlaneLayout planes = image.Planes;
             return new VideoFrame(
-                Storage,
                 Format,
                 Timestamp,
-                CpuData,
+                GetPlane(0),
+                planes[0].Stride,
+                planes.Count > 1 ? GetPlane(1) : default,
+                planes.Count > 1 ? planes[1].Stride : 0,
+                planes.Count > 2 ? GetPlane(2) : default,
+                planes.Count > 2 ? planes[2].Stride : 0,
                 Color,
                 Orientation,
                 Duration,
@@ -168,8 +309,16 @@ public abstract class VideoFrameLease : IDisposable
         }
     }
 
-    /// <summary>The pixels of a CPU frame; empty otherwise.</summary>
-    protected virtual ReadOnlySpan<byte> CpuData => default;
+    /// <summary>
+    /// A plane of a CPU frame, from its first row, at the stride <see cref="Storage"/> gives; a lease
+    /// on a CPU frame overrides it.
+    /// </summary>
+    /// <param name="index">Which plane.</param>
+    /// <returns>The plane's bytes.</returns>
+    protected virtual ReadOnlySpan<byte> GetPlane(int index) =>
+        throw new NotSupportedException(
+            $"This lease holds a {Storage.Kind} frame, which has no CPU planes."
+        );
 
     /// <summary>How the frame is kept again when a consumer of <see cref="Frame"/> retains it.</summary>
     protected virtual IVideoFrameRetainer? KeepAgain => null;
@@ -188,15 +337,15 @@ public abstract class VideoFrameLease : IDisposable
     protected abstract void Release();
 }
 
-// A CPU frame copied into memory rented from the shared pool.
+// A CPU frame copied into memory rented from the shared pool, its planes back to back at their strides.
 internal sealed class CpuVideoFrameLease : VideoFrameLease
 {
     private readonly byte[] _buffer;
     private readonly int _length;
 
-    private CpuVideoFrameLease(in VideoFrame frame, byte[] buffer)
+    private CpuVideoFrameLease(in VideoFrame frame, PlaneLayout layout, byte[] buffer, int length)
         : base(
-            frame.Storage,
+            new CpuImage(layout),
             frame.Format,
             frame.Timestamp,
             frame.Color,
@@ -205,14 +354,39 @@ internal sealed class CpuVideoFrameLease : VideoFrameLease
         )
     {
         _buffer = buffer;
-        _length = frame.CpuData.Length;
-        frame.CpuData.CopyTo(buffer);
+        _length = length;
+        for (int i = 0; i < frame.PlaneCount; i++)
+        {
+            frame.GetPlane(i).CopyTo(buffer.AsSpan(layout[i].Offset));
+        }
     }
 
-    public static CpuVideoFrameLease Copy(in VideoFrame frame) =>
-        new(in frame, ArrayPool<byte>.Shared.Rent(frame.CpuData.Length));
+    public static CpuVideoFrameLease Copy(in VideoFrame frame)
+    {
+        _ = frame.Storage.TryGetValue(out CpuImage image);
+        Span<VideoPlane> planes = stackalloc VideoPlane[frame.PlaneCount];
+        int offset = 0;
+        for (int i = 0; i < planes.Length; i++)
+        {
+            planes[i] = new VideoPlane(offset, image.Planes[i].Stride);
+            offset += frame.GetPlane(i).Length;
+        }
 
-    protected override ReadOnlySpan<byte> CpuData => _buffer.AsSpan(0, _length);
+        return new CpuVideoFrameLease(
+            in frame,
+            new PlaneLayout(planes),
+            ArrayPool<byte>.Shared.Rent(offset),
+            offset
+        );
+    }
+
+    protected override ReadOnlySpan<byte> GetPlane(int index)
+    {
+        _ = Storage.TryGetValue(out CpuImage image);
+        int start = image.Planes[index].Offset;
+        int end = index + 1 < image.Planes.Count ? image.Planes[index + 1].Offset : _length;
+        return _buffer.AsSpan(start, end - start);
+    }
 
     protected override void Release() => ArrayPool<byte>.Shared.Return(_buffer);
 }

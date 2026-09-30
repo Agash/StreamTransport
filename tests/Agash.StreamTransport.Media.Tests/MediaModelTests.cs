@@ -115,7 +115,7 @@ public sealed class VideoFrameTests
         using (lease)
         {
             VideoFrame kept = lease.Frame;
-            Assert.AreEqual(15, kept.CpuData[15]);
+            Assert.AreEqual(15, kept.GetPlane(0)[15]);
             Assert.AreEqual(PixelFormat.Bgra, kept.Format.PixelFormat);
         }
 
@@ -123,6 +123,48 @@ public sealed class VideoFrameTests
         _ = Assert.ThrowsExactly<ObjectDisposedException>(() => lease.Frame.Duration);
         lease.Dispose();
     }
+
+    [TestMethod]
+    public void Retain_FrameWithSeparatePlanes_KeepsEachPlaneAtItsStride()
+    {
+        // NV12 4x2 with padded rows: luma stride 8, chroma stride 6, each plane its own buffer.
+        byte[] luma = [.. Enumerable.Range(0, 16).Select(static i => (byte)i)];
+        byte[] chroma = [.. Enumerable.Range(100, 6).Select(static i => (byte)i)];
+        VideoFrame frame = new(
+            new VideoFormat(PixelFormat.Nv12, 4, 2),
+            MediaTimestamp.Captured(new MediaTime(9)),
+            luma,
+            8,
+            chroma,
+            6
+        );
+
+        Assert.AreEqual(2, frame.PlaneCount);
+        using VideoFrameLease lease = frame.Retain();
+        luma.AsSpan().Clear();
+        chroma.AsSpan().Clear();
+
+        VideoFrame kept = lease.Frame;
+        Assert.IsTrue(kept.Storage.TryGetValue(out CpuImage image));
+        Assert.AreEqual(8, image.Planes[0].Stride);
+        Assert.AreEqual(6, image.Planes[1].Stride);
+        Assert.AreEqual(15, kept.GetPlane(0)[15]);
+        Assert.AreEqual(105, kept.GetPlane(1)[5]);
+        Assert.AreEqual(6, kept.GetPlane(1).Length);
+    }
+
+    [TestMethod]
+    public void Construct_PlanesMissingForTheFormat_IsRefused() =>
+        _ = Assert.ThrowsExactly<ArgumentException>(static () =>
+            new VideoFrame(
+                new VideoFormat(PixelFormat.I420, 2, 2),
+                MediaTimestamp.Captured(MediaTime.Zero),
+                new byte[4],
+                2,
+                new byte[1],
+                1
+            )
+        );
 
     [TestMethod]
     public void Retain_GpuFrameWithoutRetainer_IsRefused() =>

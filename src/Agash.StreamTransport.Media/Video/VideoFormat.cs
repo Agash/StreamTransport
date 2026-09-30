@@ -267,6 +267,28 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
         };
     }
 
+    /// <summary>How many planes a format has.</summary>
+    /// <param name="format">The pixel format.</param>
+    /// <returns>The plane count.</returns>
+    public static int PlaneCount(PixelFormat format) =>
+        format switch
+        {
+            PixelFormat.Nv12 or PixelFormat.P010 => 2,
+            PixelFormat.I420 => 3,
+            PixelFormat.Bgra or PixelFormat.Rgba => 1,
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
+        };
+
+    /// <summary>How many rows a plane of a format has: half the height for 4:2:0 chroma.</summary>
+    /// <param name="format">The pixel format.</param>
+    /// <param name="plane">The plane.</param>
+    /// <param name="height">The coded height.</param>
+    /// <returns>The row count.</returns>
+    public static int PlaneRows(PixelFormat format, int plane, int height) =>
+        plane > 0 && format is PixelFormat.Nv12 or PixelFormat.P010 or PixelFormat.I420
+            ? (height + 1) / 2
+            : height;
+
     /// <summary>The bytes a tightly packed frame of a format takes.</summary>
     /// <param name="format">The pixel format.</param>
     /// <param name="size">The coded size.</param>

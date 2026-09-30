@@ -83,6 +83,7 @@ public sealed class GpuInputTests
                     ? surface.TryGetD3D12Texture(out FF.D3D12Texture d3d12)
                         ? new D3D12Image(
                             d3d12.Resource,
+                            d3d12.Subresource,
                             identity,
                             new D3D12Sync(Fence: d3d12.Fence, Value: d3d12.FenceValue)
                         )

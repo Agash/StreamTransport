@@ -22,10 +22,10 @@ public enum VideoStorageKind
 }
 
 /// <summary>
-/// Pixels in CPU memory. The bytes themselves are <see cref="VideoFrame.CpuData"/>, which a borrowed
+/// Pixels in CPU memory. The bytes themselves are the frame's planes (<see cref="VideoFrame.GetPlane"/>), which a borrowed
 /// frame only holds for the call it is passed to; this describes their layout.
 /// </summary>
-/// <param name="Planes">Where each plane is in <see cref="VideoFrame.CpuData"/>.</param>
+/// <param name="Planes">Each plane's offset into the frame's memory and its row pitch.</param>
 public readonly record struct CpuImage(PlaneLayout Planes);
 
 /// <summary>
@@ -38,12 +38,14 @@ public readonly record struct CpuImage(PlaneLayout Planes);
 /// <param name="Value">The value <paramref name="Fence"/> reaches when the resource is ready.</param>
 public readonly record struct D3D12Sync(nint ProducerQueue = 0, nint Fence = 0, ulong Value = 0);
 
-/// <summary>A Direct3D 12 texture (Windows): one 2D resource with one mip level and array slice.</summary>
+/// <summary>A Direct3D 12 texture (Windows): a 2D resource with one mip level.</summary>
 /// <param name="Resource">The ID3D12Resource, borrowed, in D3D12_RESOURCE_STATE_COMMON.</param>
+/// <param name="Subresource">The array slice the frame is in; zero for a single texture.</param>
 /// <param name="Adapter">The adapter the resource lives on.</param>
 /// <param name="Sync">How to wait for the producer.</param>
 public readonly record struct D3D12Image(
     nint Resource,
+    int Subresource,
     GpuIdentity Adapter,
     D3D12Sync Sync = default
 );

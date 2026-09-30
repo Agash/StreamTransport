@@ -42,18 +42,17 @@ internal abstract class EncoderInput : IDisposable
             size.Height,
             Formats.ToFFmpeg(frame.Format.PixelFormat)
         );
-        ReadOnlySpan<byte> data = frame.CpuData;
         for (int plane = 0; plane < image.Planes.Count; plane++)
         {
-            VideoPlane source = image.Planes[plane];
+            ReadOnlySpan<byte> source = frame.GetPlane(plane);
+            int stride = image.Planes[plane].Stride;
             FF.ImagePlane target = destination.GetWritablePlane(plane);
             int rowLength = target.RowLength;
             int top = RowOffset(frame.Format.PixelFormat, plane, frame.Format.VisibleRect.Y);
             int left = ByteOffset(frame.Format.PixelFormat, plane, frame.Format.VisibleRect.X);
             for (int row = 0; row < target.Height; row++)
             {
-                int start = source.Offset + ((top + row) * source.Stride) + left;
-                data.Slice(start, rowLength).CopyTo(target.GetRow(row));
+                source.Slice(((top + row) * stride) + left, rowLength).CopyTo(target.GetRow(row));
             }
         }
     }
@@ -217,6 +216,13 @@ internal sealed class D3D12Input : EncoderInput
         if (!frame.Storage.TryGetValue(out D3D12Image image))
         {
             throw new ArgumentException("The frame is not a Direct3D 12 resource.", nameof(frame));
+        }
+
+        if (image.Subresource != 0)
+        {
+            throw new NotSupportedException(
+                "Direct3D 12 encoders read single textures; this frame is a slice of a texture array."
+            );
         }
 
         // Ordered after the producer's queue when it names one, else after its fence, on the GPU.
