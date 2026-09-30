@@ -163,6 +163,57 @@ internal static unsafe class VulkanTransfer
         }
     }
 
+    /// <summary>
+    /// Reads a DMA-BUF picture's planes into memory, rows packed tightly: for a consumer that can only
+    /// take frames in memory.
+    /// </summary>
+    /// <param name="engine">The GPU.</param>
+    /// <param name="source">The picture.</param>
+    /// <param name="format">Its pixel format: BGRA, RGBA or NV12.</param>
+    /// <param name="width">Its width.</param>
+    /// <param name="height">Its height.</param>
+    /// <returns>One array per plane.</returns>
+    public static byte[][] Read(
+        VulkanEngine engine,
+        in DmaBufImage source,
+        PixelFormat format,
+        int width,
+        int height
+    )
+    {
+        int planes = format == PixelFormat.Nv12 ? 2 : 1;
+        byte[][] bytes = new byte[planes][];
+        for (int plane = 0; plane < planes; plane++)
+        {
+            (VkFormat vk, int w, int h, int texel) = (format, plane) switch
+            {
+                (PixelFormat.Nv12, 0) => (VkFormat.R8Unorm, width, height, 1),
+                (PixelFormat.Nv12, _) => (VkFormat.R8G8Unorm, width / 2, height / 2, 2),
+                (PixelFormat.Rgba, _) => (VkFormat.R8G8B8A8Unorm, width, height, 4),
+                _ => (VkFormat.B8G8R8A8Unorm, width, height, 4),
+            };
+            DmaBufPlane from =
+                plane < source.PlaneCount
+                    ? source[plane]
+                    : source[0] with
+                    {
+                        Offset = source[0].Offset + (source[0].Stride * height),
+                    };
+            using var imported = VulkanImage.Import(
+                engine,
+                from,
+                source.Modifier,
+                vk,
+                w,
+                h,
+                VkImageUsageFlags.TransferSrc
+            );
+            bytes[plane] = Download(engine, imported, texel);
+        }
+
+        return bytes;
+    }
+
     private static VkBufferImageCopy Region(VulkanImage image) =>
         new()
         {

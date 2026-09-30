@@ -31,7 +31,8 @@ public sealed record PipeWireVideoSinkOptions
 /// <summary>
 /// Publishes frames as a PipeWire video node, which OBS and every other PipeWire consumer sees as a
 /// camera. GPU frames stay on the GPU: DMA-BUF frames (BGRA, RGBA or NV12) are published on buffers
-/// shared with the consumer, each filled with one copy on the GPU from the latest frame. Frames in
+/// shared with the consumer, each filled with one copy on the GPU from the latest frame; a consumer
+/// that cannot import a shared buffer is given the frames read back into memory. Frames in
 /// memory (BGRA, RGBA, NV12 or I420) are copied once into a staging buffer the daemon's next buffer is
 /// filled from. The node asks for a cycle per frame, so frames go out as they arrive; it takes the
 /// size, format, colour and storage of the first frame, declares the colour so consumers convert it
@@ -197,6 +198,10 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 output.AllocateDmaBuf += Allocate;
                 output.FillDmaBuf += FillShared;
                 output.ReleaseDmaBuf += ReleaseShared;
+
+                // A consumer that cannot import a shared buffer gets frames read back into memory.
+                output.HostMemoryFallback = true;
+                output.FillFrame += FillFromGpu;
                 output.ConnectDmaBuf([
                     new DmaBufDeviceOffer(
                         Drm(_engine.Identity),
@@ -305,6 +310,55 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 latest.Format.CodedSize.Height,
                 images
             );
+            return true;
+        }
+    }
+
+    // Runs on the PipeWire loop thread when the consumer took memory: the latest GPU frame, read back
+    // into the daemon's buffer, planes one after another at its stride.
+    private bool FillFromGpu(
+        PipeWireVideoOutput sender,
+        Span<byte> pixels,
+        int stride,
+        int width,
+        int height,
+        PipeWireFormat format
+    )
+    {
+        lock (_gate)
+        {
+            if (sender != _output || _latest is null)
+            {
+                return false;
+            }
+
+            VideoFrame latest = _latest.Frame;
+            _ = latest.Storage.TryGetValue(out DmaBufImage image);
+            VideoSize size = Size(_format);
+            byte[][] planes = VulkanTransfer.Read(
+                _engine!,
+                in image,
+                _format.PixelFormat,
+                size.Width,
+                size.Height
+            );
+            var packed = PlaneLayout.Packed(_format.PixelFormat, size);
+            int offset = 0;
+            for (int plane = 0; plane < planes.Length; plane++)
+            {
+                int planeStride = stride * packed[plane].Stride / packed[0].Stride;
+                int rowBytes = packed[plane].Stride;
+                int rows = PlaneLayout.PlaneRows(_format.PixelFormat, plane, size.Height);
+                for (int row = 0; row < rows; row++)
+                {
+                    planes[plane]
+                        .AsSpan(row * rowBytes, rowBytes)
+                        .CopyTo(pixels[(offset + (row * planeStride))..]);
+                }
+
+                offset += rows * planeStride;
+            }
+
             return true;
         }
     }

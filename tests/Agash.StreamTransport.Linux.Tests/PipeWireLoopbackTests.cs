@@ -128,6 +128,68 @@ public sealed class PipeWireLoopbackTests
     [TestMethod]
     [TestCategory("Integration")]
     [Timeout(30_000)]
+    public async Task GpuVideoSinkToMemorySource_IsReadBack()
+    {
+        await using PipeWireContext context = await StartAsync();
+        byte[] pixels = new byte[Width * Height * 4];
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = (byte)(i * 5 % 253);
+        }
+
+        PooledDmaBuf picture = TestDmaBufs.Upload(PixelFormat.Bgra, Width, Height, pixels);
+        try
+        {
+            using PipeWireVideoSink sink = new(
+                context,
+                $"streamtransport-readback-{Guid.NewGuid():N}"
+            );
+            sink.OnFrame(
+                TestDmaBufs.Frame(picture, PixelFormat.Bgra, Width, Height, VideoColor.Srgb)
+            );
+            uint node = await sink.WaitForNodeIdAsync().WaitAsync(TimeSpan.FromSeconds(5));
+
+            using PipeWireVideoSource source = new(
+                context,
+                new PipeWireVideoSourceOptions
+                {
+                    TargetNodeId = node,
+                    PreferredSize = new VideoSize(Width, Height),
+                }
+            );
+            Keeper keeper = new();
+            using IDisposable connection = source.Connect(
+                keeper,
+                VideoConstraints.Cpu(PixelFormat.Bgra)
+            );
+            using (PeriodicTimer frames = new(TimeSpan.FromMilliseconds(20)))
+            using (CancellationTokenSource expiry = new(TimeSpan.FromSeconds(15)))
+            {
+                while (!keeper.Kept.IsCompleted && await frames.WaitForNextTickAsync(expiry.Token))
+                {
+                    sink.OnFrame(
+                        TestDmaBufs.Frame(picture, PixelFormat.Bgra, Width, Height, VideoColor.Srgb)
+                    );
+                }
+            }
+
+            using VideoFrameLease kept = await keeper.Kept;
+            Assert.AreEqual(
+                VideoStorageKind.Cpu,
+                kept.Frame.Storage.Kind,
+                "the consumer took memory"
+            );
+            CollectionAssert.AreEqual(pixels, Packed(kept.Frame, PixelFormat.Bgra));
+        }
+        finally
+        {
+            picture.Release();
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Integration")]
+    [Timeout(30_000)]
     public async Task AudioSinkToSource_CarriesTheToneWithCaptureTimes()
     {
         await using PipeWireContext context = await StartAsync();
