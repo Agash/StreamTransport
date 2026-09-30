@@ -17,6 +17,15 @@ internal sealed class LoopbackSignaling : ISignalingChannel
 
     public LoopbackSignaling? Peer { get; set; }
 
+    // Two channels linked to each other.
+    public static (LoopbackSignaling A, LoopbackSignaling B) Pair()
+    {
+        LoopbackSignaling a = new();
+        LoopbackSignaling b = new() { Peer = a };
+        a.Peer = b;
+        return (a, b);
+    }
+
     public event Func<SessionDescription, Task>? DescriptionReceived;
 
     public event Func<IceCandidate, Task>? IceCandidateReceived;

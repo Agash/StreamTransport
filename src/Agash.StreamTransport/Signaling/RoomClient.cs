@@ -6,9 +6,9 @@ namespace Agash.StreamTransport;
 /// <summary>
 /// The client end of the room protocol. Connects to a relay (or a host's own hub) over one duplex
 /// link, performs the hello/welcome handshake, surfaces peer join/leave, and multiplexes the single link
-/// into a per-peer <see cref="ISignalingChannel"/>. That lets the ordinary <see cref="WebRtcMediaSender"/>
-/// and <see cref="WebRtcMediaReceiver"/> drive one peer connection each, unchanged - a publisher creates
-/// a sender per subscriber that joins, a subscriber creates a receiver for the publisher.
+/// into a per-peer <see cref="ISignalingChannel"/>, so each media session with a peer negotiates over
+/// its own channel: a publisher opens a session per subscriber that joins, a subscriber one with the
+/// publisher.
 /// </summary>
 public sealed class RoomClient : IMediaRoom
 {
@@ -131,8 +131,7 @@ public sealed class RoomClient : IMediaRoom
     public IReadOnlyList<PeerInfo> Peers => [.. _peers.Values];
 
     /// <summary>
-    /// The signaling channel for the WebRTC session with <paramref name="peer"/>. Created on first use;
-    /// pass it to a <see cref="WebRtcMediaSender"/> or <see cref="WebRtcMediaReceiver"/>.
+    /// The signaling channel for the media session with <paramref name="peer"/>, created on first use.
     /// </summary>
     public ISignalingChannel ChannelFor(PeerId peer) =>
         _channels.GetOrAdd(

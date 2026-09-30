@@ -1,172 +1,37 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Base TFMs run everywhere. Only Windows needs a platform head, for the D3D11/Vortice zero-copy path
-         (genuine WinRT/COM interop). macOS and Linux carry their GPU interop on the base TFM as runtime
-         P/Invoke (VideoToolbox/CoreVideo on macOS, VAAPI/PipeWire on Linux), gated by OperatingSystem
-         checks - so neither needs a platform TFM, the Mono macOS app model, or its code-signing/JIT
-         constraints. The same NativeAOT single-file publish then covers every non-Windows RID. -->
-    <!--
-      Platform heads are normally built only on their own OS, so a developer on one machine is not forced to
-      have the other platforms' SDKs. PackAllTargets overrides that: the release pack job sets it (on macOS,
-      the only host that can produce all three) so the shipped package actually carries every head.
-
-      This matters more than it looks. The pack job used to run on Linux, where both conditions were false,
-      so every published package contained lib/net11.0 and nothing else: the D3D11 types were never in any
-      package and no external consumer could use the Windows zero-copy path at all. Build the package
-      anywhere that cannot produce all three heads and you silently ship a crippled one, so keep the pack
-      job pinned to macOS.
-    -->
-    <TargetFrameworks>net11.0</TargetFrameworks>
+    <TargetFramework>net11.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
-    <TargetFrameworks
-      Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(PackAllTargets)' == 'true'"
-      >$(TargetFrameworks);net11.0-windows10.0.19041.0</TargetFrameworks>
-    <!-- macOS head: the GPU Metal surface transforms (Metal/IOSurface managed bindings) need the -macos TFM.
-         The rest of the macOS path (VideoToolbox/CoreVideo) stays on the base TFM via runtime P/Invoke. -->
-    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('OSX')) or '$(PackAllTargets)' == 'true'"
-      >$(TargetFrameworks);net11.0-macos</TargetFrameworks>
-    <!-- Building the -windows head off Windows is ref-assembly only (no Windows SDK needed); the SDK refuses
-         without this opt-in. Harmless on Windows. -->
-    <EnableWindowsTargeting Condition="'$(PackAllTargets)' == 'true'">true</EnableWindowsTargeting>
     <AssemblyName>Agash.StreamTransport</AssemblyName>
     <RootNamespace>Agash.StreamTransport</RootNamespace>
     <PackageId>Agash.StreamTransport</PackageId>
-    <Description>Local-first peer-to-peer WebRTC media transport on a first-party WebRTC stack: hardware H.265 video, Opus audio, SCReAM congestion control, FlexFEC loss recovery, and ICE mobility. Capture-agnostic and NativeAOT-ready, with an abstracted signaling channel.</Description>
-    <PackageTags>webrtc;streaming;transport;h265;hevc;av1;opus;dotnet;nativeaot</PackageTags>
+    <Description>Peer-to-peer media sessions over WebRTC: sources and sinks of Agash.StreamTransport.Media joined to encoders, decoders and processors from any registered codec package, with pacing, loss recovery, lip sync and rooms.</Description>
+    <PackageTags>webrtc;streaming;transport;h264;h265;av1;opus;dotnet;nativeaot</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
-  <!-- Windows-head compilation switch for the D3D11/Vortice path. macOS (VideoToolbox/CoreVideo) compiles
-       unconditionally on the base TFM - the same as the VAAPI path - and is selected at runtime. -->
-  <PropertyGroup Condition="$(TargetFramework.Contains('-windows'))">
-    <DefineConstants>$(DefineConstants);WINDOWS_HEAD</DefineConstants>
-  </PropertyGroup>
-
-  <!-- macOS-head compilation switch for the Metal GPU surface transforms (MS Metal/IOSurface bindings). -->
-  <PropertyGroup Condition="$(TargetFramework.Contains('-macos'))">
-    <DefineConstants>$(DefineConstants);MACOS_HEAD</DefineConstants>
-    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
-  </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
     <PackageReference Include="MinVer" PrivateAssets="all" />
-    <PackageReference Include="Concentus" />
-    <PackageReference Include="FFmpeg.AutoGen" />
-    <!-- Vulkan compute for the Linux alpha pack/unpack path: runs shaders on the FFmpeg-owned Vulkan device's
-         images (see docs/notes/linux-gpu-zerocopy-plan.md). Managed wrapper; only exercised at runtime on Linux. -->
-    <PackageReference Include="Vortice.Vulkan" />
   </ItemGroup>
-
-  <!-- Windows head only: typed D3D11 interop for the Spout zero-copy path, plus the runtime HLSL compiler
-       for the GPU BGRA->NV12 colour conversion (so BGRA-incapable encoders stay on the GPU). -->
-  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
-    <PackageReference Include="Vortice.Direct3D11" />
-    <PackageReference Include="Vortice.D3DCompiler" />
-  </ItemGroup>
-
-  <!-- D3D11 GPU colour-conversion HLSL, compiled at runtime via D3DCompiler. Editable .hlsl file
-       embedded so it ships in the assembly with no file dependency. -->
-  <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
-    <EmbeddedResource Include="Codecs/Shaders/bgra_to_nv12.hlsl" LogicalName="bgra_to_nv12.hlsl" />
-    <!-- Publish/decode-side D3D11 GPU surface transforms (lifted from the agent sample): NV12->BGRA for an
-         opaque publish, and the side-by-side alpha pack/unpack for the AvatarTransparent path. -->
-    <EmbeddedResource Include="Codecs/Shaders/nv12_to_bgra.hlsl" LogicalName="nv12_to_bgra.hlsl" />
-    <EmbeddedResource Include="Codecs/Shaders/alpha_pack.hlsl" LogicalName="alpha_pack.hlsl" />
-    <EmbeddedResource Include="Codecs/Shaders/alpha_unpack.hlsl" LogicalName="alpha_unpack.hlsl" />
-  </ItemGroup>
-
-  <!-- macOS head: the Metal alpha pack/unpack + NV12->BGRA compute kernels. The macOS SDK's default Metal
-       items compile each Codecs/Shaders/*.metal into default.metallib (Metal Toolchain), loaded at runtime via
-       MTLDevice.CreateDefaultLibrary - the macOS parallel to the Windows HLSL / Linux .comp->.spv shaders. -->
-  <ItemGroup Condition="$(TargetFramework.Contains('-macos'))">
-    <Metal Update="Codecs/Shaders/*.metal" />
-  </ItemGroup>
-
-  <!-- Linux Vulkan alpha pack/unpack compute (base TFM, run on Linux). The .comp GLSL is the editable source;
-       it is compiled to SPIR-V at build time (CompileComputeShadersToSpirV) and the committed .spv is embedded
-       and loaded at runtime - never a runtime GLSL compiler (shaderc collides with Mesa's SPIRV-Tools). -->
-  <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
-    <ComputeShaderSource Include="Codecs/Shaders/alpha_pack.comp" />
-    <ComputeShaderSource Include="Codecs/Shaders/alpha_unpack_nv12.comp" />
-    <ComputeShaderSource Include="Codecs/Shaders/alpha_unpack_bgra.comp" />
-    <None Include="@(ComputeShaderSource)" />
-    <EmbeddedResource Include="Codecs/Shaders/alpha_pack.spv" LogicalName="alpha_pack.spv" />
-    <EmbeddedResource
-      Include="Codecs/Shaders/alpha_unpack_nv12.spv"
-      LogicalName="alpha_unpack_nv12.spv"
-    />
-    <EmbeddedResource
-      Include="Codecs/Shaders/alpha_unpack_bgra.spv"
-      LogicalName="alpha_unpack_bgra.spv"
-    />
-  </ItemGroup>
-
-  <Target
-    Name="CompileComputeShadersToSpirV"
-    BeforeTargets="PrepareForBuild"
-    Condition="!$(TargetFramework.Contains('-windows')) and '$(OS)' != 'Windows_NT'"
-    Inputs="@(ComputeShaderSource)"
-    Outputs="@(ComputeShaderSource->'%(RootDir)%(Directory)%(Filename).spv')"
-  >
-    <Exec
-      Command="command -v glslc"
-      ConsoleToMSBuild="true"
-      ContinueOnError="true"
-      IgnoreExitCode="true"
-      StandardErrorImportance="low"
-      StandardOutputImportance="low"
-    >
-      <Output TaskParameter="ExitCode" PropertyName="_GlslcExit" />
-    </Exec>
-    <Message
-      Condition="'$(_GlslcExit)' != '0'"
-      Importance="high"
-      Text="glslc not found; using the committed SPIR-V (.spv) for the Vulkan compute shaders."
-    />
-    <Exec
-      Condition="'$(_GlslcExit)' == '0'"
-      Command="glslc -O &quot;%(ComputeShaderSource.FullPath)&quot; -o &quot;%(ComputeShaderSource.RootDir)%(ComputeShaderSource.Directory)%(ComputeShaderSource.Filename).spv&quot;"
-    />
-  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />
-    <!-- First-party WebRTC stack. -->
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc.DependencyInjection\Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Agash.StreamTransport.Tests" />
-    <!-- The agent intentionally keeps internal visibility: its self-tests are white-box round-trips that
-         exercise deep codec internals (encoder/decoder texture handles, raw decode) which are diagnostics,
-         not public API. The reusable capture/publish path uses only public API; these self-tests do not. -->
-    <InternalsVisibleTo Include="streamtransport-agent" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
     <None Include="..\..\README.md" Pack="true" PackagePath="" />
-  </ItemGroup>
-
-  <!--
-    Pinned FFmpeg shared libraries, fetched per RID into native/ffmpeg/<rid>/ by eng/fetch-ffmpeg.ps1
-    (gitignored). Each RID's libraries are packed into runtimes/<rid>/native so a consumer restoring
-    for a given RID gets only that platform's natives. %(RecursiveDir) is the "<rid>/" segment.
-  -->
-  <ItemGroup>
-    <_FFmpegNative Include="..\..\native\ffmpeg\**\*.dll;..\..\native\ffmpeg\**\*.so*;..\..\native\ffmpeg\**\*.dylib" />
-    <None
-      Include="@(_FFmpegNative)"
-      Pack="true"
-      PackagePath="runtimes\%(RecursiveDir)native\%(Filename)%(Extension)"
-      Visible="false"
-    />
   </ItemGroup>
 </Project>

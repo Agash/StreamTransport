@@ -1,0 +1,108 @@
+using Agash.StreamTransport.Media;
+using Agash.StreamTransport.WebRtc;
+
+namespace Agash.StreamTransport;
+
+/// <summary>Which side of the offer/answer exchange a session takes.</summary>
+public enum MediaSessionRole
+{
+    /// <summary>Sends the offer; ICE controlling.</summary>
+    Offerer,
+
+    /// <summary>Waits for an offer and answers it.</summary>
+    Answerer,
+}
+
+/// <summary>
+/// What a session sends and where what it receives goes. A session sends what has a source and receives
+/// what has a sink; at least one of the four is needed.
+/// </summary>
+public sealed record MediaEndpoints
+{
+    /// <summary>The video to send.</summary>
+    public IVideoSource? VideoSource { get; init; }
+
+    /// <summary>The audio to send.</summary>
+    public IAudioSource? AudioSource { get; init; }
+
+    /// <summary>Where received video goes.</summary>
+    public IVideoSink? VideoSink { get; init; }
+
+    /// <summary>Where received audio goes.</summary>
+    public IAudioSink? AudioSink { get; init; }
+
+    /// <summary>Whether the endpoints send or receive video.</summary>
+    public bool HasVideo => VideoSource is not null || VideoSink is not null;
+
+    /// <summary>Whether the endpoints send or receive audio.</summary>
+    public bool HasAudio => AudioSource is not null || AudioSink is not null;
+}
+
+/// <summary>Counters of a session's media, for telemetry.</summary>
+/// <param name="VideoFramesDropped">Source frames dropped because the encoder was busy.</param>
+/// <param name="VideoFramesDecoded">Received video frames decoded.</param>
+/// <param name="VideoFramesFailed">Received video frames the decoder rejected.</param>
+/// <param name="AudioConcealed">Audio gaps filled by concealment.</param>
+/// <param name="AudioRecovered">Lost audio packets rebuilt from redundancy.</param>
+/// <param name="PlayoutDelay">The synced playout buffer depth; zero when frames play on arrival.</param>
+public readonly record struct MediaSessionStatistics(
+    int VideoFramesDropped,
+    int VideoFramesDecoded,
+    int VideoFramesFailed,
+    int AudioConcealed,
+    int AudioRecovered,
+    TimeSpan PlayoutDelay
+);
+
+/// <summary>A media session with one peer.</summary>
+public interface IMediaSession : IAsyncDisposable
+{
+    /// <summary>Completes when media can flow; faults when the session fails to connect.</summary>
+    Task Connected { get; }
+
+    /// <summary>The connection's state.</summary>
+    PeerConnectionState State { get; }
+
+    /// <summary>Raised when <see cref="State"/> changes.</summary>
+    event Action<PeerConnectionState>? StateChanged;
+
+    /// <summary>The link's health: loss, round trip, the congestion controller's rates.</summary>
+    TransportHealthMetrics Health { get; }
+
+    /// <summary>Loss recovery counters of the link.</summary>
+    TransportLossStats LossStats { get; }
+
+    /// <summary>Counters of the session's media.</summary>
+    MediaSessionStatistics Statistics { get; }
+
+    /// <summary>
+    /// How much later received audio plays than its synced slot: the video output path's latency less
+    /// the audio output's, so the two reach the viewer together. Negative plays audio earlier.
+    /// </summary>
+    TimeSpan AudioOutputOffset { get; set; }
+
+    /// <summary>Starts negotiating over the session's signaling channel.</summary>
+    /// <param name="cancellationToken">Cancels starting.</param>
+    /// <returns>A task that completes once negotiation has started.</returns>
+    Task StartAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Makes media sessions. The WebRTC implementation is registered by default; another transport plugs in
+/// by registering its own, and rooms, publishers and subscribers run over it unchanged.
+/// </summary>
+public interface IMediaSessionFactory
+{
+    /// <summary>Makes a session with one peer.</summary>
+    /// <param name="signaling">The channel negotiation runs over.</param>
+    /// <param name="role">Whether this side offers or answers.</param>
+    /// <param name="endpoints">What is sent and where what is received goes.</param>
+    /// <param name="options">How the session is set up.</param>
+    /// <returns>The session, not yet started.</returns>
+    IMediaSession Create(
+        ISignalingChannel signaling,
+        MediaSessionRole role,
+        MediaEndpoints endpoints,
+        MediaSessionOptions options
+    );
+}

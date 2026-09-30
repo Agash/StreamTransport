@@ -16,12 +16,7 @@ concurrency:
 jobs:
   # ---- NuGet packages via OIDC trusted publishing (no stored API key) ----
   nuget:
-    # macOS, not Linux: Agash.StreamTransport has a -windows head (D3D11) and a -macos head (Metal), and only
-    # a macOS host can produce all three targets -- it builds -macos natively and -windows as ref-assembly-only
-    # via EnableWindowsTargeting. Packing on Linux silently produced lib/net11.0 ONLY, so every package
-    # published before v0.1.3-alpha shipped without the D3D11 types and no consumer could use the Windows
-    # zero-copy path. Do not move this job back to ubuntu.
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     # Declaring an environment is what makes GitHub record a deployment, which is what
     # surfaces the Deployments tab and the package link on the repo home page.
     environment:
@@ -35,38 +30,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select Xcode 26.5
-        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
-
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 11.0.x
           dotnet-quality: preview
 
-      # The -macos head needs the macos workload (NETSDK1147 otherwise); the preview SDK no longer bundles it.
-      - name: Install macos workload
-        run: dotnet workload install macos
+      # Codecs.FFmpeg packs the natives of every RID it ships for.
+      - name: Fetch FFmpeg
+        shell: pwsh
+        run: ./eng/fetch-ffmpeg.ps1 -Rids win-x64,win-arm64,linux-x64,linux-arm64
 
-      # Packs every IsPackable project in the solution (all nine library packages; tests/samples/tools opt out).
-      # PackAllTargets forces the platform heads in regardless of host OS -- see the csproj comment.
+      # Packs every IsPackable project in the solution; tests, samples and tools opt out.
       - name: Pack
-        run: dotnet pack StreamTransport.slnx -c Release -o artifacts -p:PackAllTargets=true
+        run: dotnet pack StreamTransport.slnx -c Release -o artifacts
 
-      # Fail loudly rather than publish a package that is missing a platform head again.
-      # Matched by prefix, not exact name: the SDK normalises platform TFMs to carry an OS version
-      # (net11.0-macos becomes net11.0-macos<ver>), so an exact match would fail on a correct package.
-      - name: Verify the package carries every target
+      - name: Verify the FFmpeg package carries its natives
         shell: bash
         run: |
-          pkg=$(ls artifacts/Agash.StreamTransport.*.nupkg | grep -vE '\.(Abstractions|Signaling|Stun|WebRtc)' | head -1)
-          echo "Inspecting $pkg"
-          targets=$(unzip -Z1 "$pkg" 'lib/*' | cut -d/ -f2 | sort -u)
-          echo "Targets present:"
-          echo "$targets" | sed 's/^/  /'
+          pkg=$(ls artifacts/Agash.StreamTransport.Codecs.FFmpeg.*.nupkg | head -1)
           fail=0
-          echo "$targets" | grep -qx 'net11.0'          || { echo "::error::$pkg is missing the base lib/net11.0";     fail=1; }
-          echo "$targets" | grep -q  '^net11\.0-windows' || { echo "::error::$pkg is missing a lib/net11.0-windows* head (D3D11)"; fail=1; }
-          echo "$targets" | grep -q  '^net11\.0-macos'   || { echo "::error::$pkg is missing a lib/net11.0-macos* head (Metal)";   fail=1; }
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64; do
+            unzip -Z1 "$pkg" | grep -q "^runtimes/$rid/native/" || { echo "::error::$pkg has no natives for $rid"; fail=1; }
+          done
           exit $fail
 
       - name: Attest build provenance
@@ -86,105 +71,6 @@ jobs:
 
       - name: Push
         run: dotnet nuget push "artifacts/*.nupkg" --source https://api.nuget.org/v3/index.json --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --skip-duplicate
-
-  # ---- Cross-platform single-file agent binaries ----
-  agent:
-    name: agent (${{ matrix.rid }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: windows-latest, rid: win-x64 }
-          - { os: macos-26, rid: osx-arm64 }
-          - { os: ubuntu-latest, rid: linux-x64 }
-          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 11.0.x
-          dotnet-quality: preview
-
-      - name: Fetch FFmpeg
-        if: runner.os != 'macOS'
-        shell: pwsh
-        run: ./eng/fetch-ffmpeg.ps1 -Rids ${{ matrix.rid }}
-
-      # macOS publishes the net11.0-macos head (Syphon/Metal/CoreAudio); its bindings link the macOS 26.5 SDK.
-      - name: Select Xcode 26.5 (macOS)
-        if: runner.os == 'macOS'
-        run: sudo xcode-select -s /Applications/Xcode_26.5.app/Contents/Developer
-      - name: Install macos workload (macOS)
-        if: runner.os == 'macOS'
-        run: dotnet workload install macos
-
-      # Windows/Linux: NativeAOT (PublishAot turns on automatically once a RID is set) - a single self-contained
-      # native binary (verified: the win-x64 exe carries no coreclr/hostpolicy). No PublishSingleFile/self-extract
-      # flags: NativeAOT supersedes them. The Linux head carries the PipeWire GPU path.
-      - name: Publish NativeAOT agent (Windows/Linux)
-        if: runner.os != 'macOS'
-        run: >
-          dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
-          -c Release -f net11.0 -r ${{ matrix.rid }}
-          -o publish/${{ matrix.rid }}
-
-      # macOS: NativeAOT .app. PublishAot is on once a RID is set (verified: the inner binary links only
-      # libSystem - no CoreCLR/Mono). CreatePackage=false yields a .app, not a .pkg installer. `-o` mishandles
-      # -macos bundles (mirrors the absolute build path), so publish to the default bin location and stage the
-      # .app below. FFmpeg is not bundled on macOS - the agent auto-detects a `brew install ffmpeg`.
-      - name: Publish NativeAOT agent (macOS)
-        if: runner.os == 'macOS'
-        run: >
-          dotnet publish samples/StreamTransport.Agent/StreamTransport.Agent.csproj
-          -c Release -f net11.0-macos -r ${{ matrix.rid }} -p:CreatePackage=false
-
-      # The .app's Metal shader library (default.metallib) is bundle-relative, so a bare binary can't run the GPU
-      # alpha path - ship the .app plus a thin launcher so it works as `./streamtransport-agent <args>`.
-      - name: Stage macOS .app + CLI launcher
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p "publish/${{ matrix.rid }}"
-          cp -R "samples/StreamTransport.Agent/bin/Release/net11.0-macos/${{ matrix.rid }}/streamtransport-agent.app" "publish/${{ matrix.rid }}/"
-          cat > "publish/${{ matrix.rid }}/streamtransport-agent" <<'SH'
-          #!/bin/sh
-          here="$(cd "$(dirname "$0")" && pwd)"
-          exec "$here/streamtransport-agent.app/Contents/MacOS/streamtransport-agent" "$@"
-          SH
-          chmod +x "publish/${{ matrix.rid }}/streamtransport-agent"
-
-      # Windows/Linux ship the FFmpeg shared libraries next to the executable; macOS relies on `brew install ffmpeg`.
-      - name: Bundle FFmpeg natives (Windows/Linux)
-        if: runner.os != 'macOS'
-        shell: pwsh
-        run: Copy-Item native/ffmpeg/${{ matrix.rid }}/* publish/${{ matrix.rid }}/ -Force
-
-      # Drop the native debug symbols (a ~60 MB .pdb) and XML doc files - not needed at runtime. macOS is skipped:
-      # its files live inside the signed .app bundle and removing them would invalidate the code signature.
-      - name: Strip debug symbols + XML docs (Windows/Linux)
-        if: runner.os != 'macOS'
-        shell: pwsh
-        run: Get-ChildItem -Path "publish/${{ matrix.rid }}" -Recurse -Include *.pdb,*.xml | Remove-Item -Force
-
-      - name: Package (Windows/Linux)
-        if: runner.os != 'macOS'
-        shell: pwsh
-        run: Compress-Archive -Path publish/${{ matrix.rid }}/* -DestinationPath streamtransport-agent-${{ matrix.rid }}.zip
-      # ditto preserves the .app bundle's symlinks and +x bits (Compress-Archive would drop them).
-      - name: Package (macOS)
-        if: runner.os == 'macOS'
-        run: ditto -c -k --sequesterRsrc --keepParent "publish/${{ matrix.rid }}" "streamtransport-agent-${{ matrix.rid }}.zip"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: streamtransport-agent-${{ matrix.rid }}
-          path: streamtransport-agent-${{ matrix.rid }}.zip
-
-      - name: Attach to release
-        if: github.event_name == 'release'
-        run: gh release upload "${{ github.event.release.tag_name }}" streamtransport-agent-${{ matrix.rid }}.zip --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
 
   # ---- Relay + coturn Docker image to Docker Hub ----
   docker:

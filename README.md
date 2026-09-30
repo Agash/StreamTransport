@@ -4,72 +4,76 @@
 [![CI](https://github.com/Agash/StreamTransport/actions/workflows/ci.yml/badge.svg)](https://github.com/Agash/StreamTransport/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Local-first, peer-to-peer real-time media for .NET. Move hardware-encoded H.265 video and Opus audio between
-machines over WebRTC, on a first-party WebRTC stack (ICE / STUN / DTLS-SRTP / RTP / RTCP / SDP) built on the
-BCL, no SIP stack, NativeAOT-friendly.
+Peer-to-peer real-time media for .NET over WebRTC: video in H.264, H.265 or AV1 and Opus audio between
+machines, on a first-party WebRTC stack (ICE, STUN, DTLS-SRTP, RTP/RTCP, SDP) built on the BCL and
+NativeAOT-friendly.
 
 ```
-capture (camera / Spout / Syphon / PipeWire) -> HW H.265 -> WebRTC P2P -> HW H.265 -> publish
+source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder -> sink
 ```
 
-> ### ⚠️ Alpha, early and rough
-> This is an early `0.1.2-alpha`. The core works and is exercised by tests, but it is **largely untested in
-> the real world**, unpolished in places, and has lots of room to improve. Expect breaking changes and sharp
-> edges. Please try it and file issues, just don't ship it to production yet.
+> ### Alpha
+> The APIs are still changing. The core is exercised by tests on Windows, Linux and macOS; try it and file
+> issues, and keep it out of production for now.
 
 ## What you get
 
-- A complete, dependency-light **WebRTC** stack: ICE, STUN, DTLS-SRTP (GCM), RTP/RTCP, SDP/JSEP, and a
-  `PeerConnection`, on the platform's own cryptography, with DTLS 1.2 and 1.3 from Dtls.NET.
-- **Hardware H.265** encode/decode through FFmpeg (NVENC, AMF, QSV, VAAPI, VideoToolbox) with a software
-  fallback, plus pure-managed **Opus** audio on the same connection, kept in lip-sync.
-- **Resilience for real links**: SCReAM congestion control (RFC 8298 / 8888), sequence-aware H.265 reassembly,
-  NACK/RTX and FlexFEC loss recovery, and ICE-restart / hot-standby mobility, selected by one media profile
-  (`InteractiveP2P`, `ScreenShare`, `IrlContribution`).
-- **Transparency through an opaque codec**: side-by-side alpha packing carries a BGRA frame's alpha channel
-  as full-resolution luma in a `2W x H` frame, so it survives 4:2:0 encode crisply and needs no codec-level
-  alpha support. GPU implementations ship for all three platforms (D3D11 / Metal / Vulkan compute) with a CPU
-  reference that is byte-compatible with them, so a frame packed on one platform unpacks correctly on another.
-- **Per-link telemetry**: `MediaPublisher.PeerMetrics` gives a per-subscriber snapshot of loss, RTT, target
-  and pacing bitrate; `MediaSubscriber.CurrentHealth` / `CurrentLossStats` give the receive side.
-- **NativeAOT-friendly**: self-contained, trimmed binaries on Windows, Linux, and macOS.
+- **Sessions** with a peer over any signaling channel: `IMediaSessionFactory` makes an `IMediaSession` from
+  sources to send and sinks to receive into. Rooms (`MediaPublisher`, `MediaSubscriber`) run sessions per
+  peer over a relay.
+- **Codecs as plug-ins**: encoders, decoders and video processors come from factories registered in DI,
+  chosen by what they can do and by rank, with runtime fallback when a driver refuses. `Codecs.FFmpeg`
+  brings H.264, H.265 and AV1 on every hardware API FFmpeg 9 has (Direct3D 12, NVENC, AMF, QSV, Vulkan
+  Video, VA-API, VideoToolbox) and in software; `Codecs.Opus` brings Opus. A host adds its own codec by
+  registering its factories and an RTP payload format.
+- **Zero-copy frames**: sources push frames in GPU memory (Direct3D 12 and 11 textures, DMA-BUFs,
+  IOSurfaces) or system memory, and the pipeline converts only where an encoder or sink cannot take them.
+- **Real links**: SCReAM congestion control (RFC 8298, RFC 8888), a pacer, sequence-aware frame assembly,
+  NACK/RTX and FlexFEC, Opus in-band FEC and concealment, and ICE restart and hot-standby mobility.
+- **Lip sync**: capture times travel as abs-capture-time; synced playout holds audio and video in one
+  adaptive buffer and releases them by capture time.
+- **Profiles**: `InteractiveP2P`, `ScreenShare`, `IrlContribution` and `AvatarTransparent` set codec
+  preference, rate control, repair and playout in one choice. `AvatarTransparent` carries alpha side by
+  side through an opaque codec.
 
-## Two seams the host fills in
+## Use it
 
-- **Capture**, `IVideoFrameSource` / `IVideoFrameSink` / `IAudioFrameSource`. The transport never knows where
-  frames come from, so the GPU-interop libraries below live in the consumer. What the transport *does* ship is
-  the GPU **surface transforms** those consumers need — NV12 to BGRA and the side-by-side alpha pack/unpack,
-  in D3D11, Metal, and Vulkan compute. They used to live in the agent sample; keeping them here means every
-  consumer gets the same pixel-exact result instead of reimplementing the colour matrix.
-- **Signaling**, `ISignalingChannel`. The transport never knows how SDP/ICE are delivered (a WebSocket, a
-  SignalR hub, a tunnel); the host owns reachability.
+```csharp
+services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();
 
-## Capture companions
+IMediaSessionFactory sessions = provider.GetRequiredService<IMediaSessionFactory>();
+await using IMediaSession session = sessions.Create(
+    signaling,                         // any ISignalingChannel
+    MediaSessionRole.Offerer,
+    new MediaEndpoints { VideoSource = camera, AudioSource = microphone },
+    MediaSessionOptions.For(MediaProfile.InteractiveP2P)
+);
+await session.StartAsync();
+await session.Connected;
+```
 
-Zero-copy GPU sharing libraries that feed the capture seam, published separately:
-
-| Library | Platform | Mechanism |
-|---|---|---|
-| [Spout2.NET](https://github.com/Agash/Spout2.NET) | Windows | Spout (DirectX 11 shared texture) |
-| [Syphon.NET](https://github.com/Agash/Syphon.NET) | macOS | Syphon (IOSurface / Metal) |
-| [PipeWire.NET](https://github.com/Agash/PipeWire.NET) | Linux | PipeWire (DMA-BUF) |
+Sources implement `IVideoSource`/`IAudioSource` and push frames; sinks implement `IVideoSink`/`IAudioSink`
+and say what they accept.
 
 ## Packages
 
 | Package | What it is |
 |---|---|
-| `Agash.StreamTransport` | The transport: WebRTC + FFmpeg hardware codecs + room client + GPU surface transforms. |
-| `Agash.StreamTransport.Abstractions` | Capture + signaling contracts. BCL only. |
-| `Agash.StreamTransport.WebRtc` | The WebRTC core: ICE, STUN, SRTP, RTP/RTCP, SDP, `PeerConnection`. |
-| `Agash.StreamTransport.WebRtc.Abstractions` | Seams for the WebRTC stack. |
-| `Agash.StreamTransport.WebRtc.CongestionControl` | SCReAM controller + pacing. |
-| `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()` wiring. |
-| `Agash.StreamTransport.Signaling` | Room router + a WebSocket signaling transport. |
-| `Agash.StreamTransport.Stun` | STUN binding server + ICE server providers. |
+| `Agash.StreamTransport` | Sessions, streams, pacing, sync, rooms, codec registry, DI. |
+| `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, source and sink contracts. |
+| `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, with natives. |
+| `Agash.StreamTransport.Codecs.Opus` | Opus on Concentus. |
+| `Agash.StreamTransport.Abstractions` | Rooms and signaling contracts. |
+| `Agash.StreamTransport.WebRtc` | ICE, STUN, SRTP, RTP/RTCP, SDP, RTP payload formats, `PeerConnection`. |
+| `Agash.StreamTransport.WebRtc.Abstractions` | Network and congestion control contracts. |
+| `Agash.StreamTransport.WebRtc.CongestionControl` | The SCReAM controller. |
+| `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()`. |
+| `Agash.StreamTransport.Signaling` | Room router and a WebSocket signaling transport. |
+| `Agash.StreamTransport.Stun` | STUN binding server and ICE server providers. |
 
 ## Build
 
-Needs the .NET 11 SDK pinned in `global.json`. FFmpeg 9.0 natives are fetched per platform first:
+Needs the .NET 11 SDK pinned in `global.json`. Fetch the FFmpeg 9 natives for the platform first:
 
 ```bash
 ./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or linux-x64 / linux-arm64 / osx-arm64
@@ -77,21 +81,13 @@ dotnet build StreamTransport.slnx -c Release
 dotnet test  StreamTransport.slnx -c Release --filter "TestCategory!=Integration"
 ```
 
-## Try it
+## Relay
 
-A self-hostable signaling relay and a sender/receiver agent live in `samples/`:
+A self-hostable signaling relay with a STUN server is in `samples/StreamTransport.Relay`:
 
 ```bash
-dotnet run --project samples/StreamTransport.Relay                                       # WS :8080/ws + STUN :3478
-dotnet run --project samples/StreamTransport.Agent -- send    --relay ws://localhost:8080/ws --room demo
-dotnet run --project samples/StreamTransport.Agent -- receive --relay ws://localhost:8080/ws --room demo
+dotnet run --project samples/StreamTransport.Relay     # WebSocket :8080/ws, STUN :3478
 ```
-
-The agent is a thin consumer now: the GPU alpha and colour-conversion compute it used to carry lives in
-`Agash.StreamTransport` (`Codecs/`), so the sample shows wiring rather than reimplementation.
-
-See [`samples/StreamTransport.Agent`](samples/StreamTransport.Agent) for capture setup (Spout / Syphon /
-PipeWire), device selection, and publishing into OBS.
 
 ## License
 
