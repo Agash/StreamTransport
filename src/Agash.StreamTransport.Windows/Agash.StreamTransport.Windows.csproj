@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Agash.StreamTransport.Windows</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.Windows</RootNamespace>
+    <PackageId>Agash.StreamTransport.Windows</PackageId>
+    <Description>Windows media for Agash.StreamTransport: Direct3D 12 video processors for colour conversion and side-by-side alpha, Spout sources and sinks, and WASAPI audio.</Description>
+    <PackageTags>webrtc;streaming;windows;direct3d12;spout;wasapi;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The compute shaders ship as signed DXIL. Building on Windows with the SDK's dxc recompiles them
+       when their source changes; elsewhere the committed .cso files are used. -->
+  <ItemGroup>
+    <ComputeShader Include="Shaders/*.hlsl" />
+    <None Include="@(ComputeShader)" />
+    <EmbeddedResource Include="Shaders/*.cso" LogicalName="%(Filename).cso" />
+  </ItemGroup>
+
+  <Target
+    Name="CompileComputeShaders"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(OS)' == 'Windows_NT'"
+    Inputs="@(ComputeShader)"
+    Outputs="@(ComputeShader->'%(RootDir)%(Directory)%(Filename).cso')"
+  >
+    <ItemGroup>
+      <_Dxc Include="$(MSBuildProgramFiles32)\Windows Kits\10\bin\*\x64\dxc.exe" />
+    </ItemGroup>
+    <PropertyGroup>
+      <!-- The Windows Kits glob comes out in version order, so the last one is the newest SDK. -->
+      <_DxcPath>%(_Dxc.FullPath)</_DxcPath>
+    </PropertyGroup>
+    <Message
+      Condition="'$(_DxcPath)' == ''"
+      Importance="high"
+      Text="dxc not found; using the committed DXIL (.cso) for the compute shaders."
+    />
+    <Exec
+      Condition="'$(_DxcPath)' != ''"
+      Command="&quot;$(_DxcPath)&quot; -nologo -T cs_6_0 -E Main -O3 -Qstrip_debug -Qstrip_reflect -Fo &quot;%(ComputeShader.RootDir)%(ComputeShader.Directory)%(ComputeShader.Filename).cso&quot; &quot;%(ComputeShader.FullPath)&quot;"
+    />
+  </Target>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agash.StreamTransport.Windows.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

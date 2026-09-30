@@ -1,0 +1,14 @@
+D3D12CreateDevice
+ID3D12Device
+ID3D12Resource
+ID3D12CommandQueue
+ID3D12CommandAllocator
+ID3D12GraphicsCommandList
+ID3D12CommandList
+ID3D12Fence
+D3D12_TEXTURE_COPY_LOCATION
+D3D12_PLACED_SUBRESOURCE_FOOTPRINT
+CreateEvent
+WaitForSingleObject
+CloseHandle
+INFINITE
