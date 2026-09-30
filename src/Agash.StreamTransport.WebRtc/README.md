@@ -8,7 +8,7 @@ unwrap, and `h26x_packet_buffer` are ports of their libwebrtc counterparts; the 
 (spans, `ArrayPool`, `readonly record struct`, source-generated logging).
 
 Crypto is the platform's own (`AesGcm`, `Aes`/`HMACSHA1`, `CertificateRequest`). DTLS 1.2 and 1.3 come
-from [Dtls.NET](https://github.com/Agash/Dtls.NET), which is built on the same primitives, so there is no
+from [Dtls.Core](https://github.com/Agash/Dtls.Core), which is built on the same primitives, so there is no
 native or third-party crypto dependency.
 
 This is the first-party transport that replaces SIPSorcery in

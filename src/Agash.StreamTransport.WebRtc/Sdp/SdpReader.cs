@@ -1,5 +1,5 @@
 using System.Globalization;
-using Dtls.NET;
+using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Sdp;
 

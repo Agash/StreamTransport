@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
-using Dtls.NET;
+using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Srtp;
 

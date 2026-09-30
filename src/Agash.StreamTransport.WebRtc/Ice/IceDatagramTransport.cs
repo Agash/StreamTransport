@@ -1,5 +1,5 @@
 using System.Threading.Channels;
-using Dtls.NET;
+using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Ice;
 

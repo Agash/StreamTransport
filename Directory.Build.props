@@ -28,10 +28,10 @@
        it, so a change to one of them is exercised here before it is released; elsewhere, and on CI,
        the published package is used. Set UseLocal<Library>=false to build against the package. -->
   <PropertyGroup>
-    <DtlsNetProject Condition="'$(DtlsNetProject)' == ''"
-      >$(MSBuildThisFileDirectory)../../../Dtls.NET/src/Dtls.NET/Dtls.NET.csproj</DtlsNetProject>
-    <UseLocalDtlsNet Condition="'$(UseLocalDtlsNet)' == '' and Exists('$(DtlsNetProject)')"
-      >true</UseLocalDtlsNet>
+    <DtlsCoreProject Condition="'$(DtlsCoreProject)' == ''"
+      >$(MSBuildThisFileDirectory)../../../Dtls.Core/src/Dtls.Core/Dtls.Core.csproj</DtlsCoreProject>
+    <UseLocalDtlsCore Condition="'$(UseLocalDtlsCore)' == '' and Exists('$(DtlsCoreProject)')"
+      >true</UseLocalDtlsCore>
     <FFmpegInteropProject Condition="'$(FFmpegInteropProject)' == ''"
       >$(MSBuildThisFileDirectory)../../../FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj</FFmpegInteropProject>
     <UseLocalFFmpegInterop

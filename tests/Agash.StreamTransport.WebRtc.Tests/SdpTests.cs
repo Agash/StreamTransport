@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.Sdp;
-using Dtls.NET;
+using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 

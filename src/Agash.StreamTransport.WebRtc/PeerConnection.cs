@@ -7,7 +7,7 @@ using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
-using Dtls.NET;
+using Dtls.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 

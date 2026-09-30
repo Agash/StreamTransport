@@ -1,5 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
-using Dtls.NET;
+using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc;
 

@@ -5,7 +5,7 @@ using Agash.StreamTransport.WebRtc.Sdp;
 
 // A NativeAOT smoke test for the first-party WebRTC stack: two peer connections negotiate over loopback,
 // complete ICE -> DTLS-SRTP, and exchange an encrypted RTP packet. If this runs as an AOT single-file
-// binary, the stack (including Dtls.NET and the SCReAM controller) is AOT-safe end to end.
+// binary, the stack (including Dtls.Core and the SCReAM controller) is AOT-safe end to end.
 
 var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
 PeerConnectionOptions Options(uint ssrc) =>
