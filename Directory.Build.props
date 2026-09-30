@@ -45,6 +45,11 @@
       >$(MSBuildThisFileDirectory)../Syphon.NET/src/Syphon.NET/Syphon.NET.csproj</SyphonNetProject>
     <UseLocalSyphonNet Condition="'$(UseLocalSyphonNet)' == '' and Exists('$(SyphonNetProject)')"
       >true</UseLocalSyphonNet>
+    <PipeWireNetMediaProject Condition="'$(PipeWireNetMediaProject)' == ''"
+      >$(MSBuildThisFileDirectory)../PipeWire.NET/src/PipeWire.NET.Media/PipeWire.NET.Media.csproj</PipeWireNetMediaProject>
+    <UseLocalPipeWireNet
+      Condition="'$(UseLocalPipeWireNet)' == '' and Exists('$(PipeWireNetMediaProject)')"
+      >true</UseLocalPipeWireNet>
   </PropertyGroup>
   <!-- The macOS package binds Apple's frameworks, which build only where the macos workload and
        Xcode are. Elsewhere its projects build empty, so the solution builds on every OS. -->

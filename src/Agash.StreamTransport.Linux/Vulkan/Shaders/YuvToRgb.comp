@@ -1,0 +1,49 @@
+#version 450
+// 4:2:0 Y'CbCr planes to RGB. With unpack set, the input is a side-by-side frame twice the output
+// width: colour from the left half, and alpha from the right half's luma, normalised like the colour's.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, r8) uniform readonly image2D luma;
+layout(set = 0, binding = 1, rg8) uniform readonly image2D chroma;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform Parameters
+{
+    uint outWidth;
+    uint outHeight;
+    uint unpack;       // 1: alpha comes from the right half's luma
+    uint swapRedBlue;  // 1: the output's memory is BGRA, written through an RGBA view
+    vec4 lumaScale;    // x: offset subtracted from Y', y: scale after it, z: neutral chroma
+    vec4 rowR;         // R = dot(vec3(Y, Cb, Cr), rowR.xyz) + rowR.w, on normalised Y, Cb, Cr
+    vec4 rowG;
+    vec4 rowB;
+} p;
+
+void main()
+{
+    uvec2 id = gl_GlobalInvocationID.xy;
+    if (id.x >= p.outWidth || id.y >= p.outHeight)
+    {
+        return;
+    }
+
+    float y = (imageLoad(luma, ivec2(id)).r - p.lumaScale.x) * p.lumaScale.y;
+    vec2 cbcr = imageLoad(chroma, ivec2(id / 2)).rg - p.lumaScale.z;
+    vec3 ycc = vec3(y, cbcr);
+    vec3 rgb = clamp(vec3(dot(ycc, p.rowR.xyz) + p.rowR.w,
+                          dot(ycc, p.rowG.xyz) + p.rowG.w,
+                          dot(ycc, p.rowB.xyz) + p.rowB.w), 0.0, 1.0);
+
+    float alpha = 1.0;
+    if (p.unpack != 0)
+    {
+        float a = imageLoad(luma, ivec2(id.x + p.outWidth, id.y)).r;
+        alpha = clamp((a - p.lumaScale.x) * p.lumaScale.y, 0.0, 1.0);
+    }
+
+    // The output is written through an RGBA view; a BGRA image takes its channels swapped, which any
+    // GPU can store where a BGRA storage view needs a feature not all have.
+    vec4 rgba = vec4(rgb, alpha);
+    imageStore(outputImage, ivec2(id), p.swapRedBlue != 0 ? rgba.bgra : rgba);
+}

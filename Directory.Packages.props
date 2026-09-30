@@ -25,6 +25,7 @@
     <!-- Platform GPU capture and sharing, for the platform packages. -->
     <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha.3" />
     <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.7" />
-    <PackageVersion Include="PipeWire.NET" Version="0.2.2-alpha" />
+    <PackageVersion Include="PipeWire.NET.Media" Version="0.3.0-dev2" />
+    <PackageVersion Include="Vortice.Vulkan" Version="3.3.0" />
   </ItemGroup>
 </Project>

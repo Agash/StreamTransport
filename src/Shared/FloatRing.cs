@@ -9,6 +9,18 @@ internal sealed class FloatRing(int capacity)
     private int _start;
     private int _count;
 
+    // Samples waiting to be read.
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _count;
+            }
+        }
+    }
+
     public void Write(ReadOnlySpan<float> samples)
     {
         lock (_gate)

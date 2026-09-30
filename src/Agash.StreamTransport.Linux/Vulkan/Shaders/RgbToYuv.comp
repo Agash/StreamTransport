@@ -1,0 +1,59 @@
+#version 450
+// RGB to 4:2:0 Y'CbCr, written as a luma plane and an interleaved chroma plane. Each invocation makes
+// one chroma sample and the 2x2 luma block it covers. With pack set, the output is twice the colour
+// width: the left half is the colour, the right half the source alpha as grey (a, a, a), which the same
+// matrix turns into luma with neutral chroma. That is the side-by-side alpha layout every
+// StreamTransport platform writes and reads.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D source;
+layout(set = 0, binding = 1, r8) uniform writeonly image2D luma;
+layout(set = 0, binding = 2, rg8) uniform writeonly image2D chroma;
+
+layout(push_constant) uniform Parameters
+{
+    uint outWidth;     // luma width written
+    uint outHeight;    // luma height written
+    uint colourWidth;  // width of the colour picture in the output
+    uint pack;         // 1: the right half carries alpha
+    vec4 rowY;         // Y' = dot(rgb, rowY.xyz) + rowY.w
+    vec4 rowCb;
+    vec4 rowCr;
+} p;
+
+vec3 colourAt(uvec2 at)
+{
+    bool alpha = p.pack != 0 && at.x >= p.colourWidth;
+    uint x = alpha ? at.x - p.colourWidth : at.x;
+    vec2 uv = (vec2(x, at.y) + 0.5) / vec2(p.colourWidth, p.outHeight);
+    vec4 s = textureLod(source, uv, 0.0);
+    return alpha ? s.aaa : s.rgb;
+}
+
+void main()
+{
+    uvec2 c = gl_GlobalInvocationID.xy;
+    uvec2 l = c * 2;
+    if (l.x >= p.outWidth || l.y >= p.outHeight)
+    {
+        return;
+    }
+
+    uvec2 right = uvec2(min(l.x + 1, p.outWidth - 1), l.y);
+    uvec2 below = uvec2(l.x, min(l.y + 1, p.outHeight - 1));
+    uvec2 diagonal = uvec2(right.x, below.y);
+    vec3 s00 = colourAt(l);
+    vec3 s10 = colourAt(right);
+    vec3 s01 = colourAt(below);
+    vec3 s11 = colourAt(diagonal);
+
+    imageStore(luma, ivec2(l), vec4(dot(s00, p.rowY.xyz) + p.rowY.w));
+    imageStore(luma, ivec2(right), vec4(dot(s10, p.rowY.xyz) + p.rowY.w));
+    imageStore(luma, ivec2(below), vec4(dot(s01, p.rowY.xyz) + p.rowY.w));
+    imageStore(luma, ivec2(diagonal), vec4(dot(s11, p.rowY.xyz) + p.rowY.w));
+
+    vec3 average = (s00 + s10 + s01 + s11) * 0.25;
+    imageStore(chroma, ivec2(c), vec4(dot(average, p.rowCb.xyz) + p.rowCb.w,
+                                      dot(average, p.rowCr.xyz) + p.rowCr.w, 0.0, 0.0));
+}

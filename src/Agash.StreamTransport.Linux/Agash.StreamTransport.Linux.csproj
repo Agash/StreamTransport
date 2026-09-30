@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Agash.StreamTransport.Linux</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.Linux</RootNamespace>
+    <PackageId>Agash.StreamTransport.Linux</PackageId>
+    <Description>Linux media for Agash.StreamTransport: PipeWire video and audio sources and sinks, and Vulkan video processors for colour conversion and side-by-side alpha on DMA-BUFs.</Description>
+    <PackageTags>webrtc;streaming;linux;pipewire;vulkan;dmabuf;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+    <ProjectReference
+      Include="$(PipeWireNetMediaProject)"
+      Condition="'$(UseLocalPipeWireNet)' == 'true'"
+    />
+    <PackageReference Include="PipeWire.NET.Media" Condition="'$(UseLocalPipeWireNet)' != 'true'" />
+    <PackageReference Include="Vortice.Vulkan" />
+    <Compile Include="..\Shared\FloatRing.cs" Link="PipeWire\FloatRing.cs" />
+    <InternalsVisibleTo Include="Agash.StreamTransport.Linux.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The compute kernels ship as SPIR-V. Building where glslc is installed recompiles them when their
+       source changes; elsewhere the committed .spv files are used. Nothing compiles GLSL at run time:
+       a shader compiler loaded next to Mesa's VAAPI driver clashes with its SPIRV-Tools symbols. -->
+  <ItemGroup>
+    <ComputeShader Include="Vulkan/Shaders/*.comp" />
+    <None Include="@(ComputeShader)" />
+    <EmbeddedResource Include="Vulkan/Shaders/*.spv" LogicalName="%(Filename).spv" />
+  </ItemGroup>
+
+  <Target
+    Name="CompileComputeShaders"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(OS)' != 'Windows_NT'"
+    Inputs="@(ComputeShader)"
+    Outputs="@(ComputeShader->'%(RootDir)%(Directory)%(Filename).spv')"
+  >
+    <Exec Command="command -v glslc" IgnoreExitCode="true" StandardOutputImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_GlslcExit" />
+    </Exec>
+    <Message
+      Condition="'$(_GlslcExit)' != '0'"
+      Importance="high"
+      Text="glslc not found; using the committed SPIR-V (.spv) for the compute kernels."
+    />
+    <Exec
+      Condition="'$(_GlslcExit)' == '0'"
+      Command="glslc -O --target-env=vulkan1.2 &quot;%(ComputeShader.FullPath)&quot; -o &quot;%(ComputeShader.RootDir)%(ComputeShader.Directory)%(ComputeShader.Filename).spv&quot;"
+    />
+  </Target>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

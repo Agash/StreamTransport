@@ -65,6 +65,7 @@ and say what they accept.
 | `Agash.StreamTransport.Codecs.Opus` | Opus on Concentus. |
 | `Agash.StreamTransport.Windows` | Direct3D 12 processors, Spout, WASAPI. |
 | `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, Syphon, Core Audio. |
+| `Agash.StreamTransport.Linux` | Vulkan processors on DMA-BUFs, PipeWire video and audio. |
 | `Agash.StreamTransport.Abstractions` | Rooms and signaling contracts. |
 | `Agash.StreamTransport.WebRtc` | ICE, STUN, SRTP, RTP/RTCP, SDP, RTP payload formats, `PeerConnection`. |
 | `Agash.StreamTransport.WebRtc.Abstractions` | Network and congestion control contracts. |
