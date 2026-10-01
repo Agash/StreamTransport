@@ -40,6 +40,30 @@ public sealed class MediaCodecRegistryTests
     }
 
     [TestMethod]
+    public void Refused_ArePassedOverByQueryAndCreate()
+    {
+        FakeEncoders best = new(rank: 9, "best");
+        FakeEncoders next = new(rank: 1, "next");
+        MediaCodecRegistry registry = Registry(encoders: [best, next]);
+        HashSet<string> refused = ["best"];
+
+        Assert.AreEqual("next", registry.QueryVideoEncoder(Vp9, null, refused)!.ImplementationName);
+        Assert.IsTrue(
+            registry.TryCreateVideoEncoder(
+                Configuration(),
+                null,
+                out IVideoEncoder? encoder,
+                refused
+            )
+        );
+        Assert.AreEqual("next", encoder.Info.ImplementationName);
+        Assert.AreEqual(0, best.Attempts);
+        Assert.IsNull(
+            registry.QueryVideoEncoder(Vp9, null, new HashSet<string> { "best", "next" })
+        );
+    }
+
+    [TestMethod]
     public void TryCreateVideoEncoder_NothingCanDoIt_ReturnsFalse()
     {
         MediaCodecRegistry registry = Registry(

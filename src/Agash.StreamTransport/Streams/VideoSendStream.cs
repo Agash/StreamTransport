@@ -20,7 +20,9 @@ internal sealed record VideoSendSetup(
 /// yet encoded, so a slow encoder drops frames instead of building latency. A worker converts each frame
 /// when the encoder cannot take it as it is (and packs alpha when asked), encodes it, and queues its RTP
 /// packets on the pacer. The encoder is made when the first frame fixes the picture size, and remade when
-/// the size changes.
+/// the size changes. An encoder that fails before it has encoded a frame is passed over for the rest of
+/// the stream and the next best one takes its place: a driver can refuse at the real size and format what
+/// it accepted when probed.
 /// </summary>
 internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDisposable
 {
@@ -33,7 +35,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly EncodedConsumer _encoded;
-    private readonly VideoConstraints _encoderInput;
+    private readonly HashSet<string> _refused = new(StringComparer.Ordinal);
+    private VideoConstraints _encoderInput;
     private readonly IDisposable _connection;
     private readonly Task _worker;
     private VideoFrameLease? _pending;
@@ -43,7 +46,9 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private IVideoProcessor? _processor;
     private IVideoEncoder? _encoder;
     private VideoSize _encoderSize;
+    private bool _encoderDelivered;
     private int _framesDropped;
+    private int _framesSent;
 
     /// <summary>Connects a source and starts the encode worker.</summary>
     /// <param name="source">The video source.</param>
@@ -83,6 +88,9 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
 
     /// <summary>Frames the source delivered faster than the encoder took them, dropped unencoded.</summary>
     public int FramesDropped => Volatile.Read(ref _framesDropped);
+
+    /// <summary>Encoded frames handed to the link.</summary>
+    public int FramesSent => Volatile.Read(ref _framesSent);
 
     /// <summary>Makes the next frame a keyframe, as a receiver asked (PLI or FIR).</summary>
     public void RequestKeyframe() => Volatile.Write(ref _keyframeRequested, 1);
@@ -215,11 +223,37 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             EndEncoder();
             _encoder = CreateEncoder(size, frame.Storage.Device);
             _encoderSize = size;
+            _encoderDelivered = false;
             Volatile.Write(ref _keyframeRequested, 1);
         }
 
         bool keyframe = Interlocked.Exchange(ref _keyframeRequested, 0) == 1;
-        _encoder.Encode(in frame, new EncodeRequest(keyframe), _encoded);
+        try
+        {
+            _encoder.Encode(in frame, new EncodeRequest(keyframe), _encoded);
+        }
+        catch (Exception exception)
+            when (exception is not OutOfMemoryException && !_encoderDelivered)
+        {
+            // Logged by the worker with the frame it cost; this only passes over the encoder.
+            Refuse(_encoder.Info.ImplementationName);
+            throw;
+        }
+    }
+
+    // Passes over an encoder that never worked, and asks the next best what it takes.
+    private void Refuse(string implementation)
+    {
+        _ = _refused.Add(implementation);
+        if (_registry.QueryVideoEncoder(_setup.Format, device: null, _refused) is { } next)
+        {
+            LogEncoderRefused(implementation, next.ImplementationName);
+            _encoderInput = next.Input;
+        }
+        else
+        {
+            LogNoEncoderLeft(implementation, _setup.Format.Codec);
+        }
     }
 
     private bool NeedsProcessing(VideoStreamDescription description) =>
@@ -248,7 +282,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
                 _options.VideoTuning
             ),
             device,
-            out IVideoEncoder? encoder
+            out IVideoEncoder? encoder,
+            _refused
         )
             ? encoder
             : throw new InvalidOperationException(
@@ -295,6 +330,28 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     [LoggerMessage(2041, LogLevel.Debug, "Ending the encoder's stream failed; it is closed.")]
     private partial void LogFlushFailed(Exception exception);
 
+    [LoggerMessage(
+        2042,
+        LogLevel.Warning,
+        "{Encoder} failed before encoding a frame; {Next} takes its place."
+    )]
+    private partial void LogEncoderRefused(string encoder, string next);
+
+    [LoggerMessage(
+        2043,
+        LogLevel.Error,
+        "{Encoder} failed before encoding a frame, and no other encoder encodes {Codec}."
+    )]
+    private partial void LogNoEncoderLeft(string encoder, VideoCodecId codec);
+
+    // An encoded frame into RTP, paced onto the link.
+    private void Transmit(in EncodedVideoFrame frame)
+    {
+        _encoderDelivered = true;
+        _setup.Writer.Write(frame.Data, frame.Timestamp, _pacer.EnqueueVideo);
+        Interlocked.Increment(ref _framesSent);
+    }
+
     private sealed class Discarded : IEncodedVideoConsumer
     {
         public static Discarded Instance { get; } = new();
@@ -309,7 +366,6 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     {
         public void OnFrame(in VideoFrame frame) => stream.Encode(in frame);
 
-        public void OnEncoded(in EncodedVideoFrame frame) =>
-            stream._setup.Writer.Write(frame.Data, frame.Timestamp, stream._pacer.EnqueueVideo);
+        public void OnEncoded(in EncodedVideoFrame frame) => stream.Transmit(in frame);
     }
 }

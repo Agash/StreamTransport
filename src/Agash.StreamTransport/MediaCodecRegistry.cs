@@ -71,12 +71,20 @@ public sealed partial class MediaCodecRegistry
     /// <summary>What the best encoder for a format would take, without making one.</summary>
     /// <param name="format">The codec format.</param>
     /// <param name="device">The GPU the frames will be on; null for any.</param>
+    /// <param name="refused">Implementations to pass over, by name: ones that failed in use.</param>
     /// <returns>The best encoder's information, or null when nothing encodes the format.</returns>
-    public VideoEncoderInfo? QueryVideoEncoder(VideoCodecFormat format, GpuIdentity? device)
+    public VideoEncoderInfo? QueryVideoEncoder(
+        VideoCodecFormat format,
+        GpuIdentity? device,
+        IReadOnlySet<string>? refused = null
+    )
     {
         foreach (IVideoEncoderFactory factory in _videoEncoders)
         {
-            if (factory.QueryCapabilities(format, device) is { } info)
+            if (
+                factory.QueryCapabilities(format, device) is { } info
+                && refused?.Contains(info.ImplementationName) != true
+            )
             {
                 return info;
             }
@@ -89,17 +97,22 @@ public sealed partial class MediaCodecRegistry
     /// <param name="configuration">How to set it up.</param>
     /// <param name="device">The GPU the frames are on; null for any.</param>
     /// <param name="encoder">The encoder when one opened.</param>
+    /// <param name="refused">Implementations to pass over, by name: ones that failed in use.</param>
     /// <returns>True when an encoder opened.</returns>
     public bool TryCreateVideoEncoder(
         VideoEncoderConfiguration configuration,
         GpuIdentity? device,
-        [NotNullWhen(true)] out IVideoEncoder? encoder
+        [NotNullWhen(true)] out IVideoEncoder? encoder,
+        IReadOnlySet<string>? refused = null
     )
     {
         ArgumentNullException.ThrowIfNull(configuration);
         foreach (IVideoEncoderFactory factory in _videoEncoders)
         {
-            if (factory.QueryCapabilities(configuration.Format, device) is not { } info)
+            if (
+                factory.QueryCapabilities(configuration.Format, device) is not { } info
+                || refused?.Contains(info.ImplementationName) == true
+            )
             {
                 continue;
             }
