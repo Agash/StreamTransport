@@ -84,7 +84,7 @@ internal sealed class FFmpegVideoProcessor(VideoProcessorInfo info, VideoColor? 
             SetColor(_source, frame.Color);
 
             VideoStreamDescription output = Info.Output;
-            VideoColor target = color ?? frame.Color;
+            VideoColor target = color ?? frame.Color.ConvertedTo(output.PixelFormat);
             // The scaler releases the previous result's buffer (a retained one keeps its reference) and
             // produces what the frame describes.
             _output.Width = output.Size.Width;

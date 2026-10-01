@@ -132,7 +132,9 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
     private void Deliver(FF.Frame decoded, IVideoFrameConsumer consumer)
     {
         MediaTimestamp timestamp = _timestamps.Take(decoded.PresentationTimestamp ?? _lastPts);
-        VideoColor color = Formats.FromFFmpeg(decoded);
+        // Decoded pictures are Y'CbCr; a stream tagged RGB (a sender that signalled its source's sRGB)
+        // is read as BT.709, so conversions downstream still have a matrix to use.
+        VideoColor color = Formats.FromFFmpeg(decoded).ConvertedTo(PixelFormat.Nv12);
         try
         {
             switch (_output)

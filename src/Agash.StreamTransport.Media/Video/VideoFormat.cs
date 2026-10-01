@@ -134,6 +134,35 @@ public readonly record struct VideoColor(
     /// <summary>sRGB, as desktop RGB content is.</summary>
     public static VideoColor Srgb { get; } =
         new(ColorMatrix.Identity, ColorRange.Full, ColorPrimaries.Bt709, TransferFunction.Srgb);
+
+    /// <summary>
+    /// The colour of this picture once converted to <paramref name="format"/>: the matrix and range
+    /// change, the primaries and transfer stay, as a conversion leaves them. Within RGB, or within Y'CbCr,
+    /// it is unchanged. RGB made Y'CbCr takes the BT.709 matrix in video range, which every decoder and
+    /// WebRTC peer expects; an RGB tag on Y'CbCr samples has no meaning, and hardware decoders refuse
+    /// streams that carry it. Y'CbCr made RGB is full range.
+    /// </summary>
+    /// <param name="format">The format the picture is converted to.</param>
+    /// <returns>The colour the converted picture has.</returns>
+    public VideoColor ConvertedTo(PixelFormat format)
+    {
+        bool rgb = Matrix == ColorMatrix.Identity;
+        bool toRgb = format is PixelFormat.Bgra or PixelFormat.Rgba;
+        return rgb == toRgb ? this
+            : toRgb
+                ? this with
+                {
+                    Matrix = ColorMatrix.Identity,
+                    Range = ColorRange.Full,
+                    ChromaSiting = ChromaSiting.Unspecified,
+                }
+            : this with
+            {
+                Matrix = ColorMatrix.Bt709,
+                Range = ColorRange.Limited,
+                ChromaSiting = ChromaSiting.Left,
+            };
+    }
 }
 
 /// <summary>A size in pixels.</summary>

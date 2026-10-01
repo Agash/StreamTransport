@@ -11,6 +11,34 @@ public sealed class ColorConversionTests
         select new object[] { matrix, range };
 
     [TestMethod]
+    public void ConvertedTo_RgbToYCbCr_TakesTheBt709MatrixInVideoRange() =>
+        Assert.AreEqual(
+            VideoColor.Bt709 with
+            {
+                Transfer = TransferFunction.Srgb,
+            },
+            VideoColor.Srgb.ConvertedTo(PixelFormat.Nv12)
+        );
+
+    [TestMethod]
+    public void ConvertedTo_YCbCrToRgb_IsFullRangeRgbKeepingItsTransfer() =>
+        Assert.AreEqual(
+            VideoColor.Srgb with
+            {
+                Transfer = TransferFunction.Bt709,
+            },
+            VideoColor.Bt709.ConvertedTo(PixelFormat.Bgra)
+        );
+
+    [TestMethod]
+    public void ConvertedTo_WithinAFamily_KeepsTheColour()
+    {
+        VideoColor bt601 = VideoColor.Bt709 with { Matrix = ColorMatrix.Bt601 };
+        Assert.AreEqual(bt601, bt601.ConvertedTo(PixelFormat.I420));
+        Assert.AreEqual(VideoColor.Srgb, VideoColor.Srgb.ConvertedTo(PixelFormat.Rgba));
+    }
+
+    [TestMethod]
     [DynamicData(nameof(Colors))]
     public void RoundTrip_ReturnsTheColour(ColorMatrix matrix, ColorRange range)
     {
