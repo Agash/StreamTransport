@@ -41,8 +41,9 @@ Vulkan ahead of VA-API. Every backend takes system memory as well.
 - Encoders run with no reordering or lookahead, and constant bit rate under a rate-control buffer
   sized for the tuning (interactive, screen content, loss resilient). FFmpeg rejects an option an
   encoder does not know, so a renamed option fails the open.
-- Congestion control reaches every backend. NVENC takes a rate change between frames; the other
-  encoders reopen at the next frame, starting with a keyframe.
+- Congestion control reaches every backend. NVENC and Quick Sync take a rate change between frames;
+  the other encoders reopen at the next frame, starting with a keyframe, once the target has moved
+  far enough from their rate to be worth it (15% down or 30% up).
 - Every backend honours keyframe requests. An encoder that ignores a forced picture type is reopened
   for the keyframe.
 - Decoded frames are views over FFmpeg's buffers or surfaces. Retaining one takes a reference to them.
