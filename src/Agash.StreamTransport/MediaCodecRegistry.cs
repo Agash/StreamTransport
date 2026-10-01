@@ -79,12 +79,9 @@ public sealed partial class MediaCodecRegistry
         IReadOnlySet<string>? refused = null
     )
     {
-        foreach (IVideoEncoderFactory factory in _videoEncoders)
+        foreach ((IVideoEncoderFactory _, VideoEncoderInfo info) in Encoders(format, device))
         {
-            if (
-                factory.QueryCapabilities(format, device) is { } info
-                && refused?.Contains(info.ImplementationName) != true
-            )
+            if (refused?.Contains(info.ImplementationName) != true)
             {
                 return info;
             }
@@ -107,12 +104,14 @@ public sealed partial class MediaCodecRegistry
     )
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        foreach (IVideoEncoderFactory factory in _videoEncoders)
-        {
-            if (
-                factory.QueryCapabilities(configuration.Format, device) is not { } info
-                || refused?.Contains(info.ImplementationName) == true
+        foreach (
+            (IVideoEncoderFactory factory, VideoEncoderInfo info) in Encoders(
+                configuration.Format,
+                device
             )
+        )
+        {
+            if (refused?.Contains(info.ImplementationName) == true)
             {
                 continue;
             }
@@ -140,6 +139,21 @@ public sealed partial class MediaCodecRegistry
         encoder = null;
         return false;
     }
+
+    // The encoders for a format, best first: those that take frames on the GPU ahead of those that take
+    // only system memory, so a GPU source's frames stay on the GPU whenever an encoder can take them, and
+    // by rank within each.
+    private IEnumerable<(IVideoEncoderFactory Factory, VideoEncoderInfo Info)> Encoders(
+        VideoCodecFormat format,
+        GpuIdentity? device
+    ) =>
+        _videoEncoders
+            .Select(factory => (Factory: factory, Info: factory.QueryCapabilities(format, device)))
+            .Where(static e => e.Info is not null)
+            .Select(static e => (e.Factory, Info: e.Info!))
+            .OrderBy(static e =>
+                e.Info.Input.Storages.Any(static s => s != VideoStorageKind.Cpu) ? 0 : 1
+            );
 
     /// <summary>Makes the best decoder that opens for a format and what its consumer accepts.</summary>
     /// <param name="format">The codec format.</param>

@@ -83,6 +83,20 @@ public sealed class MediaCodecRegistryTests
     }
 
     [TestMethod]
+    public void Encoders_ThatTakeGpuFrames_ComeBeforeHigherRankedMemoryOnes()
+    {
+        FakeEncoders memory = new(rank: 100, "memory");
+        FakeEncoders gpu = new(rank: 90, "gpu", storage: VideoStorageKind.DmaBuf);
+        MediaCodecRegistry registry = Registry(encoders: [memory, gpu]);
+
+        Assert.AreEqual("gpu", registry.QueryVideoEncoder(Vp9, null)!.ImplementationName);
+        Assert.IsTrue(
+            registry.TryCreateVideoEncoder(Configuration(), null, out IVideoEncoder? encoder)
+        );
+        Assert.AreEqual("gpu", encoder.Info.ImplementationName);
+    }
+
+    [TestMethod]
     public void TryCreateVideoEncoder_NothingCanDoIt_ReturnsFalse()
     {
         MediaCodecRegistry registry = Registry(
@@ -125,13 +139,16 @@ public sealed class MediaCodecRegistryTests
         int rank,
         string name,
         bool supports = true,
-        bool throws = false
+        bool throws = false,
+        VideoStorageKind? storage = null
     ) : IVideoEncoderFactory
     {
         private readonly VideoEncoderInfo _info = new(
             name,
             false,
-            VideoConstraints.Cpu(PixelFormat.I420),
+            storage is { } gpu
+                ? new VideoConstraints([gpu, VideoStorageKind.Cpu], [PixelFormat.I420])
+                : VideoConstraints.Cpu(PixelFormat.I420),
             2,
             2,
             new VideoSize(4096, 4096),
