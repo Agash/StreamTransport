@@ -2,7 +2,9 @@ using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
 using Agash.StreamTransport.Linux;
+using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Signaling;
+using Agash.StreamTransport.TestSignal;
 using Agash.StreamTransport.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -71,8 +73,29 @@ static async Task<int> RunAsync(CommandLine command)
     };
 
     await using ServiceProvider provider = services.BuildServiceProvider();
+    MediaDevices devices = provider.GetRequiredService<MediaDevices>();
+    if (command.List)
+    {
+        foreach (VideoInputInfo input in await devices.GetVideoInputsAsync(stop.Token))
+        {
+            string modes = input.Modes.IsEmpty
+                ? string.Empty
+                : $", {input.Modes.Length} modes, largest {input.Modes.MaxBy(static m => (long)m.Size.Width * m.Size.Height)}";
+            Console.WriteLine($"video  {input.Provider}:{input.Id}  {input.Name} ({input.Kind}){modes}");
+        }
+
+        foreach (AudioInputInfo input in await devices.GetAudioInputsAsync(stop.Token))
+        {
+            Console.WriteLine($"audio  {input.Provider}:{input.Id}  {input.Name} ({input.Kind})");
+        }
+
+        Console.WriteLine($"video outputs: {string.Join(", ", devices.VideoOutputProviders)}");
+        Console.WriteLine($"audio outputs: {string.Join(", ", devices.AudioOutputProviders)}");
+        return 0;
+    }
+
     IMediaSessionFactory sessions = provider.GetRequiredService<IMediaSessionFactory>();
-    await using Endpoints endpoints = await Endpoints.CreateAsync(command, loggers, stop.Token);
+    using Endpoints endpoints = await Endpoints.CreateAsync(command, devices, stop.Token);
     PeerRole role = command.Publish ? PeerRole.Publisher : PeerRole.Subscriber;
     await using RoomClient room = await RoomClient.ConnectAsync(
         command.Relay,
@@ -109,7 +132,12 @@ static async Task<int> RunAsync(CommandLine command)
             loggers.CreateLogger<MediaSubscriber>()
         );
         subscriber.Start();
-        await ReportAsync(() => subscriber.Session is { } s ? [s] : [], log, stop.Token);
+        await ReportAsync(
+            () => subscriber.Session is { } s ? [s] : [],
+            log,
+            stop.Token,
+            endpoints.Analyzer
+        );
     }
 
     return 0;
@@ -119,7 +147,8 @@ static async Task<int> RunAsync(CommandLine command)
 static async Task ReportAsync(
     Func<IEnumerable<IMediaSession>> sessions,
     ILogger log,
-    CancellationToken stop
+    CancellationToken stop,
+    TestSignalAnalyzer? analyzer = null
 )
 {
     using PeriodicTimer every = new(TimeSpan.FromSeconds(5));
@@ -140,6 +169,11 @@ static async Task ReportAsync(
                     counters.AudioFramesDecoded,
                     session.Health.TargetBitrateBps / 1000
                 );
+            }
+
+            if (analyzer is not null)
+            {
+                log.LogInformation("Test signal: {Measurement}.", analyzer.Measure());
             }
         }
     }

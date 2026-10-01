@@ -7,6 +7,7 @@ using Agash.StreamTransport.WebRtc.Ice;
 namespace StreamTransport.Cli;
 
 /// <summary>What the command line asks for.</summary>
+/// <param name="List">List the inputs and outputs and stop.</param>
 /// <param name="Publish">Publish when true, subscribe when false.</param>
 /// <param name="Relay">The relay's WebSocket URL.</param>
 /// <param name="Room">The room to join.</param>
@@ -15,7 +16,10 @@ namespace StreamTransport.Cli;
 /// <param name="Session">How the session is set up.</param>
 /// <param name="Verbose">Whether to log at debug level.</param>
 /// <param name="FFmpeg">Where FFmpeg's shared libraries are, or null for the system's.</param>
+/// <param name="Capture">The capture mode asked of a video input.</param>
+/// <param name="Measure">Whether a subscriber measures a received test signal.</param>
 internal sealed record CommandLine(
+    bool List,
     bool Publish,
     Uri Relay,
     string Room,
@@ -23,20 +27,26 @@ internal sealed record CommandLine(
     string? Audio,
     MediaSessionOptions Session,
     bool Verbose,
-    string? FFmpeg
+    string? FFmpeg,
+    VideoInputRequest Capture,
+    bool Measure
 )
 {
     public const string Usage = """
+        streamtransport list
         streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
 
-          --video <spec>     pipewire[:node]  PipeWire node by name or id (Linux)
-                             spout[:sender]   Spout sender (Windows)
-                             syphon[:server]  Syphon server (macOS)
-                             test             a moving test pattern (publish only)
+          --video <spec>     an input when publishing, an output when subscribing:
+                             provider[:name]  such as spout, syphon, pipewire, v4l2, test
+                             name             an input by its name, or camera for the first camera
                              none
           --audio <spec>     default          the default input when publishing, output when subscribing
                              output           what the default output plays (publish; Windows, Linux)
+                             test             the test signal's clicks (publish)
                              none
+          --size <WxH>       the capture size asked of a camera
+          --fps <rate>       the capture rate asked of a camera
+          --measure          subscribe to a test signal and report A/V offset and latency
           --profile <name>   interactive | screen | irl | avatar
           --codec <name>     h264 | h265 | av1   the one video codec to offer
           --turn <url>       a turn: or turns: URL, used with --turn-user and --turn-password
@@ -50,9 +60,26 @@ internal sealed record CommandLine(
 
     public static CommandLine Parse(string[] args)
     {
+        if (args is ["list"])
+        {
+            return new CommandLine(
+                true,
+                false,
+                new Uri("ws://localhost"),
+                string.Empty,
+                null,
+                null,
+                MediaSessionOptions.For(MediaProfile.InteractiveP2P),
+                false,
+                RepositoryFFmpeg(),
+                new VideoInputRequest(),
+                false
+            );
+        }
+
         if (args.Length == 0 || args[0] is not ("publish" or "subscribe"))
         {
-            throw new FormatException("Say publish or subscribe first.");
+            throw new FormatException("Say list, publish or subscribe first.");
         }
 
         Dictionary<string, string?> named = new(StringComparer.Ordinal);
@@ -64,7 +91,7 @@ internal sealed record CommandLine(
                 throw new FormatException($"Unexpected '{key}'.");
             }
 
-            bool flag = key is "--verbose";
+            bool flag = key is "--verbose" or "--measure";
             named[key[2..]] =
                 flag ? null
                 : i + 1 < args.Length ? args[++i]
@@ -123,7 +150,20 @@ internal sealed record CommandLine(
             },
         };
 
+        VideoInputRequest capture = new()
+        {
+            Size = Value(named, "size") is { } size
+                ? new VideoSize(
+                    int.Parse(size.Split('x')[0], CultureInfo.InvariantCulture),
+                    int.Parse(size.Split('x')[1], CultureInfo.InvariantCulture)
+                )
+                : null,
+            FrameRate = Value(named, "fps") is { } fps
+                ? double.Parse(fps, CultureInfo.InvariantCulture)
+                : null,
+        };
         return new CommandLine(
+            false,
             args[0] == "publish",
             new Uri(Value(named, "relay") ?? throw new FormatException("--relay is required.")),
             Value(named, "room") ?? throw new FormatException("--room is required."),
@@ -131,7 +171,9 @@ internal sealed record CommandLine(
             Choice(named, "audio") is "none" ? null : Choice(named, "audio") ?? "default",
             session,
             named.ContainsKey("verbose"),
-            Value(named, "ffmpeg") ?? RepositoryFFmpeg()
+            Value(named, "ffmpeg") ?? RepositoryFFmpeg(),
+            capture,
+            named.ContainsKey("measure")
         );
     }
 
@@ -159,7 +201,7 @@ internal sealed record CommandLine(
         return null;
     }
 
-    // The video endpoint this platform shares on.
+    // What this platform shares video on: the input or output by default.
     private static string Default() =>
         OperatingSystem.IsWindows() ? "spout"
         : OperatingSystem.IsMacOS() ? "syphon"

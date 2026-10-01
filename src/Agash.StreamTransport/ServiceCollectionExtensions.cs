@@ -1,4 +1,6 @@
+using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sessions;
+using Agash.StreamTransport.TestSignal;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +25,13 @@ public static class ServiceCollectionExtensions
         services.AddStreamTransportWebRtc();
         services.TryAddSingleton<MediaCodecRegistry>();
         services.TryAddSingleton<MediaDevices>();
+        services.TryAddSingleton<TestSignalGenerator>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, TestSignalVideoInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioInputProvider, TestSignalAudioInputProvider>()
+        );
         services.TryAddSingleton<INetworkMonitor, NetworkChangeMonitor>();
         services.TryAddSingleton<MobilityEngine>();
         services.TryAddSingleton<IMediaSessionFactory, WebRtcMediaSessionFactory>();
