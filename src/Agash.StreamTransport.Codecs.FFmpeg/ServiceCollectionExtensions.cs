@@ -1,4 +1,5 @@
 using Agash.StreamTransport.Media;
+using FFmpeg.Interop;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -27,14 +28,19 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddSingleton<Registered>();
-        FFmpegCodecOptions Options(IServiceProvider provider) =>
-            options?.LoggerFactory is not null
+        FFmpegCodecOptions Options(IServiceProvider provider)
+        {
+            FFmpegCodecOptions resolved = options?.LoggerFactory is not null
                 ? options
                 : new FFmpegCodecOptions
                 {
                     LoggerFactory = provider.GetService<ILoggerFactory>(),
                     EncoderOptions = options?.EncoderOptions ?? [],
+                    RouteFFmpegLog = options?.RouteFFmpegLog ?? true,
                 };
+            provider.GetRequiredService<Registered>().RouteLog(resolved);
+            return resolved;
+        }
 
         foreach (EncoderBackend backend in Enum.GetValues<EncoderBackend>())
         {
@@ -61,6 +67,37 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    // Marks the registration as done.
-    private sealed class Registered;
+    // Marks the registration as done, and routes FFmpeg's log once per container until it is disposed.
+    private sealed class Registered : IDisposable
+    {
+        private readonly Lock _gate = new();
+        private IDisposable? _route;
+        private bool _disposed;
+
+        public void RouteLog(FFmpegCodecOptions options)
+        {
+            if (!options.RouteFFmpegLog || options.LoggerFactory is not { } factory)
+            {
+                return;
+            }
+
+            lock (_gate)
+            {
+                if (!_disposed)
+                {
+                    _route ??= FFmpegLogging.RouteTo(factory);
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                _disposed = true;
+                _route?.Dispose();
+                _route = null;
+            }
+        }
+    }
 }

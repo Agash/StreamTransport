@@ -47,6 +47,9 @@ Vulkan ahead of VA-API. Every backend takes system memory as well.
   for the keyframe.
 - Decoded frames are views over FFmpeg's buffers or surfaces. Retaining one takes a reference to them.
 - The stream signals the configuration's colour, or the first frame's, or BT.709 when neither gives one.
+- FFmpeg's own log goes to the container's logging, under `FFmpeg.*` categories, for as long as the
+  container lives (`FFmpegCodecOptions.RouteFFmpegLog` turns this off). What FFmpeg logs while a
+  backend is probed is demoted to Debug; the probe's outcome is logged by the factory.
 
 ## Capture devices
 

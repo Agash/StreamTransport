@@ -218,6 +218,8 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     // passes only if its frames come out on the GPU.
     private bool RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {
+        // Decoders this machine lacks fail loudly in FFmpeg's log; the outcome is logged here instead.
+        using FF.FFmpegLogging.DemotionScope demoted = FF.FFmpegLogging.Demote();
         try
         {
             ImmutableArray<byte[]> stream = SampleStream(id);

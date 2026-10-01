@@ -207,6 +207,8 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
     // first that works.
     private Probe? RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {
+        // Encoders this machine lacks fail loudly in FFmpeg's log; the outcome is logged here instead.
+        using FF.FFmpegLogging.DemotionScope demoted = FF.FFmpegLogging.Demote();
         ImmutableArray<PixelFormat> candidates = FormatsFor(codec, adapter);
         if (candidates.IsEmpty)
         {

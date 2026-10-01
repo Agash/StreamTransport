@@ -1,4 +1,8 @@
 using System.Reflection;
+using Agash.StreamTransport.Codecs.FFmpeg;
+using Agash.StreamTransport.Media;
+using FFmpeg.Interop;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Tests;
@@ -58,5 +62,42 @@ public sealed class LoggingTests
                 ),
         ];
         Assert.IsEmpty(duplicates, string.Join("; ", duplicates));
+    }
+
+    [TestMethod]
+    public void AddFFmpegCodecs_RoutesFFmpegsLogUntilTheContainerIsDisposed()
+    {
+        CapturingLoggerFactory logs = new();
+        ServiceCollection services = new();
+        services.AddSingleton<ILoggerFactory>(logs);
+        services.AddFFmpegCodecs();
+        using (ServiceProvider provider = services.BuildServiceProvider())
+        {
+            _ = provider.GetServices<IVideoDecoderFactory>().ToList();
+            FeedGarbage();
+            Assert.Contains("AVCodecContext: h264:", logs.Dump());
+        }
+
+        string routed = logs.Dump();
+        FeedGarbage();
+        Assert.AreEqual(routed, logs.Dump(), "the disposed container no longer gets FFmpeg's log");
+    }
+
+    private static void FeedGarbage()
+    {
+        using var decoder = Decoder.Create(
+            Codec.FindDecoder(CodecId.H264),
+            new DecoderOptions { ThreadCount = 1 }
+        );
+        using var packet = new Packet();
+        packet.CopyFrom([0, 0, 0, 1, 0x65, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        try
+        {
+            _ = decoder.TrySend(packet);
+        }
+        catch (FFmpegException)
+        {
+            // Expected: decoding on this thread reports the garbage at once.
+        }
     }
 }
