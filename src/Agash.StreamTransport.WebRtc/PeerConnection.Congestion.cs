@@ -19,6 +19,12 @@ public sealed partial class PeerConnection
     private readonly Dictionary<uint, Dictionary<ushort, ArrivalInfo>> _arrivals = []; // ssrc -> (seq -> arrival µs + ECN)
     private readonly List<PacketResult> _feedbackScratch = [];
     private readonly List<CcfbStreamReport> _ccfbScratch = [];
+    private readonly List<CcfbStreamReport> _reportScratch = [];
+
+    // Feedback arrives on every ICE socket's receive loop (the selected path and warm standbys) while the
+    // process timer also drives the controller; this serialises both, and the parse scratch with them.
+    // Taken before _ccGate, never after.
+    private readonly Lock _feedbackGate = new();
     private ITimer? _ccfbTimer;
     private ITimer? _processTimer;
     private double _lossRate;
@@ -165,7 +171,12 @@ public sealed partial class PeerConnection
             return;
         }
 
-        BitrateEstimate estimate = _controller.OnProcessInterval(NowMicros());
+        BitrateEstimate estimate;
+        lock (_feedbackGate)
+        {
+            estimate = _controller.OnProcessInterval(NowMicros());
+        }
+
         BitrateEstimateChanged?.Invoke(estimate);
     }
 
@@ -178,7 +189,7 @@ public sealed partial class PeerConnection
         }
 
         long now = NowMicros();
-        _ccfbScratch.Clear();
+        _reportScratch.Clear();
         lock (_ccGate)
         {
             foreach ((uint ssrc, Dictionary<ushort, ArrivalInfo> perSsrc) in _arrivals)
@@ -212,12 +223,12 @@ public sealed partial class PeerConnection
                     }
                 }
 
-                _ccfbScratch.Add(new CcfbStreamReport(ssrc, begin, metrics));
+                _reportScratch.Add(new CcfbStreamReport(ssrc, begin, metrics));
                 perSsrc.Clear();
             }
         }
 
-        if (_ccfbScratch.Count == 0)
+        if (_reportScratch.Count == 0)
         {
             return;
         }
@@ -226,7 +237,7 @@ public sealed partial class PeerConnection
         byte[] buffer = ArrayPool<byte>.Shared.Rent(1300 + SrtpSession.RtcpProtectionOverhead);
         try
         {
-            int length = Ccfb.Build(buffer, _rtcpSenderSsrc, _ccfbScratch, reportTimestamp);
+            int length = Ccfb.Build(buffer, _rtcpSenderSsrc, _reportScratch, reportTimestamp);
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
         }
@@ -248,10 +259,29 @@ public sealed partial class PeerConnection
             return;
         }
 
+        BitrateEstimate? estimate;
+        lock (_feedbackGate)
+        {
+            estimate = ApplyCongestionFeedback(rtcp, _controller);
+        }
+
+        if (estimate is { } changed)
+        {
+            BitrateEstimateChanged?.Invoke(changed);
+        }
+    }
+
+    // Correlates one CCFB report with what was sent and feeds the controller; null when the report
+    // matched nothing. Runs under _feedbackGate.
+    private BitrateEstimate? ApplyCongestionFeedback(
+        ReadOnlySpan<byte> rtcp,
+        INetworkController controller
+    )
+    {
         _ccfbScratch.Clear();
         if (!Ccfb.TryParse(rtcp, out _, out uint reportTimestamp, _ccfbScratch))
         {
-            return;
+            return null;
         }
 
         long reportMicros = (long)reportTimestamp * 1_000_000 / 65536;
@@ -293,7 +323,7 @@ public sealed partial class PeerConnection
 
         if (_feedbackScratch.Count == 0)
         {
-            return;
+            return null;
         }
 
         // Rolling loss rate over the reported window (EWMA), for the health model.
@@ -309,11 +339,10 @@ public sealed partial class PeerConnection
         double sample = (double)lost / _feedbackScratch.Count;
         _lossRate = _lossRate <= 0 ? sample : (_lossRate * 0.8) + (sample * 0.2);
 
-        BitrateEstimate estimate = _controller.OnFeedback(
+        return controller.OnFeedback(
             System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_feedbackScratch),
             NowMicros()
         );
-        BitrateEstimateChanged?.Invoke(estimate);
     }
 
     // The sequence with the smallest 16-bit distance ahead of the earliest-arriving packet, i.e. the window start.
