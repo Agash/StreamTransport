@@ -64,6 +64,25 @@ public sealed class MediaCodecRegistryTests
     }
 
     [TestMethod]
+    public void TryCreateVideoDecoder_PrefersTheConsumersFirstStorageOverRank()
+    {
+        FakeDecoders memory = new(rank: 100, "memory", VideoStorageKind.Cpu);
+        FakeDecoders shared = new(rank: 90, "shared", VideoStorageKind.DmaBuf);
+        MediaCodecRegistry registry = new([], [memory, shared], [], [], []);
+        VideoConstraints sink = new(
+            [VideoStorageKind.DmaBuf, VideoStorageKind.Cpu],
+            [PixelFormat.Nv12]
+        );
+
+        Assert.IsTrue(registry.TryCreateVideoDecoder(Vp9, sink, out IVideoDecoder? decoder));
+        Assert.AreEqual("shared", decoder.Info.ImplementationName);
+        Assert.IsTrue(
+            registry.TryCreateVideoDecoder(Vp9, VideoConstraints.Cpu(PixelFormat.Nv12), out decoder)
+        );
+        Assert.AreEqual("memory", decoder.Info.ImplementationName);
+    }
+
+    [TestMethod]
     public void TryCreateVideoEncoder_NothingCanDoIt_ReturnsFalse()
     {
         MediaCodecRegistry registry = Registry(
@@ -135,6 +154,35 @@ public sealed class MediaCodecRegistryTests
                 ? throw new InvalidOperationException("The driver refused.")
                 : new Encoder(_info);
         }
+    }
+
+    // Decodes into one storage, and declines a consumer that does not take it.
+    private sealed class FakeDecoders(int rank, string name, VideoStorageKind storage)
+        : IVideoDecoderFactory
+    {
+        public int Rank => rank;
+
+        public ImmutableArray<VideoCodecFormat> SupportedFormats => [Vp9];
+
+        public VideoDecoderInfo? QueryCapabilities(
+            VideoCodecFormat format,
+            VideoConstraints output
+        ) =>
+            output.Storages.Contains(storage)
+                ? new VideoDecoderInfo(name, false, new([storage], [PixelFormat.Nv12]))
+                : null;
+
+        public IVideoDecoder Create(VideoCodecFormat format, VideoConstraints output) =>
+            new Decoder(QueryCapabilities(format, output)!);
+    }
+
+    private sealed class Decoder(VideoDecoderInfo info) : IVideoDecoder
+    {
+        public VideoDecoderInfo Info => info;
+
+        public void Decode(in EncodedVideoFrame frame, IVideoFrameConsumer consumer) { }
+
+        public void Dispose() { }
     }
 
     private sealed class Encoder(VideoEncoderInfo info) : IVideoEncoder

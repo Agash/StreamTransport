@@ -154,22 +154,30 @@ public sealed partial class MediaCodecRegistry
     {
         ArgumentNullException.ThrowIfNull(format);
         ArgumentNullException.ThrowIfNull(output);
-        foreach (IVideoDecoderFactory factory in _videoDecoders)
-        {
-            if (factory.QueryCapabilities(format, output) is not { } info)
-            {
-                continue;
-            }
 
-            try
+        // The consumer's storages are tried in its order before the factories' ranks: a GPU decoder that
+        // hands over shared buffers beats a higher-ranked one that copies to memory, so frames stay on the
+        // GPU whenever any decoder can keep them there.
+        foreach (VideoStorageKind storage in output.Storages)
+        {
+            VideoConstraints narrowed = output with { Storages = [storage] };
+            foreach (IVideoDecoderFactory factory in _videoDecoders)
             {
-                decoder = factory.Create(format, output);
-                LogVideoDecoder(info.ImplementationName, format.Codec);
-                return true;
-            }
-            catch (Exception exception) when (exception is not OutOfMemoryException)
-            {
-                LogVideoDecoderFailed(exception, info.ImplementationName, format.Codec);
+                if (factory.QueryCapabilities(format, narrowed) is not { } info)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    decoder = factory.Create(format, narrowed);
+                    LogVideoDecoder(info.ImplementationName, format.Codec);
+                    return true;
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    LogVideoDecoderFailed(exception, info.ImplementationName, format.Codec);
+                }
             }
         }
 
