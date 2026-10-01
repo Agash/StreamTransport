@@ -19,6 +19,13 @@ internal sealed class InMemoryIceNetwork
     public IIceSocketFactory Factory(params IPAddress[] addresses) =>
         new FakeFactory(this, addresses);
 
+    /// <summary>The endpoints bound on an address so far.</summary>
+    public IReadOnlyList<IPEndPoint> BoundOn(IPAddress address) =>
+        [.. _sockets.Keys.Where(endpoint => endpoint.Address.Equals(address))];
+
+    /// <summary>Puts a datagram on a socket as if it arrived from <paramref name="from"/>.</summary>
+    public void Inject(IPEndPoint from, IPEndPoint to, byte[] data) => Deliver(from, to, data);
+
     private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data)
     {
         if (_sockets.TryGetValue(to, out FakeSocket? destination))

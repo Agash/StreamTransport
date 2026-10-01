@@ -38,6 +38,104 @@ public sealed class IceAgentTests
 
     [TestMethod]
     [Timeout(30_000)]
+    public async Task Connected_StaysConnectedPastManyConsentTimeouts()
+    {
+        IceTimings quick = IceTimings.Default with
+        {
+            ConsentInterval = TimeSpan.FromMilliseconds(100),
+            ConsentTimeout = TimeSpan.FromMilliseconds(600),
+        };
+        await using var agents = Agents.Start(quick);
+        await agents.BothConnectedAsync();
+        IcePath path = agents.A.SelectedPath!.Value;
+        TaskCompletionSource left = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        agents.A.StateChanged += s => left.TrySetResult();
+        agents.B.StateChanged += s => left.TrySetResult();
+
+        // Five consent timeouts: a side whose checks went unanswered would have changed state by now.
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+            left.Task.WaitAsync(quick.ConsentTimeout * 5)
+        );
+        Assert.AreEqual(path, agents.A.SelectedPath);
+        Assert.AreEqual(IceConnectionState.Connected, agents.B.State);
+    }
+
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task DataHandlerThatThrows_LosesThePacketNotTheSocket()
+    {
+        await using var agents = Agents.Start();
+        await agents.BothConnectedAsync();
+        int calls = 0;
+        agents.B.DataReceived += (_, _, _) =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                throw new InvalidOperationException("A malformed packet.");
+            }
+        };
+
+        await agents.A.SendAsync(new byte[] { 0x10 });
+        await agents.ReceivedByB.ReadAsync().AsTask().WaitAsync(Patience);
+        byte[] second = [0x20];
+        await agents.A.SendAsync(second);
+
+        CollectionAssert.AreEqual(
+            second,
+            await agents.ReceivedByB.ReadAsync().AsTask().WaitAsync(Patience)
+        );
+    }
+
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task DataReceived_FromSeveralSockets_IsRaisedOnePacketAtATime()
+    {
+        InMemoryIceNetwork network = new();
+        IPAddress[] addresses = [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.0.1.1")];
+        await using IceAgent agent = new(
+            IceCredentials.Generate(),
+            IceRole.Controlled,
+            socketFactory: network.Factory(addresses)
+        );
+        const int perSocket = 100;
+        int inside = 0;
+        int overlapped = 0;
+        int seen = 0;
+        TaskCompletionSource all = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.DataReceived += (_, _, _) =>
+        {
+            if (Interlocked.Increment(ref inside) > 1)
+            {
+                Interlocked.Increment(ref overlapped);
+            }
+
+            Thread.SpinWait(20_000);
+            Interlocked.Decrement(ref inside);
+            if (Interlocked.Increment(ref seen) == perSocket * addresses.Length)
+            {
+                all.TrySetResult();
+            }
+        };
+        agent.Start();
+
+        // Both sockets carry packets at once, as the old path and a warm standby do around a switch.
+        IPEndPoint peer = new(IPAddress.Parse("10.9.9.9"), 9);
+        IPEndPoint[] sockets = [.. addresses.SelectMany(network.BoundOn)];
+        Assert.HasCount(addresses.Length, sockets);
+        foreach (IPEndPoint socket in sockets)
+        {
+            for (int i = 0; i < perSocket; i++)
+            {
+                network.Inject(peer, socket, [0x10]);
+            }
+        }
+
+        await all.Task.WaitAsync(Patience);
+        Assert.AreEqual(0, overlapped);
+    }
+
+    [TestMethod]
+    [Timeout(30_000)]
     public async Task Restart_RebindsAndReconnectsUnderNewCredentials()
     {
         await using var agents = Agents.Start();
@@ -97,7 +195,7 @@ public sealed class IceAgentTests
 
         public ChannelReader<bool> AConnected => _aConnected.Reader;
 
-        public static Agents Start()
+        public static Agents Start(IceTimings? timings = null)
         {
             InMemoryIceNetwork network = new();
             var credentialsA = IceCredentials.Generate();
@@ -106,7 +204,8 @@ public sealed class IceAgentTests
                 new IceAgent(
                     credentialsA,
                     IceRole.Controlling,
-                    socketFactory: network.Factory(IPAddress.Parse("10.0.0.1"))
+                    socketFactory: network.Factory(IPAddress.Parse("10.0.0.1")),
+                    timings: timings
                 ),
                 new IceAgent(
                     credentialsB,

@@ -37,6 +37,10 @@ public sealed partial class IceAgent : IAsyncDisposable
     private LocalSocket? _selectedSocket;
     private IPEndPoint? _selectedRemote;
 
+    // Every socket has its own receive loop, and the old path and a warm standby both carry packets
+    // around a switch; handlers (SRTP replay windows, RTCP, depacketizers) see one packet at a time.
+    private readonly Lock _delivery = new();
+
     /// <summary>
     /// Creates an agent. <paramref name="role"/> follows the offer/answer (offerer = controlling).
     /// <paramref name="socketFactory"/> defaults to real UDP; tests inject an in-memory one.
@@ -82,7 +86,8 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// Raised for every non-STUN datagram received (DTLS / SRTP), with the source endpoint and the packet's
     /// 2-bit ECN mark (0 when the platform does not surface it). The buffer is the agent's reused receive
     /// buffer, borrowed only for the synchronous duration of the handler: the handler may read and mutate it in
-    /// place (SRTP decrypts into it) but must copy anything it keeps beyond the call.
+    /// place (SRTP decrypts into it) but must copy anything it keeps beyond the call. It is raised for one
+    /// packet at a time across all of the agent's sockets.
     /// </summary>
     public event Action<Memory<byte>, IPEndPoint, byte>? DataReceived;
 
@@ -349,12 +354,24 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
             else
             {
-                // DTLS or SRTP, in the reused buffer: the handler runs before the next receive.
-                DataReceived?.Invoke(
-                    buffer.AsMemory(0, result.Length),
-                    result.RemoteEndPoint,
-                    result.Ecn
-                );
+                // DTLS or SRTP, in the reused buffer: the handler runs before the next receive. A handler
+                // that throws loses its packet, never the socket: an ended loop leaves the path deaf to
+                // consent while sending carries on, until ICE declares it dead.
+                try
+                {
+                    lock (_delivery)
+                    {
+                        DataReceived?.Invoke(
+                            buffer.AsMemory(0, result.Length),
+                            result.RemoteEndPoint,
+                            result.Ecn
+                        );
+                    }
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    LogDataHandlerFailed(exception, result.RemoteEndPoint);
+                }
             }
         }
     }
@@ -382,13 +399,23 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         foreach (IceEvent iceEvent in events)
         {
-            if (iceEvent.Candidate is { } candidate)
+            // A subscriber that throws is logged; the loop that reported keeps running.
+            try
             {
-                LocalCandidateGathered?.Invoke(candidate);
+                if (iceEvent.Candidate is { } candidate)
+                {
+                    LocalCandidateGathered?.Invoke(candidate);
+                }
+                else if (
+                    Interlocked.Exchange(ref _state, (int)iceEvent.State) != (int)iceEvent.State
+                )
+                {
+                    StateChanged?.Invoke(iceEvent.State);
+                }
             }
-            else if (Interlocked.Exchange(ref _state, (int)iceEvent.State) != (int)iceEvent.State)
+            catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                StateChanged?.Invoke(iceEvent.State);
+                LogEventHandlerFailed(exception);
             }
         }
     }
@@ -430,6 +457,15 @@ public sealed partial class IceAgent : IAsyncDisposable
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ICE send to {Destination} failed")]
     private partial void LogSendFailed(Exception exception, IPEndPoint destination);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "A packet from {Source} failed in its handler; it is dropped and receiving goes on"
+    )]
+    private partial void LogDataHandlerFailed(Exception exception, IPEndPoint source);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An ICE event handler failed")]
+    private partial void LogEventHandlerFailed(Exception exception);
 
     private sealed class LocalSocket(int handle, IIceSocket socket)
     {
