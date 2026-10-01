@@ -46,6 +46,7 @@ public sealed record MediaEndpoints
 /// <param name="VideoFramesDropped">Source frames dropped because the encoder was busy.</param>
 /// <param name="VideoFramesDecoded">Received video frames decoded.</param>
 /// <param name="VideoFramesFailed">Received video frames the decoder rejected.</param>
+/// <param name="VideoFramesSkipped">Received video frames dropped undecoded because the decoder or output fell behind.</param>
 /// <param name="AudioConcealed">Audio gaps filled by concealment.</param>
 /// <param name="AudioRecovered">Lost audio packets rebuilt from redundancy.</param>
 /// <param name="PlayoutDelay">The synced playout buffer depth; zero when frames play on arrival.</param>
@@ -56,6 +57,7 @@ public readonly record struct MediaSessionStatistics(
     int VideoFramesDropped,
     int VideoFramesDecoded,
     int VideoFramesFailed,
+    int VideoFramesSkipped,
     int AudioConcealed,
     int AudioRecovered,
     TimeSpan PlayoutDelay

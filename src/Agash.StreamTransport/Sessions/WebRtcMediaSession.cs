@@ -125,6 +125,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             _videoSend?.FramesDropped ?? 0,
             _videoReceive?.FramesDecoded ?? 0,
             _videoReceive?.FramesFailed ?? 0,
+            _videoReceive?.FramesSkipped ?? 0,
             _audioReceive?.Concealed ?? 0,
             _audioReceive?.Recovered ?? 0,
             _playout.CurrentDelay

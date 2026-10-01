@@ -31,6 +31,10 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     // At most one keyframe request per interval, so a burst of loss is not a burst of requests.
     private static readonly TimeSpan KeyframeRequestInterval = TimeSpan.FromMilliseconds(250);
 
+    // Complete frames waiting for the decoder beyond which it is behind: a decoder or output that cannot
+    // keep up drops what waits and resumes at a keyframe, so latency stays bounded instead of growing.
+    private const int MaxBacklog = 8;
+
     // How long a sequence gap may wait for NACK and RTX to fill it before a keyframe is requested.
     private static readonly TimeSpan GapPatience = TimeSpan.FromMilliseconds(100);
 
@@ -60,6 +64,9 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private long? _gapSince;
     private int _framesDecoded;
     private int _framesFailed;
+    private int _framesSkipped;
+    private bool _awaitingKeyframe;
+    private int _waiting;
 
     /// <summary>Starts the decode worker.</summary>
     /// <param name="setup">The negotiated format and keyframe request.</param>
@@ -98,6 +105,9 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <summary>Frames the decoder rejected, usually for a loss inside them that was not repaired.</summary>
     public int FramesFailed => Volatile.Read(ref _framesFailed);
 
+    /// <summary>Frames dropped undecoded because the decoder or the output fell behind.</summary>
+    public int FramesSkipped => Volatile.Read(ref _framesSkipped);
+
     /// <summary>Takes one RTP packet of the stream, on the transport's receive thread.</summary>
     /// <param name="header">The packet's header.</param>
     /// <param name="payload">Its payload, borrowed for the call.</param>
@@ -117,7 +127,11 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         foreach (RtpFrameBuffer.AssembledFrame frame in result.Frames)
         {
             NtpTime? capture = _aligner.TryGetCapture(frame.Timestamp, out NtpTime at) ? at : null;
-            if (!_frames.Writer.TryWrite((frame.Frame, frame.IsKeyframe, _stamps.Stamp(capture))))
+            if (_frames.Writer.TryWrite((frame.Frame, frame.IsKeyframe, _stamps.Stamp(capture))))
+            {
+                Interlocked.Increment(ref _waiting);
+            }
+            else
             {
                 frame.Frame.Dispose();
             }
@@ -195,8 +209,22 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                     .ConfigureAwait(false)
             )
             {
+                int waiting = Interlocked.Decrement(ref _waiting);
                 using (frame)
                 {
+                    if (_awaitingKeyframe && !keyframe)
+                    {
+                        Skip(stamp);
+                        continue;
+                    }
+
+                    _awaitingKeyframe = false;
+                    if (waiting >= MaxBacklog)
+                    {
+                        CatchUp(stamp, waiting);
+                        continue;
+                    }
+
                     Decode(frame, keyframe, stamp);
                 }
             }
@@ -205,6 +233,28 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         {
             // Deliberately not logged: cancellation is how the stream stops.
         }
+    }
+
+    // Drops this frame and every one waiting, and resumes at the next keyframe, asking for one now.
+    private void CatchUp(MediaTimestamp stamp, int backlog)
+    {
+        Skip(stamp);
+        while (_frames.Reader.TryRead(out (EncodedFrameBuffer Frame, bool Keyframe, MediaTimestamp Stamp) waiting))
+        {
+            Interlocked.Decrement(ref _waiting);
+            waiting.Frame.Dispose();
+            Skip(waiting.Stamp);
+        }
+
+        _awaitingKeyframe = true;
+        LogBehind(backlog + 1);
+        _ = TryRequestKeyframe();
+    }
+
+    private void Skip(MediaTimestamp stamp)
+    {
+        Interlocked.Increment(ref _framesSkipped);
+        _ = _stamps.TakeCapture(stamp);
     }
 
     private void Decode(EncodedFrameBuffer frame, bool keyframe, MediaTimestamp stamp)
@@ -333,6 +383,13 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             LogKeyframeRequestFailed(exception);
         }
     }
+
+    [LoggerMessage(
+        2071,
+        LogLevel.Warning,
+        "Video decoding fell {Frames} frames behind; they are dropped and decoding resumes at the next keyframe."
+    )]
+    private partial void LogBehind(int frames);
 
     [LoggerMessage(2050, LogLevel.Debug, "A video frame failed to decode; asking for a keyframe.")]
     private partial void LogDecodeFailed(Exception exception);
