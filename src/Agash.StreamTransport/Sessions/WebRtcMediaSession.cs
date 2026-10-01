@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Rtp;
@@ -321,7 +322,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         StateChanged?.Invoke(state);
     }
 
-    // Builds the streams from the negotiated media, once, when the connection first connects.
+    // Builds the streams from the negotiated media, once, when the connection first connects. Each media
+    // stands alone: a source or sink that cannot start (a machine with no microphone) loses its own media
+    // and the others still flow; the session fails only when none of them could be built.
     private void BuildStreams()
     {
         PeerConnection connection = _connection!;
@@ -335,6 +338,8 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             _streamsBuilt = true;
         }
 
+        int built = 0;
+        Exception? failure = null;
         foreach (NegotiatedMediaInfo media in connection.NegotiatedMedia)
         {
             if (media.Codecs.Count == 0)
@@ -351,14 +356,29 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             }
 
             LogNegotiated(media.Kind, local.EncodingName, local.PayloadType);
-            if (media.Kind == SdpMediaKind.Video)
+            try
             {
-                BuildVideo(media, local, remote, payloadFormat);
+                if (media.Kind == SdpMediaKind.Video)
+                {
+                    BuildVideo(media, local, remote, payloadFormat);
+                }
+                else if (media.Kind == SdpMediaKind.Audio)
+                {
+                    BuildAudio(media, local, payloadFormat);
+                }
+
+                built++;
             }
-            else if (media.Kind == SdpMediaKind.Audio)
+            catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                BuildAudio(media, local, payloadFormat);
+                LogMediaFailed(exception, media.Kind);
+                failure ??= exception;
             }
+        }
+
+        if (built == 0 && failure is not null)
+        {
+            ExceptionDispatchInfo.Throw(failure);
         }
     }
 
@@ -620,6 +640,13 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         "The media streams could not be built for the negotiated media."
     )]
     private partial void LogStreamsFailed(Exception exception);
+
+    [LoggerMessage(
+        2112,
+        LogLevel.Error,
+        "The {Kind} stream could not be built; the session goes on without it."
+    )]
+    private partial void LogMediaFailed(Exception exception, SdpMediaKind kind);
 
     [LoggerMessage(2105, LogLevel.Warning, "Discarded an unparsable remote {Kind}.")]
     private partial void LogUnparsableDescription(SdpKind kind);

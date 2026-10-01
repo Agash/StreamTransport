@@ -49,7 +49,15 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
             : throw new InvalidOperationException(
                 $"No registered encoder encodes {format.Codec} from {source.Format}."
             );
-        _connection = source.Connect(this);
+        try
+        {
+            _connection = source.Connect(this);
+        }
+        catch
+        {
+            _encoder.Dispose();
+            throw;
+        }
     }
 
     /// <inheritdoc/>
