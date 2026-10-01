@@ -70,6 +70,17 @@ public sealed class TestSignalAnalyzer
     /// <returns>The measuring output.</returns>
     public IAudioSink WrapAudio(IAudioSink? inner = null) => new AudioTap(this, inner);
 
+    /// <summary>Forgets what has been measured, to measure the steady state after a session settles.</summary>
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _flashes.Clear();
+            _clicks.Clear();
+            _latencies.Clear();
+        }
+    }
+
     /// <summary>What has been measured so far.</summary>
     /// <returns>The measurement.</returns>
     public TestSignalMeasurement Measure()
