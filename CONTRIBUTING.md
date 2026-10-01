@@ -50,6 +50,8 @@ are unique across the library; `LoggingTests` checks both.
 | 2500-2599 | `Linux` |
 | 2700-2709 | `StreamTransport` (WHIP and WHEP clients) |
 | 2710-2719 | `AspNetCore` |
+| 2800-2849 | `Signaling` |
+| 2850-2899 | `Stun` |
 | 2900-2999 | `StreamTransport` (media devices) |
 
 ## Tests

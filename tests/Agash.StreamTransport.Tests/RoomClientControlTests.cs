@@ -50,6 +50,45 @@ public sealed class RoomClientControlTests
     }
 
     [TestMethod]
+    public async Task Router_ReportsRoomsPeersAndRoutedMessages()
+    {
+        using MeterRecorder meters = new();
+        var router = new SignalingRouter(meterFactory: meters);
+        await using (var pubLink = new InMemoryClientLink(router))
+        await using (var subLink = new InMemoryClientLink(router))
+        {
+            await using RoomClient publisher = await RoomClient.ConnectAsync(
+                pubLink,
+                Room,
+                PeerRole.Publisher
+            );
+            await using RoomClient subscriber = await RoomClient.ConnectAsync(
+                subLink,
+                Room,
+                PeerRole.Subscriber
+            );
+            var received = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            subscriber.ControlReceived += _ => received.TrySetResult();
+
+            await publisher.SendControlAsync("stream.alpha", "1", subscriber.Self);
+            await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.AreEqual(1, meters.Sum("streamtransport.signaling.rooms.active"));
+            Assert.AreEqual(2, meters.Sum("streamtransport.signaling.peers.active"));
+            Assert.AreEqual(1, meters.Sum("streamtransport.signaling.messages.routed", "control"));
+        }
+
+        Assert.AreEqual(0, meters.Sum("streamtransport.signaling.peers.active"), "both peers left");
+        Assert.AreEqual(
+            0,
+            meters.Sum("streamtransport.signaling.rooms.active"),
+            "the room closed with them"
+        );
+    }
+
+    [TestMethod]
     public async Task ControlMessage_WithoutTarget_FansOutToOtherPeers()
     {
         var router = new SignalingRouter();

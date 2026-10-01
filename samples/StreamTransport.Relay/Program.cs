@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.WebSockets;
 using Agash.StreamTransport;
@@ -30,12 +31,16 @@ IIceServerProvider iceProvider = BuildIceProvider(stunUrl);
 
 builder.Services.AddSingleton(iceProvider);
 builder.Services.AddSingleton<ISignalingRouter>(sp => new SignalingRouter(
-    sp.GetRequiredService<IIceServerProvider>()
+    sp.GetRequiredService<IIceServerProvider>(),
+    sp.GetService<ILoggerFactory>(),
+    sp.GetService<IMeterFactory>()
 ));
 if (!stunDisabled)
 {
-    builder.Services.AddSingleton(_ => new StunBindingServer(
-        StunBindingServer.AnyAddress(stunPort)
+    builder.Services.AddSingleton(sp => new StunBindingServer(
+        StunBindingServer.AnyAddress(stunPort),
+        sp.GetService<ILogger<StunBindingServer>>(),
+        sp.GetService<IMeterFactory>()
     ));
 }
 
@@ -79,7 +84,10 @@ app.Map(
 
         ILogger logger = loggerFactory.CreateLogger("Signaling");
         using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
-        var transport = new WebSocketSignalingTransport(socket);
+        var transport = new WebSocketSignalingTransport(
+            socket,
+            logger: loggerFactory.CreateLogger<WebSocketSignalingTransport>()
+        );
         await using ISignalingSession session = router.Connect(transport);
         transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
 

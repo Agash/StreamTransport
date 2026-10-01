@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agash.StreamTransport;
 
@@ -11,9 +13,17 @@ namespace Agash.StreamTransport;
 /// disposing the transport closes and disposes the socket (the client owns its socket; the relay handler
 /// keeps ownership of the request socket).
 /// </summary>
-public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocket = false)
-    : IDuplexSignalingTransport
+/// <param name="socket">The connected socket.</param>
+/// <param name="ownsSocket">Whether disposing the transport closes and disposes the socket.</param>
+/// <param name="logger">The logging; none when null.</param>
+public sealed partial class WebSocketSignalingTransport(
+    WebSocket socket,
+    bool ownsSocket = false,
+    ILogger<WebSocketSignalingTransport>? logger = null
+) : IDuplexSignalingTransport
 {
+    private readonly ILogger _logger = logger ?? NullLogger<WebSocketSignalingTransport>.Instance;
+
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -57,13 +67,15 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
                         .ReceiveAsync(buffer, cancellationToken)
                         .ConfigureAwait(false);
                 }
-                catch (WebSocketException)
+                catch (WebSocketException exception)
                 {
+                    LogConnectionLost(exception, exception.WebSocketErrorCode);
                     return;
                 }
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
+                    LogClosedByPeer(result.CloseStatus, result.CloseStatusDescription);
                     await AnswerCloseAsync().ConfigureAwait(false);
                     return;
                 }
@@ -78,9 +90,11 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
                     message.GetBuffer().AsSpan(0, (int)message.Length)
                 );
             }
-            catch (System.Text.Json.JsonException)
+            catch (System.Text.Json.JsonException exception)
             {
-                continue; // drop malformed frame, keep the connection.
+                // A malformed frame is dropped and the connection kept.
+                LogMalformedFrame(exception, message.Length);
+                continue;
             }
 
             if (parsed is not null && MessageReceived is { } handler)
@@ -142,4 +156,25 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
 
         _sendLock.Dispose();
     }
+
+    [LoggerMessage(
+        EventId = 2820,
+        Level = LogLevel.Information,
+        Message = "The signaling connection was lost ({ErrorCode})."
+    )]
+    private partial void LogConnectionLost(Exception exception, WebSocketError errorCode);
+
+    [LoggerMessage(
+        EventId = 2821,
+        Level = LogLevel.Debug,
+        Message = "The peer closed the signaling connection ({Status}: {Description})."
+    )]
+    private partial void LogClosedByPeer(WebSocketCloseStatus? status, string? description);
+
+    [LoggerMessage(
+        EventId = 2822,
+        Level = LogLevel.Warning,
+        Message = "Dropped a signaling frame of {Bytes} bytes that is not a signaling message."
+    )]
+    private partial void LogMalformedFrame(Exception exception, long bytes);
 }
