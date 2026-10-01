@@ -54,7 +54,8 @@ public sealed partial class AVFoundationVideoInputProvider(ILoggerFactory? logge
     }
 
     /// <inheritdoc/>
-    public ValueTask<IVideoInput> OpenAsync(
+    /// <exception cref="UnauthorizedAccessException">The user has not let this application use cameras.</exception>
+    public async ValueTask<IVideoInput> OpenAsync(
         VideoInputInfo input,
         VideoInputRequest request,
         CancellationToken cancellationToken
@@ -62,13 +63,34 @@ public sealed partial class AVFoundationVideoInputProvider(ILoggerFactory? logge
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(request);
+
+        // Without consent a capture session runs and delivers nothing; asking first makes the refusal
+        // an error the caller sees. The first time, macOS asks the user.
+        AVAuthorizationStatus status = AVCaptureDevice.GetAuthorizationStatus(AVAuthorizationMediaType.Video);
+        if (status == AVAuthorizationStatus.NotDetermined)
+        {
+            status = await AVCaptureDevice
+                .RequestAccessForMediaTypeAsync(AVAuthorizationMediaType.Video)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ? AVAuthorizationStatus.Authorized
+                : AVAuthorizationStatus.Denied;
+        }
+
+        if (status != AVAuthorizationStatus.Authorized)
+        {
+            throw new UnauthorizedAccessException(
+                $"macOS has not let this application use cameras ({status}); allow it under Privacy & Security, Camera."
+            );
+        }
+
         VideoInputMode mode =
             request.Choose(input.Modes)
             ?? throw new NotSupportedException($"{input.Name} has no mode this provider delivers.");
         AVCaptureDevice device =
             AVCaptureDevice.DeviceWithUniqueID(input.Id)
             ?? throw new InvalidOperationException($"{input.Name} is gone.");
-        return ValueTask.FromResult<IVideoInput>(new AVFoundationVideoInput(input, mode, device, _loggers));
+        return new AVFoundationVideoInput(input, mode, device, _loggers);
     }
 }
 
@@ -165,11 +187,24 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         _session.AddOutput(_output);
         if (device.LockForConfiguration(out error))
         {
-            device.ActiveFormat = format;
-            var frame = CMTime.FromSeconds(1 / mode.FrameRate, 1_000_000);
-            device.ActiveVideoMinFrameDuration = frame;
-            device.ActiveVideoMaxFrameDuration = frame;
-            device.UnlockForConfiguration();
+            try
+            {
+                device.ActiveFormat = format;
+                if (FrameDuration(format, mode.FrameRate) is { } frame)
+                {
+                    device.ActiveVideoMinFrameDuration = frame;
+                    device.ActiveVideoMaxFrameDuration = frame;
+                }
+            }
+            catch (ObjCRuntime.ObjCException exception)
+            {
+                // A rate the format refuses leaves the device at its own.
+                LogRateKept(exception, info.Name, mode.FrameRate);
+            }
+            finally
+            {
+                device.UnlockForConfiguration();
+            }
         }
 
         _session.CommitConfiguration();
@@ -179,6 +214,31 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
     public VideoInputInfo Info { get; }
 
     public VideoInputMode? Mode { get; }
+
+    // The frame duration for a rate, exactly as the format states it: a range's own duration at its ends
+    // (a rate rounded through seconds can fall just outside a 60-60 range), else one rate's worth.
+    private static CMTime? FrameDuration(AVCaptureDeviceFormat format, double rate)
+    {
+        foreach (AVFrameRateRange range in format.VideoSupportedFrameRateRanges)
+        {
+            if (Math.Abs(range.MaxFrameRate - rate) < 0.01)
+            {
+                return range.MinFrameDuration;
+            }
+
+            if (Math.Abs(range.MinFrameRate - rate) < 0.01)
+            {
+                return range.MaxFrameDuration;
+            }
+
+            if (range.MinFrameRate < rate && rate < range.MaxFrameRate)
+            {
+                return new CMTime(1000, (int)Math.Round(rate * 1000));
+            }
+        }
+
+        return null;
+    }
 
     public IDisposable Connect(IVideoFrameConsumer consumer, VideoConstraints constraints)
     {
@@ -341,6 +401,9 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
 
     [LoggerMessage(2590, LogLevel.Information, "Opened {Camera} in {Mode}.")]
     private partial void LogOpened(string camera, VideoInputMode mode);
+
+    [LoggerMessage(2592, LogLevel.Warning, "{Camera} keeps its own frame rate instead of {Rate}.")]
+    private partial void LogRateKept(Exception exception, string camera, double rate);
 
     [LoggerMessage(2591, LogLevel.Warning, "A consumer failed to take a camera frame.")]
     private partial void LogConsumerFailed(Exception exception);
