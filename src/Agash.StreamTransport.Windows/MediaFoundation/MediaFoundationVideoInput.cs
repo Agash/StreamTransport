@@ -324,13 +324,13 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
         }
     }
 
-    [LoggerMessage(2585, LogLevel.Information, "Opened {Camera} in {Mode}.")]
+    [LoggerMessage(2345, LogLevel.Information, "Opened {Camera} in {Mode}.")]
     private partial void LogOpened(string camera, VideoInputMode mode);
 
-    [LoggerMessage(2586, LogLevel.Error, "Reading {Camera} failed; its capture stops.")]
+    [LoggerMessage(2346, LogLevel.Error, "Reading {Camera} failed; its capture stops.")]
     private partial void LogReadFailed(Exception exception, string camera);
 
-    [LoggerMessage(2587, LogLevel.Warning, "A consumer failed to take a Media Foundation frame.")]
+    [LoggerMessage(2347, LogLevel.Warning, "A consumer failed to take a Media Foundation frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
     private sealed class Connection(MediaFoundationVideoInput input, IVideoFrameConsumer consumer) : IDisposable

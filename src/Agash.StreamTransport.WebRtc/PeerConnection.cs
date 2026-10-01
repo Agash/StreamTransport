@@ -1012,6 +1012,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
 
     [LoggerMessage(
+        EventId = 1100,
         Level = LogLevel.Information,
         Message = "PeerConnection established ({Protocol}, SRTP {Profile})"
     )]
@@ -1021,6 +1022,6 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SrtpProtectionProfile profile
     );
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "PeerConnection DTLS handshake failed")]
+    [LoggerMessage(EventId = 1101, Level = LogLevel.Error, Message = "PeerConnection DTLS handshake failed")]
     private static partial void LogHandshakeFailed(ILogger logger, Exception exception);
 }

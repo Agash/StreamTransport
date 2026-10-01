@@ -399,13 +399,13 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         return VideoColor.Bt709 with { Range = full ? ColorRange.Full : ColorRange.Limited };
     }
 
-    [LoggerMessage(2590, LogLevel.Information, "Opened {Camera} in {Mode}.")]
+    [LoggerMessage(2430, LogLevel.Information, "Opened {Camera} in {Mode}.")]
     private partial void LogOpened(string camera, VideoInputMode mode);
 
-    [LoggerMessage(2592, LogLevel.Warning, "{Camera} keeps its own frame rate instead of {Rate}.")]
+    [LoggerMessage(2432, LogLevel.Warning, "{Camera} keeps its own frame rate instead of {Rate}.")]
     private partial void LogRateKept(Exception exception, string camera, double rate);
 
-    [LoggerMessage(2591, LogLevel.Warning, "A consumer failed to take a camera frame.")]
+    [LoggerMessage(2431, LogLevel.Warning, "A consumer failed to take a camera frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
     private sealed class Delegate(AVFoundationVideoInput input) : AVCaptureVideoDataOutputSampleBufferDelegate

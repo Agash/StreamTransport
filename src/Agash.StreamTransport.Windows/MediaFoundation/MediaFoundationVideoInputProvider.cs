@@ -105,10 +105,10 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(ILoggerFact
         return ValueTask.FromResult<IVideoInput>(new MediaFoundationVideoInput(input, mode, _loggers));
     }
 
-    [LoggerMessage(2580, LogLevel.Warning, "{Camera} could not be asked its modes; it is not listed now.")]
+    [LoggerMessage(2340, LogLevel.Warning, "{Camera} could not be asked its modes; it is not listed now.")]
     private partial void LogUnreadable(Exception exception, string camera);
 
-    [LoggerMessage(2581, LogLevel.Information, "{Camera} sends no uncompressed format this provider delivers; it is not listed.")]
+    [LoggerMessage(2341, LogLevel.Information, "{Camera} sends no uncompressed format this provider delivers; it is not listed.")]
     private partial void LogNoModes(string camera);
 }
 

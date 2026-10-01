@@ -675,28 +675,30 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ICE send to {Destination} failed")]
+    [LoggerMessage(EventId = 1110, Level = LogLevel.Debug, Message = "ICE send to {Destination} failed")]
     private partial void LogSendFailed(Exception exception, IPEndPoint destination);
 
     [LoggerMessage(
+        EventId = 1111,
         Level = LogLevel.Error,
         Message = "A packet from {Source} failed in its handler; it is dropped and receiving goes on"
     )]
     private partial void LogDataHandlerFailed(Exception exception, IPEndPoint source);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "TURN server {Server} did not resolve")]
+    [LoggerMessage(EventId = 1112, Level = LogLevel.Warning, Message = "TURN server {Server} did not resolve")]
     private partial void LogTurnUnresolved(Exception exception, string server);
 
     [LoggerMessage(
+        EventId = 1113,
         Level = LogLevel.Warning,
         Message = "TURN allocation on {Server} at {Endpoint} failed; no relayed candidate from it"
     )]
     private partial void LogTurnFailed(Exception exception, string server, IPEndPoint endpoint);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The connection behind {Local} closed")]
+    [LoggerMessage(EventId = 1114, Level = LogLevel.Warning, Message = "The connection behind {Local} closed")]
     private partial void LogSocketClosed(Exception exception, IPEndPoint local);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "An ICE event handler failed")]
+    [LoggerMessage(EventId = 1115, Level = LogLevel.Error, Message = "An ICE event handler failed")]
     private partial void LogEventHandlerFailed(Exception exception);
 
     private sealed class LocalSocket(int handle, IIceSocket socket)

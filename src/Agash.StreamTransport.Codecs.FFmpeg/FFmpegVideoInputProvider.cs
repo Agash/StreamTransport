@@ -300,13 +300,13 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
         }
     }
 
-    [LoggerMessage(2600, LogLevel.Information, "Opened {Camera} through FFmpeg: {Codec}, {Mode}.")]
+    [LoggerMessage(1030, LogLevel.Information, "Opened {Camera} through FFmpeg: {Codec}, {Mode}.")]
     private partial void LogOpened(string camera, string codec, VideoInputMode mode);
 
-    [LoggerMessage(2601, LogLevel.Error, "Reading {Camera} through FFmpeg failed; its capture stops.")]
+    [LoggerMessage(1031, LogLevel.Error, "Reading {Camera} through FFmpeg failed; its capture stops.")]
     private partial void LogReadFailed(Exception exception, string camera);
 
-    [LoggerMessage(2602, LogLevel.Warning, "A consumer failed to take a captured frame.")]
+    [LoggerMessage(1032, LogLevel.Warning, "A consumer failed to take a captured frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
     private sealed class Connection(FFmpegVideoInput input, IVideoFrameConsumer consumer) : IDisposable

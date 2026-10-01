@@ -681,24 +681,25 @@ internal sealed partial class TurnAllocation : IIceSocket
     }
 
     [LoggerMessage(
+        EventId = 1150,
         Level = LogLevel.Information,
         Message = "TURN allocation on {Server}: relayed {Relayed}, mapped {Mapped}"
     )]
     private partial void LogAllocated(string server, IPEndPoint relayed, IPEndPoint mapped);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "TURN {Method} to {Server} timed out")]
+    [LoggerMessage(EventId = 1151, Level = LogLevel.Warning, Message = "TURN {Method} to {Server} timed out")]
     private partial void LogRequestTimedOut(StunMethod method, string server);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "TURN {Method} refused by {Server} with {Code}")]
+    [LoggerMessage(EventId = 1152, Level = LogLevel.Warning, Message = "TURN {Method} refused by {Server} with {Code}")]
     private partial void LogRequestRefused(StunMethod method, int code, string server);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "TURN channel bind for {Peer} on {Server} failed")]
+    [LoggerMessage(EventId = 1153, Level = LogLevel.Warning, Message = "TURN channel bind for {Peer} on {Server} failed")]
     private partial void LogBindFailed(Exception exception, IPEndPoint peer, string server);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "TURN refresh on {Server} failed")]
+    [LoggerMessage(EventId = 1154, Level = LogLevel.Warning, Message = "TURN refresh on {Server} failed")]
     private partial void LogRefreshFailed(Exception exception, string server);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "TURN deallocation on {Server} was not sent")]
+    [LoggerMessage(EventId = 1155, Level = LogLevel.Debug, Message = "TURN deallocation on {Server} was not sent")]
     private partial void LogDeallocateFailed(Exception exception, string server);
 
     private delegate void WriteAttributes(ref StunMessageWriter writer);

@@ -35,6 +35,23 @@ dotnet test StreamTransport.slnx --filter "TestCategory!=Integration"
   run on every build. Serialization goes through the source-generated `JsonSerializerContext`, never
   the reflection-based `JsonSerializer` overloads.
 
+## Logging
+
+Log through `[LoggerMessage]` methods with an explicit event id. Each package owns a block, and ids
+are unique across the library; `LoggingTests` checks both.
+
+| Block | Package |
+| --- | --- |
+| 1000-1099 | `Codecs.FFmpeg` |
+| 1100-1199 | `WebRtc` |
+| 2000-2299 | `StreamTransport` (registry, streams, sessions, rooms) |
+| 2300-2399 | `Windows` |
+| 2400-2499 | `MacOS` |
+| 2500-2599 | `Linux` |
+| 2700-2709 | `StreamTransport` (WHIP and WHEP clients) |
+| 2710-2719 | `AspNetCore` |
+| 2900-2999 | `StreamTransport` (media devices) |
+
 ## Tests
 
 - Name tests `{Method}_{Scenario}_{ExpectedResult}`.
