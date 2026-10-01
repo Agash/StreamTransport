@@ -35,11 +35,11 @@ builder.Services.AddSingleton<ISignalingRouter>(sp => new SignalingRouter(
 if (!stunDisabled)
 {
     builder.Services.AddSingleton(_ => new StunBindingServer(
-        new IPEndPoint(IPAddress.Any, stunPort)
+        StunBindingServer.AnyAddress(stunPort)
     ));
 }
 
-string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://0.0.0.0:8080";
+string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://[::]:8080";
 builder.WebHost.UseUrls(urls);
 
 WebApplication app = builder.Build();

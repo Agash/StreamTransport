@@ -21,13 +21,39 @@ public sealed class StunBindingServer : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private Task? _loop;
 
-    /// <summary>Create a STUN server bound to <paramref name="listenEndPoint"/> (e.g. 0.0.0.0:3478).</summary>
+    /// <summary>
+    /// Create a STUN server bound to <paramref name="listenEndPoint"/>: 0.0.0.0:3478 for IPv4 only, or
+    /// [::]:3478 for IPv6 and IPv4 on one socket.
+    /// </summary>
     public StunBindingServer(IPEndPoint listenEndPoint)
     {
         ArgumentNullException.ThrowIfNull(listenEndPoint);
-        _udp = new UdpClient(listenEndPoint);
-        ListenEndPoint = (IPEndPoint)_udp.Client.LocalEndPoint!;
+        Socket socket = new(listenEndPoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+        try
+        {
+            if (listenEndPoint.Address.Equals(IPAddress.IPv6Any))
+            {
+                socket.DualMode = true;
+            }
+
+            socket.Bind(listenEndPoint);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+
+        _udp = new UdpClient { Client = socket };
+        ListenEndPoint = (IPEndPoint)socket.LocalEndPoint!;
     }
+
+    /// <summary>
+    /// Every address this host has on IPv6 and IPv4, port <paramref name="port"/>; IPv4 only where the
+    /// host has no IPv6.
+    /// </summary>
+    public static IPEndPoint AnyAddress(int port) =>
+        new(Socket.OSSupportsIPv6 ? IPAddress.IPv6Any : IPAddress.Any, port);
 
     /// <summary>The bound local endpoint (the port is resolved when binding to port 0).</summary>
     public IPEndPoint ListenEndPoint { get; }
@@ -88,7 +114,12 @@ public sealed class StunBindingServer : IAsyncDisposable
             StunMethod.Binding,
             request.TransactionId
         );
-        writer.AddXorMappedAddress(from);
+        // A dual-stack socket sees IPv4 senders as IPv4-mapped IPv6; they reflect as the IPv4 they are.
+        writer.AddXorMappedAddress(
+            from.Address.IsIPv4MappedToIPv6
+                ? new IPEndPoint(from.Address.MapToIPv4(), from.Port)
+                : from
+        );
         // No message-integrity key; append a FINGERPRINT so clients can validate the response.
         writer.AddFingerprint();
         return response[..writer.Length];
