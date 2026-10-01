@@ -186,19 +186,78 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
 
     // Opens the encoder for real and encodes a few frames through the system-memory path, which every
     // backend takes; a driver without the codec, a missing GPU and an absent runtime all fail here.
-    // The third frame asks for a keyframe, to learn whether the encoder
-    // honours a forced picture type or has to be reopened for one.
+    // An encoder that takes only surfaces is offered the formats its device holds, which are more than
+    // it encodes (a Vulkan device holds BGRA, a Vulkan H.264 encoder takes only YUV), so each of those
+    // is tried and only the ones that encode are kept; an encoder with its own formats is tried on its
+    // first that works.
     private Probe? RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {
-        ImmutableArray<PixelFormat> formats = FormatsFor(codec, adapter);
-        if (formats.IsEmpty)
+        ImmutableArray<PixelFormat> candidates = FormatsFor(codec, adapter);
+        if (candidates.IsEmpty)
         {
             LogProbeFailed(_logger, codec.Name, "it takes none of the Media pixel formats", null);
             return null;
         }
 
+        bool surfacesOnly = !candidates.Any(f =>
+            FFmpegVideoEncoder.Takes(codec, Formats.ToFFmpeg(f))
+        );
+        ImmutableArray<PixelFormat>.Builder working = ImmutableArray.CreateBuilder<PixelFormat>();
+        bool? forcesKeyframes = null;
+        Exception? failure = null;
+        foreach (PixelFormat format in candidates)
+        {
+            try
+            {
+                bool forces = Exercise(codec, id, adapter, format);
+                forcesKeyframes ??= forces;
+                working.Add(format);
+                if (!surfacesOnly)
+                {
+                    break;
+                }
+            }
+            catch (Exception ex)
+                when (ex
+                        is FF.FFmpegException
+                            or NotSupportedException
+                            or InvalidOperationException
+                            or ArgumentException
+                )
+            {
+                LogFormatRefused(_logger, codec.Name, format, ex.Message);
+                failure ??= ex;
+            }
+        }
+
+        if (forcesKeyframes is not { } forced)
+        {
+            LogProbeFailed(_logger, codec.Name, failure?.Message ?? "no format encoded", failure);
+            return null;
+        }
+
+        bool reconfigurable = codec.SupportsRateControlChanges;
+        LogProbeSucceeded(_logger, codec.Name, adapter?.Name ?? "default", reconfigurable, forced);
+        return new Probe(
+            surfacesOnly
+                ? working.DrainToImmutable()
+                : [.. candidates.SkipWhile(f => !working.Contains(f))],
+            MaximumSize(adapter),
+            reconfigurable,
+            forced
+        );
+    }
+
+    // Encodes three frames of one format; the third asks for a keyframe, to learn whether the encoder
+    // honours a forced picture type or has to be reopened for one.
+    private bool Exercise(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format
+    )
+    {
         const int size = 256;
-        PixelFormat format = formats[0];
         VideoSize frameSize = new(size, size);
         byte[] pixels = new byte[PlaneLayout.PackedSize(format, frameSize)];
         if (format is PixelFormat.Nv12 or PixelFormat.I420)
@@ -221,53 +280,30 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             frameSize,
             ReconfigurableRate: false
         );
-        try
+        using FFmpegVideoEncoder encoder = new(
+            _spec,
+            codec,
+            configuration,
+            provisional,
+            adapter,
+            PrivateOptions(codec.Name, EncodeTuning.Interactive),
+            forcesKeyframes: true,
+            _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
+        );
+        KeyframeRecorder consumer = new();
+        for (int i = 0; i < 3; i++)
         {
-            using FFmpegVideoEncoder encoder = new(
-                _spec,
-                codec,
-                configuration,
-                provisional,
-                adapter,
-                PrivateOptions(codec.Name, EncodeTuning.Interactive),
-                forcesKeyframes: true,
-                _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
+            VideoFrame frame = new(
+                new CpuImage(PlaneLayout.Packed(format, frameSize)),
+                new VideoFormat(format, size, size),
+                MediaTimestamp.Observed(new MediaTime(i * 33_333_333L)),
+                pixels
             );
-            KeyframeRecorder consumer = new();
-            for (int i = 0; i < 3; i++)
-            {
-                VideoFrame frame = new(
-                    new CpuImage(PlaneLayout.Packed(format, frameSize)),
-                    new VideoFormat(format, size, size),
-                    MediaTimestamp.Observed(new MediaTime(i * 33_333_333L)),
-                    pixels
-                );
-                encoder.Encode(in frame, new EncodeRequest(Keyframe: i != 1), consumer);
-            }
+            encoder.Encode(in frame, new EncodeRequest(Keyframe: i != 1), consumer);
+        }
 
-            encoder.Flush(consumer);
-            bool reconfigurable = codec.SupportsRateControlChanges;
-            bool forcesKeyframes = consumer.Keyframes is [true, false, true];
-            LogProbeSucceeded(
-                _logger,
-                codec.Name,
-                adapter?.Name ?? "default",
-                reconfigurable,
-                forcesKeyframes
-            );
-            return new Probe(formats, MaximumSize(adapter), reconfigurable, forcesKeyframes);
-        }
-        catch (Exception ex)
-            when (ex
-                    is FF.FFmpegException
-                        or NotSupportedException
-                        or InvalidOperationException
-                        or ArgumentException
-            )
-        {
-            LogProbeFailed(_logger, codec.Name, ex.Message, ex);
-            return null;
-        }
+        encoder.Flush(consumer);
+        return consumer.Keyframes is [true, false, true];
     }
 
     // The Media formats the encoder takes: its own software formats, or for an encoder that takes
@@ -382,6 +418,18 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         string adapter,
         bool reconfigurable,
         bool forcesKeyframes
+    );
+
+    [LoggerMessage(
+        EventId = 1012,
+        Level = LogLevel.Debug,
+        Message = "{Encoder} does not encode {Format}: {Reason}"
+    )]
+    private static partial void LogFormatRefused(
+        ILogger logger,
+        string encoder,
+        PixelFormat format,
+        string reason
     );
 
     [LoggerMessage(
