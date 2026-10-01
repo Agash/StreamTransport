@@ -13,7 +13,7 @@ public sealed class IceCandidateTests
         // host, IPv6, component 1, first candidate: 2^24*126 + 2^8*60000 + (256-1).
         uint p = IceCandidate.ComputePriority(
             IceCandidateKind.Host,
-            AddressFamily.InterNetworkV6,
+            IPAddress.Parse("2001:db8::1"),
             1,
             index: 0
         );
@@ -25,28 +25,67 @@ public sealed class IceCandidateTests
     {
         uint v6 = IceCandidate.ComputePriority(
             IceCandidateKind.Host,
-            AddressFamily.InterNetworkV6,
+            IPAddress.Parse("2001:db8::1"),
             1
         );
         uint v4 = IceCandidate.ComputePriority(
             IceCandidateKind.Host,
-            AddressFamily.InterNetwork,
+            IPAddress.Parse("192.0.2.1"),
             1
         );
         Assert.IsTrue(v6 > v4, "IPv6 host candidate must outrank IPv4 (IPv6-first).");
     }
 
     [TestMethod]
+    public void ComputePriority_RanksByReach_GlobalIpv6First()
+    {
+        string[] order = ["2001:db8::1", "fd00::1", "192.0.2.1", "fe80::1", "169.254.0.1", "::1"];
+        uint[] priorities =
+        [
+            .. order.Select(a =>
+                IceCandidate.ComputePriority(IceCandidateKind.Host, IPAddress.Parse(a), 1, index: 5)
+            ),
+        ];
+
+        for (int i = 1; i < priorities.Length; i++)
+        {
+            Assert.IsGreaterThanOrEqualTo(
+                priorities[i],
+                priorities[i - 1],
+                $"{order[i - 1]} ranks at or above {order[i]}"
+            );
+        }
+
+        Assert.IsGreaterThan(priorities[3], priorities[2], "IPv4 outranks link-local");
+    }
+
+    [TestMethod]
+    [DataRow("2001:db8::1", "2001:db8::2", true)]
+    [DataRow("2001:db8::1", "fe80::2", false)]
+    [DataRow("fe80::1", "fe80::2", true)]
+    [DataRow("192.0.2.1", "2001:db8::2", false)]
+    [DataRow("127.0.0.1", "192.0.2.1", false)]
+    public void CanReach_PairsOnlyWithinFamilyAndScope(
+        string local,
+        string remote,
+        bool expected
+    ) =>
+        Assert.AreEqual(
+            expected,
+            IceCandidate.CanReach(IPAddress.Parse(local), IPAddress.Parse(remote))
+        );
+
+    [TestMethod]
     public void ComputePriority_HostOutranksReflexive()
     {
         uint host = IceCandidate.ComputePriority(
             IceCandidateKind.Host,
-            AddressFamily.InterNetwork,
+            IPAddress.Parse("192.0.2.1"),
             1
         );
         uint srflx = IceCandidate.ComputePriority(
             IceCandidateKind.ServerReflexive,
-            AddressFamily.InterNetwork,
+            IPAddress.Parse("192.0.2.1"),
             1
         );
         Assert.IsTrue(host > srflx);

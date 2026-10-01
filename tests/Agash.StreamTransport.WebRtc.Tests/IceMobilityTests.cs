@@ -30,6 +30,40 @@ public sealed class IceMobilityTests
     }
 
     [TestMethod]
+    public void Start_AsksOnlyTheStunServersEachAddressReaches()
+    {
+        IceStateMachine machine = new(
+            IceCredentials.Generate(),
+            IceRole.Controlling,
+            Timings,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance
+        );
+        machine.AddLocalEndpoint(0, new IPEndPoint(IPAddress.Parse("2001:db8::1"), 5000));
+        machine.AddLocalEndpoint(1, new IPEndPoint(IPAddress.Parse("192.0.2.1"), 5000));
+        machine.AddLocalEndpoint(2, new IPEndPoint(IPAddress.Loopback, 5000));
+        machine.AddStunServer(new IPEndPoint(IPAddress.IPv6Loopback, 3478));
+        machine.AddStunServer(new IPEndPoint(IPAddress.Loopback, 3478));
+        machine.AddStunServer(new IPEndPoint(IPAddress.Parse("2001:db8::99"), 3478));
+
+        machine.Start(TimeSpan.Zero);
+
+        List<(int, IPEndPoint)> sent = [];
+        while (machine.TryPollTransmit(out IceTransmit transmit))
+        {
+            sent.Add((transmit.Local, transmit.Destination));
+        }
+
+        CollectionAssert.AreEquivalent(
+            new List<(int, IPEndPoint)>
+            {
+                (0, new IPEndPoint(IPAddress.Parse("2001:db8::99"), 3478)),
+                (2, new IPEndPoint(IPAddress.Loopback, 3478)),
+            },
+            sent
+        );
+    }
+
+    [TestMethod]
     public void Controlled_NominationBeforeOwnCheckSucceeds_SelectsPairOnceItDoes()
     {
         IceSwitchboard board = new();

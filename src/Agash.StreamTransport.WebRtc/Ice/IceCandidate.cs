@@ -180,17 +180,23 @@ public readonly record struct IceCandidate
     }
 
     /// <summary>
-    /// Computes a candidate priority (RFC 8445 §5.1.2.1):
-    /// <c>2^24·typePref + 2^8·localPref + (256 − componentId)</c>. IPv6 is given a higher local preference
-    /// than IPv4 so the IPv6 path is tried first (the symmetric-NAT-traversal goal).
+    /// Computes a candidate's priority (RFC 8445 §5.1.2.1): type preference, then a local preference by how
+    /// far the address reaches, IPv6 first (RFC 8421) and in RFC 6724's scope order: global IPv6, unique
+    /// local IPv6, IPv4, link-local (one link only), loopback.
     /// </summary>
+    /// <param name="kind">The candidate type.</param>
+    /// <param name="address">The candidate's address.</param>
+    /// <param name="componentId">The component.</param>
+    /// <param name="index">Keeps several candidates of one kind distinct and stable.</param>
+    /// <returns>The priority.</returns>
     public static uint ComputePriority(
         IceCandidateKind kind,
-        AddressFamily family,
+        IPAddress address,
         int componentId,
         int index = 0
     )
     {
+        ArgumentNullException.ThrowIfNull(address);
         uint typePref = kind switch
         {
             IceCandidateKind.Host => 126,
@@ -200,13 +206,50 @@ public readonly record struct IceCandidate
             _ => 0,
         };
 
-        // Local preference: IPv6 outranks IPv4 (IPv6-first). `index` keeps multiple candidates of the same
-        // family distinct and stable, without overflowing the 16-bit local-preference field.
-        bool ipv6 = family == AddressFamily.InterNetworkV6;
-        uint localPref = (uint)Math.Clamp((ipv6 ? 60000 : 40000) - index, 1, 65535);
+        uint reach = Scope(address) switch
+        {
+            AddressScope.Global when address.AddressFamily == AddressFamily.InterNetworkV6 =>
+                address.IsIPv6UniqueLocal ? 50000u : 60000u,
+            AddressScope.Global => 40000u,
+            AddressScope.LinkLocal => 30000u,
+            _ => 20000u,
+        };
 
+        // `index` stays within the band, so the 16-bit local preference never overflows into the type.
+        uint localPref = (uint)Math.Clamp(reach - index, reach - 9999, 65535);
         return (typePref << 24) | (localPref << 8) | (uint)(256 - componentId);
     }
+
+    /// <summary>
+    /// Whether one address can reach another directly: the same family and the same scope. A link-local
+    /// address talks only to link-local ones, and loopback only to loopback.
+    /// </summary>
+    /// <param name="local">This side's address.</param>
+    /// <param name="remote">The other side's address.</param>
+    /// <returns>Whether a pair of them can work.</returns>
+    public static bool CanReach(IPAddress local, IPAddress remote)
+    {
+        ArgumentNullException.ThrowIfNull(local);
+        ArgumentNullException.ThrowIfNull(remote);
+        return local.AddressFamily == remote.AddressFamily && Scope(local) == Scope(remote);
+    }
+
+    private enum AddressScope
+    {
+        Loopback,
+        LinkLocal,
+        Global,
+    }
+
+    private static AddressScope Scope(IPAddress address) =>
+        IPAddress.IsLoopback(address) ? AddressScope.Loopback
+        : address.IsIPv6LinkLocal
+        || (
+            address.AddressFamily == AddressFamily.InterNetwork
+            && address.GetAddressBytes() is [169, 254, _, _]
+        )
+            ? AddressScope.LinkLocal
+        : AddressScope.Global;
 
     /// <summary>
     /// Computes the priority of a candidate pair (RFC 8445 §6.1.2.3):

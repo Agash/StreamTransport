@@ -82,7 +82,7 @@ internal sealed partial class IceStateMachine
     {
         uint priority = IceCandidate.ComputePriority(
             IceCandidateKind.Host,
-            bound.AddressFamily,
+            bound.Address,
             IceCandidate.RtpComponent,
             _candidateIndex++
         );
@@ -115,7 +115,7 @@ internal sealed partial class IceStateMachine
         {
             foreach (IPEndPoint server in _stunServers)
             {
-                if (server.AddressFamily != local.Candidate.Endpoint.AddressFamily)
+                if (!IceCandidate.CanReach(local.Candidate.Endpoint.Address, server.Address))
                 {
                     continue;
                 }
@@ -249,9 +249,9 @@ internal sealed partial class IceStateMachine
 
     private void Pair(LocalEndpoint local, IceCandidate remote)
     {
-        // Pairs are within an address family and a component.
+        // Pairs are within a component, between addresses that reach each other.
         if (
-            local.Candidate.Endpoint.AddressFamily != remote.Endpoint.AddressFamily
+            !IceCandidate.CanReach(local.Candidate.Endpoint.Address, remote.Endpoint.Address)
             || local.Candidate.ComponentId != remote.ComponentId
         )
         {
@@ -372,7 +372,7 @@ internal sealed partial class IceStateMachine
 
         uint priority = IceCandidate.ComputePriority(
             IceCandidateKind.ServerReflexive,
-            mapped.AddressFamily,
+            mapped.Address,
             IceCandidate.RtpComponent,
             _candidateIndex++
         );
@@ -414,7 +414,7 @@ internal sealed partial class IceStateMachine
 
         uint priority = IceCandidate.ComputePriority(
             IceCandidateKind.PeerReflexive,
-            source.AddressFamily,
+            source.Address,
             IceCandidate.RtpComponent,
             _candidateIndex++
         );
@@ -573,7 +573,7 @@ internal sealed partial class IceStateMachine
             priority,
             IceCandidate.ComputePriority(
                 IceCandidateKind.PeerReflexive,
-                pair.Local.Candidate.Endpoint.AddressFamily,
+                pair.Local.Candidate.Endpoint.Address,
                 IceCandidate.RtpComponent
             )
         );
