@@ -28,7 +28,11 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     private readonly Queue<(long Pts, VideoFrameLease Frame)> _reading = new();
     private VideoEncoderConfiguration _configuration;
     private Session? _session;
-    private bool _reopen;
+
+    // Why the encoder reopens on the next frame (rate, frame_rate); null when it does not.
+    private string? _reopen;
+    private readonly FFmpegCodecMetrics? _metrics;
+    private readonly TimeProvider _time;
     private bool _keyframePending;
     private long _lastPts = long.MinValue;
     private bool _disposed;
@@ -41,10 +45,14 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         FF.GpuAdapter? adapter,
         ImmutableDictionary<string, string> privateOptions,
         bool forcesKeyframes,
-        ILogger logger
+        ILogger logger,
+        FFmpegCodecMetrics? metrics = null,
+        TimeProvider? timeProvider = null
     )
     {
         _forcesKeyframes = forcesKeyframes;
+        _metrics = metrics;
+        _time = timeProvider ?? TimeProvider.System;
         _spec = spec;
         _codec = codec;
         _codecId = configuration.Format.Codec;
@@ -91,19 +99,21 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             // encoder's first frame is always an IDR.
             bool keyframeByReopen =
                 !_forcesKeyframes && request.Keyframe && _session is { FramesSent: > 0 };
+            string reason = "start";
             if (
                 _session is { } open
-                && (_reopen || keyframeByReopen || open.Storage != frame.Storage.Kind)
+                && (_reopen is not null || keyframeByReopen || open.Storage != frame.Storage.Kind)
             )
             {
+                reason = _reopen ?? (keyframeByReopen ? "keyframe" : "storage");
                 Drain(open, consumer);
                 open.Dispose();
                 _session = null;
                 _keyframePending = true;
             }
 
-            Session session = _session ??= Open(in frame);
-            _reopen = false;
+            Session session = _session ??= Open(in frame, reason);
+            _reopen = null;
 
             session.Frame.Reset();
             session.Input.Prepare(in frame, session.Frame);
@@ -152,7 +162,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 || target.FramesPerSecond > openedFrames * 1.2
             )
             {
-                _reopen = true;
+                _reopen = "frame_rate";
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
             }
             else if (session.Encoder.SupportsRateControlChanges)
@@ -166,7 +176,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             }
             else if (WorthReopening(session.BitsPerSecond, target.BitsPerSecond))
             {
-                _reopen = true;
+                _reopen = "rate";
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
             }
         }
@@ -213,8 +223,9 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         }
     }
 
-    private Session Open(in VideoFrame frame)
+    private Session Open(in VideoFrame frame, string reason)
     {
+        long started = _time.GetTimestamp();
         VideoSize size = _configuration.Size;
         PixelFormat format = frame.Format.PixelFormat;
         EncoderInput input = frame.Storage.Kind switch
@@ -314,6 +325,19 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 rate.BitsPerSecond,
                 EncoderSettings.Describe(_privateOptions)
             );
+            if (_metrics is { } metrics)
+            {
+                metrics.EncoderOpens.Add(
+                    1,
+                    FFmpegCodecMetrics.Codec(_codec.Name),
+                    FFmpegCodecMetrics.Reason(reason)
+                );
+                metrics.EncoderOpenDuration.Record(
+                    _time.GetElapsedTime(started).TotalSeconds,
+                    FFmpegCodecMetrics.Codec(_codec.Name)
+                );
+            }
+
             return new Session(encoder, input, frame.Storage.Kind, rate.BitsPerSecond);
         }
         catch

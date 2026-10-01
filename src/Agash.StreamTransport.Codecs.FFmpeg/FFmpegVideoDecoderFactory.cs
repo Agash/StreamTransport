@@ -34,6 +34,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     private readonly DecoderSpec _spec;
     private readonly FFmpegCodecOptions _options;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly FFmpegCodecMetrics _metrics;
     private readonly ILogger _logger;
 
     /// <summary>A factory for one backend.</summary>
@@ -44,6 +45,9 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         _spec = DecoderCatalog.Get(backend);
         _options = options ?? new FFmpegCodecOptions();
         _loggerFactory = _options.LoggerFactory ?? NullLoggerFactory.Instance;
+        _metrics = _options.MeterFactory is { } meters
+            ? new FFmpegCodecMetrics(meters)
+            : FFmpegCodecMetrics.Shared;
         _logger = _loggerFactory.CreateLogger<FFmpegVideoDecoderFactory>();
     }
 
@@ -174,7 +178,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         if (
             !s_probes.GetOrAdd(
                 (_spec.Backend, format.Codec, key),
-                _ => RunProbe(codec, format.Codec, adapter)
+                _ => CountedProbe(codec, format.Codec, adapter)
             )
         )
         {
@@ -213,6 +217,17 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         _spec.DeviceType is not { } type ? null
         : adapter is null ? FF.HardwareDevice.Create(type)
         : FF.HardwareDevice.Create(type, adapter);
+
+    private bool CountedProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
+    {
+        bool works = RunProbe(codec, id, adapter);
+        _metrics.Probes.Add(
+            1,
+            FFmpegCodecMetrics.Codec(codec.Name),
+            FFmpegCodecMetrics.Outcome(works)
+        );
+        return works;
+    }
 
     // Encodes a few frames and decodes them through this backend; a hardware backend
     // passes only if its frames come out on the GPU.

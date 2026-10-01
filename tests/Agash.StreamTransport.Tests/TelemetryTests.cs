@@ -78,6 +78,10 @@ public sealed class TelemetryTests
         Assert.IsGreaterThan(0, meters.Sum("streamtransport.audio.frames.sent", "opus"));
         Assert.IsGreaterThan(0, meters.Sum("streamtransport.audio.frames.decoded", "opus"));
 
+        // The FFmpeg codecs report on their own meter, from the same container.
+        Assert.IsGreaterThan(0, meters.Sum("streamtransport.ffmpeg.encoder.opens", "start"));
+        Assert.IsGreaterThan(0, meters.Count("streamtransport.ffmpeg.encoder.open.duration"));
+
         Activity[] connects =
         [
             .. activities.Where(static a => a.OperationName == "streamtransport.session.connect"),
@@ -145,7 +149,12 @@ public sealed class TelemetryTests
             string? tag = null;
             foreach (KeyValuePair<string, object?> pair in tags)
             {
-                if (pair.Key is "streamtransport.codec" or "streamtransport.outcome")
+                if (
+                    pair.Key
+                    is "streamtransport.codec"
+                        or "streamtransport.outcome"
+                        or "streamtransport.reason"
+                )
                 {
                     tag = pair.Value as string;
                 }

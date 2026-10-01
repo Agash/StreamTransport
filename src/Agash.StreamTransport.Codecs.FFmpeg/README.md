@@ -52,6 +52,17 @@ Vulkan ahead of VA-API. Every backend takes system memory as well.
   container lives (`FFmpegCodecOptions.RouteFFmpegLog` turns this off). What FFmpeg logs while a
   backend is probed is demoted to Debug; the probe's outcome is logged by the factory.
 
+## Diagnostics
+
+The meter `Agash.StreamTransport.Codecs.FFmpeg` (`FFmpegCodecDiagnostics.MeterName`), from the host's
+`IMeterFactory` with DI, tagged with `streamtransport.ffmpeg.codec`:
+
+| Instrument | Unit | What |
+|---|---|---|
+| `streamtransport.ffmpeg.encoder.opens` | `{open}` | encoders opened, by `streamtransport.reason`: `start`, `rate`, `frame_rate`, `keyframe`, `storage`; every open after the start costs a keyframe |
+| `streamtransport.ffmpeg.encoder.open.duration` | `s` | time to open an encoder |
+| `streamtransport.ffmpeg.probes` | `{probe}` | encoders and decoders tried at first use, by `streamtransport.outcome`: `works` or `unavailable` |
+
 ## Capture devices
 
 `FFmpegVideoInputProvider` reaches cameras through FFmpeg's capture devices (`dshow`, `v4l2`,

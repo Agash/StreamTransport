@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using Agash.StreamTransport.Media;
 using FFmpeg.Interop;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,14 +31,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Registered>();
         FFmpegCodecOptions Options(IServiceProvider provider)
         {
-            FFmpegCodecOptions resolved = options?.LoggerFactory is not null
-                ? options
-                : new FFmpegCodecOptions
-                {
-                    LoggerFactory = provider.GetService<ILoggerFactory>(),
-                    EncoderOptions = options?.EncoderOptions ?? [],
-                    RouteFFmpegLog = options?.RouteFFmpegLog ?? true,
-                };
+            // What the caller set, and the container's logging, meters and clock for what it left out.
+            FFmpegCodecOptions resolved = new()
+            {
+                LoggerFactory = options?.LoggerFactory ?? provider.GetService<ILoggerFactory>(),
+                MeterFactory = options?.MeterFactory ?? provider.GetService<IMeterFactory>(),
+                TimeProvider =
+                    options is { TimeProvider: var time } && time != TimeProvider.System
+                        ? time
+                        : provider.GetService<TimeProvider>() ?? TimeProvider.System,
+                EncoderOptions = options?.EncoderOptions ?? [],
+                RouteFFmpegLog = options?.RouteFFmpegLog ?? true,
+            };
             provider.GetRequiredService<Registered>().RouteLog(resolved);
             return resolved;
         }

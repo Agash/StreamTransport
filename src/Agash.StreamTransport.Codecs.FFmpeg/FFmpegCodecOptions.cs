@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Codecs.FFmpeg;
@@ -8,6 +9,15 @@ public sealed class FFmpegCodecOptions
 {
     /// <summary>Logging; none when null.</summary>
     public ILoggerFactory? LoggerFactory { get; init; }
+
+    /// <summary>
+    /// Where the metrics' meter comes from (<see cref="FFmpegCodecDiagnostics.MeterName"/>); one meter
+    /// shared by every factory made without one when null.
+    /// </summary>
+    public IMeterFactory? MeterFactory { get; init; }
+
+    /// <summary>The clock encoder opens are timed on.</summary>
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>
     /// Whether FFmpeg's own log (<c>av_log</c>) goes to <see cref="LoggerFactory"/>, under categories such

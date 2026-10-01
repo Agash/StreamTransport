@@ -88,6 +88,7 @@ With DI the meters come from the host's `IMeterFactory`.
 | Meter and activity source | Package |
 |---|---|
 | `Agash.StreamTransport` | sessions, streams, playout |
+| `Agash.StreamTransport.Codecs.FFmpeg` | encoder opens and their reasons, codec probes |
 
 Instruments on `Agash.StreamTransport`, tagged with `streamtransport.codec` and, where it applies,
 `streamtransport.implementation`, `streamtransport.session.role`, `streamtransport.outcome`,

@@ -33,6 +33,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
     private readonly BackendSpec _spec;
     private readonly FFmpegCodecOptions _options;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly FFmpegCodecMetrics _metrics;
     private readonly ILogger _logger;
 
     /// <summary>A factory for one backend.</summary>
@@ -43,6 +44,9 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         _spec = BackendCatalog.Get(backend);
         _options = options ?? new FFmpegCodecOptions();
         _loggerFactory = _options.LoggerFactory ?? NullLoggerFactory.Instance;
+        _metrics = _options.MeterFactory is { } meters
+            ? new FFmpegCodecMetrics(meters)
+            : FFmpegCodecMetrics.Shared;
         _logger = _loggerFactory.CreateLogger<FFmpegVideoEncoderFactory>();
     }
 
@@ -134,7 +138,9 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             resolved.Adapter,
             options,
             resolved.ForcesKeyframes,
-            _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
+            _loggerFactory.CreateLogger<FFmpegVideoEncoder>(),
+            _metrics,
+            _options.TimeProvider
         );
     }
 
@@ -163,7 +169,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         string adapterKey = adapter?.ToString() ?? "default";
         Probe? probe = s_probes.GetOrAdd(
             (name, adapterKey),
-            static (_, state) => state.Self.RunProbe(state.Codec, state.Id, state.Adapter),
+            static (_, state) => state.Self.CountedProbe(state.Codec, state.Id, state.Adapter),
             (Self: this, Codec: codec, Id: format.Codec, Adapter: adapter)
         );
         if (probe is null)
@@ -222,6 +228,17 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             VideoStorageKind.IOSurface => OperatingSystem.IsMacOS(),
             _ => true,
         };
+
+    private Probe? CountedProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
+    {
+        Probe? probe = RunProbe(codec, id, adapter);
+        _metrics.Probes.Add(
+            1,
+            FFmpegCodecMetrics.Codec(codec.Name),
+            FFmpegCodecMetrics.Outcome(probe is not null)
+        );
+        return probe;
+    }
 
     // Opens the encoder for real and encodes a few frames through the system-memory path, which every
     // backend takes; a driver without the codec, a missing GPU and an absent runtime all fail here.
