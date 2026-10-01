@@ -67,6 +67,14 @@ public sealed class HttpMediaTests
         {
             Assert.IsNotNull(publishing.Resource);
             await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
+
+            // The first second is the session settling; the steady state is what is measured.
+            while (analyzer.Measure().Pairs < 1)
+            {
+                await Task.Delay(200);
+            }
+
+            analyzer.Reset();
             while (analyzer.Measure().Pairs < 3)
             {
                 await Task.Delay(200);
@@ -146,15 +154,55 @@ public sealed class HttpMediaTests
         Assert.AreEqual(HttpStatusCode.NotFound, delete.StatusCode);
     }
 
+    [TestMethod]
+    public void IceServerLinks_RoundTripServersWithCredentials()
+    {
+        IceServer[] servers =
+        [
+            new(["stun:stun.example.net:3478"]),
+            new(["turn:turn.example.net?transport=udp", "turns:turn.example.net"], "user, \"quoted\"", "p;a,ss"),
+        ];
+
+        List<IceServer> parsed = IceServerLinks.Parse([string.Join(", ", IceServerLinks.Format(servers)), "<https://example.net>; rel=\"next\""]);
+
+        Assert.HasCount(3, parsed);
+        Assert.AreEqual("stun:stun.example.net:3478", parsed[0].Urls[0]);
+        Assert.IsNull(parsed[0].Username);
+        Assert.AreEqual("turns:turn.example.net", parsed[2].Urls[0]);
+        Assert.AreEqual("user, \"quoted\"", parsed[2].Username);
+        Assert.AreEqual("p;a,ss", parsed[2].Credential);
+    }
+
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task Options_AdvertisesTheHostsIceServers()
+    {
+        await using WebApplication app = await StartAsync(
+            web => web.MapWhip("/whip", (_, _) => ValueTask.FromResult<HttpMediaSetup?>(null)),
+            services => services.AddSingleton<IIceServerProvider>(
+                new Agash.StreamTransport.Stun.StaticIceServerProvider([new IceServer(["turn:relay.example.net"], "u", "p")])
+            )
+        );
+        using HttpClient http = new() { BaseAddress = Address(app) };
+
+        using HttpResponseMessage options = await http.SendAsync(new HttpRequestMessage(HttpMethod.Options, "/whip"));
+        List<IceServer> advertised = IceServerLinks.Parse(options.Headers.GetValues("Link"));
+
+        Assert.HasCount(1, advertised);
+        Assert.AreEqual("turn:relay.example.net", advertised[0].Urls[0]);
+        Assert.AreEqual("u", advertised[0].Username);
+    }
+
     private static MediaSessionOptions Loopback() =>
         MediaServices.Loopback(new MediaSessionOptions { VideoCodecs = [VideoCodecId.H264] });
 
     // An ordinary ASP.NET Core application on a loopback port, with the media services and the endpoints.
-    private static async Task<WebApplication> StartAsync(Action<WebApplication> map)
+    private static async Task<WebApplication> StartAsync(Action<WebApplication> map, Action<IServiceCollection>? services = null)
     {
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs().AddHttpMediaEndpoints();
+        services?.Invoke(builder.Services);
         WebApplication app = builder.Build();
         map(app);
         await app.StartAsync();
