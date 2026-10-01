@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Security;
 using Agash.StreamTransport.WebRtc.Ice;
@@ -22,6 +24,12 @@ namespace Agash.StreamTransport.WebRtc;
 /// </summary>
 public sealed partial class PeerConnection : IAsyncDisposable
 {
+    private readonly IMeterFactory? _meterFactory;
+    private readonly WebRtcMetrics _metrics;
+    private Activity? _connecting;
+    private long _connectStarted;
+    private int _connectSettled;
+    private int _disposedForMetrics;
     private readonly PeerConnectionOptions _options;
     private readonly RtcCertificate _certificate;
     private readonly ILogger _logger;
@@ -61,15 +69,20 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// The clock behind ICE pacing and consent, congestion feedback and retransmission timing; the system's
     /// when null.
     /// </param>
+    /// <param name="meterFactory">Where the metrics' meter comes from (<see cref="WebRtcDiagnostics.MeterName"/>); one shared meter when null.</param>
     public PeerConnection(
         PeerConnectionOptions options,
         RtcCertificate certificate,
         ILoggerFactory? loggerFactory = null,
         INetworkController? controller = null,
-        TimeProvider? timeProvider = null
+        TimeProvider? timeProvider = null,
+        IMeterFactory? meterFactory = null
     )
     {
         _options = options;
+        _meterFactory = meterFactory;
+        _metrics = WebRtcMetrics.For(meterFactory);
+        _metrics.ConnectionsActive.Add(1);
         _time = timeProvider ?? TimeProvider.System;
         _origin = _time.GetTimestamp();
         ArgumentNullException.ThrowIfNull(certificate);
@@ -470,6 +483,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             int protectedLength = srtp.ProtectRtp(buffer, rtpLength);
             RecordSent(ssrc, sequence, protectedLength, NowMicros());
             Interlocked.Increment(ref _mediaPacketsSent);
+            _metrics.PacketsSent.Add(1);
             await agent
                 .SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken)
                 .ConfigureAwait(false);
@@ -535,7 +549,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _loggerFactory.CreateLogger<IceAgent>(),
             socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences),
             timeProvider: _time,
-            transportPolicy: _options.IceTransportPolicy
+            transportPolicy: _options.IceTransportPolicy,
+            meterFactory: _meterFactory
         );
         foreach (IPEndPoint stun in _options.StunServers)
         {
@@ -578,7 +593,60 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _bufferedRemoteCandidates.Clear();
         }
 
+        // From starting ICE to the secure transport being up is one span and one measurement.
+        _connectStarted = _time.GetTimestamp();
+        _connecting = WebRtcDiagnostics.ActivitySource.StartActivity(
+            "streamtransport.webrtc.connect"
+        );
+        _connecting?.SetTag(
+            "streamtransport.webrtc.ice.role",
+            role == IceRole.Controlling ? "controlling" : "controlled"
+        );
         SetState(PeerConnectionState.Connecting);
+    }
+
+    // Records how connecting ended and closes its span, once.
+    private void Settle(string outcome, Exception? failure = null)
+    {
+        if (Interlocked.Exchange(ref _connectSettled, 1) != 0 || _connectStarted == 0)
+        {
+            return;
+        }
+
+        IcePath? path = _iceAgent?.SelectedPath;
+        _metrics.ConnectDuration.Record(
+            _time.GetElapsedTime(_connectStarted).TotalSeconds,
+            WebRtcMetrics.Outcome(outcome)
+        );
+        if (_connecting is { } activity)
+        {
+            activity.SetTag("streamtransport.outcome", outcome);
+            if (path is { } selected)
+            {
+                activity.SetTag(
+                    "streamtransport.webrtc.ice.local_kind",
+                    WebRtcMetrics.Name(selected.LocalKind)
+                );
+                activity.SetTag(
+                    "streamtransport.webrtc.ice.remote_kind",
+                    WebRtcMetrics.Name(selected.RemoteKind)
+                );
+                activity.SetTag(
+                    "network.type",
+                    selected.Remote.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        ? "ipv6"
+                        : "ipv4"
+                );
+            }
+
+            if (failure is not null)
+            {
+                activity.AddException(failure);
+                activity.SetStatus(ActivityStatusCode.Error, failure.Message);
+            }
+
+            activity.Stop();
+        }
     }
 
     private void OnIceStateChanged(IceConnectionState iceState)
@@ -589,6 +657,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 _ = RunDtlsHandshakeAsync();
                 break;
             case IceConnectionState.Failed:
+                Settle("ice_failed");
                 SetState(PeerConnectionState.Failed);
                 break;
             default:
@@ -622,11 +691,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 ?? throw new DtlsException("The peer negotiated no SRTP protection profile.");
             _srtp = new SrtpSession(keying, _dtlsRole == DtlsRole.Client);
             LogConnected(_logger, dtls.NegotiatedProtocol, keying.Profile);
+            Settle("connected");
             SetState(PeerConnectionState.Connected);
         }
         catch (Exception ex)
         {
             LogHandshakeFailed(_logger, ex);
+            Settle("dtls_failed", ex);
             SetState(PeerConnectionState.Failed);
         }
     }
@@ -762,6 +833,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
                 int protectedLength = srtp.ProtectRtp(buffer, rtxLength);
                 Interlocked.Increment(ref _rtxPacketsSent);
+                _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("sent"));
                 await agent.SendAsync(buffer.AsMemory(0, protectedLength)).ConfigureAwait(false);
             }
             finally
@@ -842,6 +914,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 )
                 {
                     Interlocked.Increment(ref _rtxPacketsRecovered);
+                    _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("recovered"));
                     DeliverMedia(
                         rtxHeader,
                         recovered.AsMemory(0, recoveredLength),
@@ -997,6 +1070,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposedForMetrics, 1) == 0)
+        {
+            _metrics.ConnectionsActive.Add(-1);
+            Settle("closed");
+        }
+
         DisposeCongestion();
         SetState(PeerConnectionState.Closed);
         if (_dtls is { } dtls)

@@ -31,6 +31,7 @@ internal sealed partial class IceStateMachine
 
     private readonly IceRole _role;
     private readonly IceTimings _timings;
+    private readonly WebRtcMetrics _metrics;
     private readonly ILogger _logger;
     private readonly ulong _tieBreaker;
     private readonly List<LocalEndpoint> _locals = [];
@@ -48,8 +49,15 @@ internal sealed partial class IceStateMachine
     private CandidatePair? _selected;
     private int _candidateIndex;
 
-    public IceStateMachine(IceCredentials local, IceRole role, IceTimings timings, ILogger logger)
+    public IceStateMachine(
+        IceCredentials local,
+        IceRole role,
+        IceTimings timings,
+        ILogger logger,
+        WebRtcMetrics? metrics = null
+    )
     {
+        _metrics = metrics ?? WebRtcMetrics.Shared;
         LocalCredentials = local;
         _localPassword = Encoding.UTF8.GetBytes(local.Password);
         _role = role;
@@ -67,9 +75,19 @@ internal sealed partial class IceStateMachine
     /// <summary>When the machine next needs <see cref="HandleTimeout"/>; null before it starts.</summary>
     public TimeSpan? NextTimeout { get; private set; }
 
-    /// <summary>The selected pair: the local endpoint's handle and the remote endpoint; null when none.</summary>
-    public (int Local, IPEndPoint Remote)? Selected =>
-        _selected is { } pair ? (pair.Local.Handle, pair.Remote.Endpoint) : null;
+    /// <summary>
+    /// The selected pair: the local endpoint's handle, the remote endpoint and both candidates' kinds;
+    /// null when none.
+    /// </summary>
+    public (
+        int Local,
+        IPEndPoint Remote,
+        IceCandidateKind LocalKind,
+        IceCandidateKind RemoteKind
+    )? Selected =>
+        _selected is { } pair
+            ? (pair.Local.Handle, pair.Remote.Endpoint, pair.Local.Candidate.Kind, pair.Remote.Kind)
+            : null;
 
     public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
 
@@ -249,6 +267,7 @@ internal sealed partial class IceStateMachine
         _pairs.Clear();
         _locals.Clear();
         SetState(IceConnectionState.Checking);
+        _metrics.Restarts.Add(1);
         LogRestart();
     }
 
@@ -415,6 +434,12 @@ internal sealed partial class IceStateMachine
         pair.LastResponse = now;
         _selected = pair;
         LogSelectedPair(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
+        _metrics.SelectedPaths.Add(
+            1,
+            WebRtcMetrics.LocalKind(pair.Local.Candidate.Kind),
+            WebRtcMetrics.RemoteKind(pair.Remote.Kind),
+            WebRtcMetrics.Family(pair.Remote.Endpoint.AddressFamily)
+        );
         SetState(IceConnectionState.Connected);
     }
 
@@ -506,6 +531,7 @@ internal sealed partial class IceStateMachine
         if (Since(selected.LastResponse, now) > _timings.ConsentTimeout)
         {
             LogConsentLost(selected.Remote.Endpoint);
+            _metrics.ConsentLost.Add(1);
 
             // A pre-warmed alternate takes over in one round trip; without one, every pair is re-probed.
             if (BestWarmAlternate(now, selected) is { } warm)

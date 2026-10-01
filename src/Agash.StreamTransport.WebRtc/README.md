@@ -15,3 +15,24 @@ Crypto is the platform's own (`AesGcm`, `Aes`, `HMACSHA1`, `CertificateRequest`)
 or third-party crypto dependency.
 
 The package is the transport under [`Agash.StreamTransport`](https://github.com/Agash/StreamTransport).
+
+## Diagnostics
+
+The meter and activity source `Agash.StreamTransport.WebRtc` (`WebRtcDiagnostics`). With DI the meter
+comes from the host's `IMeterFactory`; `PeerConnection` and `IceAgent` take one too. Nothing is
+recorded until something listens.
+
+| Instrument | Unit | What |
+|---|---|---|
+| `streamtransport.webrtc.connections.active` | `{connection}` | peer connections not yet disposed |
+| `streamtransport.webrtc.connect.duration` | `s` | ICE start to DTLS-SRTP up, by `streamtransport.outcome`: `connected`, `ice_failed`, `dtls_failed`, `closed` |
+| `streamtransport.webrtc.ice.selected_paths` | `{path}` | selected pairs by local and remote candidate kind (`host`, `srflx`, `prflx`, `relay`) and `network.type` (`ipv6`, `ipv4`) |
+| `streamtransport.webrtc.ice.consent_lost` | `{event}` | selected paths that stopped answering consent checks |
+| `streamtransport.webrtc.ice.restarts` | `{restart}` | ICE restarts |
+| `streamtransport.webrtc.turn.allocations` | `{allocation}` | TURN allocations by `network.transport` and outcome |
+| `streamtransport.webrtc.rtp.packets.sent` | `{packet}` | media packets sent |
+| `streamtransport.webrtc.nack.sequences` | `{packet}` | lost packets asked for again |
+| `streamtransport.webrtc.rtx.packets` | `{packet}` | retransmissions `sent` and `recovered` |
+
+The activity `streamtransport.webrtc.connect` spans ICE and the DTLS handshake, with the selected
+path's candidate kinds and address family. DTLS itself reports on the `Dtls.Core` meter.

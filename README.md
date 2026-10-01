@@ -89,6 +89,8 @@ With DI the meters come from the host's `IMeterFactory`.
 |---|---|
 | `Agash.StreamTransport` | sessions, streams, playout |
 | `Agash.StreamTransport.Codecs.FFmpeg` | encoder opens and their reasons, codec probes |
+| `Agash.StreamTransport.WebRtc` | connections, ICE paths, TURN, RTP, NACK and RTX |
+| `Dtls.Core` | DTLS handshakes, retransmissions, dropped records |
 
 Instruments on `Agash.StreamTransport`, tagged with `streamtransport.codec` and, where it applies,
 `streamtransport.implementation`, `streamtransport.session.role`, `streamtransport.outcome`,

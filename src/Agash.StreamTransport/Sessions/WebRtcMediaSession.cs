@@ -119,7 +119,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     /// <inheritdoc/>
     public MediaRoute? Route =>
-        _connection?.SelectedPath is { } path ? new MediaRoute(path.Local, path.Remote) : null;
+        _connection?.SelectedPath is { } path
+            ? new MediaRoute(path.Local, path.Remote, path.IsRelayed)
+            : null;
 
     public TransportLossStats LossStats => _connection?.CurrentLossStats ?? default;
 

@@ -78,6 +78,16 @@ public sealed class TelemetryTests
         Assert.IsGreaterThan(0, meters.Sum("streamtransport.audio.frames.sent", "opus"));
         Assert.IsGreaterThan(0, meters.Sum("streamtransport.audio.frames.decoded", "opus"));
 
+        // The WebRTC transport reports on its own meter, from the same container: both connections came
+        // up directly between host candidates and went away with their sessions.
+        Assert.AreEqual(2, meters.Count("streamtransport.webrtc.connect.duration", "connected"));
+        Assert.AreEqual(0, meters.Sum("streamtransport.webrtc.connections.active"));
+        Assert.IsGreaterThanOrEqualTo(
+            2,
+            meters.Sum("streamtransport.webrtc.ice.selected_paths", "host")
+        );
+        Assert.IsGreaterThan(0, meters.Sum("streamtransport.webrtc.rtp.packets.sent"));
+
         // The FFmpeg codecs report on their own meter, from the same container.
         Assert.IsGreaterThan(0, meters.Sum("streamtransport.ffmpeg.encoder.opens", "start"));
         Assert.IsGreaterThan(0, meters.Count("streamtransport.ffmpeg.encoder.open.duration"));
@@ -154,6 +164,7 @@ public sealed class TelemetryTests
                     is "streamtransport.codec"
                         or "streamtransport.outcome"
                         or "streamtransport.reason"
+                        or "streamtransport.webrtc.ice.local_kind"
                 )
                 {
                     tag = pair.Value as string;

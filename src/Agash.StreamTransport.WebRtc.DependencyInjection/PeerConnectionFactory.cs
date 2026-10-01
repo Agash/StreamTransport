@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +29,7 @@ public sealed class PeerConnectionFactory(
             certificate,
             loggerFactory,
             services.GetService<INetworkController>(),
-            timeProvider
+            timeProvider,
+            services.GetService<IMeterFactory>()
         );
 }

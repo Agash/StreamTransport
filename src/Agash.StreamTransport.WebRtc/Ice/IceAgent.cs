@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
 using Agash.StreamTransport.Threading;
@@ -43,8 +44,10 @@ public sealed partial class IceAgent : IAsyncDisposable
         TaskCreationOptions.RunContinuationsAsynchronously
     );
     private int _state = (int)IceConnectionState.New;
-    private LocalSocket? _selectedSocket;
-    private IPEndPoint? _selectedRemote;
+
+    // The selected pair as one object, so a reader never sees one selection's socket with another's peer.
+    private Selection? _selection;
+    private readonly WebRtcMetrics _metrics;
 
     // Every socket has its own receive loop, and the old path and a warm standby both carry packets
     // around a switch; handlers (SRTP replay windows, RTCP, depacketizers) see one packet at a time.
@@ -62,6 +65,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// <param name="timings">Check pacing, retransmission and consent timing.</param>
     /// <param name="timeProvider">The clock that paces checks and measures consent; the system's when null.</param>
     /// <param name="transportPolicy">Which candidates to gather.</param>
+    /// <param name="meterFactory">Where the metrics' meter comes from (<see cref="WebRtcDiagnostics.MeterName"/>); one shared meter when null.</param>
     public IceAgent(
         IceCredentials localCredentials,
         IceRole role,
@@ -70,10 +74,12 @@ public sealed partial class IceAgent : IAsyncDisposable
         IIceSocketFactory? socketFactory = null,
         IceTimings? timings = null,
         TimeProvider? timeProvider = null,
-        IceTransportPolicy transportPolicy = IceTransportPolicy.All
+        IceTransportPolicy transportPolicy = IceTransportPolicy.All,
+        IMeterFactory? meterFactory = null
     )
     {
         _policy = transportPolicy;
+        _metrics = WebRtcMetrics.For(meterFactory);
         _time = timeProvider ?? TimeProvider.System;
         _origin = _time.GetTimestamp();
         _includeLoopback = includeLoopback;
@@ -83,7 +89,8 @@ public sealed partial class IceAgent : IAsyncDisposable
             localCredentials,
             role,
             timings ?? IceTimings.Default,
-            _logger
+            _logger,
+            _metrics
         );
         _wake = new WakeSignal(_time, () => Now);
     }
@@ -108,9 +115,13 @@ public sealed partial class IceAgent : IAsyncDisposable
 
     /// <summary>The selected candidate pair's local and remote endpoints, or null while none is selected.</summary>
     public IcePath? SelectedPath =>
-        Volatile.Read(ref _selectedSocket) is { } socket
-        && Volatile.Read(ref _selectedRemote) is { } remote
-            ? new IcePath(socket.Socket.LocalEndPoint, remote)
+        Volatile.Read(ref _selection) is { } selection
+            ? new IcePath(
+                selection.Socket.Socket.LocalEndPoint,
+                selection.Remote,
+                selection.LocalKind,
+                selection.RemoteKind
+            )
             : null;
 
     /// <summary>This agent's local credentials (rotated on an ICE restart).</summary>
@@ -236,14 +247,14 @@ public sealed partial class IceAgent : IAsyncDisposable
         CancellationToken cancellationToken = default
     )
     {
-        LocalSocket? socket = Volatile.Read(ref _selectedSocket);
-        IPEndPoint? remote = Volatile.Read(ref _selectedRemote);
-        if (socket is null || remote is null)
+        if (Volatile.Read(ref _selection) is not { } selection)
         {
             return;
         }
 
-        await socket.Socket.SendAsync(data, remote, cancellationToken).ConfigureAwait(false);
+        await selection
+            .Socket.Socket.SendAsync(data, selection.Remote, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -453,6 +464,11 @@ public sealed partial class IceAgent : IAsyncDisposable
             allocation = await TurnAllocation
                 .AllocateAsync(server, endpoint, _time, _logger, cancellationToken)
                 .ConfigureAwait(false);
+            _metrics.TurnAllocations.Add(
+                1,
+                WebRtcMetrics.Transport(TransportName(server.Transport)),
+                WebRtcMetrics.Outcome("allocated")
+            );
         }
         catch (OperationCanceledException)
         {
@@ -467,6 +483,11 @@ public sealed partial class IceAgent : IAsyncDisposable
                         or System.Security.Authentication.AuthenticationException
             )
         {
+            _metrics.TurnAllocations.Add(
+                1,
+                WebRtcMetrics.Transport(TransportName(server.Transport)),
+                WebRtcMetrics.Outcome(exception is TurnException ? "refused" : "unreachable")
+            );
             LogTurnFailed(exception, server.Host, endpoint);
             return;
         }
@@ -614,14 +635,13 @@ public sealed partial class IceAgent : IAsyncDisposable
                 events.Add(iceEvent);
             }
 
-            (int Local, IPEndPoint Remote)? selected = _machine.Selected;
             Volatile.Write(
-                ref _selectedSocket,
-                selected is { } pair && _sockets.TryGetValue(pair.Local, out LocalSocket? chosen)
-                    ? chosen
+                ref _selection,
+                _machine.Selected is { } pair
+                && _sockets.TryGetValue(pair.Local, out LocalSocket? chosen)
+                    ? new Selection(chosen, pair.Remote, pair.LocalKind, pair.RemoteKind)
                     : null
             );
-            Volatile.Write(ref _selectedRemote, selected?.Remote);
         }
 
         foreach (IceEvent iceEvent in events)
@@ -728,4 +748,19 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         public Task? Receiving { get; set; }
     }
+
+    private static string TransportName(TurnTransport transport) =>
+        transport switch
+        {
+            TurnTransport.Udp => "udp",
+            TurnTransport.Tcp => "tcp",
+            _ => "tls",
+        };
+
+    private sealed record Selection(
+        LocalSocket Socket,
+        IPEndPoint Remote,
+        IceCandidateKind LocalKind,
+        IceCandidateKind RemoteKind
+    );
 }

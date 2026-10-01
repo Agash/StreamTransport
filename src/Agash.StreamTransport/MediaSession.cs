@@ -66,7 +66,8 @@ public readonly record struct MediaSessionStatistics(
 /// <summary>The two ends of the path a session's media takes.</summary>
 /// <param name="Local">This side's endpoint.</param>
 /// <param name="Remote">The peer's endpoint.</param>
-public readonly record struct MediaRoute(EndPoint Local, EndPoint Remote);
+/// <param name="Relayed">Whether media goes through a relay (TURN) rather than directly between the peers.</param>
+public readonly record struct MediaRoute(EndPoint Local, EndPoint Remote, bool Relayed = false);
 
 /// <summary>A media session with one peer.</summary>
 public interface IMediaSession : IAsyncDisposable
