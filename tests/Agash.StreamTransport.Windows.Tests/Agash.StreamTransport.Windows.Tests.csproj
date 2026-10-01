@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Agash.StreamTransport.Windows\Agash.StreamTransport.Windows.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport\Agash.StreamTransport.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.FFmpeg\Agash.StreamTransport.Codecs.FFmpeg.csproj" />
   </ItemGroup>
 
   <ItemGroup>

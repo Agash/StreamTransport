@@ -238,6 +238,78 @@ internal sealed unsafe class D3D12Engine : IDisposable
         return list;
     }
 
+    /// <summary>A buffer in the upload heap, which the CPU writes and the GPU copies from.</summary>
+    /// <param name="size">Its size in bytes.</param>
+    /// <returns>The ID3D12Resource, owned by the caller.</returns>
+    public nint CreateUploadBuffer(ulong size)
+    {
+        D3D12_HEAP_PROPERTIES heap = new() { Type = D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD };
+        D3D12_RESOURCE_DESC description = new()
+        {
+            Dimension = D3D12_RESOURCE_DIMENSION.D3D12_RESOURCE_DIMENSION_BUFFER,
+            Width = size,
+            Height = 1,
+            DepthOrArraySize = 1,
+            MipLevels = 1,
+            Format = DXGI_FORMAT.DXGI_FORMAT_UNKNOWN,
+            SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
+            Layout = D3D12_TEXTURE_LAYOUT.D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+        };
+        Guid iid = typeof(ID3D12Resource).GUID;
+        void* resource;
+        _device->CreateCommittedResource(
+            &heap,
+            D3D12_HEAP_FLAGS.D3D12_HEAP_FLAG_NONE,
+            &description,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ,
+            null,
+            &iid,
+            &resource
+        );
+        return (nint)resource;
+    }
+
+    /// <summary>How a texture's first subresource lies in a buffer it is copied from: its row pitch.</summary>
+    /// <param name="texture">The texture.</param>
+    /// <param name="size">The bytes the buffer needs.</param>
+    /// <returns>The placed footprint.</returns>
+    public D3D12_PLACED_SUBRESOURCE_FOOTPRINT Footprint(nint texture, out ulong size)
+    {
+        D3D12_RESOURCE_DESC description = Describe(texture);
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+        ulong total;
+        _device->GetCopyableFootprints(&description, 0, 1, 0, &footprint, null, null, &total);
+        size = total;
+        return footprint;
+    }
+
+    /// <summary>Records a copy of a buffer laid out as a footprint into a texture's first subresource.</summary>
+    /// <param name="list">The open command list.</param>
+    /// <param name="texture">The texture, in the copy-destination state.</param>
+    /// <param name="buffer">The buffer.</param>
+    /// <param name="footprint">How the texture lies in the buffer.</param>
+    public static void CopyFromBuffer(
+        ID3D12GraphicsCommandList* list,
+        nint texture,
+        nint buffer,
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint
+    )
+    {
+        D3D12_TEXTURE_COPY_LOCATION to = new()
+        {
+            pResource = (ID3D12Resource*)texture,
+            Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+        };
+        to.Anonymous.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION from = new()
+        {
+            pResource = (ID3D12Resource*)buffer,
+            Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+        };
+        from.Anonymous.PlacedFootprint = footprint;
+        list->CopyTextureRegion(&to, 0, 0, 0, &from, null);
+    }
+
     /// <summary>Opens a command list for copies alone.</summary>
     /// <returns>The command list, open.</returns>
     public ID3D12GraphicsCommandList* BeginCopy() => Open(null);

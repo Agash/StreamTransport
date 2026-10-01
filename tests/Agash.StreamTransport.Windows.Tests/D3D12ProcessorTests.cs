@@ -1,4 +1,5 @@
 using System.Numerics;
+using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Windows.Direct3D12;
 using Windows.Win32.Graphics.Dxgi.Common;
@@ -216,6 +217,95 @@ public sealed class D3D12ProcessorTests
                 .Output.Size,
             "RGB to NV12 scales"
         );
+    }
+
+    [TestMethod]
+    public void CpuBgra_IsUploadedAsItIs()
+    {
+        using var gpu = TestGpu.Open();
+        byte[] pixels = Picture(PixelFormat.Bgra);
+        using IVideoProcessor processor = Factory.Create(
+            new VideoStreamDescription(VideoStorageKind.Cpu, PixelFormat.Bgra, new(Width, Height)),
+            new VideoProcessing(
+                new VideoConstraints([VideoStorageKind.D3D12], [PixelFormat.Bgra], gpu.Adapter)
+            )
+        );
+        Keeper keeper = new();
+
+        processor.Process(
+            new VideoFrame(
+                new CpuImage(PlaneLayout.Packed(PixelFormat.Bgra, new(Width, Height))),
+                new VideoFormat(PixelFormat.Bgra, Width, Height),
+                MediaTimestamp.Captured(new MediaTime(42)),
+                pixels,
+                VideoColor.Srgb
+            ),
+            keeper
+        );
+
+        Kept output = keeper.Kept!;
+        Assert.AreEqual(VideoStorageKind.D3D12, output.Lease.Frame.Storage.Kind);
+        Assert.AreEqual(gpu.Adapter, output.Image.Adapter);
+        CollectionAssert.AreEqual(pixels, gpu.Download(output.Image, 1)[0]);
+        output.Lease.Dispose();
+    }
+
+    [TestMethod]
+    public void Yuva420InMemory_ReachesAnRgbTextureThroughAChain()
+    {
+        using var gpu = TestGpu.Open();
+        MediaCodecRegistry registry = new(
+            [],
+            [],
+            [new FFmpegVideoProcessorFactory(), Factory],
+            [],
+            []
+        );
+        VideoSize size = new(Width, Height);
+        byte[] yuva = new byte[PlaneLayout.PackedSize(PixelFormat.Yuva420, size)];
+        var layout = PlaneLayout.Packed(PixelFormat.Yuva420, size);
+        yuva.AsSpan(0, layout[1].Offset).Fill(128);
+        yuva.AsSpan(layout[1].Offset, layout[3].Offset - layout[1].Offset).Fill(128);
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                yuva[layout[3].Offset + (y * Width) + x] = (byte)(x * 255 / (Width - 1));
+            }
+        }
+
+        Assert.IsTrue(
+            registry.TryCreateVideoProcessor(
+                new VideoStreamDescription(VideoStorageKind.Cpu, PixelFormat.Yuva420, size),
+                new VideoProcessing(
+                    new VideoConstraints([VideoStorageKind.D3D12], [PixelFormat.Bgra], gpu.Adapter)
+                ),
+                out IVideoProcessor? chain
+            )
+        );
+        using (chain)
+        {
+            Keeper keeper = new();
+            chain.Process(
+                new VideoFrame(
+                    new CpuImage(layout),
+                    new VideoFormat(PixelFormat.Yuva420, Width, Height),
+                    MediaTimestamp.Captured(new MediaTime(42)),
+                    yuva,
+                    VideoColor.Bt709
+                ),
+                keeper
+            );
+
+            Kept output = keeper.Kept!;
+            byte[] bgra = gpu.Download(output.Image, 1)[0];
+            for (int x = 0; x < Width; x++)
+            {
+                Assert.AreEqual(x * 255 / (Width - 1), bgra[(4 * x) + 3], 2.0, $"alpha at {x}");
+            }
+
+            output.Lease.Dispose();
+        }
     }
 
     private static VideoConstraints Nv12Output(TestGpu gpu) =>
