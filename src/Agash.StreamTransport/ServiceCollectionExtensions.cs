@@ -22,6 +22,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddStreamTransportWebRtc();
         services.TryAddSingleton<MediaCodecRegistry>();
+        services.TryAddSingleton<MediaDevices>();
         services.TryAddSingleton<INetworkMonitor, NetworkChangeMonitor>();
         services.TryAddSingleton<MobilityEngine>();
         services.TryAddSingleton<IMediaSessionFactory, WebRtcMediaSessionFactory>();
