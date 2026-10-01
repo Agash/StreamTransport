@@ -52,18 +52,7 @@ static async Task<int> RunAsync(CommandLine command)
 
     ServiceCollection services = new();
     services.AddSingleton(loggers);
-    services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();
-    if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
-    {
-        services.AddWindowsMedia();
-    }
-    else if (OperatingSystem.IsLinux())
-    {
-        services.AddLinuxMedia();
-    }
-#if MACOS
-    services.AddMacOSMedia();
-#endif
+    AddMedia(services);
 
     using CancellationTokenSource stop = new();
     Console.CancelKeyPress += (_, e) =>
@@ -71,6 +60,13 @@ static async Task<int> RunAsync(CommandLine command)
         e.Cancel = true;
         stop.Cancel();
     };
+
+#if !MACOS
+    if (command.Serve)
+    {
+        return await Serve.RunAsync(command, AddMedia, loggers, stop.Token);
+    }
+#endif
 
     await using ServiceProvider provider = services.BuildServiceProvider();
     MediaDevices devices = provider.GetRequiredService<MediaDevices>();
@@ -163,6 +159,23 @@ static async Task<int> RunAsync(CommandLine command)
     }
 
     return 0;
+}
+
+// The media every command uses: sessions, codecs and the platform's inputs and outputs.
+static void AddMedia(IServiceCollection services)
+{
+    services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();
+    if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+    {
+        services.AddWindowsMedia();
+    }
+    else if (OperatingSystem.IsLinux())
+    {
+        services.AddLinuxMedia();
+    }
+#if MACOS
+    services.AddMacOSMedia();
+#endif
 }
 
 // Every few seconds until Ctrl+C: each session's path and what it has sent and received.

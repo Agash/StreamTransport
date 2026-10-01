@@ -19,6 +19,7 @@ namespace StreamTransport.Cli;
 /// <param name="Capture">The capture mode asked of a video input.</param>
 /// <param name="Measure">Whether a subscriber measures a received test signal.</param>
 /// <param name="FeedOutput">For <c>feed</c>, the output the input's video goes to.</param>
+/// <param name="Serve">Serve WHIP and WHEP at <paramref name="Relay"/>, which is the URL to listen on.</param>
 internal sealed record CommandLine(
     bool List,
     bool Publish,
@@ -31,11 +32,15 @@ internal sealed record CommandLine(
     string? FFmpeg,
     VideoInputRequest Capture,
     bool Measure,
-    string? FeedOutput = null
+    string? FeedOutput = null,
+    bool Serve = false
 )
 {
     public const string Usage = """
         streamtransport list
+        streamtransport serve --urls <url> [--video <input>] [--audio <input>] [--measure]
+                                                WHEP at /whep playing the inputs, WHIP at /whip/{name} into an
+                                                output (or measured), a browser test page at /
         streamtransport feed <input> <output>   video from an input straight to an output, such as
                                                 feed test v4l2:/dev/video42 for a webcam showing the test signal
         streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
@@ -99,9 +104,17 @@ internal sealed record CommandLine(
             );
         }
 
+        if (args is ["serve", ..])
+        {
+            int urls = Array.IndexOf(args, "--urls");
+            string listen = urls >= 0 && urls + 1 < args.Length ? args[urls + 1] : "http://[::]:8090";
+            string[] rest = [.. args[1..].Where((_, i) => urls < 0 || (i != urls - 1 && i != urls))];
+            return Parse(["publish", "--relay", listen, "--room", "serve", .. rest]) with { Serve = true };
+        }
+
         if (args.Length == 0 || args[0] is not ("publish" or "subscribe"))
         {
-            throw new FormatException("Say list, publish or subscribe first.");
+            throw new FormatException("Say list, serve, publish or subscribe first.");
         }
 
         Dictionary<string, string?> named = new(StringComparer.Ordinal);
