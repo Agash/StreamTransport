@@ -903,18 +903,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Cname = "streamtransport",
         };
 
-    private uint LocalSsrcFor(string mid, SdpMediaKind kind)
-    {
-        foreach (MediaLine line in _options.Media)
-        {
-            if (line.Mid == mid || line.Kind == kind)
-            {
-                return line.LocalSsrc;
-            }
-        }
-
-        return 0;
-    }
+    // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its
+    // sections its own way (a browser may put video first), so the kind decides.
+    private uint LocalSsrcFor(string mid, SdpMediaKind kind) =>
+        (
+            _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
+            ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
+        )?.LocalSsrc ?? 0;
 
     // The codecs this endpoint can handle for a kind, taken from the configured offer lines.
     private IReadOnlyList<SdpCodec> LocalCodecsFor(SdpMediaKind kind)
