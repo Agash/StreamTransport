@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Immutable;
 using Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
@@ -27,7 +28,7 @@ public sealed class OpusPayloadFormat : RtpPayloadFormat
     public override int? Channels => 2;
 
     /// <inheritdoc/>
-    public override string? FormatParameters => "minptime=10;useinbandfec=1";
+    public override ImmutableArray<string?> FormatParameterSets => ["minptime=10;useinbandfec=1"];
 
     /// <inheritdoc/>
     public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>

@@ -20,7 +20,8 @@ public sealed class MediaSessionTests
     [DynamicData(nameof(Codecs))]
     public async Task Session_VideoAndAudio_ArriveDecoded(string codec)
     {
-        await using ServiceProvider services = MediaServices.Create();
+        CapturingLoggerFactory logs = new();
+        await using ServiceProvider services = MediaServices.Create(logs);
         IMediaSessionFactory factory = services.GetRequiredService<IMediaSessionFactory>();
         MediaSessionOptions options = MediaServices.Loopback(
             new MediaSessionOptions { VideoCodecs = [new VideoCodecId(codec)] }
@@ -57,7 +58,7 @@ public sealed class MediaSessionTests
             Assert.AreEqual(GradientSource.Width, video.LastFormat.VisibleRect.Width);
             foreach (double luma in video.Lumas)
             {
-                Assert.AreEqual(GradientSource.MeanLuma(0), luma, 8.0);
+                Assert.AreEqual(GradientSource.MeanLuma(0), luma, 8.0, logs.Dump());
             }
 
             Assert.AreEqual(0.354, audio.Rms, 0.1, "a half-scale sine keeps its level");

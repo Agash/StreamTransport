@@ -23,8 +23,21 @@ public abstract class RtpPayloadFormat
     /// <summary>The channel count in <c>a=rtpmap</c>, for audio formats that state one.</summary>
     public virtual int? Channels => null;
 
-    /// <summary>The <c>a=fmtp</c> parameters this endpoint offers.</summary>
-    public virtual string? FormatParameters => null;
+    /// <summary>
+    /// The <c>a=fmtp</c> parameter sets this endpoint offers, most preferred first, each under a payload
+    /// type of its own: the H.264 profiles, say. Null in the list stands for no parameters.
+    /// </summary>
+    public virtual ImmutableArray<string?> FormatParameterSets => [null];
+
+    /// <summary>
+    /// Whether a local and a remote parameter set of this format describe the same stream, so one payload
+    /// type can carry it (RFC 3264 section 6.1): beyond the encoding name and clock rate, which match
+    /// already, the parameters the format's RFC says must agree. Every set matches by default.
+    /// </summary>
+    /// <param name="local">This endpoint's <c>a=fmtp</c> parameters, or null.</param>
+    /// <param name="remote">The peer's, or null.</param>
+    /// <returns>True when they match.</returns>
+    public virtual bool AreCompatible(string? local, string? remote) => true;
 
     /// <summary>The <c>a=rtcp-fb</c> feedback this endpoint offers for the format.</summary>
     public virtual ImmutableArray<string> RtcpFeedback => [];
@@ -49,11 +62,17 @@ public abstract class RtpPayloadFormat
     /// <returns>The payload's traits.</returns>
     public virtual RtpPayloadTraits Inspect(ReadOnlySpan<byte> payload) => RtpPayloadTraits.None;
 
-    /// <summary>The codec as offered in SDP under a payload type.</summary>
+    /// <summary>The codec as offered in SDP under a payload type, with its preferred parameters.</summary>
     /// <param name="payloadType">The dynamic payload type.</param>
     /// <returns>The SDP codec.</returns>
-    public SdpCodec ToSdpCodec(int payloadType) =>
-        new(payloadType, EncodingName, ClockRate, Channels, FormatParameters, RtcpFeedback);
+    public SdpCodec ToSdpCodec(int payloadType) => ToSdpCodec(payloadType, FormatParameterSets[0]);
+
+    /// <summary>The codec as offered in SDP under a payload type, with one of its parameter sets.</summary>
+    /// <param name="payloadType">The dynamic payload type.</param>
+    /// <param name="formatParameters">One of <see cref="FormatParameterSets"/>.</param>
+    /// <returns>The SDP codec.</returns>
+    public SdpCodec ToSdpCodec(int payloadType, string? formatParameters) =>
+        new(payloadType, EncodingName, ClockRate, Channels, formatParameters, RtcpFeedback);
 
     /// <summary>Whether a negotiated codec is this format: the encoding name and clock rate agree.</summary>
     /// <param name="codec">The codec from a session description.</param>

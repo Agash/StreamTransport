@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
 using Agash.StreamTransport.WebRtc.Rtp;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
@@ -346,6 +347,76 @@ public sealed class PeerConnectionTests
     }
 
     [TestMethod]
+    [DataRow("42e01f", "640c1f", false)]
+    [DataRow("42e01f", "42e034", true)]
+    [DataRow("42e01f", "42c01f", true)]
+    [DataRow("42e01f", "42001f", false)]
+    [DataRow("640c1f", "640c34", true)]
+    [DataRow("4d001f", "640c1f", false)]
+    public void H264_SameProfileAtAnyLevel_IsCompatible(string a, string b, bool compatible)
+    {
+        Assert.AreEqual(
+            compatible,
+            H264PayloadFormat.Instance.AreCompatible(
+                $"packetization-mode=1;profile-level-id={a}",
+                $"level-asymmetry-allowed=1;packetization-mode=1;profile-level-id={b}"
+            )
+        );
+    }
+
+    [TestMethod]
+    public void H264_PacketizationModesDiffer_IsNotCompatible() =>
+        Assert.IsFalse(
+            H264PayloadFormat.Instance.AreCompatible(
+                "packetization-mode=1;profile-level-id=42e01f",
+                "profile-level-id=42e01f"
+            )
+        );
+
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task OfferAnswer_BrowserH264Profiles_AnswerTheMatchingProfile()
+    {
+        // A browser offers several H.264 profiles; the answer takes the first that one of ours matches.
+        SdpCodec[] browser =
+        [
+            new(102, "H264", 90000, null, "packetization-mode=1;profile-level-id=4d001f", []),
+            new(104, "H264", 90000, null, "packetization-mode=1;profile-level-id=42e01f", []),
+            new(106, "H264", 90000, null, "packetization-mode=1;profile-level-id=640c1f", []),
+        ];
+        await using var offerer = new PeerConnection(
+            new PeerConnectionOptions
+            {
+                Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xAAAA_0003, browser)],
+            },
+            Certificate
+        );
+        SdpCodec[] ours =
+        [
+            .. H264PayloadFormat.Instance.FormatParameterSets.Select(
+                (p, i) => H264PayloadFormat.Instance.ToSdpCodec(96 + i, p)
+            ),
+        ];
+        await using var answerer = new PeerConnection(
+            new PeerConnectionOptions
+            {
+                Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0003, ours)],
+            },
+            Certificate
+        );
+
+        answerer.SetRemoteDescription(offerer.CreateOffer(), SdpType.Offer);
+        SdpCodec answered = answerer.CreateAnswer().Media[0].Codecs.Single();
+
+        Assert.AreEqual(
+            104,
+            answered.PayloadType,
+            "Main matches none of ours; Constrained Baseline does"
+        );
+        StringAssert.Contains(answered.FormatParameters, "profile-level-id=42e034");
+    }
+
+    [TestMethod]
     public async Task OfferAnswer_EachSideDescribesTheCodecsItSends()
     {
         var offered = new SdpCodec(
@@ -356,12 +427,13 @@ public sealed class PeerConnectionTests
             "packetization-mode=1;profile-level-id=42e01f",
             []
         );
+        // The same profile at another level: each side receives up to its own.
         var supported = new SdpCodec(
             120,
             "H264",
             90000,
             null,
-            "packetization-mode=1;profile-level-id=640c1f",
+            "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e034",
             ["nack"]
         );
         await using var offerer = new PeerConnection(

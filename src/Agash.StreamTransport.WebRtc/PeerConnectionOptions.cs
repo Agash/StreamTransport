@@ -1,5 +1,6 @@
 using System.Net;
 using Agash.StreamTransport.WebRtc.Ice;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Turn;
 
@@ -55,6 +56,13 @@ public sealed class PeerConnectionOptions
 {
     /// <summary>The media lines to negotiate (offerer side); the answerer mirrors the remote offer.</summary>
     public IReadOnlyList<MediaLine> Media { get; init; } = [];
+
+    /// <summary>
+    /// The payload formats that decide whether an offered codec matches one of this endpoint's, beyond
+    /// the encoding name and clock rate (an H.264 profile, say).
+    /// </summary>
+    public RtpPayloadFormatRegistry PayloadFormats { get; init; } =
+        RtpPayloadFormatRegistry.BuiltIn;
 
     /// <summary>STUN servers to gather server-reflexive candidates from.</summary>
     public IReadOnlyList<IPEndPoint> StunServers { get; init; } = [];

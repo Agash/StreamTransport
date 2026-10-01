@@ -5,6 +5,7 @@ using System.Net.Security;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
 using Agash.StreamTransport.WebRtc.Turn;
@@ -948,23 +949,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
     // Two codecs are the same format when the encoding name (case-insensitive) and clock rate agree. Payload
     // types may differ between offer and local config; the answer keeps the offerer's.
     // The same codec: name and clock, and for H.264 the same packetization mode (RFC 6184 section 8.1).
-    private static bool CodecsMatch(SdpCodec a, SdpCodec b) =>
-        string.Equals(a.EncodingName, b.EncodingName, StringComparison.OrdinalIgnoreCase)
-        && a.ClockRate == b.ClockRate
+    // The same codec: name and clock rate, and the parameters its payload format says must agree.
+    private bool CodecsMatch(SdpCodec local, SdpCodec remote) =>
+        string.Equals(local.EncodingName, remote.EncodingName, StringComparison.OrdinalIgnoreCase)
+        && local.ClockRate == remote.ClockRate
         && (
-            !string.Equals(a.EncodingName, "H264", StringComparison.OrdinalIgnoreCase)
-            || PacketizationMode(a) == PacketizationMode(b)
+            !_options.PayloadFormats.TryGet(local.EncodingName, out RtpPayloadFormat? format)
+            || format.AreCompatible(local.FormatParameters, remote.FormatParameters)
         );
-
-    private static string PacketizationMode(SdpCodec codec) =>
-        codec
-            .FormatParameters?.Split(';')
-            .Select(static p => p.Trim())
-            .FirstOrDefault(static p =>
-                p.StartsWith("packetization-mode=", StringComparison.Ordinal)
-            )
-            ?["packetization-mode=".Length..]
-        ?? "0";
 
     // What this endpoint does on a kind of media, from its lines; send and receive when it has none.
     private SdpDirection LocalDirectionFor(SdpMediaKind kind) =>

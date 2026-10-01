@@ -232,7 +232,10 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                     && (_endpoints.AudioSink is null || _services.Codecs.CanDecode(codec))
                 )
                 {
-                    codecs.Add(format.ToSdpCodec(payloadType++));
+                    foreach (string? parameters in format.FormatParameterSets)
+                    {
+                        codecs.Add(format.ToSdpCodec(payloadType++, parameters));
+                    }
                 }
             }
 
@@ -263,26 +266,29 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                     continue;
                 }
 
-                if (payloadType == VideoRtxPayloadType)
-                {
-                    payloadType++;
-                }
-
-                var offered = format.ToSdpCodec(payloadType++);
                 ImmutableArray<AlphaLayout> alpha = AlphaWays(codec);
-                if (!alpha.IsEmpty)
+                foreach (string? parameters in format.FormatParameterSets)
                 {
-                    offered = offered with
+                    if (payloadType == VideoRtxPayloadType)
                     {
-                        FormatParameters = FormatParameters.Append(
-                            offered.FormatParameters,
-                            FormatParameters.AlphaName,
-                            FormatParameters.AlphaValue(alpha)
-                        ),
-                    };
-                }
+                        payloadType++;
+                    }
 
-                codecs.Add(offered);
+                    var offered = format.ToSdpCodec(payloadType++, parameters);
+                    if (!alpha.IsEmpty)
+                    {
+                        offered = offered with
+                        {
+                            FormatParameters = FormatParameters.Append(
+                                offered.FormatParameters,
+                                FormatParameters.AlphaName,
+                                FormatParameters.AlphaValue(alpha)
+                            ),
+                        };
+                    }
+
+                    codecs.Add(offered);
+                }
             }
 
             uint ssrc = NewSsrc();
@@ -302,6 +308,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         return new PeerConnectionOptions
         {
             Media = lines,
+            PayloadFormats = _services.PayloadFormats,
             StunServers = stun,
             TurnServers = turn,
             IceTransportPolicy = _options.IceTransportPolicy,
@@ -425,10 +432,11 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         if (_endpoints.VideoSource is { } source)
         {
             long start = _connection!.CurrentBitrateEstimate.TargetBitrateBps;
+            // The stream is encoded for what the receiver declared it decodes: its profile and level.
             _videoSend = new VideoSendStream(
                 source,
                 new VideoSendSetup(
-                    new VideoCodecFormat(codec, CodecParameters(local.FormatParameters)),
+                    new VideoCodecFormat(codec, SendParameters(codec, remote.FormatParameters)),
                     Writer(payloadFormat, local, media.LocalSsrc),
                     start > 0 ? start : DefaultStartBitsPerSecond,
                     alpha
@@ -531,6 +539,23 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
     }
 
     // The codec's own parameters, without the ones this library adds about the stream.
+    // What the receiver declared, for the encoder: an H.264 peer that names no profile takes Baseline
+    // (RFC 6184), which the encoder must then keep to.
+    private static ImmutableSortedDictionary<string, string> SendParameters(
+        VideoCodecId codec,
+        string? fmtp
+    )
+    {
+        ImmutableSortedDictionary<string, string> parameters = CodecParameters(fmtp);
+        return
+            codec == VideoCodecId.H264 && !parameters.ContainsKey(H264ProfileLevelId.ParameterName)
+            ? parameters.Add(
+                H264ProfileLevelId.ParameterName,
+                H264ProfileLevelId.Default.ToString()
+            )
+            : parameters;
+    }
+
     private static ImmutableSortedDictionary<string, string> CodecParameters(string? fmtp) =>
         FormatParameters.Parse(fmtp).Remove(FormatParameters.AlphaName);
 

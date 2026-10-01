@@ -5,7 +5,9 @@ namespace Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 
 /// <summary>
 /// The H.264 RTP payload format (RFC 6184) in non-interleaved mode (packetization-mode=1), offered as
-/// Constrained Baseline level 3.1 with level asymmetry allowed.
+/// Constrained High and then Constrained Baseline, each at level 5.2 with level asymmetry allowed. A
+/// payload type matches a peer's when the packetization mode and the profile agree; the levels may
+/// differ, each side receiving up to its own.
 /// </summary>
 public sealed class H264PayloadFormat : RtpPayloadFormat
 {
@@ -30,8 +32,17 @@ public sealed class H264PayloadFormat : RtpPayloadFormat
     public override int ClockRate => 90_000;
 
     /// <inheritdoc/>
-    public override string? FormatParameters =>
-        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f";
+    public override ImmutableArray<string?> FormatParameterSets =>
+        [
+            "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c34",
+            "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e034",
+        ];
+
+    /// <inheritdoc/>
+    public override bool AreCompatible(string? local, string? remote) =>
+        H264Parameters.PacketizationMode(local) == H264Parameters.PacketizationMode(remote)
+        && H264Parameters.Profile(local) is { } profile
+        && H264Parameters.Profile(remote) == profile;
 
     /// <inheritdoc/>
     public override ImmutableArray<string> RtcpFeedback => ["nack", "nack pli"];
