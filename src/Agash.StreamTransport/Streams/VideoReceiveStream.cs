@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Threading.Channels;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
@@ -253,16 +254,28 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             );
     }
 
-    private IVideoDecoder CreateDecoder() =>
-        _registry.TryCreateVideoDecoder(
-            _setup.Format,
-            _sink.Constraints,
-            out IVideoDecoder? decoder
+    // The decoder writes what the sink takes when it can. A GPU sink that takes RGB (Spout, Syphon) gets
+    // the decoder's own format on its storage and GPU instead, which a processor converts there; only
+    // when no decoder reaches the sink's storage does decoding fall back to system memory.
+    private IVideoDecoder CreateDecoder()
+    {
+        VideoConstraints sink = _sink.Constraints;
+        ImmutableArray<PixelFormat> any = [.. Enum.GetValues<PixelFormat>()];
+        foreach (
+            VideoConstraints output in (VideoConstraints[])
+                [sink, sink with { PixelFormats = any }, VideoConstraints.Cpu(any)]
         )
-            ? decoder
-            : throw new InvalidOperationException(
-                $"No registered decoder opened for {_setup.Format.Codec}."
-            );
+        {
+            if (_registry.TryCreateVideoDecoder(_setup.Format, output, out IVideoDecoder? decoder))
+            {
+                return decoder;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"No registered decoder opened for {_setup.Format.Codec}."
+        );
+    }
 
     // Asks for a keyframe unless one was asked for within the interval; true when it asked.
     private bool TryRequestKeyframe()
