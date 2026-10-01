@@ -94,7 +94,11 @@ internal static unsafe class EcnInterop
             };
             NativeSetSocketOption(socket.Handle, level, option, 1);
         }
-        catch (SocketException) { }
+        catch (SocketException)
+        {
+            // Deliberately not logged: a stack without the option delivers no ECN marks, which the
+            // receive path already reads as not ECN-capable; it would log once for every socket.
+        }
     }
 
     private static void NativeSetSocketOption(nint handle, int level, int option, int value)

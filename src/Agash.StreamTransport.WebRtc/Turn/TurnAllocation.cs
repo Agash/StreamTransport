@@ -349,6 +349,8 @@ internal sealed partial class TurnAllocation : IIceSocket
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
+                // No answer within the retransmission timeout: send again, waiting twice as long.
+                LogRetransmitting(_server.Host, rto);
                 rto *= 2;
             }
         }
@@ -397,6 +399,8 @@ internal sealed partial class TurnAllocation : IIceSocket
                     }
                     catch (TimeoutException)
                     {
+                        // No answer within the retransmission timeout: send again, waiting twice as long.
+                        LogRetransmitting(_server.Host, rto);
                         rto *= 2;
                     }
                 }
@@ -774,6 +778,13 @@ internal sealed partial class TurnAllocation : IIceSocket
         Message = "TURN deallocation on {Server} was not sent"
     )]
     private partial void LogDeallocateFailed(Exception exception, string server);
+
+    [LoggerMessage(
+        EventId = 1156,
+        Level = LogLevel.Debug,
+        Message = "TURN server {Server} did not answer within {Timeout}; retransmitting."
+    )]
+    private partial void LogRetransmitting(string server, TimeSpan timeout);
 
     private delegate void WriteAttributes(ref StunMessageWriter writer);
 
