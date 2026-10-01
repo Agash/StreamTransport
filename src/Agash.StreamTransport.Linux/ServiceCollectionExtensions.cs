@@ -1,3 +1,4 @@
+using Agash.StreamTransport.Linux.V4l2;
 using Agash.StreamTransport.Linux.Vulkan;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,9 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoProcessorFactory, VulkanVideoProcessorFactory>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, V4l2VideoInputProvider>()
         );
         return services;
     }
