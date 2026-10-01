@@ -23,6 +23,7 @@
     />
     <PackageReference Include="PipeWire.NET.Media" Condition="'$(UseLocalPipeWireNet)' != 'true'" />
     <PackageReference Include="Vortice.Vulkan" />
+    <Compile Include="..\Shared\DmaBufIdentity.cs" Link="Vulkan\DmaBufIdentity.cs" />
     <Compile Include="..\Shared\FloatRing.cs" Link="PipeWire\FloatRing.cs" />
     <InternalsVisibleTo Include="Agash.StreamTransport.Linux.Tests" />
   </ItemGroup>

@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Agash.StreamTransport.Linux\Agash.StreamTransport.Linux.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.FFmpeg\Agash.StreamTransport.Codecs.FFmpeg.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 </Project>

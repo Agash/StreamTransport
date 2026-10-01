@@ -7,23 +7,27 @@ namespace Agash.StreamTransport.Linux.Vulkan;
 
 /// <summary>
 /// One plane of a picture as a Vulkan image on DMA-BUF memory: imported from a producer's buffer, or
-/// allocated here and exported for a consumer. Planar pictures are one image per plane, which every
-/// importer (VAAPI, PipeWire consumers, compositors) takes as separate DMA-BUF planes.
+/// allocated here and exported for a consumer. Planar pictures are one image per plane; an exported
+/// picture's planes share one DMA-BUF at their own offsets, as producers lay them out, since importers
+/// such as VA-API map only pictures made of a single DMA-BUF object.
 /// </summary>
 internal sealed unsafe partial class VulkanImage : IDisposable
 {
     private readonly VulkanEngine _engine;
+
+    // An imported image owns its memory; an exported one shares its picture's allocation.
     private readonly VkDeviceMemory _memory;
+    private readonly ExportedAllocation? _allocation;
     private int _disposed;
 
     private VulkanImage(
         VulkanEngine engine,
         VkImage image,
         VkDeviceMemory memory,
+        ExportedAllocation? allocation,
         VkFormat format,
         int width,
         int height,
-        SafeFileHandle? exported,
         DmaBufPlane plane,
         ulong modifier
     )
@@ -31,10 +35,10 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         _engine = engine;
         Image = image;
         _memory = memory;
+        _allocation = allocation;
         Format = format;
         Width = width;
         Height = height;
-        Exported = exported;
         Plane = plane;
         Modifier = modifier;
     }
@@ -47,8 +51,8 @@ internal sealed unsafe partial class VulkanImage : IDisposable
 
     public int Height { get; }
 
-    /// <summary>The DMA-BUF this image exports, which it owns; null for an imported image.</summary>
-    public SafeFileHandle? Exported { get; }
+    /// <summary>The DMA-BUF this image's picture exports; null for an imported image.</summary>
+    public SafeFileHandle? Exported => _allocation?.Handle;
 
     /// <summary>Where the plane lies in its DMA-BUF.</summary>
     public DmaBufPlane Plane { get; }
@@ -137,10 +141,10 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                 engine,
                 image,
                 memory,
+                null,
                 format,
                 width,
                 height,
-                null,
                 plane,
                 modifier
             );
@@ -152,18 +156,17 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         }
     }
 
-    /// <summary>Allocates an image and exports its memory as a DMA-BUF in rows (the linear modifier).</summary>
+    /// <summary>
+    /// Allocates a picture's planes as linear images in one exported DMA-BUF, each at its own offset,
+    /// and exports it once: every plane names the same descriptor.
+    /// </summary>
     /// <param name="engine">The GPU.</param>
-    /// <param name="format">The plane's texel format.</param>
-    /// <param name="width">The plane's width in texels.</param>
-    /// <param name="height">The plane's height in texels.</param>
-    /// <param name="usage">What the image is used for.</param>
-    /// <returns>The image.</returns>
-    public static VulkanImage Export(
+    /// <param name="planes">Each plane's texel format and size.</param>
+    /// <param name="usage">How the images are used here.</param>
+    /// <returns>The planes' images, which share the allocation until the last is disposed.</returns>
+    public static VulkanImage[] ExportPicture(
         VulkanEngine engine,
-        VkFormat format,
-        int width,
-        int height,
+        ReadOnlySpan<(VkFormat Format, int Width, int Height)> planes,
         VkImageUsageFlags usage
     )
     {
@@ -179,29 +182,51 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             pNext = &modifiers,
             handleTypes = VkExternalMemoryHandleTypeFlags.DmaBufEXT,
         };
-        VkImage image = CreateImage(api, &external, format, width, height, usage);
+
+        var images = new VkImage[planes.Length];
+        ulong[] offsets = new ulong[planes.Length];
         VkDeviceMemory memory = default;
         try
         {
-            VkMemoryRequirements requirements;
-            api.vkGetImageMemoryRequirements(image, &requirements);
-            VkMemoryDedicatedAllocateInfo dedicated = new() { image = image };
+            // The planes laid end to end, each at its own alignment, in memory every plane can use.
+            ulong size = 0;
+            uint memoryTypes = uint.MaxValue;
+            for (int i = 0; i < planes.Length; i++)
+            {
+                images[i] = CreateImage(
+                    api,
+                    &external,
+                    planes[i].Format,
+                    planes[i].Width,
+                    planes[i].Height,
+                    usage
+                );
+                VkMemoryRequirements requirements;
+                api.vkGetImageMemoryRequirements(images[i], &requirements);
+                ulong alignment = Math.Max(requirements.alignment, 1);
+                offsets[i] = (size + alignment - 1) / alignment * alignment;
+                size = offsets[i] + requirements.size;
+                memoryTypes &= requirements.memoryTypeBits;
+            }
+
+            // One image alone takes a dedicated allocation, which some drivers want for export.
+            VkMemoryDedicatedAllocateInfo dedicated = new() { image = images[0] };
             VkExportMemoryAllocateInfo export = new()
             {
-                pNext = &dedicated,
+                pNext = planes.Length == 1 ? &dedicated : null,
                 handleTypes = VkExternalMemoryHandleTypeFlags.DmaBufEXT,
             };
             VkMemoryAllocateInfo allocate = new()
             {
                 pNext = &export,
-                allocationSize = requirements.size,
-                memoryTypeIndex = engine.MemoryType(
-                    requirements.memoryTypeBits,
-                    VkMemoryPropertyFlags.DeviceLocal
-                ),
+                allocationSize = size,
+                memoryTypeIndex = engine.MemoryType(memoryTypes, VkMemoryPropertyFlags.DeviceLocal),
             };
             api.vkAllocateMemory(&allocate, null, &memory).CheckResult();
-            api.vkBindImageMemory(image, memory, 0).CheckResult();
+            for (int i = 0; i < planes.Length; i++)
+            {
+                api.vkBindImageMemory(images[i], memory, offsets[i]).CheckResult();
+            }
 
             VkMemoryGetFdInfoKHR getFd = new()
             {
@@ -210,25 +235,36 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             };
             int fd;
             api.vkGetMemoryFdKHR(&getFd, &fd).CheckResult();
-            SafeFileHandle handle = new(fd, ownsHandle: true);
-
-            VkImageSubresource subresource = new()
-            {
-                aspectMask = VkImageAspectFlags.MemoryPlane0EXT,
-            };
-            VkSubresourceLayout layout;
-            api.vkGetImageSubresourceLayout(image, &subresource, &layout);
-            return new VulkanImage(
+            ExportedAllocation allocation = new(
                 engine,
-                image,
                 memory,
-                format,
-                width,
-                height,
-                handle,
-                new DmaBufPlane(fd, (int)layout.offset, (int)layout.rowPitch),
-                VulkanEngine.LinearModifier
+                new SafeFileHandle(fd, ownsHandle: true),
+                planes.Length
             );
+
+            var result = new VulkanImage[planes.Length];
+            for (int i = 0; i < planes.Length; i++)
+            {
+                VkImageSubresource subresource = new()
+                {
+                    aspectMask = VkImageAspectFlags.MemoryPlane0EXT,
+                };
+                VkSubresourceLayout layout;
+                api.vkGetImageSubresourceLayout(images[i], &subresource, &layout);
+                result[i] = new VulkanImage(
+                    engine,
+                    images[i],
+                    memory,
+                    allocation,
+                    planes[i].Format,
+                    planes[i].Width,
+                    planes[i].Height,
+                    new DmaBufPlane(fd, (int)(offsets[i] + layout.offset), (int)layout.rowPitch),
+                    VulkanEngine.LinearModifier
+                );
+            }
+
+            return result;
         }
         catch
         {
@@ -237,8 +273,37 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                 api.vkFreeMemory(memory, null);
             }
 
-            api.vkDestroyImage(image, null);
+            foreach (VkImage image in images)
+            {
+                if (image != VkImage.Null)
+                {
+                    api.vkDestroyImage(image, null);
+                }
+            }
+
             throw;
+        }
+    }
+
+    // The memory and descriptor a picture's exported planes share, freed when the last plane goes.
+    private sealed class ExportedAllocation(
+        VulkanEngine engine,
+        VkDeviceMemory memory,
+        SafeFileHandle handle,
+        int planes
+    )
+    {
+        private int _planes = planes;
+
+        public SafeFileHandle Handle { get; } = handle;
+
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref _planes) == 0)
+            {
+                engine.Api.vkFreeMemory(memory, null);
+                Handle.Dispose();
+            }
         }
     }
 
@@ -262,8 +327,14 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
             _engine.Api.vkDestroyImage(Image, null);
-            _engine.Api.vkFreeMemory(_memory, null);
-            Exported?.Dispose();
+            if (_allocation is { } allocation)
+            {
+                allocation.Release();
+            }
+            else
+            {
+                _engine.Api.vkFreeMemory(_memory, null);
+            }
         }
     }
 

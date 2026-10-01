@@ -120,25 +120,24 @@ internal sealed class DmaBufPool : IDisposable
             | VkImageUsageFlags.TransferDst;
         return Format switch
         {
-            PixelFormat.Nv12 =>
-            [
-                VulkanImage.Export(_engine, VkFormat.R8Unorm, Size.Width, Size.Height, usage),
-                VulkanImage.Export(
-                    _engine,
-                    VkFormat.R8G8Unorm,
-                    Size.Width / 2,
-                    Size.Height / 2,
-                    usage
-                ),
-            ],
-            PixelFormat.Bgra =>
-            [
-                VulkanImage.Export(_engine, VkFormat.B8G8R8A8Unorm, Size.Width, Size.Height, usage),
-            ],
-            PixelFormat.Rgba =>
-            [
-                VulkanImage.Export(_engine, VkFormat.R8G8B8A8Unorm, Size.Width, Size.Height, usage),
-            ],
+            PixelFormat.Nv12 => VulkanImage.ExportPicture(
+                _engine,
+                [
+                    (VkFormat.R8Unorm, Size.Width, Size.Height),
+                    (VkFormat.R8G8Unorm, Size.Width / 2, Size.Height / 2),
+                ],
+                usage
+            ),
+            PixelFormat.Bgra => VulkanImage.ExportPicture(
+                _engine,
+                [(VkFormat.B8G8R8A8Unorm, Size.Width, Size.Height)],
+                usage
+            ),
+            PixelFormat.Rgba => VulkanImage.ExportPicture(
+                _engine,
+                [(VkFormat.R8G8B8A8Unorm, Size.Width, Size.Height)],
+                usage
+            ),
             _ => throw new ArgumentOutOfRangeException(nameof(Format), Format, null),
         };
     }

@@ -46,7 +46,7 @@ internal sealed unsafe partial class ImportCache
     )
     {
         Key key = new(
-            Inode(plane.Fd),
+            DmaBufIdentity.Of(plane.Fd),
             plane.Offset,
             plane.Stride,
             modifier,
@@ -99,23 +99,6 @@ internal sealed unsafe partial class ImportCache
             entry!.Image.Dispose();
         }
     }
-
-    // A DMA-BUF's device and inode: st_dev and st_ino open struct stat on every Linux architecture.
-    private static (ulong Device, ulong Inode) Inode(int fd)
-    {
-        ulong* stat = stackalloc ulong[32];
-        if (Fstat(fd, stat) != 0)
-        {
-            throw new IOException(
-                $"The DMA-BUF could not be identified (errno {Marshal.GetLastPInvokeError()})."
-            );
-        }
-
-        return (stat[0], stat[1]);
-    }
-
-    [LibraryImport("libc", EntryPoint = "fstat", SetLastError = true)]
-    private static partial int Fstat(int fd, ulong* stat);
 
     private readonly record struct Key(
         (ulong Device, ulong Inode) Buffer,

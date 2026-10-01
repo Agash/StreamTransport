@@ -55,4 +55,7 @@
       Visible="false"
     />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\DmaBufIdentity.cs" Link="DmaBufIdentity.cs" />
+  </ItemGroup>
 </Project>

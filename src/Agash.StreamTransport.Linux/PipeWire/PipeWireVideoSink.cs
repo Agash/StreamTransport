@@ -253,18 +253,28 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             VulkanEngine engine = _engine!;
             const VkImageUsageFlags usage =
                 VkImageUsageFlags.TransferDst | VkImageUsageFlags.TransferSrc;
+            // One DMA-BUF per picture, its planes at their offsets: importers such as VA-API map only
+            // pictures made of a single object.
             VulkanImage[] images = _format.PixelFormat switch
             {
-                PixelFormat.Nv12 =>
-                [
-                    VulkanImage.Export(engine, VkFormat.R8Unorm, width, height, usage),
-                    VulkanImage.Export(engine, VkFormat.R8G8Unorm, width / 2, height / 2, usage),
-                ],
-                PixelFormat.Rgba =>
-                [
-                    VulkanImage.Export(engine, VkFormat.R8G8B8A8Unorm, width, height, usage),
-                ],
-                _ => [VulkanImage.Export(engine, VkFormat.B8G8R8A8Unorm, width, height, usage)],
+                PixelFormat.Nv12 => VulkanImage.ExportPicture(
+                    engine,
+                    [
+                        (VkFormat.R8Unorm, width, height),
+                        (VkFormat.R8G8Unorm, width / 2, height / 2),
+                    ],
+                    usage
+                ),
+                PixelFormat.Rgba => VulkanImage.ExportPicture(
+                    engine,
+                    [(VkFormat.R8G8B8A8Unorm, width, height)],
+                    usage
+                ),
+                _ => VulkanImage.ExportPicture(
+                    engine,
+                    [(VkFormat.B8G8R8A8Unorm, width, height)],
+                    usage
+                ),
             };
             if (_shared.Remove(bufferIndex, out VulkanImage[]? previous))
             {

@@ -256,24 +256,21 @@ internal sealed class DmaBufInput : EncoderInput
             );
         }
 
-        // Planes that share a file descriptor are one DMA-BUF object; sizes are read from the objects.
+        // Planes in one DMA-BUF are one object, whichever descriptor each came with: VA-API maps only
+        // frames made of a single object, and a producer may hand every plane its own descriptor.
+        // Sizes are read from the objects.
         var objects = ImmutableArray.CreateBuilder<FF.DrmObject>(image.PlaneCount);
+        var identities = new List<(ulong, ulong)>(image.PlaneCount);
         var planes = ImmutableArray.CreateBuilder<FF.DrmPlane>(image.PlaneCount);
         for (int i = 0; i < image.PlaneCount; i++)
         {
             DmaBufPlane plane = image[i];
-            int index = -1;
-            for (int o = 0; o < objects.Count; o++)
-            {
-                if (objects[o].FileDescriptor == plane.Fd)
-                {
-                    index = o;
-                }
-            }
-
+            (ulong, ulong) identity = DmaBufIdentity.Of(plane.Fd);
+            int index = identities.IndexOf(identity);
             if (index < 0)
             {
                 index = objects.Count;
+                identities.Add(identity);
                 objects.Add(new FF.DrmObject(plane.Fd, 0, image.Modifier));
             }
 
