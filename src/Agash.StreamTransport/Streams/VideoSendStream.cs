@@ -5,14 +5,16 @@ using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Streams;
 
-/// <summary>What a video send stream is built from.</summary>
-/// <param name="Format">The negotiated codec and its parameters.</param>
-/// <param name="Writer">Turns encoded frames into RTP.</param>
-/// <param name="StartBitsPerSecond">The rate to start encoding at.</param>
+/// <summary>What a send stream sends: the negotiated format, where its RTP goes, how fast it starts.</summary>
+/// <param name="Format">The negotiated codec format.</param>
+/// <param name="Writer">Where the encoded frames' RTP goes.</param>
+/// <param name="StartBitsPerSecond">The rate to start at.</param>
+/// <param name="Alpha">How the frames' transparency travels, as negotiated.</param>
 internal sealed record VideoSendSetup(
     VideoCodecFormat Format,
     RtpStreamWriter Writer,
-    long StartBitsPerSecond
+    long StartBitsPerSecond,
+    AlphaLayout Alpha = AlphaLayout.None
 );
 
 /// <summary>
@@ -77,11 +79,13 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
 
         // The source is asked for what the encoder takes, so it can produce that directly; whatever it
         // cannot, a processor converts.
-        _encoderInput =
-            registry.QueryVideoEncoder(setup.Format, device: null)?.Input
-            ?? throw new InvalidOperationException(
-                $"No registered encoder encodes {setup.Format.Codec}."
-            );
+        _encoderInput = EncoderInput(
+            registry.QueryVideoEncoder(setup.Format, device: null, alpha: setup.Alpha)
+                ?? throw new InvalidOperationException(
+                    $"No registered encoder encodes {setup.Format.Codec}"
+                        + (setup.Alpha == AlphaLayout.Layer ? " with an alpha layer." : ".")
+                )
+        );
         _worker = Task.Run(() => RunAsync(_stop.Token));
         _connection = source.Connect(this, _encoderInput);
     }
@@ -245,10 +249,13 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private void Refuse(string implementation)
     {
         _ = _refused.Add(implementation);
-        if (_registry.QueryVideoEncoder(_setup.Format, device: null, _refused) is { } next)
+        if (
+            _registry.QueryVideoEncoder(_setup.Format, device: null, _refused, _setup.Alpha) is
+            { } next
+        )
         {
             LogEncoderRefused(implementation, next.ImplementationName);
-            _encoderInput = next.Input;
+            _encoderInput = EncoderInput(next);
         }
         else
         {
@@ -256,15 +263,35 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         }
     }
 
+    // What the source is asked for: what the encoder takes, and for an alpha layer only the formats that
+    // carry alpha, so the frames keep it on the way in.
+    private VideoConstraints EncoderInput(VideoEncoderInfo encoder) =>
+        _setup.Alpha == AlphaLayout.Layer
+            ? encoder.Input with
+            {
+                PixelFormats =
+                [
+                    .. encoder.Input.PixelFormats.Where(static f =>
+                        f is PixelFormat.Bgra or PixelFormat.Rgba or PixelFormat.Yuva420
+                    ),
+                ],
+            }
+            : encoder.Input;
+
     private bool NeedsProcessing(VideoStreamDescription description) =>
-        _options.Alpha == AlphaLayout.PackSideBySide
+        _setup.Alpha == AlphaLayout.PackSideBySide
         || !_encoderInput.Storages.Contains(description.Storage)
         || !_encoderInput.PixelFormats.Contains(description.PixelFormat);
 
     private IVideoProcessor CreateProcessor(VideoStreamDescription description) =>
         _registry.TryCreateVideoProcessor(
             description,
-            new VideoProcessing(_encoderInput, Alpha: _options.Alpha),
+            new VideoProcessing(
+                _encoderInput,
+                Alpha: _setup.Alpha == AlphaLayout.PackSideBySide
+                    ? AlphaLayout.PackSideBySide
+                    : AlphaLayout.None
+            ),
             out IVideoProcessor? processor
         )
             ? processor
@@ -279,7 +306,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
                 size,
                 new RateTarget(Interlocked.Read(ref _bitsPerSecond), _options.FrameRate),
                 _options.KeyframeInterval,
-                _options.VideoTuning
+                _options.VideoTuning,
+                Alpha: _setup.Alpha == AlphaLayout.Layer ? AlphaLayout.Layer : AlphaLayout.None
             ),
             device,
             out IVideoEncoder? encoder,

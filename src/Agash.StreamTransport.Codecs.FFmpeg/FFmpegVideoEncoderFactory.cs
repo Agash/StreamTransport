@@ -111,13 +111,27 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             ?? throw new NotSupportedException(
                 $"{_spec.Backend} cannot encode {configuration.Format.Codec} on this machine{(device is null ? "" : " on that GPU")}."
             );
+        ImmutableDictionary<string, string> options = PrivateOptions(
+            resolved.Codec.Name,
+            configuration.Tuning
+        );
+        if (configuration.Alpha == AlphaLayout.Layer)
+        {
+            options = options.SetItems(
+                EncoderSettings.AlphaLayerOptions(resolved.Codec.Name)
+                    ?? throw new NotSupportedException(
+                        $"{resolved.Codec.Name} does not code an alpha layer."
+                    )
+            );
+        }
+
         return new FFmpegVideoEncoder(
             _spec,
             resolved.Codec,
             configuration,
             resolved.Info,
             resolved.Adapter,
-            PrivateOptions(resolved.Codec.Name, configuration.Tuning),
+            options,
             resolved.ForcesKeyframes,
             _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
         );
@@ -169,7 +183,8 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             WidthAlignment: 2,
             HeightAlignment: 2,
             probe.MaximumSize,
-            probe.ReconfigurableRate
+            probe.ReconfigurableRate,
+            EncodesAlphaLayer: EncoderSettings.AlphaLayerOptions(name) is not null
         );
         return new Resolved(codec, adapter, info, probe.ForcesKeyframes);
     }

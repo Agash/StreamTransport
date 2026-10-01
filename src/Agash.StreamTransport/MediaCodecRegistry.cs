@@ -68,20 +68,46 @@ public sealed partial class MediaCodecRegistry
     public bool CanDecode(AudioCodecId codec) =>
         _audioDecoders.Any(f => f.SupportedFormats.Any(s => s.Codec == codec));
 
+    /// <summary>Whether some registered encoder codes the codec's alpha layer.</summary>
+    /// <param name="codec">The codec.</param>
+    /// <returns>True when alpha can be sent as a layer of it.</returns>
+    public bool CanEncodeAlphaLayer(VideoCodecId codec) =>
+        Encoders(new VideoCodecFormat(codec), device: null)
+            .Any(static e => e.Info.EncodesAlphaLayer);
+
+    /// <summary>Whether some registered decoder decodes the codec's alpha layer.</summary>
+    /// <param name="codec">The codec.</param>
+    /// <returns>True when alpha sent as a layer of it can be received.</returns>
+    public bool CanDecodeAlphaLayer(VideoCodecId codec) =>
+        _videoDecoders.Any(factory =>
+            factory.QueryCapabilities(new VideoCodecFormat(codec), AlphaOutput)
+                is { DecodesAlphaLayer: true }
+        );
+
+    // What a decoder of an alpha layer is asked to produce: frames with alpha, in memory.
+    private static readonly VideoConstraints AlphaOutput = VideoConstraints.Cpu(
+        PixelFormat.Yuva420
+    );
+
     /// <summary>What the best encoder for a format would take, without making one.</summary>
     /// <param name="format">The codec format.</param>
     /// <param name="device">The GPU the frames will be on; null for any.</param>
     /// <param name="refused">Implementations to pass over, by name: ones that failed in use.</param>
+    /// <param name="alpha">How alpha travels; <see cref="AlphaLayout.Layer"/> takes only encoders of the alpha layer.</param>
     /// <returns>The best encoder's information, or null when nothing encodes the format.</returns>
     public VideoEncoderInfo? QueryVideoEncoder(
         VideoCodecFormat format,
         GpuIdentity? device,
-        IReadOnlySet<string>? refused = null
+        IReadOnlySet<string>? refused = null,
+        AlphaLayout alpha = AlphaLayout.None
     )
     {
         foreach ((IVideoEncoderFactory _, VideoEncoderInfo info) in Encoders(format, device))
         {
-            if (refused?.Contains(info.ImplementationName) != true)
+            if (
+                refused?.Contains(info.ImplementationName) != true
+                && (alpha != AlphaLayout.Layer || info.EncodesAlphaLayer)
+            )
             {
                 return info;
             }
@@ -111,7 +137,10 @@ public sealed partial class MediaCodecRegistry
             )
         )
         {
-            if (refused?.Contains(info.ImplementationName) == true)
+            if (
+                refused?.Contains(info.ImplementationName) == true
+                || (configuration.Alpha == AlphaLayout.Layer && !info.EncodesAlphaLayer)
+            )
             {
                 continue;
             }
@@ -159,11 +188,13 @@ public sealed partial class MediaCodecRegistry
     /// <param name="format">The codec format.</param>
     /// <param name="output">What the consumer of decoded frames accepts.</param>
     /// <param name="decoder">The decoder when one opened.</param>
+    /// <param name="alpha">How alpha travels; <see cref="AlphaLayout.Layer"/> takes only decoders of the alpha layer.</param>
     /// <returns>True when a decoder opened.</returns>
     public bool TryCreateVideoDecoder(
         VideoCodecFormat format,
         VideoConstraints output,
-        [NotNullWhen(true)] out IVideoDecoder? decoder
+        [NotNullWhen(true)] out IVideoDecoder? decoder,
+        AlphaLayout alpha = AlphaLayout.None
     )
     {
         ArgumentNullException.ThrowIfNull(format);
@@ -177,7 +208,10 @@ public sealed partial class MediaCodecRegistry
             VideoConstraints narrowed = output with { Storages = [storage] };
             foreach (IVideoDecoderFactory factory in _videoDecoders)
             {
-                if (factory.QueryCapabilities(format, narrowed) is not { } info)
+                if (
+                    factory.QueryCapabilities(format, narrowed) is not { } info
+                    || (alpha == AlphaLayout.Layer && !info.DecodesAlphaLayer)
+                )
                 {
                     continue;
                 }

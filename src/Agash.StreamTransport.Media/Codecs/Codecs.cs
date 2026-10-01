@@ -59,13 +59,16 @@ public readonly record struct EncodeRequest(bool Keyframe = false);
 /// <param name="KeyframeInterval">The longest gap between keyframes; zero for none unless requested.</param>
 /// <param name="Tuning">What rate control and latency are tuned for.</param>
 /// <param name="Color">The colour the encoded stream signals; frames are converted to it if needed.</param>
+/// <param name="Alpha">How the frames' alpha travels: <see cref="AlphaLayout.Layer"/> asks the encoder to code
+/// it as the codec's alpha layer; otherwise the encoder codes colour only.</param>
 public sealed record VideoEncoderConfiguration(
     VideoCodecFormat Format,
     VideoSize Size,
     RateTarget Rate,
     TimeSpan KeyframeInterval = default,
     EncodeTuning Tuning = EncodeTuning.Interactive,
-    VideoColor Color = default
+    VideoColor Color = default,
+    AlphaLayout Alpha = AlphaLayout.None
 );
 
 /// <summary>What an encoder takes and can do, so a pipeline can feed it without converting.</summary>
@@ -76,6 +79,7 @@ public sealed record VideoEncoderConfiguration(
 /// <param name="HeightAlignment">The multiple the height must be.</param>
 /// <param name="MaximumSize">The largest picture.</param>
 /// <param name="ReconfigurableRate">Whether <see cref="IVideoEncoder.Reconfigure"/> takes effect while encoding.</param>
+/// <param name="EncodesAlphaLayer">Whether it codes alpha as the codec's alpha layer when asked.</param>
 public sealed record VideoEncoderInfo(
     string ImplementationName,
     bool IsHardwareAccelerated,
@@ -83,7 +87,8 @@ public sealed record VideoEncoderInfo(
     int WidthAlignment,
     int HeightAlignment,
     VideoSize MaximumSize,
-    bool ReconfigurableRate
+    bool ReconfigurableRate,
+    bool EncodesAlphaLayer = false
 );
 
 /// <summary>
@@ -203,10 +208,12 @@ public interface IVideoEncoder : IDisposable
 /// <param name="ImplementationName">Which implementation, for logs.</param>
 /// <param name="IsHardwareAccelerated">Whether it runs on a GPU or media engine.</param>
 /// <param name="Output">The frames it produces.</param>
+/// <param name="DecodesAlphaLayer">Whether it decodes the codec's alpha layer into frames with alpha.</param>
 public sealed record VideoDecoderInfo(
     string ImplementationName,
     bool IsHardwareAccelerated,
-    VideoConstraints Output
+    VideoConstraints Output,
+    bool DecodesAlphaLayer = false
 );
 
 /// <summary>A video decoder: access units in, frames out to the consumer.</summary>

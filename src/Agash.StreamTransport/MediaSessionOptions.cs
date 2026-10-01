@@ -26,8 +26,9 @@ public enum MediaProfile
     IrlContribution,
 
     /// <summary>
-    /// An avatar with transparency: colour and alpha packed side by side through an opaque codec and
-    /// recomposited on the receiver.
+    /// An avatar with transparency: alpha in the codec's own alpha layer where both peers code it, and
+    /// otherwise colour and alpha packed side by side through an opaque codec and recomposited on the
+    /// receiver.
     /// </summary>
     AvatarTransparent,
 }
@@ -81,7 +82,11 @@ public sealed record MediaSessionOptions
     /// </summary>
     public TimeSpan KeyframeInterval { get; init; } = TimeSpan.FromSeconds(10);
 
-    /// <summary>How transparency travels: <see cref="AlphaLayout.PackSideBySide"/> sends it.</summary>
+    /// <summary>
+    /// How a sender's transparency travels: <see cref="AlphaLayout.Layer"/> prefers the codec's own alpha
+    /// layer where both peers code it (H.265 from VideoToolbox, decoded by FFmpeg) and falls back to side
+    /// by side; <see cref="AlphaLayout.PackSideBySide"/> always packs. The receiver says what it takes.
+    /// </summary>
     public AlphaLayout Alpha { get; init; } = AlphaLayout.None;
 
     /// <summary>The audio encoder's target bit rate.</summary>
@@ -137,7 +142,7 @@ public sealed record MediaSessionOptions
             MediaProfile.AvatarTransparent => new MediaSessionOptions
             {
                 Profile = profile,
-                Alpha = AlphaLayout.PackSideBySide,
+                Alpha = AlphaLayout.Layer,
             },
             _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, null),
         };

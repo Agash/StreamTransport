@@ -107,6 +107,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     public TransportHealthMetrics Health => _connection?.CurrentHealth ?? default;
 
+    /// <summary>How the video's alpha travels, as negotiated; none until the media is built.</summary>
+    internal AlphaLayout VideoAlpha { get; private set; }
+
     /// <inheritdoc/>
     public MediaRoute? Route =>
         _connection?.SelectedPath is { } path ? new MediaRoute(path.Local, path.Remote) : null;
@@ -254,17 +257,15 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 }
 
                 var offered = format.ToSdpCodec(payloadType++);
-                if (
-                    _endpoints.VideoSource is not null
-                    && _options.Alpha == AlphaLayout.PackSideBySide
-                )
+                ImmutableArray<AlphaLayout> alpha = AlphaWays(codec);
+                if (!alpha.IsEmpty)
                 {
                     offered = offered with
                     {
                         FormatParameters = FormatParameters.Append(
                             offered.FormatParameters,
                             FormatParameters.AlphaName,
-                            FormatParameters.SideBySide
+                            FormatParameters.AlphaValue(alpha)
                         ),
                     };
                 }
@@ -391,6 +392,18 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
     {
         VideoCodecId codec = new(local.EncodingName);
         _videoPayloadType = local.PayloadType;
+        ImmutableArray<AlphaLayout> ours = FormatParameters.AlphaLayouts(local.FormatParameters);
+        ImmutableArray<AlphaLayout> theirs = FormatParameters.AlphaLayouts(remote.FormatParameters);
+        AlphaLayout alpha =
+            _role == MediaSessionRole.Answerer
+                ? FormatParameters.ChooseAlpha(theirs, ours)
+                : FormatParameters.ChooseAlpha(ours, theirs);
+        VideoAlpha = alpha;
+        if (alpha != AlphaLayout.None)
+        {
+            LogAlpha(alpha, codec);
+        }
+
         if (_endpoints.VideoSource is { } source)
         {
             long start = _connection!.CurrentBitrateEstimate.TargetBitrateBps;
@@ -399,7 +412,8 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 new VideoSendSetup(
                     new VideoCodecFormat(codec, CodecParameters(local.FormatParameters)),
                     Writer(payloadFormat, local, media.LocalSsrc),
-                    start > 0 ? start : DefaultStartBitsPerSecond
+                    start > 0 ? start : DefaultStartBitsPerSecond,
+                    alpha
                 ),
                 _services.Codecs,
                 _options,
@@ -410,20 +424,11 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
         if (_endpoints.VideoSink is { } sink)
         {
-            bool alpha =
-                FormatParameters
-                    .Parse(remote.FormatParameters)
-                    .TryGetValue(FormatParameters.AlphaName, out string? layout)
-                && string.Equals(
-                    layout,
-                    FormatParameters.SideBySide,
-                    StringComparison.OrdinalIgnoreCase
-                );
             _videoReceive = new VideoReceiveStream(
                 new VideoReceiveSetup(
                     new VideoCodecFormat(codec, CodecParameters(remote.FormatParameters)),
                     payloadFormat,
-                    alpha ? AlphaLayout.PackSideBySide : AlphaLayout.None,
+                    alpha,
                     RequestKeyframeAsync
                 ),
                 sink,
@@ -480,6 +485,32 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             new ClockRate(format.ClockRate),
             _captureClock
         );
+
+    // The ways this side can carry alpha for a codec, most preferred first. A sender lists them when its
+    // options ask for alpha: the codec's alpha layer first when that is preferred and an encoder codes it,
+    // and side by side, which every codec carries. A receiver lists what it can take: the layer when a
+    // decoder decodes it, and side by side.
+    private ImmutableArray<AlphaLayout> AlphaWays(VideoCodecId codec)
+    {
+        if (_endpoints.VideoSource is not null)
+        {
+            return _options.Alpha switch
+            {
+                AlphaLayout.Layer when _services.Codecs.CanEncodeAlphaLayer(codec) =>
+                [
+                    AlphaLayout.Layer,
+                    AlphaLayout.PackSideBySide,
+                ],
+                AlphaLayout.Layer or AlphaLayout.PackSideBySide => [AlphaLayout.PackSideBySide],
+                _ => [],
+            };
+        }
+
+        return _endpoints.VideoSink is null ? []
+            : _services.Codecs.CanDecodeAlphaLayer(codec)
+                ? [AlphaLayout.Layer, AlphaLayout.PackSideBySide]
+            : [AlphaLayout.PackSideBySide];
+    }
 
     // The codec's own parameters, without the ones this library adds about the stream.
     private static ImmutableSortedDictionary<string, string> CodecParameters(string? fmtp) =>
@@ -647,6 +678,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         "The {Kind} stream could not be built; the session goes on without it."
     )]
     private partial void LogMediaFailed(Exception exception, SdpMediaKind kind);
+
+    [LoggerMessage(2113, LogLevel.Information, "Video alpha travels as {Alpha} in {Codec}.")]
+    private partial void LogAlpha(AlphaLayout alpha, VideoCodecId codec);
 
     [LoggerMessage(2105, LogLevel.Warning, "Discarded an unparsable remote {Kind}.")]
     private partial void LogUnparsableDescription(SdpKind kind);

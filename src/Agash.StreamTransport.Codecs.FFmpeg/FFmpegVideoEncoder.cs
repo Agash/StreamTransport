@@ -265,13 +265,21 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                     BitRate = rate.BitsPerSecond,
                     MaxRate = rate.BitsPerSecond,
                     BufferSize = BufferSize(rate, _configuration.Tuning),
-                    LowDelay = true,
+                    LowDelay =
+                        _configuration.Alpha != AlphaLayout.Layer
+                        || EncoderSettings.LowDelayWithAlphaLayer(_codec.Name),
                     HardwareFrames = input.Pool,
                     HardwareDevice = input.Pool is null ? input.Device : null,
+                    // The range describes the samples the encoder is handed: RGB is full range, and
+                    // the encoder converts it to the coded range itself (VideoToolbox has no BGRA in
+                    // any other range).
                     ColorRange =
-                        color.Range == ColorRange.Unspecified
-                            ? null
-                            : Formats.ToFFmpeg(color.Range),
+                        Formats.FromFFmpeg(input.ContextFormat)
+                            is PixelFormat.Bgra
+                                or PixelFormat.Rgba
+                            ? Formats.ToFFmpeg(ColorRange.Full)
+                        : color.Range == ColorRange.Unspecified ? null
+                        : Formats.ToFFmpeg(color.Range),
                     ColorPrimaries =
                         color.Primaries == ColorPrimaries.Unspecified
                             ? null

@@ -14,6 +14,13 @@ public enum AlphaLayout
 
     /// <summary>The reverse of <see cref="PackSideBySide"/>: an opaque side-by-side frame back to one with alpha.</summary>
     UnpackSideBySide,
+
+    /// <summary>
+    /// Alpha as the codec's own auxiliary picture layer: H.265's alpha layer (an auxiliary layer the
+    /// alpha channel information SEI describes), carried in the same RTP stream (RFC 7798). The colour
+    /// stays the base layer, which a decoder that ignores the layer shows opaque.
+    /// </summary>
+    Layer,
 }
 
 /// <summary>A stream of frames as a processor is fed them.</summary>

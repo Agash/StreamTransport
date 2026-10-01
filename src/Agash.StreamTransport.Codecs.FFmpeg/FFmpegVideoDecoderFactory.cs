@@ -28,6 +28,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         PixelFormat.P010,
         PixelFormat.Bgra,
         PixelFormat.Rgba,
+        PixelFormat.Yuva420,
     ];
 
     private readonly DecoderSpec _spec;
@@ -189,7 +190,11 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
                     ? [cpu!.Value]
                     : [PixelFormat.Nv12, PixelFormat.P010],
                 storage == VideoStorageKind.Cpu ? null : identity
-            )
+            ),
+            // FFmpeg's own HEVC decoder decodes the alpha layer; hardware decoding takes the base
+            // layer only.
+            DecodesAlphaLayer: _spec.Backend == DecoderBackend.Software
+                && format.Codec == VideoCodecId.H265
         );
         return new Resolved(codec, adapter, identity, storage, cpu ?? PixelFormat.Nv12, info);
     }

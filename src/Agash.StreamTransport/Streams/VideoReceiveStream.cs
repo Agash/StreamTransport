@@ -259,12 +259,38 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     // when no decoder reaches the sink's storage does decoding fall back to system memory.
     private IVideoDecoder CreateDecoder()
     {
+        // An alpha layer is decoded into frames with alpha, in memory: no hardware decoder keeps it.
+        if (_setup.Alpha == AlphaLayout.Layer)
+        {
+            return _registry.TryCreateVideoDecoder(
+                _setup.Format,
+                VideoConstraints.Cpu(PixelFormat.Yuva420),
+                out IVideoDecoder? layered,
+                AlphaLayout.Layer
+            )
+                ? layered
+                : throw new InvalidOperationException(
+                    $"No registered decoder decodes the alpha layer of {_setup.Format.Codec}."
+                );
+        }
+
         VideoConstraints sink = _sink.Constraints;
         ImmutableArray<PixelFormat> any = [.. Enum.GetValues<PixelFormat>()];
-        foreach (
-            VideoConstraints output in (VideoConstraints[])
-                [sink, sink with { PixelFormats = any }, VideoConstraints.Cpu(any)]
-        )
+
+        // A side-by-side frame is unpacked from the decoder's own 4:2:0: converted to the sink's RGB first,
+        // its alpha half would be colour.
+        VideoConstraints[] outputs =
+            _setup.Alpha == AlphaLayout.PackSideBySide
+                ?
+                [
+                    sink with
+                    {
+                        PixelFormats = [PixelFormat.Nv12, PixelFormat.I420],
+                    },
+                    VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420),
+                ]
+                : [sink, sink with { PixelFormats = any }, VideoConstraints.Cpu(any)];
+        foreach (VideoConstraints output in outputs)
         {
             if (_registry.TryCreateVideoDecoder(_setup.Format, output, out IVideoDecoder? decoder))
             {

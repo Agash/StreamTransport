@@ -119,7 +119,7 @@ public sealed class MediaCodecRegistryTests
         Assert.AreEqual(VideoCodecId.H265, irl.VideoCodecs[0]);
 
         Assert.AreEqual(
-            AlphaLayout.PackSideBySide,
+            AlphaLayout.Layer,
             MediaSessionOptions.For(MediaProfile.AvatarTransparent).Alpha
         );
         Assert.AreEqual(

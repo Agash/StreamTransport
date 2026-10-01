@@ -101,6 +101,21 @@ internal static class EncoderSettings
         };
     }
 
+    // The options that make an encoder code the frames' alpha as the codec's alpha layer, or null when it
+    // cannot. VideoToolbox codes H.265 with an alpha layer from BGRA when given an alpha quality; edges
+    // of a keyed or rendered subject want it high. Other FFmpeg encoders take BGRA but drop its alpha.
+    public static ImmutableDictionary<string, string>? AlphaLayerOptions(string encoder) =>
+        encoder switch
+        {
+            "hevc_videotoolbox" => Options(("alpha_quality", "0.9")),
+            _ => null,
+        };
+
+    // Whether the encoder keeps its low-latency rate control while coding an alpha layer. VideoToolbox
+    // cannot create an HEVC-with-alpha session in low-latency mode (kVTParameterErr); without it, with no
+    // B-frames and in real time, it still outputs each frame as it is encoded.
+    public static bool LowDelayWithAlphaLayer(string encoder) => encoder != "hevc_videotoolbox";
+
     private static ImmutableDictionary<string, string> Options(
         params ReadOnlySpan<(string Key, string Value)> options
     )
