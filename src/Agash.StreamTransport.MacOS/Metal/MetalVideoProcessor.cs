@@ -29,6 +29,13 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
         ArgumentNullException.ThrowIfNull(processing);
         VideoConstraints output = processing.Output;
 
+        // Frames in memory for a consumer on the GPU are uploaded into an IOSurface, converted there when
+        // the consumer takes another format: a camera or a test signal feeding Syphon or VideoToolbox.
+        if (input.Storage == VideoStorageKind.Cpu)
+        {
+            return Upload(input, processing);
+        }
+
         // The work runs on the input's GPU; the result stays there as an IOSurface, or is read back for
         // a consumer in memory (a software encoder fed by a GPU source).
         VideoStorageKind? result =
@@ -92,6 +99,33 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
         return null;
     }
 
+    private static VideoProcessorInfo? Upload(VideoStreamDescription input, VideoProcessing processing)
+    {
+        VideoConstraints output = processing.Output;
+        if (
+            !output.Storages.Contains(VideoStorageKind.IOSurface)
+            || input.PixelFormat is not (PixelFormat.Nv12 or PixelFormat.Bgra)
+            || processing.Alpha != AlphaLayout.None
+            || (processing.Size is { } size && size != input.Size)
+            || input.Size.Width % 2 != 0
+            || input.Size.Height % 2 != 0
+        )
+        {
+            return null;
+        }
+
+        PixelFormat? target =
+            output.PixelFormats.Contains(input.PixelFormat) ? input.PixelFormat
+            : input.PixelFormat == PixelFormat.Nv12 && output.PixelFormats.Contains(PixelFormat.Bgra)
+                ? PixelFormat.Bgra
+            : input.PixelFormat == PixelFormat.Bgra && output.PixelFormats.Contains(PixelFormat.Nv12)
+                ? PixelFormat.Nv12
+            : null;
+        return target is { } format
+            ? Info(format, input.Size, output.Device, VideoStorageKind.IOSurface)
+            : null;
+    }
+
     /// <inheritdoc/>
     public IVideoProcessor Create(VideoStreamDescription input, VideoProcessing processing)
     {
@@ -101,7 +135,12 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
                 $"{Name} cannot turn {input} into what was asked.",
                 nameof(processing)
             );
-        return new MetalVideoProcessor(info, processing, MetalEngine.For(input.Device));
+        return new MetalVideoProcessor(
+            info,
+            processing,
+            input.PixelFormat,
+            MetalEngine.For(input.Device ?? processing.Output.Device)
+        );
     }
 
     private static VideoProcessorInfo Info(
@@ -128,6 +167,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
     private readonly VideoProcessing _processing;
     private readonly MetalEngine _engine;
     private readonly IOSurfacePool _pool;
+    private readonly IOSurfacePool _staging;
     private readonly VideoColor _outputColour;
     private readonly Lock _gate = new();
     private PooledSurface? _delivering;
@@ -136,6 +176,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
     public MetalVideoProcessor(
         VideoProcessorInfo info,
         VideoProcessing processing,
+        PixelFormat inputFormat,
         MetalEngine engine
     )
     {
@@ -147,6 +188,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
                 ? processing.Color ?? VideoColor.Bt709
                 : VideoColor.Srgb;
         _pool = new IOSurfacePool(info.Output.PixelFormat, info.Output.Size, _outputColour.Range);
+        _staging = new IOSurfacePool(inputFormat, info.Output.Size);
     }
 
     public VideoProcessorInfo Info { get; }
@@ -154,11 +196,104 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
     public void Process(in VideoFrame frame, IVideoFrameConsumer consumer)
     {
         ArgumentNullException.ThrowIfNull(consumer);
-        if (!frame.Storage.TryGetValue(out IOSurfaceImage image))
+        PooledSurface? staged = null;
+        IOSurfaceImage image;
+        if (frame.Storage.Kind == VideoStorageKind.Cpu)
+        {
+            staged = Stage(in frame);
+            image = new IOSurfaceImage(staged.Handle, _engine.Identity);
+        }
+        else if (!frame.Storage.TryGetValue(out image))
         {
             throw new ArgumentException("The frame is not an IOSurface.", nameof(frame));
         }
 
+        if (staged is not null && frame.Format.PixelFormat == Info.Output.PixelFormat)
+        {
+            // An upload alone: the staged surface is the result.
+            Deliver(staged, in frame, frame.Color, consumer);
+            return;
+        }
+
+        try
+        {
+            ProcessSurface(in frame, image, consumer);
+        }
+        finally
+        {
+            staged?.Release();
+        }
+    }
+
+    // Copies a frame in memory into a surface of the staging pool, plane by plane.
+    private unsafe PooledSurface Stage(in VideoFrame frame)
+    {
+        PooledSurface staged;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            staged = _staging.Rent();
+        }
+
+        IOSurface.IOSurface surface = staged.Surface;
+        _ = frame.Storage.TryGetValue(out CpuImage cpu);
+        _ = surface.Lock(0);
+        try
+        {
+            int height = frame.Format.CodedSize.Height;
+            for (int plane = 0; plane < frame.PlaneCount; plane++)
+            {
+                bool planar = frame.Format.PixelFormat == PixelFormat.Nv12;
+                byte* target = (byte*)(planar ? surface.GetBaseAddress((nuint)plane) : surface.BaseAddress);
+                int targetStride = (int)(planar ? surface.GetBytesPerRow((nuint)plane) : surface.BytesPerRow);
+                int rows = PlaneLayout.PlaneRows(frame.Format.PixelFormat, plane, height);
+                int rowBytes = PlaneLayout.Packed(frame.Format.PixelFormat, frame.Format.CodedSize)[plane].Stride;
+                int stride = cpu.Planes[plane].Stride;
+                ReadOnlySpan<byte> source = frame.GetPlane(plane);
+                for (int y = 0; y < rows; y++)
+                {
+                    source.Slice(y * stride, rowBytes).CopyTo(new Span<byte>(target + (y * targetStride), rowBytes));
+                }
+            }
+        }
+        finally
+        {
+            _ = surface.Unlock(0);
+        }
+
+        return staged;
+    }
+
+    // Hands on a finished surface on the GPU, which the consumer may keep.
+    private void Deliver(PooledSurface surface, in VideoFrame frame, VideoColor color, IVideoFrameConsumer consumer)
+    {
+        VideoStreamDescription described = Info.Output;
+        VideoFrame result = new(
+            new VideoStorage(new IOSurfaceImage(surface.Handle, _engine.Identity)),
+            new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
+            frame.Timestamp,
+            color: color,
+            orientation: frame.Orientation,
+            duration: frame.Duration,
+            retainer: this
+        );
+        lock (_gate)
+        {
+            _delivering = surface;
+            try
+            {
+                consumer.OnFrame(in result);
+            }
+            finally
+            {
+                _delivering = null;
+                surface.Release();
+            }
+        }
+    }
+
+    private void ProcessSurface(in VideoFrame frame, IOSurfaceImage image, IVideoFrameConsumer consumer)
+    {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -289,6 +424,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
             {
                 _disposed = true;
                 _pool.Dispose();
+                _staging.Dispose();
             }
         }
     }

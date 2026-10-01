@@ -170,6 +170,56 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
+    public void Upload_BgraInMemory_ArrivesUnchangedOnTheGpu()
+    {
+        byte[] pixels = Picture();
+        VideoFrame frame = new(
+            new VideoFormat(PixelFormat.Bgra, Width, Height),
+            MediaTimestamp.Captured(new MediaTime(42)),
+            pixels,
+            Width * 4,
+            color: VideoColor.Srgb
+        );
+        using VideoFrameLease output = Run(
+            in frame,
+            Description(PixelFormat.Bgra, Width) with { Storage = VideoStorageKind.Cpu, Device = null },
+            new VideoProcessing(BgraOutput()),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(VideoStorageKind.IOSurface, info.Output.Storage);
+        CollectionAssert.AreEqual(pixels, Download(output, PixelFormat.Bgra, Width)[0]);
+        Assert.AreEqual(new MediaTime(42), output.Frame.Timestamp.Time);
+    }
+
+    [TestMethod]
+    public void Upload_Nv12InMemory_IsConvertedOnTheGpu()
+    {
+        byte[] picture = [.. Enumerable.Repeat((byte)128, Width * Height * 3 / 2)];
+        VideoFrame frame = new(
+            new VideoFormat(PixelFormat.Nv12, Width, Height),
+            MediaTimestamp.Captured(new MediaTime(7)),
+            picture.AsSpan(0, Width * Height),
+            Width,
+            picture.AsSpan(Width * Height),
+            Width,
+            color: VideoColor.Bt709
+        );
+        using VideoFrameLease output = Run(
+            in frame,
+            Description(PixelFormat.Nv12, Width) with { Storage = VideoStorageKind.Cpu, Device = null },
+            new VideoProcessing(BgraOutput()),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(PixelFormat.Bgra, info.Output.PixelFormat);
+        CollectionAssert.AreEqual(
+            new byte[] { 130, 130, 130, 255 },
+            Download(output, PixelFormat.Bgra, Width)[0][..4]
+        );
+    }
+
+    [TestMethod]
     public void KeptOutput_IsNotReusedByLaterFrames()
     {
         byte[] first = Picture();
@@ -197,14 +247,28 @@ public sealed class MetalProcessorTests
         VideoStreamDescription bgra = Description(PixelFormat.Bgra, Width);
         VideoConstraints nv12 = new([VideoStorageKind.IOSurface], [PixelFormat.Nv12]);
 
+        Assert.AreEqual(
+            VideoStorageKind.IOSurface,
+            Factory
+                .QueryCapabilities(
+                    bgra with
+                    {
+                        Storage = VideoStorageKind.Cpu,
+                    },
+                    new VideoProcessing(nv12)
+                )
+                ?.Output.Storage,
+            "frames in memory are uploaded for a consumer on the GPU"
+        );
         Assert.IsNull(
             Factory.QueryCapabilities(
                 bgra with
                 {
                     Storage = VideoStorageKind.Cpu,
                 },
-                new VideoProcessing(nv12)
-            )
+                new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+            ),
+            "memory to memory is a CPU processor's work"
         );
         Assert.AreEqual(
             VideoStorageKind.Cpu,
