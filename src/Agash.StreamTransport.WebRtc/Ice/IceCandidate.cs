@@ -127,6 +127,7 @@ public readonly record struct IceCandidate
                 CultureInfo.InvariantCulture,
                 out int port
             )
+            || port is < IPEndPoint.MinPort or > IPEndPoint.MaxPort
         )
         {
             return false;
@@ -162,6 +163,11 @@ public readonly record struct IceCandidate
                         CultureInfo.InvariantCulture,
                         out rport
                     );
+                }
+
+                if (rport is < IPEndPoint.MinPort or > IPEndPoint.MaxPort)
+                {
+                    return false;
                 }
 
                 related = new IPEndPoint(raddr, rport);

@@ -362,3 +362,14 @@ public sealed class ParserFuzzTests
         return bytes;
     }
 }
+
+[TestClass]
+public sealed class IceCandidateParseTests
+{
+    [TestMethod]
+    [DataRow("candidate:1 1 udp 2130706431 192.0.2.1 99999 typ host")]
+    [DataRow("candidate:1 1 udp 2130706431 192.0.2.1 -1 typ host")]
+    [DataRow("candidate:1 1 udp 1694498815 192.0.2.1 5000 typ srflx raddr 10.0.0.1 rport 70000")]
+    public void TryParse_PortOutOfRange_IsRejected(string candidate) =>
+        Assert.IsFalse(IceCandidate.TryParse(candidate, out _));
+}
