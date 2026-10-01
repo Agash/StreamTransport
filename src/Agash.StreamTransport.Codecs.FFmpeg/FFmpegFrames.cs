@@ -80,7 +80,7 @@ internal static class FFmpegFrames
         format switch
         {
             PixelFormat.Nv12 => x,
-            PixelFormat.P010 => 2 * x,
+            PixelFormat.P010 or PixelFormat.Yuy2 or PixelFormat.Uyvy => 2 * x,
             PixelFormat.I420 or PixelFormat.Yuva420 => PlaneLayout.IsChroma(format, plane)
                 ? x / 2
                 : x,

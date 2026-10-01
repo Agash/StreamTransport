@@ -25,6 +25,15 @@ public enum PixelFormat
     /// plane. What a decoder of a codec's alpha layer produces and an encoder of one takes.
     /// </summary>
     Yuva420,
+
+    /// <summary>
+    /// Packed 8-bit 4:2:2 in Y0 U Y1 V order (YUYV): what most webcams and USB capture cards send
+    /// uncompressed.
+    /// </summary>
+    Yuy2,
+
+    /// <summary>Packed 8-bit 4:2:2 in U Y0 V Y1 order: what HDMI capture cards often send.</summary>
+    Uyvy,
 }
 
 /// <summary>The YUV to RGB matrix (ITU-T H.273 MatrixCoefficients).</summary>
@@ -305,6 +314,7 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
                 new((w * h) + (2 * (w / 2) * (h / 2)), w),
             ]),
             PixelFormat.Bgra or PixelFormat.Rgba => new PlaneLayout([new(0, 4 * w)]),
+            PixelFormat.Yuy2 or PixelFormat.Uyvy => new PlaneLayout([new(0, 2 * w)]),
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
     }
@@ -318,7 +328,7 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
             PixelFormat.Nv12 or PixelFormat.P010 => 2,
             PixelFormat.I420 => 3,
             PixelFormat.Yuva420 => 4,
-            PixelFormat.Bgra or PixelFormat.Rgba => 1,
+            PixelFormat.Bgra or PixelFormat.Rgba or PixelFormat.Yuy2 or PixelFormat.Uyvy => 1,
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
 
@@ -353,6 +363,7 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
             PixelFormat.Yuva420 => size.Width * size.Height * 5 / 2,
             PixelFormat.P010 => size.Width * size.Height * 3,
             PixelFormat.Bgra or PixelFormat.Rgba => size.Width * size.Height * 4,
+            PixelFormat.Yuy2 or PixelFormat.Uyvy => size.Width * size.Height * 2,
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
 
