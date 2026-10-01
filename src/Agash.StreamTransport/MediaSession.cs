@@ -1,3 +1,4 @@
+using System.Net;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.WebRtc;
 
@@ -39,6 +40,9 @@ public sealed record MediaEndpoints
 }
 
 /// <summary>Counters of a session's media, for telemetry.</summary>
+/// <param name="VideoFramesSent">Encoded video frames handed to the link.</param>
+/// <param name="AudioFramesSent">Encoded audio frames handed to the link.</param>
+/// <param name="AudioFramesDecoded">Received audio frames decoded.</param>
 /// <param name="VideoFramesDropped">Source frames dropped because the encoder was busy.</param>
 /// <param name="VideoFramesDecoded">Received video frames decoded.</param>
 /// <param name="VideoFramesFailed">Received video frames the decoder rejected.</param>
@@ -46,6 +50,9 @@ public sealed record MediaEndpoints
 /// <param name="AudioRecovered">Lost audio packets rebuilt from redundancy.</param>
 /// <param name="PlayoutDelay">The synced playout buffer depth; zero when frames play on arrival.</param>
 public readonly record struct MediaSessionStatistics(
+    int VideoFramesSent,
+    int AudioFramesSent,
+    int AudioFramesDecoded,
     int VideoFramesDropped,
     int VideoFramesDecoded,
     int VideoFramesFailed,
@@ -53,6 +60,11 @@ public readonly record struct MediaSessionStatistics(
     int AudioRecovered,
     TimeSpan PlayoutDelay
 );
+
+/// <summary>The two ends of the path a session's media takes.</summary>
+/// <param name="Local">This side's endpoint.</param>
+/// <param name="Remote">The peer's endpoint.</param>
+public readonly record struct MediaRoute(EndPoint Local, EndPoint Remote);
 
 /// <summary>A media session with one peer.</summary>
 public interface IMediaSession : IAsyncDisposable
@@ -74,6 +86,9 @@ public interface IMediaSession : IAsyncDisposable
 
     /// <summary>Counters of the session's media.</summary>
     MediaSessionStatistics Statistics { get; }
+
+    /// <summary>The network path media takes, once one is chosen; null before then.</summary>
+    MediaRoute? Route { get; }
 
     /// <summary>
     /// How much later received audio plays than its synced slot: the video output path's latency less

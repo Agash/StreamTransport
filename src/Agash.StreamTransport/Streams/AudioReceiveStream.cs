@@ -36,6 +36,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     private uint _nextTimestamp;
     private NtpTime? _playing;
     private long _decodedTicks;
+    private int _framesDecoded;
     private int _concealed;
     private int _recovered;
 
@@ -84,6 +85,9 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     /// <summary>Lost packets rebuilt from the packet after them.</summary>
     public int Recovered => Volatile.Read(ref _recovered);
 
+    /// <summary>Received frames decoded.</summary>
+    public int FramesDecoded => Volatile.Read(ref _framesDecoded);
+
     /// <summary>Takes one RTP packet of the stream, on the transport's receive thread.</summary>
     /// <param name="header">The packet's header.</param>
     /// <param name="payload">Its payload, borrowed for the call.</param>
@@ -118,6 +122,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
                 frame.SampleCount * TimeSpan.TicksPerSecond / frame.Format.SampleRate
             )
         );
+        Interlocked.Increment(ref _framesDecoded);
         _playout.Audio(in frame, _playing, _sink);
     }
 

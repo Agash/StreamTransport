@@ -11,6 +11,7 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
 {
     private readonly IAudioEncoder _encoder;
     private readonly RtpStreamWriter _writer;
+    private int _framesSent;
     private readonly RtpPacer _pacer;
     private readonly Lock _gate = new();
     private readonly IDisposable _connection;
@@ -63,9 +64,15 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
         }
     }
 
+    /// <summary>Encoded frames handed to the link.</summary>
+    public int FramesSent => Volatile.Read(ref _framesSent);
+
     /// <inheritdoc/>
-    public void OnEncoded(in EncodedAudioFrame frame) =>
+    public void OnEncoded(in EncodedAudioFrame frame)
+    {
         _writer.Write(frame.Data, frame.Timestamp, _pacer.EnqueueAudio);
+        Interlocked.Increment(ref _framesSent);
+    }
 
     /// <inheritdoc/>
     public void Dispose()

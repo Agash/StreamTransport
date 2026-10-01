@@ -106,10 +106,17 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     public TransportHealthMetrics Health => _connection?.CurrentHealth ?? default;
 
+    /// <inheritdoc/>
+    public MediaRoute? Route =>
+        _connection?.SelectedPath is { } path ? new MediaRoute(path.Local, path.Remote) : null;
+
     public TransportLossStats LossStats => _connection?.CurrentLossStats ?? default;
 
     public MediaSessionStatistics Statistics =>
         new(
+            _videoSend?.FramesSent ?? 0,
+            _audioSend?.FramesSent ?? 0,
+            _audioReceive?.FramesDecoded ?? 0,
             _videoSend?.FramesDropped ?? 0,
             _videoReceive?.FramesDecoded ?? 0,
             _videoReceive?.FramesFailed ?? 0,

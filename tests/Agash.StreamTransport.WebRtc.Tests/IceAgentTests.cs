@@ -33,7 +33,7 @@ public sealed class IceAgentTests
             payload,
             await agents.ReceivedByA.ReadAsync().AsTask().WaitAsync(Patience)
         );
-        Assert.IsNotNull(agents.A.SelectedLocalEndpoint);
+        Assert.IsNotNull(agents.A.SelectedPath);
     }
 
     [TestMethod]
@@ -42,7 +42,7 @@ public sealed class IceAgentTests
     {
         await using var agents = Agents.Start();
         await agents.BothConnectedAsync();
-        IPEndPoint before = agents.A.SelectedLocalEndpoint!;
+        IPEndPoint before = agents.A.SelectedPath!.Value.Local;
 
         var fresh = IceCredentials.Generate();
         agents.A.Restart(fresh);
@@ -50,11 +50,7 @@ public sealed class IceAgentTests
         await agents.AConnected.ReadAsync().AsTask().WaitAsync(Patience);
 
         Assert.AreEqual(fresh, agents.A.LocalCredentials);
-        Assert.AreNotEqual(
-            before,
-            agents.A.SelectedLocalEndpoint,
-            "the restart bound new sockets."
-        );
+        Assert.AreNotEqual(before, agents.A.SelectedPath?.Local, "the restart bound new sockets.");
         byte[] payload = [0x11];
         await agents.A.SendAsync(payload);
         CollectionAssert.AreEqual(
@@ -73,7 +69,7 @@ public sealed class IceAgentTests
         );
 
         await agent.SendAsync(new byte[] { 0x10 });
-        Assert.IsNull(agent.SelectedLocalEndpoint);
+        Assert.IsNull(agent.SelectedPath);
         Assert.AreEqual(IceConnectionState.New, agent.State);
     }
 

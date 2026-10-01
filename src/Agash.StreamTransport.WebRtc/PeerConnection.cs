@@ -196,6 +196,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         return new SdpDescription { Media = media };
     }
 
+    /// <summary>The path media takes, once ICE has selected one; null before and during a recovery.</summary>
+    public IcePath? SelectedPath => _iceAgent?.SelectedPath;
+
     /// <summary>
     /// Begin an ICE restart (RFC 8829): adopt fresh local ICE credentials, restart the agent (re-gather), and
     /// return a new offer to send. The DTLS-SRTP session is preserved, so media continues. The peer applies

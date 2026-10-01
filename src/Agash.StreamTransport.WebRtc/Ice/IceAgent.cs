@@ -89,9 +89,12 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// <summary>The current connection state.</summary>
     public IceConnectionState State => (IceConnectionState)Volatile.Read(ref _state);
 
-    /// <summary>The local endpoint of the currently selected candidate pair, or null if none is selected.</summary>
-    public IPEndPoint? SelectedLocalEndpoint =>
-        Volatile.Read(ref _selectedSocket)?.Socket.LocalEndPoint;
+    /// <summary>The selected candidate pair's local and remote endpoints, or null while none is selected.</summary>
+    public IcePath? SelectedPath =>
+        Volatile.Read(ref _selectedSocket) is { } socket
+        && Volatile.Read(ref _selectedRemote) is { } remote
+            ? new IcePath(socket.Socket.LocalEndPoint, remote)
+            : null;
 
     /// <summary>This agent's local credentials (rotated on an ICE restart).</summary>
     public IceCredentials LocalCredentials
