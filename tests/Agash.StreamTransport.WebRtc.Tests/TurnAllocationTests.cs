@@ -52,15 +52,12 @@ public sealed class TurnAllocationTests
             }
         }
 
-        Assert.AreEqual(
-            "ping",
-            System.Text.Encoding.ASCII.GetString(buffer, 0, arrived.ReceivedBytes)
-        );
+        CollectionAssert.AreEqual("ping"u8.ToArray(), buffer[..arrived.ReceivedBytes]);
         Assert.AreEqual(allocation.LocalEndPoint, arrived.RemoteEndPoint);
 
         _ = await peer.SendToAsync("pong"u8.ToArray(), SocketFlags.None, allocation.LocalEndPoint);
         (byte[] data, IPEndPoint source) = await received.Reader.ReadAsync();
-        Assert.AreEqual("pong", System.Text.Encoding.ASCII.GetString(data));
+        CollectionAssert.AreEqual("pong"u8.ToArray(), data);
         Assert.AreEqual(peerEndPoint, source);
 
         // The server installs the permission as it handles the ChannelBind, so the first ping can arrive
@@ -68,15 +65,15 @@ public sealed class TurnAllocationTests
         for (int attempt = 0; attempt < 50 && server.ChannelDataFrames == 0; attempt++)
         {
             await allocation.SendAsync("again"u8.ToArray(), peerEndPoint);
-            Assert.AreEqual("again", await ReceiveTextAsync(peer, "again"));
+            CollectionAssert.AreEqual("again"u8.ToArray(), await ReceiveSkippingPingsAsync(peer));
         }
 
         Assert.AreEqual(1, server.ChannelBinds);
         Assert.IsGreaterThan(0, server.ChannelDataFrames, "traffic moved to the channel");
     }
 
-    // The next datagram reading as expected; earlier pings delayed past their retry are skipped.
-    private static async Task<string> ReceiveTextAsync(Socket socket, string expected)
+    // The next datagram that is not a ping; pings delayed past their retry arrive late and are skipped.
+    private static async Task<byte[]> ReceiveSkippingPingsAsync(Socket socket)
     {
         byte[] buffer = new byte[64];
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -88,10 +85,10 @@ public sealed class TurnAllocationTests
                 new IPEndPoint(IPAddress.Any, 0),
                 timeout.Token
             );
-            string text = System.Text.Encoding.ASCII.GetString(buffer, 0, result.ReceivedBytes);
-            if (text == expected || text != "ping")
+            byte[] payload = buffer[..result.ReceivedBytes];
+            if (!payload.AsSpan().SequenceEqual("ping"u8))
             {
-                return text;
+                return payload;
             }
         }
     }
@@ -238,9 +235,8 @@ public sealed class TurnAllocationTests
                 connected.TrySetResult();
             }
         };
-        TaskCompletionSource<string> data = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        answerer.DataReceived += (packet, _, _) =>
-            data.TrySetResult(System.Text.Encoding.ASCII.GetString(packet.Span[1..]));
+        TaskCompletionSource<byte[]> data = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        answerer.DataReceived += (packet, _, _) => data.TrySetResult(packet.Span[1..].ToArray());
 
         offerer.Start();
         answerer.Start();
@@ -248,13 +244,11 @@ public sealed class TurnAllocationTests
         for (int attempt = 0; attempt < 100 && !data.Task.IsCompleted; attempt++)
         {
             // The first byte puts the datagram in the RTP range of the demultiplexer.
-            await offerer.SendAsync(
-                new byte[] { 0x80, (byte)'m', (byte)'e', (byte)'d', (byte)'i', (byte)'a' }
-            );
+            await offerer.SendAsync((byte[])[0x80, .. "media"u8]);
             await Task.WhenAny(data.Task, Task.Delay(50));
         }
 
-        Assert.AreEqual("media", await data.Task);
+        CollectionAssert.AreEqual("media"u8.ToArray(), await data.Task);
         lock (gathered)
         {
             Assert.IsTrue(gathered.TrueForAll(static c => c.Kind == IceCandidateKind.Relayed));
