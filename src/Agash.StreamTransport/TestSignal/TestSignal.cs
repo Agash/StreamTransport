@@ -132,11 +132,27 @@ public sealed class TestSignalGenerator
     /// <param name="stride">Its row pitch.</param>
     /// <param name="size">The picture size.</param>
     /// <param name="near">A wall time near the one sent, to restore the bits above the barcode's.</param>
-    /// <returns>The wall time.</returns>
-    public static DateTimeOffset ReadBarcode(ReadOnlySpan<byte> luma, int stride, VideoSize size, DateTimeOffset near)
+    /// <param name="sent">The wall time, when the picture carries a barcode.</param>
+    /// <returns>
+    /// Whether every cell of the barcode is clearly black or white; a picture of something else, or one
+    /// scaled or cropped out of shape, carries none.
+    /// </returns>
+    public static bool TryReadBarcode(
+        ReadOnlySpan<byte> luma,
+        int stride,
+        VideoSize size,
+        DateTimeOffset near,
+        out DateTimeOffset sent
+    )
     {
+        sent = default;
         int cell = size.Width / BarcodeBits;
         int row = Math.Max(1, size.Height / 48) / 2;
+        if (cell < 2 || luma.Length < (row * stride) + (BarcodeBits * cell))
+        {
+            return false;
+        }
+
         ulong bits = 0;
         for (int bit = 0; bit < BarcodeBits; bit++)
         {
@@ -147,7 +163,14 @@ public sealed class TestSignalGenerator
                 sum += luma[(row * stride) + x];
             }
 
-            if (sum / (cell / 2) > 128)
+            // Cells are drawn at 16 and 235; anything near the middle is not a cell.
+            int mean = sum / (cell / 2);
+            if (mean is > 80 and < 170)
+            {
+                return false;
+            }
+
+            if (mean >= 170)
             {
                 bits |= 1UL << (BarcodeBits - 1 - bit);
             }
@@ -166,7 +189,8 @@ public sealed class TestSignalGenerator
             candidate += mask + 1;
         }
 
-        return DateTimeOffset.FromUnixTimeMilliseconds(candidate);
+        sent = DateTimeOffset.FromUnixTimeMilliseconds(candidate);
+        return true;
     }
 
     private static void WriteBarcode(Span<byte> luma, VideoSize size, ulong milliseconds)

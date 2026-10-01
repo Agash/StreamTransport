@@ -189,9 +189,41 @@ public sealed class TestSignalTests
         MediaTime time = generator.Origin + TimeSpan.FromMilliseconds(1234);
 
         generator.Draw(picture.AsSpan(0, size.Width * size.Height), picture.AsSpan(size.Width * size.Height), size, time, TimeSpan.FromMilliseconds(33));
-        DateTimeOffset read = TestSignalGenerator.ReadBarcode(picture, size.Width, size, DateTimeOffset.UtcNow);
+        Assert.IsTrue(TestSignalGenerator.TryReadBarcode(picture, size.Width, size, DateTimeOffset.UtcNow, out DateTimeOffset read));
 
         Assert.AreEqual(generator.WallTime(time).ToUnixTimeMilliseconds(), read.ToUnixTimeMilliseconds());
+    }
+
+    [TestMethod]
+    public void Barcode_IsNotReadFromAnotherPicture()
+    {
+        VideoSize size = new(640, 360);
+        byte[] grey = [.. Enumerable.Repeat((byte)128, size.Width * size.Height)];
+
+        Assert.IsFalse(TestSignalGenerator.TryReadBarcode(grey, size.Width, size, DateTimeOffset.UtcNow, out _));
+    }
+
+    [TestMethod]
+    public void Analyzer_CountsFramesWithoutTheSignalAsUnreadable()
+    {
+        var analyzer = new TestSignalAnalyzer();
+        IVideoSink sink = analyzer.WrapVideo();
+        VideoSize size = new(640, 360);
+        byte[] picture = [.. Enumerable.Repeat((byte)128, size.Width * size.Height * 3 / 2)];
+        VideoFrame frame = new(
+            new VideoFormat(PixelFormat.Nv12, size.Width, size.Height),
+            MediaTimestamp.Captured(new MediaTime(0)),
+            picture.AsSpan(0, size.Width * size.Height),
+            size.Width,
+            picture.AsSpan(size.Width * size.Height),
+            size.Width
+        );
+
+        sink.OnFrame(in frame);
+        TestSignalMeasurement measured = analyzer.Measure();
+
+        Assert.AreEqual(0, measured.Frames);
+        Assert.AreEqual(1, measured.Unreadable);
     }
 }
 

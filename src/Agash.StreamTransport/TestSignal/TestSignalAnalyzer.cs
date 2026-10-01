@@ -8,10 +8,14 @@ namespace Agash.StreamTransport.TestSignal;
 /// <param name="MeanOffset">Mean of click minus flash at the outputs: positive when audio lags video.</param>
 /// <param name="MinOffset">The smallest offset.</param>
 /// <param name="MaxOffset">The largest offset.</param>
-/// <param name="Frames">Video frames read.</param>
+/// <param name="Frames">Video frames whose barcode was read.</param>
 /// <param name="MeanLatency">Mean of the receiver's wall time minus the barcode's, at the video output.</param>
 /// <param name="MinLatency">The smallest latency.</param>
 /// <param name="MaxLatency">The largest latency.</param>
+/// <param name="Unreadable">
+/// Video frames with no barcode, or one further than <see cref="TestSignalAnalyzer.MaxLatency"/> from the
+/// receiver's clock: a picture that is not the test signal, or a clock that is not synchronised.
+/// </param>
 public readonly record struct TestSignalMeasurement(
     int Pairs,
     TimeSpan MeanOffset,
@@ -20,13 +24,14 @@ public readonly record struct TestSignalMeasurement(
     int Frames,
     TimeSpan MeanLatency,
     TimeSpan MinLatency,
-    TimeSpan MaxLatency
+    TimeSpan MaxLatency,
+    int Unreadable
 )
 {
     /// <inheritdoc/>
     public override string ToString() =>
         FormattableString.Invariant(
-            $"A/V offset {MeanOffset.TotalMilliseconds:0.0} ms ({MinOffset.TotalMilliseconds:0.0} to {MaxOffset.TotalMilliseconds:0.0}) over {Pairs} clicks; latency {MeanLatency.TotalMilliseconds:0.0} ms ({MinLatency.TotalMilliseconds:0.0} to {MaxLatency.TotalMilliseconds:0.0}) over {Frames} frames"
+            $"A/V offset {MeanOffset.TotalMilliseconds:0.0} ms ({MinOffset.TotalMilliseconds:0.0} to {MaxOffset.TotalMilliseconds:0.0}) over {Pairs} clicks; latency {MeanLatency.TotalMilliseconds:0.0} ms ({MinLatency.TotalMilliseconds:0.0} to {MaxLatency.TotalMilliseconds:0.0}) over {Frames} frames{(Unreadable > 0 ? $", {Unreadable} frames without a readable barcode" : "")}"
         );
 }
 
@@ -42,6 +47,12 @@ public readonly record struct TestSignalMeasurement(
 /// </remarks>
 public sealed class TestSignalAnalyzer
 {
+    /// <summary>
+    /// The largest latency a barcode is believed for; one further from the receiver's clock is counted as
+    /// unreadable rather than averaged in.
+    /// </summary>
+    public static readonly TimeSpan MaxLatency = TimeSpan.FromSeconds(10);
+
     private readonly TimeProvider _time;
     private readonly MediaClock _clock;
     private readonly Lock _gate = new();
@@ -51,6 +62,7 @@ public sealed class TestSignalAnalyzer
     private bool _flashing;
     private bool _clicking;
     private long _silentSamples = long.MaxValue;
+    private int _unreadable;
 
     /// <summary>An analyzer on a clock.</summary>
     /// <param name="timeProvider">The clock; the system's when null.</param>
@@ -78,6 +90,7 @@ public sealed class TestSignalAnalyzer
             _flashes.Clear();
             _clicks.Clear();
             _latencies.Clear();
+            _unreadable = 0;
         }
     }
 
@@ -109,7 +122,8 @@ public sealed class TestSignalAnalyzer
                 _latencies.Count,
                 Mean(_latencies),
                 _latencies.Count > 0 ? _latencies.Min() : TimeSpan.Zero,
-                _latencies.Count > 0 ? _latencies.Max() : TimeSpan.Zero
+                _latencies.Count > 0 ? _latencies.Max() : TimeSpan.Zero,
+                _unreadable
             );
         }
     }
@@ -132,7 +146,12 @@ public sealed class TestSignalAnalyzer
         ReadOnlySpan<byte> luma = frame.GetPlane(0);
         _ = frame.Storage.TryGetValue(out CpuImage image);
         int stride = image.Planes[0].Stride;
-        DateTimeOffset sent = TestSignalGenerator.ReadBarcode(luma, stride, size, _time.GetUtcNow());
+        DateTimeOffset received = _time.GetUtcNow();
+        TimeSpan? latency =
+            TestSignalGenerator.TryReadBarcode(luma, stride, size, received, out DateTimeOffset sent)
+            && (received - sent).Duration() <= MaxLatency
+                ? received - sent
+                : null;
 
         // The centre of the frame is white in a flash and dark otherwise.
         long sum = 0;
@@ -149,7 +168,15 @@ public sealed class TestSignalAnalyzer
         bool flash = samples > 0 && sum / samples > 180;
         lock (_gate)
         {
-            _latencies.Add(_time.GetUtcNow() - sent);
+            if (latency is { } value)
+            {
+                _latencies.Add(value);
+            }
+            else
+            {
+                _unreadable++;
+            }
+
             if (flash && !_flashing)
             {
                 _flashes.Add(now);
