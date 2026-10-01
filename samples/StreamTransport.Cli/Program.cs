@@ -99,7 +99,7 @@ static async Task<int> RunAsync(CommandLine command)
             colon < 0 ? "StreamTransport" : target[(colon + 1)..],
             stop.Token
         );
-        using (input.Connect(output, output.Constraints))
+        using (provider.GetRequiredService<MediaCodecRegistry>().Route(input, output))
         {
             log.LogInformation("Feeding {Input} to {Output}; Ctrl+C stops.", input.Info.Name, output.Name);
             TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
