@@ -11,6 +11,7 @@ namespace Agash.StreamTransport.Linux.Tests;
 /// </summary>
 [TestClass]
 [TestCategory("Integration")]
+[OSCondition(OperatingSystems.Linux)]
 public sealed class DmaBufEncodeTests
 {
     private const int Width = 320;
