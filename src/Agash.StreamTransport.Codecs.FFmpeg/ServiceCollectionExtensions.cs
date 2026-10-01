@@ -55,6 +55,9 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoProcessorFactory, FFmpegVideoProcessorFactory>()
         );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, FFmpegVideoInputProvider>()
+        );
         return services;
     }
 
