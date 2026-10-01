@@ -1,3 +1,4 @@
+using Agash.StreamTransport.MacOS.AVFoundation;
 using Agash.StreamTransport.MacOS.Metal;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,7 +11,7 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the Metal video processor, which sessions choose over CPU conversion for IOSurface
-    /// frames, and Syphon video and Core Audio inputs and outputs, reached through <c>MediaDevices</c>.
+    /// frames; AVFoundation cameras; and Syphon video and Core Audio inputs and outputs, reached through <c>MediaDevices</c>.
     /// Calling it again registers nothing more.
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -23,6 +24,9 @@ public static class ServiceCollectionExtensions
         );
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoInputProvider, SyphonVideoInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, AVFoundationVideoInputProvider>()
         );
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoOutputProvider, SyphonVideoOutputProvider>()
