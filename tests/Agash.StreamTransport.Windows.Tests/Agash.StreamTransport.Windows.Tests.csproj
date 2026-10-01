@@ -14,4 +14,10 @@
     <PackageReference Include="Microsoft.Windows.CsWin32" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile
+      Include="..\Agash.StreamTransport.Tests\LoopbackSignaling.cs"
+      Link="LoopbackSignaling.cs"
+    />
+  </ItemGroup>
 </Project>
