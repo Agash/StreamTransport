@@ -1,7 +1,7 @@
 # Agash.StreamTransport.Windows
 
 Windows media for [Agash.StreamTransport](https://github.com/Agash/StreamTransport): Direct3D 12 video
-processors, Spout, and WASAPI audio.
+processors, Media Foundation cameras, Spout, and WASAPI audio.
 
 ## Direct3D 12 video processors
 
@@ -19,6 +19,14 @@ return to it when the last lease on their frame is released.
 
 The shaders ship as signed DXIL; building on Windows with the SDK's `dxc` recompiles them from
 `Shaders/*.hlsl`.
+
+## Media Foundation
+
+`MediaFoundationVideoInputProvider` lists the cameras Media Foundation finds, virtual cameras registered
+with the Frame Server among them, with their uncompressed modes (NV12, YUY2, UYVY, I420, ARGB). Frames are
+the sample's memory while a consumer's call lasts; sample times are capture times on the performance
+counter, which is the media clock. A camera that sends only MJPEG is left to the FFmpeg provider, which
+also reaches DirectShow-only virtual cameras.
 
 ## Spout
 
@@ -42,10 +50,10 @@ to reach the speaker, for a session's audio output offset.
 
 ## Registration
 
-`AddWindowsMedia()` registers the processor, which sessions then choose for frames on the GPU:
+`AddWindowsMedia()` registers the processor, which sessions then choose for frames on the GPU, and the
+Media Foundation, Spout and WASAPI providers, reached through `MediaDevices`:
 
 ```csharp
 services.AddStreamTransport().AddFFmpegCodecs().AddWindowsMedia();
 ```
 
-Sources and sinks are made by the application, which names them.

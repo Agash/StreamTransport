@@ -48,6 +48,13 @@ Vulkan ahead of VA-API. Every backend takes system memory as well.
 - Decoded frames are views over FFmpeg's buffers or surfaces. Retaining one takes a reference to them.
 - The stream signals the configuration's colour, or the first frame's, or BT.709 when neither gives one.
 
+## Capture devices
+
+`FFmpegVideoInputProvider` reaches cameras through FFmpeg's capture devices (`dshow`, `v4l2`,
+`avfoundation`). It ranks below the platform providers: a camera they list is opened by them, and by
+FFmpeg when they cannot open it. It decodes cameras that send only MJPEG, and reaches DirectShow-only
+virtual cameras on Windows.
+
 ## Native libraries
 
 The package carries the FFmpeg 9 shared libraries per runtime (`runtimes/<rid>/native`) and FFmpeg's

@@ -47,6 +47,14 @@ using SyphonVideoSource source = new(server);
 The directory hears servers through the main run loop, which an AppKit application runs already; a
 console host runs its work in `SyphonMainLoop.Run`.
 
+## AVFoundation
+
+`AVFoundationVideoInputProvider` lists built-in, external and Continuity cameras and camera extensions
+(virtual cameras), with their uncompressed modes (NV12, YUYV, UYVY, BGRA). Each frame is the camera's
+IOSurface-backed buffer: an IOSurface for a consumer on the GPU, its mapped memory otherwise. Timestamps
+are AVFoundation's capture times on the host clock, which is the media clock. macOS asks the user before
+an application sees a camera; an application states why in `NSCameraUsageDescription`.
+
 ## Core Audio
 
 `CoreAudioSource` captures the default input device and `CoreAudioSink` plays on the default output,
@@ -60,10 +68,10 @@ it; an application states why in `NSMicrophoneUsageDescription`.
 
 ## Registration
 
-`AddMacOSMedia()` registers the processor, which sessions then choose for IOSurface frames:
+`AddMacOSMedia()` registers the processor, which sessions then choose for IOSurface frames, and the
+AVFoundation, Syphon and Core Audio providers, reached through `MediaDevices`:
 
 ```csharp
 services.AddStreamTransport().AddFFmpegCodecs().AddMacOSMedia();
 ```
 
-Sources and sinks are made by the application, which names them.

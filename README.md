@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Peer-to-peer real-time media for .NET over WebRTC: video in H.264, H.265 or AV1 and Opus audio between
-machines, on a first-party WebRTC stack (ICE, STUN, DTLS-SRTP, RTP/RTCP, SDP) built on the BCL and
+machines, on a first-party WebRTC stack (ICE, STUN, TURN, DTLS-SRTP, RTP/RTCP, SDP) built on the BCL and
 NativeAOT-friendly.
 
 ```
@@ -18,6 +18,12 @@ source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder
 
 ## What you get
 
+- **Inputs and outputs** through one registry, `MediaDevices`: cameras (V4L2, Media Foundation,
+  AVFoundation, and FFmpeg's devices as the fallback), shared application outputs (Spout, Syphon,
+  PipeWire), audio devices (WASAPI, Core Audio, PipeWire), webcams out (v4l2loopback) and a test signal.
+  Providers are registered in DI; a host adds its own (NDI, a game capture) the same way, and a device two
+  providers reach is listed once and falls back to the next provider when the first cannot open it.
+
 - **Sessions** with a peer over any signaling channel: `IMediaSessionFactory` makes an `IMediaSession` from
   sources to send and sinks to receive into. Rooms (`MediaPublisher`, `MediaSubscriber`) run sessions per
   peer over a relay.
@@ -29,12 +35,18 @@ source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder
 - **Zero-copy frames**: sources push frames in GPU memory (Direct3D 12 and 11 textures, DMA-BUFs,
   IOSurfaces) or system memory, and the pipeline converts only where an encoder or sink cannot take them.
 - **Real links**: SCReAM congestion control (RFC 8298, RFC 8888), a pacer, sequence-aware frame assembly,
-  NACK/RTX and FlexFEC, Opus in-band FEC and concealment, and ICE restart and hot-standby mobility.
-- **Lip sync**: capture times travel as abs-capture-time; synced playout holds audio and video in one
-  adaptive buffer and releases them by capture time.
+  NACK/RTX and FlexFEC, Opus in-band FEC and concealment, ICE restart and hot-standby mobility, IPv6-first
+  candidates, TURN over UDP, TCP and TLS with a relay-only policy, and SRTP with AES-GCM (AES-CM for
+  legacy peers) and replay protection. Rate control plans for the source's measured frame rate, and a
+  receiver that falls behind resyncs at a keyframe instead of building latency.
+- **Lip sync**: capture times come from the producer where it reports them (V4L2, Media Foundation,
+  AVFoundation, PipeWire) and travel as abs-capture-time; synced playout holds audio and video in one
+  adaptive buffer and releases them by capture time. `TestSignalAnalyzer` measures the A/V offset and
+  end-to-end latency of a received test signal.
 - **Profiles**: `InteractiveP2P`, `ScreenShare`, `IrlContribution` and `AvatarTransparent` set codec
-  preference, rate control, repair and playout in one choice. `AvatarTransparent` carries alpha side by
-  side through an opaque codec.
+  preference, rate control, repair and playout in one choice. `AvatarTransparent` carries alpha as the
+  H.265 alpha layer where both peers code it and side by side through any codec otherwise, packed and
+  unpacked by compute shaders.
 
 ## Use it
 
@@ -52,22 +64,34 @@ await session.StartAsync();
 await session.Connected;
 ```
 
+Inputs and outputs come from `MediaDevices`, by spec (`provider:name`, a name, or a kind such as
+`camera`):
+
+```csharp
+MediaDevices devices = provider.GetRequiredService<MediaDevices>();
+using IVideoInput camera = await devices.OpenVideoInputAsync("camera", new VideoInputRequest { Size = new(1920, 1080) });
+using IAudioInput microphone = await devices.OpenAudioInputAsync("default");
+using IVideoOutput spout = await devices.CreateVideoOutputAsync("spout", "Guest");
+```
+
 Sources implement `IVideoSource`/`IAudioSource` and push frames; sinks implement `IVideoSink`/`IAudioSink`
-and say what they accept.
+and say what they accept. A provider (`IVideoInputProvider`, `IVideoOutputProvider` and the audio pair)
+makes them reachable through `MediaDevices`; `VideoInput`, `VideoOutput`, `AudioInput` and `AudioOutput`
+wrap any source or sink for one.
 
 ## Packages
 
 | Package | What it is |
 |---|---|
-| `Agash.StreamTransport` | Sessions, streams, pacing, sync, rooms, codec registry, DI. |
-| `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, source and sink contracts. |
-| `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, with natives. |
+| `Agash.StreamTransport` | Sessions, streams, pacing, sync, rooms, codec registry, `MediaDevices`, the test signal, DI. |
+| `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, input, output, source and sink contracts. |
+| `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, FFmpeg capture devices, with natives. |
 | `Agash.StreamTransport.Codecs.Opus` | Opus on Concentus. |
-| `Agash.StreamTransport.Windows` | Direct3D 12 processors, Spout, WASAPI. |
-| `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, Syphon, Core Audio. |
-| `Agash.StreamTransport.Linux` | Vulkan processors on DMA-BUFs, PipeWire video and audio. |
+| `Agash.StreamTransport.Windows` | Direct3D 12 processors, Media Foundation cameras, Spout, WASAPI. |
+| `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, AVFoundation cameras, Syphon, Core Audio. |
+| `Agash.StreamTransport.Linux` | Vulkan processors on DMA-BUFs, V4L2 cameras and v4l2loopback output, PipeWire video and audio. |
 | `Agash.StreamTransport.Abstractions` | Rooms and signaling contracts. |
-| `Agash.StreamTransport.WebRtc` | ICE, STUN, SRTP, RTP/RTCP, SDP, RTP payload formats, `PeerConnection`. |
+| `Agash.StreamTransport.WebRtc` | ICE, STUN, TURN, SRTP, RTP/RTCP, SDP, RTP payload formats, `PeerConnection`. |
 | `Agash.StreamTransport.WebRtc.Abstractions` | Network and congestion control contracts. |
 | `Agash.StreamTransport.WebRtc.CongestionControl` | The SCReAM controller. |
 | `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()`. |
@@ -83,6 +107,20 @@ Needs the .NET 11 SDK pinned in `global.json`. Fetch the FFmpeg 9 natives for th
 dotnet build StreamTransport.slnx -c Release
 dotnet test  StreamTransport.slnx -c Release --filter "TestCategory!=Integration"
 ```
+
+## Command line
+
+`samples/StreamTransport.Cli` publishes and subscribes through a relay, and doubles as a test tool:
+
+```bash
+streamtransport list                                         # every input and output here
+streamtransport publish --relay ws://host:8080/ws --room r --video camera --audio default
+streamtransport publish ... --video test --audio test        # the measurement signal
+streamtransport subscribe ... --measure                      # A/V offset and latency of it
+streamtransport feed test v4l2:/dev/video42                  # a webcam showing the test signal
+```
+
+`--turn turns:host --turn-user u --turn-password p --ice-policy relay` sends only through TURN.
 
 ## Relay
 

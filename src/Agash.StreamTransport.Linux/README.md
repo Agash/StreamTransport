@@ -1,7 +1,7 @@
 # Agash.StreamTransport.Linux
 
-Linux media for [Agash.StreamTransport](https://github.com/Agash/StreamTransport): PipeWire video and
-audio, and Vulkan video processors on DMA-BUFs.
+Linux media for [Agash.StreamTransport](https://github.com/Agash/StreamTransport): V4L2 cameras and
+v4l2loopback webcams, PipeWire video and audio, and Vulkan video processors on DMA-BUFs.
 
 Requires a running PipeWire daemon (1.0 or later, with a session manager such as WirePlumber) and, for
 the GPU path, a Vulkan 1.2 driver with DMA-BUF import and export (`VK_EXT_external_memory_dma_buf`,
@@ -32,6 +32,19 @@ before reading. Output pictures are DMA-BUFs in rows, one per plane, from a pool
 and return to the pool when the last lease on their frame is released. The kernels ship as SPIR-V,
 recompiled by `glslc` when a build finds it.
 
+## V4L2
+
+`V4l2VideoInputProvider` lists every `/dev/video*` node that streams captured video, single- or
+multi-planar, with the uncompressed modes the media model has (YUYV, UYVY, NV12, I420, BGRA, RGBA):
+webcams, USB capture cards, HDMI receivers. Frames are the driver's buffers, lent without a copy: as
+DMA-BUFs to a consumer on a GPU (the driver is asked for rows aligned as GPUs import them, and buffers are
+lent only when it gives them), as mapped memory otherwise. A consumer that keeps a frame keeps its buffer.
+Timestamps are the driver's capture times on the monotonic clock. A camera that sends only MJPEG is left
+to the FFmpeg provider.
+
+`V4l2VideoOutputProvider` writes received video to a v4l2loopback device, named by path or card name,
+which video calls, browsers and OBS open as a webcam.
+
 ## PipeWire
 
 `PipeWireVideoSource` captures a node, by id or name, or the session manager's choice. Frames on
@@ -48,12 +61,15 @@ staged once and copied into the daemon's buffer.
 graph; captured audio is stamped with its capture time from the stream's delay, and
 `PipeWireAudioSink.OutputLatency` reports how long audio takes to reach the device.
 
-The application owns the `PipeWireContext`, one connection to the daemon, and hands it to the sources
-and sinks.
+The PipeWire providers share one `PipeWireConnection`, a connection to the daemon and its graph started
+on first use; an application making sources and sinks itself hands them a `PipeWireContext`. Video nodes
+are listed as inputs, the cameras PipeWire serves among them, keyed by their device node so a camera the
+V4L2 provider also lists appears once.
 
 ## Registration
 
-`AddLinuxMedia()` registers the processor, which sessions then choose for DMA-BUF frames:
+`AddLinuxMedia()` registers the processor, which sessions then choose for DMA-BUF frames, and the V4L2 and
+PipeWire providers, reached through `MediaDevices`:
 
 ```csharp
 services.AddStreamTransport().AddFFmpegCodecs().AddLinuxMedia();
