@@ -20,6 +20,11 @@ public static class SdpWriter
         );
         sb.Append("s=-\r\n");
         sb.Append("t=0 0\r\n");
+        if (description.IceLite)
+        {
+            sb.Append("a=ice-lite\r\n");
+        }
+
         sb.Append("a=group:BUNDLE");
         foreach (SdpMediaDescription media in description.Media)
         {
@@ -95,6 +100,16 @@ public static class SdpWriter
                     $"a=fmtp:{codec.PayloadType} {codec.FormatParameters}\r\n"
                 );
             }
+        }
+
+        foreach (Ice.IceCandidate candidate in media.Candidates)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a={candidate.ToSdp()}\r\n");
+        }
+
+        if (media.EndOfCandidates)
+        {
+            sb.Append("a=end-of-candidates\r\n");
         }
 
         if (media.Ssrc is { } ssrc)

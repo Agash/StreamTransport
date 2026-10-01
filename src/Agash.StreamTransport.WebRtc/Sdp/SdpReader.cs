@@ -1,4 +1,5 @@
 using System.Globalization;
+using Agash.StreamTransport.WebRtc.Ice;
 using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Sdp;
@@ -23,6 +24,8 @@ public static class SdpReader
             sessionPwd = "";
         DtlsFingerprint? sessionFingerprint = null;
         SdpSetup sessionSetup = SdpSetup.ActPass;
+        bool iceLite = false;
+        List<IceCandidate> sessionCandidates = [];
 
         var media = new List<MediaBuilder>();
         MediaBuilder? current = null;
@@ -43,6 +46,18 @@ public static class SdpReader
                     media.Add(current);
                 }
 
+                continue;
+            }
+
+            if (line == "a=ice-lite")
+            {
+                iceLite = true;
+                continue;
+            }
+
+            if (TryValue(line, "a=candidate:", out _) && IceCandidate.TryParse(line, out IceCandidate parsed))
+            {
+                (current?.Candidates ?? sessionCandidates).Add(parsed);
                 continue;
             }
 
@@ -90,11 +105,13 @@ public static class SdpReader
                     RtcpMux = m.RtcpMux,
                     Ssrc = m.Ssrc,
                     Cname = m.Cname,
+                    Candidates = [.. sessionCandidates, .. m.Candidates],
+                    EndOfCandidates = m.EndOfCandidates,
                 }
             );
         }
 
-        description = new SdpDescription { Media = result };
+        description = new SdpDescription { Media = result, IceLite = iceLite };
         return true;
     }
 
@@ -163,6 +180,8 @@ public static class SdpReader
         public bool RtcpMux { get; private set; }
         public uint? Ssrc { get; private set; }
         public string? Cname { get; private set; }
+        public List<IceCandidate> Candidates { get; } = [];
+        public bool EndOfCandidates { get; private set; }
 
         public static MediaBuilder? FromMLine(string line)
         {
@@ -229,6 +248,10 @@ public static class SdpReader
             else if (line == "a=rtcp-mux")
             {
                 RtcpMux = true;
+            }
+            else if (line == "a=end-of-candidates")
+            {
+                EndOfCandidates = true;
             }
             else if (line == "a=sendrecv")
             {

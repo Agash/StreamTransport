@@ -38,6 +38,8 @@ public sealed partial class IceAgent : IAsyncDisposable
     private Task? _timerLoop;
     private int _nextHandle;
     private int _generation;
+    private int _pendingRelays;
+    private TaskCompletionSource _gathered = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _state = (int)IceConnectionState.New;
     private LocalSocket? _selectedSocket;
     private IPEndPoint? _selectedRemote;
@@ -190,6 +192,33 @@ public sealed partial class IceAgent : IAsyncDisposable
     }
 
     /// <summary>
+    /// Waits until every candidate the agent gathers has been raised: host candidates, server-reflexive
+    /// ones from the STUN servers that answer, relayed ones from the TURN servers that allocate. A peer
+    /// that does not trickle (WHIP, WHEP) needs them all in one description. Waits at most
+    /// <paramref name="limit"/>; what has been gathered by then is what there is.
+    /// </summary>
+    /// <param name="limit">The longest to wait.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when gathering finished or the limit passed.</returns>
+    public async Task WhenGatheredAsync(TimeSpan limit, CancellationToken cancellationToken = default)
+    {
+        Task gathered;
+        lock (_gate)
+        {
+            gathered = _gathered.Task;
+        }
+
+        try
+        {
+            await gathered.WaitAsync(limit, _time, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // Deliberately not logged: a server that does not answer leaves gathering at what it found.
+        }
+    }
+
+    /// <summary>
     /// Sends a media or DTLS datagram over the selected pair. While no pair is selected (during a
     /// recovery) the datagram is dropped: it would be lost on the dead path anyway, and the media pump
     /// must not fault while ICE re-nominates.
@@ -246,6 +275,14 @@ public sealed partial class IceAgent : IAsyncDisposable
             _generation++;
             _machine.Restart(newLocalCredentials);
             Gather(_cts?.Token ?? CancellationToken.None);
+        }
+
+        lock (_gate)
+        {
+            if (_gathered.Task.IsCompleted)
+            {
+                _gathered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
         }
 
         Report();
@@ -318,7 +355,35 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         foreach (TurnServer server in servers)
         {
-            _ = AllocateRelaysAsync(server, generation, cancellationToken);
+            _ = Interlocked.Increment(ref _pendingRelays);
+            _ = TrackAsync(AllocateRelaysAsync(server, generation, cancellationToken));
+        }
+
+        CheckGathered();
+    }
+
+    private async Task TrackAsync(Task allocation)
+    {
+        try
+        {
+            await allocation.ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = Interlocked.Decrement(ref _pendingRelays);
+            CheckGathered();
+        }
+    }
+
+    // Gathering is complete when no reflexive query or relay allocation is outstanding.
+    private void CheckGathered()
+    {
+        lock (_gate)
+        {
+            if (_machine.PendingGathers == 0 && Volatile.Read(ref _pendingRelays) == 0)
+            {
+                _ = _gathered.TrySetResult();
+            }
         }
     }
 
@@ -504,6 +569,7 @@ public sealed partial class IceAgent : IAsyncDisposable
                 }
 
                 Report();
+                CheckGathered();
                 await SendPendingAsync(cancellationToken).ConfigureAwait(false);
             }
             else

@@ -73,6 +73,9 @@ internal sealed partial class IceStateMachine
 
     public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
 
+    /// <summary>Server-reflexive queries still waiting for a response.</summary>
+    public int PendingGathers => _gatherInFlight.Count;
+
     public void AddStunServer(IPEndPoint server) => _stunServers.Add(server);
 
     /// <summary>Adds a bound local endpoint as a candidate and pairs it with the known remotes.</summary>

@@ -26,6 +26,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly ILogger _logger;
     private IceCredentials _localIceCredentials = IceCredentials.Generate();
     private readonly List<IceCandidate> _bufferedRemoteCandidates = [];
+    private readonly List<IceCandidate> _localCandidates = [];
     private readonly Dictionary<uint, ushort> _sendSequence = [];
     private readonly ConcurrentDictionary<uint, RtpSendHistory> _sendHistory = new();
     private readonly Dictionary<uint, RtxState> _rtx = [];
@@ -131,7 +132,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Kind,
                     line.Codecs,
                     line.LocalSsrc,
-                    SdpSetup.ActPass
+                    SdpSetup.ActPass,
+                    line.Direction
                 )
             );
         }
@@ -168,7 +170,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 foreach (SdpCodec lc in local)
                 {
-                    if (CodecsMatch(lc, rc))
+                    // One payload type per codec: a browser offers several of each (H.264 profiles and
+                    // packetization modes), and the first that matches is the one used.
+                    if (
+                        CodecsMatch(lc, rc)
+                        && !answered.Exists(a =>
+                            string.Equals(a.EncodingName, lc.EncodingName, StringComparison.OrdinalIgnoreCase)
+                        )
+                    )
                     {
                         offered.Add(rc);
                         answered.Add(lc with { PayloadType = rc.PayloadType });
@@ -181,7 +190,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
             IReadOnlyList<SdpCodec> remoteCodecs = answered.Count > 0 ? offered : remote.Codecs;
 
             media.Add(
-                BuildMediaSection(remote.Mid, remote.Kind, answerCodecs, ssrc, SdpSetup.Active)
+                BuildMediaSection(
+                    remote.Mid,
+                    remote.Kind,
+                    answerCodecs,
+                    ssrc,
+                    SdpSetup.Active,
+                    Answer(remote.Direction, LocalDirectionFor(remote.Kind))
+                )
             );
             negotiated.Add(
                 new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs, remoteCodecs)
@@ -197,6 +213,43 @@ public sealed partial class PeerConnection : IAsyncDisposable
         return new SdpDescription { Media = media };
     }
 
+    /// <summary>
+    /// Waits until ICE has gathered every local candidate (bounded by <paramref name="limit"/>), for a
+    /// description that carries them all to a peer that does not trickle.
+    /// </summary>
+    /// <param name="limit">The longest to wait.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when gathering finished or the limit passed.</returns>
+    public Task WhenCandidatesGatheredAsync(TimeSpan limit, CancellationToken cancellationToken = default) =>
+        _iceAgent?.WhenGatheredAsync(limit, cancellationToken) ?? Task.CompletedTask;
+
+    /// <summary>A local description with the candidates gathered so far in every section, ending them.</summary>
+    /// <param name="description">The offer or answer.</param>
+    /// <returns>The description with its candidates.</returns>
+    public SdpDescription WithLocalCandidates(SdpDescription description)
+    {
+        ArgumentNullException.ThrowIfNull(description);
+        IceCandidate[] candidates;
+        lock (_localCandidates)
+        {
+            candidates = [.. _localCandidates];
+        }
+
+        return description with
+        {
+            Media = [.. description.Media.Select(m => m with { Candidates = candidates, EndOfCandidates = true })],
+        };
+    }
+
+    // A restart gathers anew; the old candidates belong to the old credentials.
+    private void ForgetLocalCandidates()
+    {
+        lock (_localCandidates)
+        {
+            _localCandidates.Clear();
+        }
+    }
+
     /// <summary>The path media takes, once ICE has selected one; null before and during a recovery.</summary>
     public IcePath? SelectedPath => _iceAgent?.SelectedPath;
 
@@ -208,6 +261,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     public SdpDescription RestartIce()
     {
         _localIceCredentials = IceCredentials.Generate();
+        ForgetLocalCandidates();
         _iceAgent?.Restart(_localIceCredentials);
 
         // Build the offer from current media with the new credentials; the agent already exists (restarted),
@@ -221,7 +275,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Kind,
                     line.Codecs,
                     line.LocalSsrc,
-                    SdpSetup.ActPass
+                    SdpSetup.ActPass,
+                    line.Direction
                 )
             );
         }
@@ -249,6 +304,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         if (isRestartOffer)
         {
             _localIceCredentials = IceCredentials.Generate();
+            ForgetLocalCandidates();
             _iceAgent!.Restart(_localIceCredentials);
         }
 
@@ -286,6 +342,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
+
+        // Candidates the description carries, as a peer that does not trickle sends them.
+        foreach (IceCandidate candidate in description.Media.SelectMany(static m => m.Candidates).Distinct())
+        {
+            AddRemoteIceCandidate(candidate);
+        }
 
         lock (_gate)
         {
@@ -465,7 +527,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
             agent.AddTurnServer(turn);
         }
 
-        agent.LocalCandidateGathered += c => LocalIceCandidate?.Invoke(c);
+        agent.LocalCandidateGathered += c =>
+        {
+            lock (_localCandidates)
+            {
+                _localCandidates.Add(c);
+            }
+
+            LocalIceCandidate?.Invoke(c);
+        };
         _dtlsTransport = new IceDatagramTransport(agent);
         agent.DataReceived += OnTransportData;
         agent.StateChanged += OnIceStateChanged;
@@ -816,12 +886,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SdpMediaKind kind,
         IReadOnlyList<SdpCodec> codecs,
         uint ssrc,
-        SdpSetup setup
+        SdpSetup setup,
+        SdpDirection direction
     ) =>
         new()
         {
             Kind = kind,
             Mid = mid,
+            Direction = direction,
             Codecs = codecs,
             IceUfrag = _localIceCredentials.UsernameFragment,
             IcePwd = _localIceCredentials.Password,
@@ -860,9 +932,42 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     // Two codecs are the same format when the encoding name (case-insensitive) and clock rate agree. Payload
     // types may differ between offer and local config; the answer keeps the offerer's.
+    // The same codec: name and clock, and for H.264 the same packetization mode (RFC 6184 section 8.1).
     private static bool CodecsMatch(SdpCodec a, SdpCodec b) =>
         string.Equals(a.EncodingName, b.EncodingName, StringComparison.OrdinalIgnoreCase)
-        && a.ClockRate == b.ClockRate;
+        && a.ClockRate == b.ClockRate
+        && (
+            !string.Equals(a.EncodingName, "H264", StringComparison.OrdinalIgnoreCase)
+            || PacketizationMode(a) == PacketizationMode(b)
+        );
+
+    private static string PacketizationMode(SdpCodec codec) =>
+        codec
+            .FormatParameters?.Split(';')
+            .Select(static p => p.Trim())
+            .FirstOrDefault(static p => p.StartsWith("packetization-mode=", StringComparison.Ordinal))?[
+            "packetization-mode=".Length..
+        ] ?? "0";
+
+    // What this endpoint does on a kind of media, from its lines; send and receive when it has none.
+    private SdpDirection LocalDirectionFor(SdpMediaKind kind) =>
+        _options.Media.FirstOrDefault(l => l.Kind == kind)?.Direction ?? SdpDirection.SendRecv;
+
+    // The answer's direction: the offer's mirrored, then only what this endpoint does (RFC 3264 section 6.1).
+    private static SdpDirection Answer(SdpDirection offered, SdpDirection local)
+    {
+        bool send = offered is SdpDirection.SendRecv or SdpDirection.RecvOnly;
+        bool receive = offered is SdpDirection.SendRecv or SdpDirection.SendOnly;
+        send &= local is SdpDirection.SendRecv or SdpDirection.SendOnly;
+        receive &= local is SdpDirection.SendRecv or SdpDirection.RecvOnly;
+        return (send, receive) switch
+        {
+            (true, true) => SdpDirection.SendRecv,
+            (true, false) => SdpDirection.SendOnly,
+            (false, true) => SdpDirection.RecvOnly,
+            _ => SdpDirection.Inactive,
+        };
+    }
 
     private void SetState(PeerConnectionState state)
     {

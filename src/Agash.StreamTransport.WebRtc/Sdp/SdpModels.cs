@@ -108,6 +108,15 @@ public sealed record SdpMediaDescription
 
     /// <summary>The RTCP canonical name (<c>a=ssrc ... cname:</c>).</summary>
     public string? Cname { get; init; }
+
+    /// <summary>
+    /// The ICE candidates carried in the section (<c>a=candidate</c>), as a peer that does not trickle
+    /// (WHIP, WHEP, an ICE-lite server) sends them.
+    /// </summary>
+    public IReadOnlyList<Ice.IceCandidate> Candidates { get; init; } = [];
+
+    /// <summary>Whether the section says no more candidates follow (<c>a=end-of-candidates</c>).</summary>
+    public bool EndOfCandidates { get; init; }
 }
 
 /// <summary>A WebRTC session description: the BUNDLE group plus its media sections (JSEP, RFC 8829).</summary>
@@ -118,4 +127,7 @@ public sealed record SdpDescription
 
     /// <summary>The session identifier for the <c>o=</c> line.</summary>
     public long SessionId { get; init; } = Random.Shared.NextInt64(1, long.MaxValue);
+
+    /// <summary>Whether the peer runs ICE-lite (<c>a=ice-lite</c>), answering checks without making its own.</summary>
+    public bool IceLite { get; init; }
 }

@@ -26,6 +26,9 @@ public sealed record MediaLine(
 
     /// <summary>The RTX payload type (RFC 4588) used for retransmissions of this line.</summary>
     public byte? RtxPayloadType { get; init; }
+
+    /// <summary>Whether this endpoint sends, receives or both on the line.</summary>
+    public SdpDirection Direction { get; init; } = SdpDirection.SendRecv;
 }
 
 /// <summary>

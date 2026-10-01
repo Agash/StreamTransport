@@ -43,4 +43,11 @@ public interface ISignalingChannel : IAsyncDisposable
 
     /// <summary>Raised when an ICE candidate arrives from the remote peer.</summary>
     event Func<IceCandidate, Task>? IceCandidateReceived;
+
+    /// <summary>
+    /// Whether candidates travel on their own as they are gathered (trickle ICE). A channel that carries
+    /// one description each way and nothing else (WHIP, WHEP) says false, and a session then sends its
+    /// description once every candidate is in it.
+    /// </summary>
+    bool SupportsTrickle => true;
 }

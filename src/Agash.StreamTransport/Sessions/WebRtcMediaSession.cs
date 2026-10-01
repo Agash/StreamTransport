@@ -236,7 +236,12 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 }
             }
 
-            lines.Add(new MediaLine("0", SdpMediaKind.Audio, NewSsrc(), codecs));
+            lines.Add(
+                new MediaLine("0", SdpMediaKind.Audio, NewSsrc(), codecs)
+                {
+                    Direction = Direction(_endpoints.AudioSource is not null, _endpoints.AudioSink is not null),
+                }
+            );
         }
 
         if (_endpoints.HasVideo)
@@ -283,6 +288,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 {
                     RtxSsrc = NewSsrc(),
                     RtxPayloadType = VideoRtxPayloadType,
+                    Direction = Direction(_endpoints.VideoSource is not null, _endpoints.VideoSink is not null),
                 }
             );
         }
@@ -593,6 +599,12 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     private Task OnCandidateAsync(IceCandidate candidate)
     {
+        if (string.IsNullOrEmpty(candidate.Candidate))
+        {
+            // The end of the peer's candidates: nothing to add.
+            return Task.CompletedTask;
+        }
+
         if (WebRtcIceCandidate.TryParse(candidate.Candidate, out WebRtcIceCandidate parsed))
         {
             _connection!.AddRemoteIceCandidate(parsed);
@@ -605,8 +617,14 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         return Task.CompletedTask;
     }
 
-    private void OnLocalCandidate(WebRtcIceCandidate candidate) =>
-        _ = SendCandidateAsync(candidate);
+    // A channel that does not trickle gets the candidates inside the description instead.
+    private void OnLocalCandidate(WebRtcIceCandidate candidate)
+    {
+        if (_signaling.SupportsTrickle)
+        {
+            _ = SendCandidateAsync(candidate);
+        }
+    }
 
     private async Task SendCandidateAsync(WebRtcIceCandidate candidate)
     {
@@ -635,6 +653,13 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         CancellationToken cancellationToken
     )
     {
+        if (!_signaling.SupportsTrickle && _connection is { } connection)
+        {
+            // One description carries every candidate to a peer that takes no others.
+            await connection.WhenCandidatesGatheredAsync(GatherLimit, cancellationToken).ConfigureAwait(false);
+            description = connection.WithLocalCandidates(description);
+        }
+
         await _signaling
             .SendAsync(
                 new SessionDescription(kind, SdpWriter.Write(description)),
@@ -643,6 +668,17 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             .ConfigureAwait(false);
         LogDescriptionSent(kind);
     }
+
+    private static SdpDirection Direction(bool sends, bool receives) =>
+        (sends, receives) switch
+        {
+            (true, false) => SdpDirection.SendOnly,
+            (false, true) => SdpDirection.RecvOnly,
+            _ => SdpDirection.SendRecv,
+        };
+
+    // How long a description for a non-trickle peer waits for STUN and TURN servers to answer.
+    private static readonly TimeSpan GatherLimit = TimeSpan.FromSeconds(3);
 
     private static uint NewSsrc() =>
         unchecked((uint)RandomNumberGenerator.GetInt32(1, int.MaxValue) * 2 + 1);
