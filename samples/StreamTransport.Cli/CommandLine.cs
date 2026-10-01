@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Media;
+using Agash.StreamTransport.WebRtc.Ice;
 
 namespace StreamTransport.Cli;
 
@@ -38,6 +39,8 @@ internal sealed record CommandLine(
                              none
           --profile <name>   interactive | screen | irl | avatar
           --codec <name>     h264 | h265 | av1   the one video codec to offer
+          --turn <url>       a turn: or turns: URL, used with --turn-user and --turn-password
+          --ice-policy <p>   all | relay   relay sends only through TURN
           --ffmpeg <dir>     FFmpeg's shared libraries; defaults to the repository's native/ffmpeg/<rid>
           --verbose          log at debug level
 
@@ -93,6 +96,32 @@ internal sealed record CommandLine(
                 ],
             };
         }
+
+        if (Value(named, "turn") is { } turn)
+        {
+            session = session with
+            {
+                IceServers =
+                [
+                    new IceServer(
+                        [turn],
+                        Value(named, "turn-user") ?? throw new FormatException("--turn needs --turn-user."),
+                        Value(named, "turn-password")
+                            ?? throw new FormatException("--turn needs --turn-password.")
+                    ),
+                ],
+            };
+        }
+
+        session = session with
+        {
+            IceTransportPolicy = Choice(named, "ice-policy") switch
+            {
+                null or "all" => IceTransportPolicy.All,
+                "relay" => IceTransportPolicy.Relay,
+                string other => throw new FormatException($"No ICE policy '{other}'."),
+            },
+        };
 
         return new CommandLine(
             args[0] == "publish",

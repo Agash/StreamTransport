@@ -12,6 +12,7 @@ using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
+using Agash.StreamTransport.WebRtc.Turn;
 using Microsoft.Extensions.Logging;
 using WebRtcIceCandidate = Agash.StreamTransport.WebRtc.Ice.IceCandidate;
 
@@ -145,7 +146,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             LogStunUnresolved(url);
         }
 
-        PeerConnection connection = _services.Connections.Create(BuildOptions(stun));
+        PeerConnection connection = _services.Connections.Create(
+            BuildOptions(stun, StunServers.Turn(_options.IceServers))
+        );
         lock (_gate)
         {
             _connection = connection;
@@ -212,7 +215,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     // The media lines: each kind the endpoints use, with the codecs both the registries and the payload
     // formats support, in the options' order.
-    private PeerConnectionOptions BuildOptions(List<IPEndPoint> stun)
+    private PeerConnectionOptions BuildOptions(List<IPEndPoint> stun, List<TurnServer> turn)
     {
         List<MediaLine> lines = [];
         if (_endpoints.HasAudio)
@@ -287,6 +290,8 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         {
             Media = lines,
             StunServers = stun,
+            TurnServers = turn,
+            IceTransportPolicy = _options.IceTransportPolicy,
             IncludeLoopback = _options.IncludeLoopbackCandidates,
             LocalAddressPreferences = _options.LocalAddressPreferences,
             EnableFec = _options.EnableFec && _endpoints.VideoSource is not null,

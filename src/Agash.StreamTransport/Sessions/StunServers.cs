@@ -1,10 +1,14 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using Agash.StreamTransport.WebRtc.Turn;
 
 namespace Agash.StreamTransport.Sessions;
 
-/// <summary>Resolves the <c>stun:</c> URLs of ICE servers (RFC 7064) to endpoints.</summary>
+/// <summary>
+/// Reads ICE server URLs: <c>stun:</c> URLs (RFC 7064) resolve to endpoints here, and <c>turn:</c> and
+/// <c>turns:</c> URLs (RFC 7065) become TURN servers, which resolve when they allocate.
+/// </summary>
 internal static class StunServers
 {
     private const int DefaultPort = 3478;
@@ -43,6 +47,33 @@ internal static class StunServers
         }
 
         return (endpoints, unresolved);
+    }
+
+    /// <summary>The TURN servers among the ICE servers, with their credentials.</summary>
+    /// <param name="servers">The ICE servers.</param>
+    /// <returns>Every <c>turn:</c> or <c>turns:</c> URL this client supports.</returns>
+    public static List<TurnServer> Turn(IEnumerable<IceServer> servers)
+    {
+        List<TurnServer> turn = [];
+        foreach (IceServer server in servers)
+        {
+            foreach (string url in server.Urls)
+            {
+                if (
+                    TurnServer.TryParse(
+                        url,
+                        server.Username ?? string.Empty,
+                        server.Credential ?? string.Empty,
+                        out TurnServer parsed
+                    )
+                )
+                {
+                    turn.Add(parsed);
+                }
+            }
+        }
+
+        return turn;
     }
 
     // stun:host[:port], with a bracketed IPv6 literal allowed.

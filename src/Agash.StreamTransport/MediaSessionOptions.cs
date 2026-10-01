@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
+using Agash.StreamTransport.WebRtc.Ice;
 
 namespace Agash.StreamTransport;
 
@@ -58,8 +59,17 @@ public sealed record MediaSessionOptions
     /// <summary>The audio codecs to offer, most preferred first.</summary>
     public ImmutableArray<AudioCodecId> AudioCodecs { get; init; } = [AudioCodecId.Opus];
 
-    /// <summary>The ICE servers; a room's servers are used when this is empty.</summary>
+    /// <summary>
+    /// The ICE servers: <c>stun:</c> URLs, and <c>turn:</c>/<c>turns:</c> URLs with their credentials.
+    /// A room's servers are used when this is empty.
+    /// </summary>
     public ImmutableArray<IceServer> IceServers { get; init; } = [];
+
+    /// <summary>
+    /// Which candidates ICE gathers. <see cref="IceTransportPolicy.Relay"/> sends only through the TURN
+    /// servers, which keeps this side's addresses from the peer.
+    /// </summary>
+    public IceTransportPolicy IceTransportPolicy { get; init; } = IceTransportPolicy.All;
 
     /// <summary>
     /// Restricts ICE to local addresses matching one of these: a NIC name, a literal address, or
