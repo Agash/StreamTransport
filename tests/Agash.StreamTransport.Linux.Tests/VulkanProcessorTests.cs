@@ -83,6 +83,39 @@ public sealed class VulkanProcessorTests
     }
 
     [TestMethod]
+    public void AlphaPack_ToMemory_ReadsBackThePackedPicture()
+    {
+        byte[] pixels = Picture();
+        using VideoFrameLease output = Run(
+            Bgra(pixels),
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(
+                VideoConstraints.Cpu(PixelFormat.Nv12),
+                Alpha: AlphaLayout.PackSideBySide
+            ),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(VideoStorageKind.Cpu, info.Output.Storage);
+        Assert.AreEqual(new VideoSize(Width * 2, Height), info.Output.Size);
+        VideoFrame frame = output.Frame;
+        Assert.IsTrue(frame.Storage.TryGetValue(out CpuImage image));
+        ReadOnlySpan<byte> luma = frame.GetPlane(0);
+        for (int row = 0; row < Height; row += 2)
+        {
+            for (int x = 0; x < Width; x += 2)
+            {
+                double alpha = pixels[(((row * Width) + x) * 4) + 3];
+                Assert.AreEqual(
+                    16 + (219 * alpha / 255),
+                    luma[(row * image.Planes[0].Stride) + Width + x],
+                    1.0
+                );
+            }
+        }
+    }
+
+    [TestMethod]
     public void PackThenUnpack_ReturnsColourAndAlpha()
     {
         byte[] pixels = Picture();
@@ -210,11 +243,15 @@ public sealed class VulkanProcessorTests
                 new VideoProcessing(nv12)
             )
         );
-        Assert.IsNull(
-            Factory.QueryCapabilities(
-                bgra,
-                new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
-            )
+        Assert.AreEqual(
+            VideoStorageKind.Cpu,
+            Factory
+                .QueryCapabilities(
+                    bgra,
+                    new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+                )
+                ?.Output.Storage,
+            "a consumer in memory gets the result read back"
         );
         Assert.IsNull(
             Factory.QueryCapabilities(

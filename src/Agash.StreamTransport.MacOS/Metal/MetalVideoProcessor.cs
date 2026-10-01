@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
 using Foundation;
+using IOSurface;
 using Metal;
 using ObjCRuntime;
 
@@ -27,10 +28,22 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
     {
         ArgumentNullException.ThrowIfNull(processing);
         VideoConstraints output = processing.Output;
+
+        // The work runs on the input's GPU; the result stays there as an IOSurface, or is read back for
+        // a consumer in memory (a software encoder fed by a GPU source).
+        VideoStorageKind? result =
+            output.Storages.Contains(VideoStorageKind.IOSurface) ? VideoStorageKind.IOSurface
+            : output.Storages.Contains(VideoStorageKind.Cpu) ? VideoStorageKind.Cpu
+            : null;
         if (
             input.Storage != VideoStorageKind.IOSurface
-            || !output.Storages.Contains(VideoStorageKind.IOSurface)
-            || (output.Device is { } wanted && input.Device is { } actual && wanted != actual)
+            || result is not { } storage
+            || (
+                storage == VideoStorageKind.IOSurface
+                && output.Device is { } wanted
+                && input.Device is { } actual
+                && wanted != actual
+            )
         )
         {
             return null;
@@ -55,7 +68,7 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
                     }
                     : colour;
             return size.Width % 2 == 0 && size.Height % 2 == 0
-                ? Info(PixelFormat.Nv12, size, input.Device)
+                ? Info(PixelFormat.Nv12, size, input.Device, storage)
                 : null;
         }
 
@@ -73,7 +86,7 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
                 || (processing.Size is { } s && s != colour)
                 || !output.PixelFormats.Contains(PixelFormat.Bgra)
                 ? null
-                : Info(PixelFormat.Bgra, colour, input.Device);
+                : Info(PixelFormat.Bgra, colour, input.Device, storage);
         }
 
         return null;
@@ -94,12 +107,18 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
     private static VideoProcessorInfo Info(
         PixelFormat format,
         VideoSize size,
-        GpuIdentity? device
+        GpuIdentity? device,
+        VideoStorageKind storage
     ) =>
         new(
             Name,
             IsHardwareAccelerated: true,
-            new VideoStreamDescription(VideoStorageKind.IOSurface, format, size, device)
+            new VideoStreamDescription(
+                storage,
+                format,
+                size,
+                storage == VideoStorageKind.IOSurface ? device : null
+            )
         );
 }
 
@@ -176,6 +195,20 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
             }
 
             VideoStreamDescription described = Info.Output;
+            if (described.Storage == VideoStorageKind.Cpu)
+            {
+                try
+                {
+                    ReadBack(output, in frame, consumer);
+                }
+                finally
+                {
+                    output.Release();
+                }
+
+                return;
+            }
+
             VideoFrame result = new(
                 new VideoStorage(new IOSurfaceImage(output.Handle, _engine.Identity)),
                 new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
@@ -195,6 +228,46 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
                 _delivering = null;
                 output.Release();
             }
+        }
+    }
+
+    // The finished surface read in place under a read-only lock and handed on from memory; a consumer
+    // that keeps it copies it.
+    private unsafe void ReadBack(
+        PooledSurface output,
+        in VideoFrame frame,
+        IVideoFrameConsumer consumer
+    )
+    {
+        VideoStreamDescription described = Info.Output;
+        IOSurface.IOSurface surface = output.Surface;
+        bool nv12 = described.PixelFormat == PixelFormat.Nv12;
+        int height = described.Size.Height;
+        _ = surface.Lock(IOSurfaceLockOptions.ReadOnly);
+        try
+        {
+            (nint first, int firstStride) = nv12
+                ? (surface.GetBaseAddress(0), (int)surface.GetBytesPerRow(0))
+                : (surface.BaseAddress, (int)surface.BytesPerRow);
+            (nint second, int secondStride) = nv12
+                ? (surface.GetBaseAddress(1), (int)surface.GetBytesPerRow(1))
+                : (0, 0);
+            VideoFrame result = new(
+                new VideoFormat(described.PixelFormat, described.Size.Width, height),
+                frame.Timestamp,
+                new ReadOnlySpan<byte>((void*)first, firstStride * height),
+                firstStride,
+                nv12 ? new ReadOnlySpan<byte>((void*)second, secondStride * (height / 2)) : default,
+                secondStride,
+                color: _outputColour,
+                orientation: frame.Orientation,
+                duration: frame.Duration
+            );
+            consumer.OnFrame(in result);
+        }
+        finally
+        {
+            _ = surface.Unlock(IOSurfaceLockOptions.ReadOnly);
         }
     }
 

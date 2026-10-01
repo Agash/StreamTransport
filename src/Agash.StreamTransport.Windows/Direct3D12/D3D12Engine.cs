@@ -241,9 +241,21 @@ internal sealed unsafe class D3D12Engine : IDisposable
     /// <summary>A buffer in the upload heap, which the CPU writes and the GPU copies from.</summary>
     /// <param name="size">Its size in bytes.</param>
     /// <returns>The ID3D12Resource, owned by the caller.</returns>
-    public nint CreateUploadBuffer(ulong size)
+    public nint CreateUploadBuffer(ulong size) => CreateBuffer(size, readback: false);
+
+    /// <summary>A buffer in the readback heap, which the GPU copies into and the CPU reads.</summary>
+    /// <param name="size">Its size in bytes.</param>
+    /// <returns>The ID3D12Resource, owned by the caller.</returns>
+    public nint CreateReadbackBuffer(ulong size) => CreateBuffer(size, readback: true);
+
+    private nint CreateBuffer(ulong size, bool readback)
     {
-        D3D12_HEAP_PROPERTIES heap = new() { Type = D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD };
+        D3D12_HEAP_PROPERTIES heap = new()
+        {
+            Type = readback
+                ? D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_READBACK
+                : D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
+        };
         D3D12_RESOURCE_DESC description = new()
         {
             Dimension = D3D12_RESOURCE_DIMENSION.D3D12_RESOURCE_DIMENSION_BUFFER,
@@ -261,12 +273,74 @@ internal sealed unsafe class D3D12Engine : IDisposable
             &heap,
             D3D12_HEAP_FLAGS.D3D12_HEAP_FLAG_NONE,
             &description,
-            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ,
+            readback
+                ? D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST
+                : D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ,
             null,
             &iid,
             &resource
         );
         return (nint)resource;
+    }
+
+    /// <summary>How a texture's planes lie in a buffer copied to or from: offsets and row pitches.</summary>
+    /// <param name="texture">The texture.</param>
+    /// <param name="footprints">One per plane, filled in.</param>
+    /// <param name="rows">Each plane's row count, filled in.</param>
+    /// <returns>The bytes the buffer needs.</returns>
+    public ulong Footprints(
+        nint texture,
+        Span<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints,
+        Span<uint> rows
+    )
+    {
+        D3D12_RESOURCE_DESC description = Describe(texture);
+        ulong total;
+        fixed (D3D12_PLACED_SUBRESOURCE_FOOTPRINT* placed = footprints)
+        fixed (uint* count = rows)
+        {
+            _device->GetCopyableFootprints(
+                &description,
+                0,
+                (uint)footprints.Length,
+                0,
+                placed,
+                count,
+                null,
+                &total
+            );
+        }
+
+        return total;
+    }
+
+    /// <summary>Records a copy of a texture's plane into a buffer at its footprint.</summary>
+    /// <param name="list">The open command list.</param>
+    /// <param name="texture">The texture, readable by copies.</param>
+    /// <param name="plane">The plane's subresource.</param>
+    /// <param name="buffer">The buffer.</param>
+    /// <param name="footprint">Where the plane goes in it.</param>
+    public static void CopyToBuffer(
+        ID3D12GraphicsCommandList* list,
+        nint texture,
+        uint plane,
+        nint buffer,
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint
+    )
+    {
+        D3D12_TEXTURE_COPY_LOCATION to = new()
+        {
+            pResource = (ID3D12Resource*)buffer,
+            Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+        };
+        to.Anonymous.PlacedFootprint = footprint;
+        D3D12_TEXTURE_COPY_LOCATION from = new()
+        {
+            pResource = (ID3D12Resource*)texture,
+            Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+        };
+        from.Anonymous.SubresourceIndex = plane;
+        list->CopyTextureRegion(&to, 0, 0, 0, &from, null);
     }
 
     /// <summary>How a texture's first subresource lies in a buffer it is copied from: its row pitch.</summary>

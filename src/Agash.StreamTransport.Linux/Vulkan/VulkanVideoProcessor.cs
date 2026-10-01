@@ -26,13 +26,25 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
     {
         ArgumentNullException.ThrowIfNull(processing);
         VideoConstraints output = processing.Output;
+
+        // The work runs on the input's GPU; the result stays there as a DMA-BUF, or is read back for a
+        // consumer in memory (a software encoder fed by a GPU source).
+        VideoStorageKind? result =
+            output.Storages.Contains(VideoStorageKind.DmaBuf) ? VideoStorageKind.DmaBuf
+            : output.Storages.Contains(VideoStorageKind.Cpu) ? VideoStorageKind.Cpu
+            : null;
         if (
             input.Storage != VideoStorageKind.DmaBuf
-            || !output.Storages.Contains(VideoStorageKind.DmaBuf)
-            || (output.Device is { } wanted && input.Device is { } actual && wanted != actual)
+            || result is not { } storage
             || (
-                !output.DrmModifiers.IsDefaultOrEmpty
-                && !output.DrmModifiers.Contains(VulkanEngine.LinearModifier)
+                storage == VideoStorageKind.DmaBuf
+                && (
+                    (output.Device is { } wanted && input.Device is { } actual && wanted != actual)
+                    || (
+                        !output.DrmModifiers.IsDefaultOrEmpty
+                        && !output.DrmModifiers.Contains(VulkanEngine.LinearModifier)
+                    )
+                )
             )
         )
         {
@@ -58,7 +70,7 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
                     }
                     : colour;
             return size.Width % 2 == 0 && size.Height % 2 == 0
-                ? Info(PixelFormat.Nv12, size, input.Device)
+                ? Info(PixelFormat.Nv12, size, input.Device, storage)
                 : null;
         }
 
@@ -83,7 +95,7 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
             {
                 if (format is PixelFormat.Bgra or PixelFormat.Rgba)
                 {
-                    return Info(format, colour, input.Device);
+                    return Info(format, colour, input.Device, storage);
                 }
             }
         }
@@ -106,12 +118,18 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
     private static VideoProcessorInfo Info(
         PixelFormat format,
         VideoSize size,
-        GpuIdentity? device
+        GpuIdentity? device,
+        VideoStorageKind storage
     ) =>
         new(
             Name,
             IsHardwareAccelerated: true,
-            new VideoStreamDescription(VideoStorageKind.DmaBuf, format, size, device)
+            new VideoStreamDescription(
+                storage,
+                format,
+                size,
+                storage == VideoStorageKind.DmaBuf ? device : null
+            )
         );
 }
 
@@ -191,6 +209,20 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             }
 
             VideoStreamDescription described = Info.Output;
+            if (described.Storage == VideoStorageKind.Cpu)
+            {
+                try
+                {
+                    ReadBack(output, in frame, consumer);
+                }
+                finally
+                {
+                    output.Release();
+                }
+
+                return;
+            }
+
             VideoFrame result = new(
                 new VideoStorage(output.Describe(_engine.Identity)),
                 new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
@@ -211,6 +243,28 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 output.Release();
             }
         }
+    }
+
+    // The result read back plane by plane once the GPU finished, handed on from memory; a consumer that
+    // keeps it copies it.
+    private void ReadBack(PooledDmaBuf output, in VideoFrame frame, IVideoFrameConsumer consumer)
+    {
+        VideoStreamDescription described = Info.Output;
+        bool nv12 = described.PixelFormat == PixelFormat.Nv12;
+        byte[] first = VulkanTransfer.Download(_engine, output.Planes[0], nv12 ? 1 : 4);
+        byte[] second = nv12 ? VulkanTransfer.Download(_engine, output.Planes[1], 2) : [];
+        VideoFrame result = new(
+            new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
+            frame.Timestamp,
+            first,
+            output.Planes[0].Width * (nv12 ? 1 : 4),
+            second,
+            nv12 ? output.Planes[1].Width * 2 : 0,
+            color: _outputColour,
+            orientation: frame.Orientation,
+            duration: frame.Duration
+        );
+        consumer.OnFrame(in result);
     }
 
     // Called by a consumer inside OnFrame, on the processing thread that holds the lock.

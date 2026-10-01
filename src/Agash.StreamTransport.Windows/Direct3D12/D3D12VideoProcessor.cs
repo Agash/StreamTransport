@@ -41,10 +41,21 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
                 : null;
         }
 
+        // The work runs on the input's GPU; the result stays there, or is read back for a consumer in
+        // memory (a software encoder fed by a GPU source).
+        VideoStorageKind? result =
+            output.Storages.Contains(VideoStorageKind.D3D12) ? VideoStorageKind.D3D12
+            : output.Storages.Contains(VideoStorageKind.Cpu) ? VideoStorageKind.Cpu
+            : null;
         if (
             input.Storage != VideoStorageKind.D3D12
-            || !output.Storages.Contains(VideoStorageKind.D3D12)
-            || (output.Device is { } wanted && input.Device is { } actual && wanted != actual)
+            || result is not { } storage
+            || (
+                storage == VideoStorageKind.D3D12
+                && output.Device is { } wanted
+                && input.Device is { } actual
+                && wanted != actual
+            )
         )
         {
             return null;
@@ -69,7 +80,7 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
                     }
                     : colour;
             return size.Width % 2 == 0 && size.Height % 2 == 0
-                ? Info(PixelFormat.Nv12, size, input.Device)
+                ? Info(PixelFormat.Nv12, size, input.Device, storage)
                 : null;
         }
 
@@ -94,7 +105,7 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
             {
                 if (format is PixelFormat.Bgra or PixelFormat.Rgba)
                 {
-                    return Info(format, colour, input.Device);
+                    return Info(format, colour, input.Device, storage);
                 }
             }
         }
@@ -116,12 +127,18 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
     private static VideoProcessorInfo Info(
         PixelFormat format,
         VideoSize size,
-        GpuIdentity? device
+        GpuIdentity? device,
+        VideoStorageKind storage = VideoStorageKind.D3D12
     ) =>
         new(
             Name,
             IsHardwareAccelerated: true,
-            new VideoStreamDescription(VideoStorageKind.D3D12, format, size, device)
+            new VideoStreamDescription(
+                storage,
+                format,
+                size,
+                storage == VideoStorageKind.D3D12 ? device : null
+            )
         );
 }
 
@@ -140,6 +157,8 @@ internal sealed unsafe class D3D12VideoProcessor(
     private nint _upload;
     private ulong _uploadSize;
     private ulong _uploaded;
+    private nint _readback;
+    private ulong _readbackSize;
     private bool _disposed;
 
     public VideoProcessorInfo Info { get; } = info;
@@ -196,6 +215,20 @@ internal sealed unsafe class D3D12VideoProcessor(
 
             _reading.Enqueue((input, done));
             VideoStreamDescription described = Info.Output;
+            if (described.Storage == VideoStorageKind.Cpu)
+            {
+                try
+                {
+                    ReadBack(engine, output, in frame, colour, consumer);
+                }
+                finally
+                {
+                    output.Release();
+                }
+
+                return;
+            }
+
             VideoFrame result = new(
                 new VideoStorage(
                     new D3D12Image(
@@ -258,7 +291,88 @@ internal sealed unsafe class D3D12VideoProcessor(
                 D3D12Engine.Release(_upload);
             }
 
+            if (_readback != 0)
+            {
+                D3D12Engine.Release(_readback);
+            }
+
             _engine?.Dispose();
+        }
+    }
+
+    // The result copied into the readback buffer after the GPU work, waited for, and handed on from the
+    // mapped buffer; a consumer that keeps it copies it.
+    private void ReadBack(
+        D3D12Engine engine,
+        PooledTexture output,
+        in VideoFrame frame,
+        VideoColor colour,
+        IVideoFrameConsumer consumer
+    )
+    {
+        VideoStreamDescription described = Info.Output;
+        int planes = described.PixelFormat == PixelFormat.Nv12 ? 2 : 1;
+        Span<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints =
+            stackalloc D3D12_PLACED_SUBRESOURCE_FOOTPRINT[planes];
+        Span<uint> rows = stackalloc uint[planes];
+        ulong size = engine.Footprints(output.Texture, footprints, rows);
+        if (size > _readbackSize)
+        {
+            if (_readback != 0)
+            {
+                D3D12Engine.Release(_readback);
+            }
+
+            _readback = engine.CreateReadbackBuffer(size);
+            _readbackSize = size;
+        }
+
+        ID3D12GraphicsCommandList* list = engine.BeginCopy();
+        for (int plane = 0; plane < planes; plane++)
+        {
+            D3D12Engine.CopyToBuffer(
+                list,
+                output.Texture,
+                (uint)plane,
+                _readback,
+                footprints[plane]
+            );
+        }
+
+        engine.WaitFor(engine.Submit());
+        byte* mapped;
+        D3D12_RANGE everything = new() { Begin = 0, End = (nuint)size };
+        ((ID3D12Resource*)_readback)->Map(0, &everything, (void**)&mapped);
+        try
+        {
+            ReadOnlySpan<byte> luma = new(
+                mapped + footprints[0].Offset,
+                (int)(footprints[0].Footprint.RowPitch * rows[0])
+            );
+            ReadOnlySpan<byte> chroma =
+                planes > 1
+                    ? new ReadOnlySpan<byte>(
+                        mapped + footprints[1].Offset,
+                        (int)(footprints[1].Footprint.RowPitch * rows[1])
+                    )
+                    : default;
+            VideoFrame result = new(
+                new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
+                frame.Timestamp,
+                luma,
+                (int)footprints[0].Footprint.RowPitch,
+                chroma,
+                planes > 1 ? (int)footprints[1].Footprint.RowPitch : 0,
+                color: colour,
+                orientation: frame.Orientation,
+                duration: frame.Duration
+            );
+            consumer.OnFrame(in result);
+        }
+        finally
+        {
+            D3D12_RANGE nothing = default;
+            ((ID3D12Resource*)_readback)->Unmap(0, &nothing);
         }
     }
 

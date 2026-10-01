@@ -86,6 +86,45 @@ public sealed class D3D12ProcessorTests
     }
 
     [TestMethod]
+    public void AlphaPack_ToMemory_ReadsBackThePackedPicture()
+    {
+        using var gpu = TestGpu.Open();
+        byte[] pixels = Picture(PixelFormat.Bgra);
+        Kept output = Run(
+            gpu,
+            PixelFormat.Bgra,
+            pixels,
+            new VideoProcessing(
+                VideoConstraints.Cpu(PixelFormat.Nv12),
+                Alpha: AlphaLayout.PackSideBySide
+            ),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(VideoStorageKind.Cpu, info.Output.Storage);
+        Assert.AreEqual(new VideoSize(Width * 2, Height), info.Output.Size);
+        VideoFrame frame = output.Lease.Frame;
+        Assert.IsTrue(frame.Storage.TryGetValue(out CpuImage image));
+        ReadOnlySpan<byte> luma = frame.GetPlane(0);
+        ReadOnlySpan<byte> chroma = frame.GetPlane(1);
+        for (int row = 0; row < Height; row += 2)
+        {
+            for (int x = 0; x < Width; x += 2)
+            {
+                double alpha = pixels[(((row * Width) + x) * 4) + 3];
+                Assert.AreEqual(
+                    16 + (219 * alpha / 255),
+                    luma[(row * image.Planes[0].Stride) + Width + x],
+                    1.0
+                );
+                Assert.AreEqual(128, chroma[((row / 2) * image.Planes[1].Stride) + Width + x], 1.0);
+            }
+        }
+
+        output.Lease.Dispose();
+    }
+
+    [TestMethod]
     public void PackThenUnpack_ReturnsColourAndAlpha()
     {
         using var gpu = TestGpu.Open();
@@ -176,11 +215,15 @@ public sealed class D3D12ProcessorTests
                 new VideoProcessing(nv12)
             )
         );
-        Assert.IsNull(
-            Factory.QueryCapabilities(
-                bgra,
-                new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
-            )
+        Assert.AreEqual(
+            VideoStorageKind.Cpu,
+            Factory
+                .QueryCapabilities(
+                    bgra,
+                    new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+                )
+                ?.Output.Storage,
+            "a consumer in memory gets the result read back"
         );
         Assert.IsNull(
             Factory.QueryCapabilities(
