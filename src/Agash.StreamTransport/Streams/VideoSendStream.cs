@@ -51,6 +51,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private bool _encoderDelivered;
     private int _framesDropped;
     private int _framesSent;
+    private readonly FrameRateMeter _rate;
+    private MediaTime? _lastAccepted;
 
     /// <summary>Connects a source and starts the encode worker.</summary>
     /// <param name="source">The video source.</param>
@@ -74,6 +76,9 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         _pacer = pacer;
         _logger = logger;
         _bitsPerSecond = setup.StartBitsPerSecond;
+        _rate = new FrameRateMeter(
+            Math.Min((source as IVideoInput)?.Mode?.FrameRate ?? 30, options.MaxFrameRate ?? double.MaxValue)
+        );
         _wake = new WakeSignal();
         _encoded = new EncodedConsumer(this);
 
@@ -110,6 +115,23 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     /// <inheritdoc/>
     public void OnFrame(in VideoFrame frame)
     {
+        MediaTime time = frame.Timestamp.Time;
+        if (_options.MaxFrameRate is { } max && _lastAccepted is { } last)
+        {
+            // Thinning to the cap: a frame sooner than the cap allows, less a little for jitter, waits
+            // its turn as the next frame.
+            if (time - last < TimeSpan.FromSeconds(0.9 / max) && time > last)
+            {
+                return;
+            }
+        }
+
+        _lastAccepted = time;
+        lock (_gate)
+        {
+            _rate.Observe(time);
+        }
+
         VideoFrameLease lease = frame.Retain();
         VideoFrameLease? replaced;
         lock (_gate)
@@ -147,16 +169,25 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         long appliedRate = Interlocked.Read(ref _bitsPerSecond);
+        double appliedFrames = FramesPerSecond;
         try
         {
             while (true)
             {
                 await _wake.WaitAsync(cancellationToken).ConfigureAwait(false);
                 long rate = Interlocked.Read(ref _bitsPerSecond);
-                if (rate != appliedRate && _encoder is not null)
+                double frames = FramesPerSecond;
+                bool framesMoved = FrameRateMeter.Moved(appliedFrames, frames);
+                if ((rate != appliedRate || framesMoved) && _encoder is not null)
                 {
-                    _encoder.Reconfigure(new RateTarget(rate, _options.FrameRate));
+                    if (framesMoved)
+                    {
+                        LogFrameRate(frames);
+                    }
+
+                    _encoder.Reconfigure(new RateTarget(rate, frames));
                     appliedRate = rate;
+                    appliedFrames = frames;
                 }
 
                 VideoFrameLease? lease;
@@ -304,7 +335,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             new VideoEncoderConfiguration(
                 _setup.Format,
                 size,
-                new RateTarget(Interlocked.Read(ref _bitsPerSecond), _options.FrameRate),
+                new RateTarget(Interlocked.Read(ref _bitsPerSecond), FramesPerSecond),
                 _options.KeyframeInterval,
                 _options.VideoTuning,
                 Alpha: _setup.Alpha == AlphaLayout.Layer ? AlphaLayout.Layer : AlphaLayout.None
@@ -347,6 +378,21 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             encoder.Dispose();
         }
     }
+
+    // The source's rate under the cap, as rate control plans for it.
+    private double FramesPerSecond
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return Math.Min(_rate.FramesPerSecond, _options.MaxFrameRate ?? double.MaxValue);
+            }
+        }
+    }
+
+    [LoggerMessage(2044, LogLevel.Information, "The source sends {FramesPerSecond:0.#} frames a second; rate control plans for it.")]
+    private partial void LogFrameRate(double framesPerSecond);
 
     [LoggerMessage(
         2040,

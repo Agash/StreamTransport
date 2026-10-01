@@ -139,13 +139,23 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            double openedFrames = _configuration.Rate.FramesPerSecond;
             _configuration = _configuration with { Rate = target };
             if (_session is not { } session)
             {
                 return;
             }
 
-            if (session.Encoder.SupportsRateControlChanges)
+            // Frame rate is set when an encoder opens; a source that changed pace reopens it.
+            if (
+                target.FramesPerSecond < openedFrames * 0.8
+                || target.FramesPerSecond > openedFrames * 1.2
+            )
+            {
+                _reopen = true;
+                LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
+            }
+            else if (session.Encoder.SupportsRateControlChanges)
             {
                 session.Encoder.SetRateControl(
                     target.BitsPerSecond,

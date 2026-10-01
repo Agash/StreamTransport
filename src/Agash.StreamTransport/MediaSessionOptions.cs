@@ -83,8 +83,11 @@ public sealed record MediaSessionOptions
     /// <summary>What the video encoder's rate control is tuned for.</summary>
     public EncodeTuning VideoTuning { get; init; } = EncodeTuning.Interactive;
 
-    /// <summary>The frame rate the video rate control plans for.</summary>
-    public double FrameRate { get; init; } = 30;
+    /// <summary>
+    /// The most video frames sent per second; a faster source is thinned to it. Null sends at the
+    /// source's own rate, which the rate control measures and plans for.
+    /// </summary>
+    public double? MaxFrameRate { get; init; }
 
     /// <summary>
     /// The longest gap between keyframes; zero for keyframes only when a receiver asks. Receivers ask
