@@ -264,8 +264,63 @@ public sealed partial class MediaCodecRegistry
             }
         }
 
+        // No one processor does it: two, through a picture in memory. The first converts (and packs or
+        // unpacks alpha) to a format the second takes on to the output: a software decoder's frames
+        // reaching a GPU sink are converted in memory and uploaded.
+        foreach (
+            PixelFormat between in (PixelFormat[])
+                [PixelFormat.Bgra, PixelFormat.Rgba, PixelFormat.Nv12]
+        )
+        {
+            VideoProcessing first = processing with { Output = VideoConstraints.Cpu(between) };
+            if (FirstProcessor(input, first) is not { } head)
+            {
+                continue;
+            }
+
+            if (
+                FirstProcessor(
+                    head.Output,
+                    new VideoProcessing(processing.Output, Color: processing.Color)
+                )
+                is null
+            )
+            {
+                continue;
+            }
+
+            if (
+                TryCreateVideoProcessor(input, first, out IVideoProcessor? converter)
+                && TryCreateVideoProcessor(
+                    head.Output,
+                    new VideoProcessing(processing.Output, Color: processing.Color),
+                    out IVideoProcessor? onward
+                )
+            )
+            {
+                processor = new ChainedVideoProcessor(converter, onward);
+                return true;
+            }
+        }
+
         processor = null;
         return false;
+    }
+
+    private VideoProcessorInfo? FirstProcessor(
+        VideoStreamDescription input,
+        VideoProcessing processing
+    )
+    {
+        foreach (IVideoProcessorFactory factory in _videoProcessors)
+        {
+            if (factory.QueryCapabilities(input, processing) is { } info)
+            {
+                return info;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>What the best audio encoder for a format would take, without making one.</summary>
