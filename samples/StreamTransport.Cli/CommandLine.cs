@@ -18,6 +18,7 @@ namespace StreamTransport.Cli;
 /// <param name="FFmpeg">Where FFmpeg's shared libraries are, or null for the system's.</param>
 /// <param name="Capture">The capture mode asked of a video input.</param>
 /// <param name="Measure">Whether a subscriber measures a received test signal.</param>
+/// <param name="FeedOutput">For <c>feed</c>, the output the input's video goes to.</param>
 internal sealed record CommandLine(
     bool List,
     bool Publish,
@@ -29,11 +30,14 @@ internal sealed record CommandLine(
     bool Verbose,
     string? FFmpeg,
     VideoInputRequest Capture,
-    bool Measure
+    bool Measure,
+    string? FeedOutput = null
 )
 {
     public const string Usage = """
         streamtransport list
+        streamtransport feed <input> <output>   video from an input straight to an output, such as
+                                                feed test v4l2:/dev/video42 for a webcam showing the test signal
         streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
 
           --video <spec>     an input when publishing, an output when subscribing:
@@ -74,6 +78,24 @@ internal sealed record CommandLine(
                 RepositoryFFmpeg(),
                 new VideoInputRequest(),
                 false
+            );
+        }
+
+        if (args is ["feed", string input, string output])
+        {
+            return new CommandLine(
+                false,
+                true,
+                new Uri("ws://localhost"),
+                string.Empty,
+                input,
+                null,
+                MediaSessionOptions.For(MediaProfile.InteractiveP2P),
+                false,
+                RepositoryFFmpeg(),
+                new VideoInputRequest { Size = new VideoSize(1280, 720), FrameRate = 30 },
+                false,
+                output
             );
         }
 

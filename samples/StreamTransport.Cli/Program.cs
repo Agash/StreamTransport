@@ -94,6 +94,28 @@ static async Task<int> RunAsync(CommandLine command)
         return 0;
     }
 
+    if (command.FeedOutput is { } target)
+    {
+        int colon = target.IndexOf(':', StringComparison.Ordinal);
+        using IVideoInput input = await devices.OpenVideoInputAsync(command.Video!, command.Capture, stop.Token);
+        using IVideoOutput output = await devices.CreateVideoOutputAsync(
+            colon < 0 ? target : target[..colon],
+            colon < 0 ? "StreamTransport" : target[(colon + 1)..],
+            stop.Token
+        );
+        using (input.Connect(output, output.Constraints))
+        {
+            log.LogInformation("Feeding {Input} to {Output}; Ctrl+C stops.", input.Info.Name, output.Name);
+            TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (stop.Token.Register(() => stopped.TrySetResult()))
+            {
+                await stopped.Task;
+            }
+        }
+
+        return 0;
+    }
+
     IMediaSessionFactory sessions = provider.GetRequiredService<IMediaSessionFactory>();
     using Endpoints endpoints = await Endpoints.CreateAsync(command, devices, stop.Token);
     PeerRole role = command.Publish ? PeerRole.Publisher : PeerRole.Subscriber;

@@ -32,8 +32,14 @@ public sealed class TestSignalGenerator
     {
         TimeProvider = timeProvider ?? TimeProvider.System;
         Clock = new MediaClock(TimeProvider);
-        Origin = Clock.Now;
-        WallOrigin = TimeProvider.GetUtcNow();
+
+        // Flashes and clicks fall on whole wall-clock seconds, so a camera drawing the same pattern on
+        // its own clock (a virtual camera fed on another machine) lines up with this signal's audio.
+        MediaTime now = Clock.Now;
+        DateTimeOffset wall = TimeProvider.GetUtcNow();
+        DateTimeOffset second = new(wall.Ticks - (wall.Ticks % TimeSpan.TicksPerSecond), TimeSpan.Zero);
+        Origin = now - (wall - second);
+        WallOrigin = second;
     }
 
     /// <summary>The clock the signal runs on.</summary>
@@ -42,7 +48,7 @@ public sealed class TestSignalGenerator
     /// <summary>The media clock over it.</summary>
     public MediaClock Clock { get; }
 
-    /// <summary>The media time the signal started at; flashes fall on whole seconds after it.</summary>
+    /// <summary>The media time of the whole wall-clock second the signal started in; flashes fall on whole seconds after it.</summary>
     public MediaTime Origin { get; }
 
     /// <summary>The wall time at <see cref="Origin"/>.</summary>
