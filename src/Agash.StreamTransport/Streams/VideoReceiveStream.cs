@@ -233,6 +233,10 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         {
             // Deliberately not logged: cancellation is how the stream stops.
         }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            LogWorkerFailed(exception);
+        }
     }
 
     // Drops this frame and every one waiting, and resumes at the next keyframe, asking for one now.
@@ -383,6 +387,9 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             LogKeyframeRequestFailed(exception);
         }
     }
+
+    [LoggerMessage(2072, LogLevel.Error, "The video decode worker stopped; no more video is played.")]
+    private partial void LogWorkerFailed(Exception exception);
 
     [LoggerMessage(
         2071,
