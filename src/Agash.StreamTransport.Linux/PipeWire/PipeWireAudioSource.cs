@@ -3,6 +3,7 @@ using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PipeWire.NET;
+using PipeWire.NET.Graph;
 using PipeWire.NET.Media;
 using AudioFormat = Agash.StreamTransport.Media.AudioFormat;
 using AudioFrame = Agash.StreamTransport.Media.AudioFrame;
@@ -81,6 +82,14 @@ public sealed partial class PipeWireAudioSource : IAudioSource, IDisposable
     {
         PipeWireAudioCapture capture = new(_context, _options.NodeName);
         capture.FrameReady += Deliver;
+        if (_options.CaptureOutput)
+        {
+            capture.ExtraProperties = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [PipeWireKeys.PW_KEY_STREAM_CAPTURE_SINK] = "true",
+            };
+        }
+
         try
         {
             capture.Connect(
