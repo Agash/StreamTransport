@@ -246,6 +246,10 @@ public abstract class VideoFrameLease : IDisposable
 {
     private int _disposed;
 
+    // The holders of the frame: this lease and the shared leases made of it. The frame is released when
+    // the last one goes.
+    private int _holders = 1;
+
     /// <summary>A lease on a frame's description.</summary>
     /// <param name="storage">Where the pixels are.</param>
     /// <param name="format">The pixel format and geometry.</param>
@@ -343,17 +347,68 @@ public abstract class VideoFrameLease : IDisposable
             $"This lease holds a {Storage.Kind} frame, which has no CPU planes."
         );
 
-    /// <summary>How the frame is kept again when a consumer of <see cref="Frame"/> retains it.</summary>
-    protected virtual IVideoFrameRetainer? KeepAgain => null;
+    /// <summary>
+    /// How the frame is kept again when a consumer of <see cref="Frame"/> retains it. By default the lease
+    /// is shared: the new lease holds this one's frame, released when every holder has let go. A producer
+    /// with its own way of keeping frames (a pooled surface held again) overrides it.
+    /// </summary>
+    protected virtual IVideoFrameRetainer? KeepAgain => new Sharer(this);
 
     /// <inheritdoc/>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            Release();
+            LetGo();
             GC.SuppressFinalize(this);
         }
+    }
+
+    private void LetGo()
+    {
+        if (Interlocked.Decrement(ref _holders) == 0)
+        {
+            Release();
+        }
+    }
+
+    // Makes shared leases of a lease that is still held.
+    private sealed class Sharer(VideoFrameLease owner) : IVideoFrameRetainer
+    {
+        public VideoFrameLease Retain(in VideoFrame frame)
+        {
+            int holders;
+            do
+            {
+                holders = Volatile.Read(ref owner._holders);
+                if (holders == 0)
+                {
+                    throw new ObjectDisposedException(owner.GetType().Name);
+                }
+            } while (
+                Interlocked.CompareExchange(ref owner._holders, holders + 1, holders) != holders
+            );
+
+            return new SharedLease(owner);
+        }
+    }
+
+    // Another holder of an owner's frame, reading it through the owner.
+    private sealed class SharedLease(VideoFrameLease owner)
+        : VideoFrameLease(
+            owner.Storage,
+            owner.Format,
+            owner.Timestamp,
+            owner.Color,
+            owner.Orientation,
+            owner.Duration
+        )
+    {
+        protected override ReadOnlySpan<byte> GetPlane(int index) => owner.GetPlane(index);
+
+        protected override IVideoFrameRetainer? KeepAgain => new Sharer(owner);
+
+        protected override void Release() => owner.LetGo();
     }
 
     /// <summary>Releases the frame's buffer; called once.</summary>
