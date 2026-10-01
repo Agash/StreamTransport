@@ -92,7 +92,7 @@ public sealed partial class WasapiAudioSink : IAudioSink, IDisposable
                 _ = render->Release();
             }
         }
-        catch (COMException exception)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // The device went away or refused the stream; audio stops playing.
             LogRenderFailed(exception);

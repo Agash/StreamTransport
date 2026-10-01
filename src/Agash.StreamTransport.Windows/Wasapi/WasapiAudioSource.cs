@@ -13,7 +13,8 @@ namespace Agash.StreamTransport.Windows.Wasapi;
 /// each frame carries the time WASAPI reports for its first sample, on the media clock: when a
 /// microphone captured it, or for loopback when it plays at the output device, which lies up to the
 /// output buffer ahead. One capture thread serves every connected consumer and runs while any is
-/// connected.
+/// connected. WASAPI hands loopback nothing while the output is idle, so the source plays silence into
+/// the output for as long as it captures it: audio keeps arriving, silent, instead of stopping.
 /// </summary>
 public sealed partial class WasapiAudioSource : IAudioSource, IDisposable
 {
@@ -99,6 +100,50 @@ public sealed partial class WasapiAudioSource : IAudioSource, IDisposable
     [LoggerMessage(2322, LogLevel.Warning, "A consumer failed to take captured audio.")]
     private partial void LogConsumerFailed(Exception exception);
 
+    [LoggerMessage(
+        2323,
+        LogLevel.Error,
+        "Windows denied access to {Endpoint}. Allow desktop apps to use the microphone under Privacy & security, and answer any consent prompt."
+    )]
+    private partial void LogCaptureDenied(Exception exception, WasapiEndpoint endpoint);
+
+    // Silence played into the default output, so loopback capture of it keeps delivering audio.
+    private sealed unsafe class Silence : IDisposable
+    {
+        private readonly WasapiClient _client = new(WasapiEndpoint.DefaultOutput);
+        private readonly IAudioRenderClient* _render;
+
+        public Silence() => _render = _client.Service<IAudioRenderClient>();
+
+        public WaitHandle Ready => _client.Ready;
+
+        public void Start()
+        {
+            Fill();
+            _client.Start();
+        }
+
+        // Fills the room in the device buffer with silence, which mixes into the output unheard.
+        public void Fill()
+        {
+            uint frames = _client.BufferFrames - _client.Padding;
+            if (frames == 0)
+            {
+                return;
+            }
+
+            byte* data;
+            _render->GetBuffer(frames, &data);
+            _render->ReleaseBuffer(frames, (uint)_AUDCLNT_BUFFERFLAGS.AUDCLNT_BUFFERFLAGS_SILENT);
+        }
+
+        public void Dispose()
+        {
+            _ = _render->Release();
+            _client.Dispose();
+        }
+    }
+
     private sealed class Connection(WasapiAudioSource source, IAudioFrameConsumer consumer)
         : IDisposable
     {
@@ -139,15 +184,29 @@ public sealed partial class WasapiAudioSource : IAudioSource, IDisposable
             try
             {
                 using WasapiClient client = new(_source._endpoint);
+                using Silence? silence =
+                    _source._endpoint == WasapiEndpoint.DefaultOutputLoopback
+                        ? new Silence()
+                        : null;
                 IAudioCaptureClient* capture = client.Service<IAudioCaptureClient>();
                 try
                 {
+                    silence?.Start();
                     client.Start();
                     _source.LogCapturing(_source._endpoint);
-                    WaitHandle[] waits = [client.Ready, _stop];
-                    while (WaitHandle.WaitAny(waits) == 0)
+                    WaitHandle[] waits = silence is null
+                        ? [client.Ready, _stop]
+                        : [client.Ready, _stop, silence.Ready];
+                    for (int woken; (woken = WaitHandle.WaitAny(waits)) != 1; )
                     {
-                        Drain(capture);
+                        if (woken == 0)
+                        {
+                            Drain(capture);
+                        }
+                        else
+                        {
+                            silence!.Fill();
+                        }
                     }
                 }
                 finally
@@ -155,7 +214,12 @@ public sealed partial class WasapiAudioSource : IAudioSource, IDisposable
                     _ = capture->Release();
                 }
             }
-            catch (COMException exception)
+            catch (UnauthorizedAccessException exception)
+            {
+                // Windows privacy settings, or a consent prompt nobody answered, keep the device closed.
+                _source.LogCaptureDenied(exception, _source._endpoint);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
             {
                 // The device went away or refused the stream; the consumers stop getting audio.
                 _source.LogCaptureFailed(exception, _source._endpoint);
