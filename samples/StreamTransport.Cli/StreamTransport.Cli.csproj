@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework Condition="'$(BuildMacOS)' == 'true'">net11.0-macos</TargetFramework>
+    <TargetFramework Condition="'$(BuildMacOS)' != 'true'">net11.0</TargetFramework>
+    <SupportedOSPlatformVersion Condition="'$(BuildMacOS)' == 'true'"
+      >15.0</SupportedOSPlatformVersion>
+    <DefineConstants Condition="'$(BuildMacOS)' == 'true'"
+      >$(DefineConstants);MACOS</DefineConstants>
+    <!-- A macOS executable is an app bundle, launched directly so it keeps its arguments. -->
+    <ApplicationId Condition="'$(BuildMacOS)' == 'true'"
+      >com.agash.streamtransport.cli</ApplicationId>
+    <RunWithOpen Condition="'$(BuildMacOS)' == 'true'">false</RunWithOpen>
+    <RuntimeIdentifier Condition="'$(BuildMacOS)' == 'true' and '$(RuntimeIdentifier)' == ''"
+      >$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+    <AssemblyName>streamtransport</AssemblyName>
+    <RootNamespace>StreamTransport.Cli</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Agash.StreamTransport\Agash.StreamTransport.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.FFmpeg\Agash.StreamTransport.Codecs.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.Opus\Agash.StreamTransport.Codecs.Opus.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Windows\Agash.StreamTransport.Windows.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Linux\Agash.StreamTransport.Linux.csproj" />
+    <ProjectReference
+      Include="..\..\src\Agash.StreamTransport.MacOS\Agash.StreamTransport.MacOS.csproj"
+      Condition="'$(BuildMacOS)' == 'true'"
+    />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+</Project>

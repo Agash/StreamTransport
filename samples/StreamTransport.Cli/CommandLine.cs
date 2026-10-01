@@ -1,0 +1,145 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
+using Agash.StreamTransport;
+using Agash.StreamTransport.Media;
+
+namespace StreamTransport.Cli;
+
+/// <summary>What the command line asks for.</summary>
+/// <param name="Publish">Publish when true, subscribe when false.</param>
+/// <param name="Relay">The relay's WebSocket URL.</param>
+/// <param name="Room">The room to join.</param>
+/// <param name="Video">The video endpoint spec, or null for none.</param>
+/// <param name="Audio">The audio endpoint spec, or null for none.</param>
+/// <param name="Session">How the session is set up.</param>
+/// <param name="Verbose">Whether to log at debug level.</param>
+/// <param name="FFmpeg">Where FFmpeg's shared libraries are, or null for the system's.</param>
+internal sealed record CommandLine(
+    bool Publish,
+    Uri Relay,
+    string Room,
+    string? Video,
+    string? Audio,
+    MediaSessionOptions Session,
+    bool Verbose,
+    string? FFmpeg
+)
+{
+    public const string Usage = """
+        streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
+
+          --video <spec>     pipewire[:node]  PipeWire node by name or id (Linux)
+                             spout[:sender]   Spout sender (Windows)
+                             syphon[:server]  Syphon server (macOS)
+                             test             a moving test pattern (publish only)
+                             none
+          --audio <spec>     default          the default input when publishing, output when subscribing
+                             output           what the default output plays (publish; Windows, Linux)
+                             none
+          --profile <name>   interactive | screen | irl | avatar
+          --codec <name>     h264 | h265 | av1   the one video codec to offer
+          --ffmpeg <dir>     FFmpeg's shared libraries; defaults to the repository's native/ffmpeg/<rid>
+          --verbose          log at debug level
+
+        Published video stays on the GPU from a Spout, Syphon or PipeWire source to the encoder,
+        and received video from the decoder to the sink.
+        """;
+
+    public static CommandLine Parse(string[] args)
+    {
+        if (args.Length == 0 || args[0] is not ("publish" or "subscribe"))
+        {
+            throw new FormatException("Say publish or subscribe first.");
+        }
+
+        Dictionary<string, string?> named = new(StringComparer.Ordinal);
+        for (int i = 1; i < args.Length; i++)
+        {
+            string key = args[i];
+            if (!key.StartsWith("--", StringComparison.Ordinal))
+            {
+                throw new FormatException($"Unexpected '{key}'.");
+            }
+
+            bool flag = key is "--verbose";
+            named[key[2..]] =
+                flag ? null
+                : i + 1 < args.Length ? args[++i]
+                : throw new FormatException($"{key} needs a value.");
+        }
+
+        MediaProfile profile = Choice(named, "profile") switch
+        {
+            null or "interactive" => MediaProfile.InteractiveP2P,
+            "screen" => MediaProfile.ScreenShare,
+            "irl" => MediaProfile.IrlContribution,
+            "avatar" => MediaProfile.AvatarTransparent,
+            string other => throw new FormatException($"No profile '{other}'."),
+        };
+        var session = MediaSessionOptions.For(profile);
+        if (Choice(named, "codec") is { } codec)
+        {
+            session = session with
+            {
+                VideoCodecs =
+                [
+                    codec switch
+                    {
+                        "h264" => VideoCodecId.H264,
+                        "h265" => VideoCodecId.H265,
+                        "av1" => VideoCodecId.AV1,
+                        _ => throw new FormatException($"No codec '{codec}'."),
+                    },
+                ],
+            };
+        }
+
+        return new CommandLine(
+            args[0] == "publish",
+            new Uri(Value(named, "relay") ?? throw new FormatException("--relay is required.")),
+            Value(named, "room") ?? throw new FormatException("--room is required."),
+            Value(named, "video") is "none" ? null : Value(named, "video") ?? Default(),
+            Choice(named, "audio") is "none" ? null : Choice(named, "audio") ?? "default",
+            session,
+            named.ContainsKey("verbose"),
+            Value(named, "ffmpeg") ?? RepositoryFFmpeg()
+        );
+    }
+
+    // The FFmpeg build eng/fetch-ffmpeg.ps1 puts beside a checkout, when the sample runs from one.
+    private static string? RepositoryFFmpeg()
+    {
+        for (
+            DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            directory is not null;
+            directory = directory.Parent
+        )
+        {
+            string natives = Path.Combine(
+                directory.FullName,
+                "native",
+                "ffmpeg",
+                RuntimeInformation.RuntimeIdentifier
+            );
+            if (Directory.Exists(natives))
+            {
+                return natives;
+            }
+        }
+
+        return null;
+    }
+
+    // The video endpoint this platform shares on.
+    private static string Default() =>
+        OperatingSystem.IsWindows() ? "spout"
+        : OperatingSystem.IsMacOS() ? "syphon"
+        : "pipewire";
+
+    private static string? Value(Dictionary<string, string?> named, string key) =>
+        named.TryGetValue(key, out string? value) ? value : null;
+
+    // A value that names one of a fixed set, in any case.
+    private static string? Choice(Dictionary<string, string?> named, string key) =>
+        Value(named, key)?.ToLower(CultureInfo.InvariantCulture);
+}

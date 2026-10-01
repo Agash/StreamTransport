@@ -26,6 +26,7 @@
     <Project Path="src/Agash.StreamTransport.WebRtc.DependencyInjection/Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/StreamTransport.Cli/StreamTransport.Cli.csproj" />
     <Project Path="samples/StreamTransport.Relay/StreamTransport.Relay.csproj" />
   </Folder>
   <Folder Name="/tests/">
