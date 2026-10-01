@@ -56,7 +56,14 @@ public sealed record VideoInputInfo(
     string Name,
     MediaInputKind Kind,
     ImmutableArray<VideoInputMode> Modes
-);
+)
+{
+    /// <summary>
+    /// What identifies the hardware behind the input across providers, such as a camera's device node;
+    /// null when there is none. Two providers' inputs with one key are one device.
+    /// </summary>
+    public string? DeviceKey { get; init; }
+}
 
 /// <summary>An audio input a provider found.</summary>
 /// <param name="Provider">The provider, as <see cref="IAudioInputProvider.Name"/>.</param>

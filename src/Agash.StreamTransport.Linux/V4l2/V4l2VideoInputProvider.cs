@@ -66,6 +66,19 @@ public sealed unsafe partial class V4l2VideoInputProvider : IVideoInputProvider
             }
         }
 
+        // Two devices of one model share a card name; their paths tell them apart.
+        HashSet<string> shared =
+        [
+            .. inputs.GroupBy(static i => i.Name).Where(static g => g.Count() > 1).Select(static g => g.Key),
+        ];
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            if (shared.Contains(inputs[i].Name))
+            {
+                inputs[i] = inputs[i] with { Name = $"{inputs[i].Name} ({inputs[i].Id})" };
+            }
+        }
+
         return ValueTask.FromResult(inputs.ToImmutableArray());
     }
 
@@ -120,7 +133,10 @@ public sealed unsafe partial class V4l2VideoInputProvider : IVideoInputProvider
                 return null;
             }
 
-            return new VideoInputInfo(Name, path, card, MediaInputKind.Camera, modes);
+            return new VideoInputInfo(Name, path, card, MediaInputKind.Camera, modes)
+            {
+                DeviceKey = path,
+            };
         }
         finally
         {

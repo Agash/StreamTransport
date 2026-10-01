@@ -10,8 +10,8 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the Direct3D 12 video processor, which sessions choose over CPU conversion for frames
-    /// on the GPU. Spout and WASAPI sources and sinks are made by the application, which names them.
-    /// Calling it again registers nothing more.
+    /// on the GPU, and Spout video and WASAPI audio inputs and outputs, reached through
+    /// <c>MediaDevices</c>. Calling it again registers nothing more.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection.</returns>
@@ -20,6 +20,18 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoProcessorFactory, D3D12VideoProcessorFactory>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, SpoutVideoInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoOutputProvider, SpoutVideoOutputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioInputProvider, WasapiAudioInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioOutputProvider, WasapiAudioOutputProvider>()
         );
         return services;
     }

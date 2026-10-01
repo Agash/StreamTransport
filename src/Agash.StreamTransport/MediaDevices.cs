@@ -63,7 +63,7 @@ public sealed partial class MediaDevices
         {
             foreach (VideoInputInfo input in await EnumerateAsync(provider, cancellationToken).ConfigureAwait(false))
             {
-                if (!inputs.Exists(i => Same(i.Kind, i.Name, input.Kind, input.Name)))
+                if (!inputs.Exists(i => Same(i, input)))
                 {
                     inputs.Add(input);
                 }
@@ -85,7 +85,11 @@ public sealed partial class MediaDevices
         {
             foreach (AudioInputInfo input in await EnumerateAsync(provider, cancellationToken).ConfigureAwait(false))
             {
-                if (!inputs.Exists(i => Same(i.Kind, i.Name, input.Kind, input.Name)))
+                if (
+                    !inputs.Exists(i =>
+                        i.Provider != input.Provider && Same(i.Kind, i.Name, input.Kind, input.Name)
+                    )
+                )
                 {
                     inputs.Add(input);
                 }
@@ -127,8 +131,8 @@ public sealed partial class MediaDevices
             ImmutableArray<VideoInputInfo> inputs = await EnumerateAsync(provider, cancellationToken)
                 .ConfigureAwait(false);
             VideoInputInfo? input = chosen is { } first
-                // A fallback provider must have the same input, by kind and name.
-                ? inputs.FirstOrDefault(i => Same(i.Kind, i.Name, first.Kind, first.Name))
+                // A fallback provider must have the same input.
+                ? inputs.FirstOrDefault(i => Same(i, first))
                 : inputs.FirstOrDefault(i => Matches(i.Id, i.Name, i.Kind, name, kind));
             if (input is null)
             {
@@ -169,7 +173,8 @@ public sealed partial class MediaDevices
     {
         ArgumentNullException.ThrowIfNull(spec);
         (string? providerName, string? name) = Split(spec, _audioInputs.Select(static p => p.Name));
-        bool wantsDefault = name is null || Is(name, "default");
+        // A bare provider means its first input; no spec or "default" the default microphone.
+        bool wantsDefault = name is null ? providerName is null : Is(name, "default");
         MediaInputKind? kind = wantsDefault ? MediaInputKind.Microphone : providerName is null ? Kind(name) : null;
         List<Exception> failures = [];
         AudioInputInfo? chosen = null;
@@ -307,6 +312,15 @@ public sealed partial class MediaDevices
         || (kind is { } k && inputKind == k)
         || string.Equals(id, name, StringComparison.Ordinal)
         || string.Equals(inputName, name, StringComparison.OrdinalIgnoreCase);
+
+    // One device as two providers see it: by its hardware key when both have one, else by kind and name.
+    private static bool Same(VideoInputInfo a, VideoInputInfo b) =>
+        a.Provider != b.Provider
+        && (
+            a.DeviceKey is { } key && b.DeviceKey is { } other
+                ? string.Equals(key, other, StringComparison.Ordinal)
+                : Same(a.Kind, a.Name, b.Kind, b.Name)
+        );
 
     private static bool Same(MediaInputKind a, string aName, MediaInputKind b, string bName) =>
         a == b && string.Equals(aName, bName, StringComparison.OrdinalIgnoreCase);
