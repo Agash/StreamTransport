@@ -63,6 +63,12 @@ public sealed class HttpMediaSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
         HttpSdpChannel channel = new(endpoint, signaling ?? new HttpSignalingOptions(), logger);
+        if (options.IceServers.IsEmpty)
+        {
+            // The server's own STUN and TURN servers, when it advertises them.
+            options = options with { IceServers = [.. await channel.DiscoverIceServersAsync(cancellationToken).ConfigureAwait(false)] };
+        }
+
         IMediaSession session = sessions.Create(channel, MediaSessionRole.Offerer, endpoints, options);
         try
         {
@@ -212,6 +218,30 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
         }
     }
 
+    // OPTIONS on the endpoint returns the ICE servers the server advertises (RFC 9725 section 4.6); a
+    // server that answers nothing useful leaves the session with none.
+    public async Task<List<IceServer>> DiscoverIceServersAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Options, endpoint);
+            Authorize(request);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(options.Timeout);
+            using HttpResponseMessage response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
+            List<IceServer> servers = response.Headers.TryGetValues("Link", out IEnumerable<string>? links)
+                ? IceServerLinks.Parse(links)
+                : [];
+            LogDiscovered(endpoint, servers.Count);
+            return servers;
+        }
+        catch (HttpRequestException exception)
+        {
+            LogDiscoveryFailed(exception, endpoint);
+            return [];
+        }
+    }
+
     // Candidates ride in the offer.
     public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
@@ -256,4 +286,10 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
 
     [LoggerMessage(2702, LogLevel.Warning, "Deleting {Resource} failed; the server ends it when it times out.")]
     private partial void LogDeleteFailed(Exception exception, Uri resource);
+
+    [LoggerMessage(2703, LogLevel.Debug, "{Endpoint} advertises {Count} ICE servers.")]
+    private partial void LogDiscovered(Uri endpoint, int count);
+
+    [LoggerMessage(2704, LogLevel.Debug, "Asking {Endpoint} for its ICE servers failed; gathering without them.")]
+    private partial void LogDiscoveryFailed(Exception exception, Uri endpoint);
 }

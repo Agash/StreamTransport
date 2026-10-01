@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Agash.StreamTransport.Http;
 using WebRtcSdp = Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.AspNetCore;
@@ -57,7 +58,9 @@ public static class HttpMediaServiceCollectionExtensions
 /// <summary>
 /// Maps WHIP (RFC 9725) and WHEP endpoints onto the host's routing: a <c>POST</c> of an SDP offer makes a
 /// session and answers with <c>201 Created</c>, the resource's URL and the SDP answer; a <c>DELETE</c> of
-/// the resource ends it. Candidates travel inside the offer and answer; trickle (<c>PATCH</c>) is answered
+/// the resource ends it. When the host registers an <see cref="IIceServerProvider"/>, its STUN and TURN
+/// servers are advertised as <c>Link</c> headers on <c>OPTIONS</c> and on the answer, so clients gather
+/// with them. Candidates travel inside the offer and answer; trickle (<c>PATCH</c>) is answered
 /// <c>405</c>. The returned group takes the host's conventions, such as <c>RequireAuthorization</c> or
 /// <c>RequireCors</c>.
 /// </summary>
@@ -143,6 +146,7 @@ public static class HttpMediaEndpointRouteBuilderExtensions
 
         PathString location = context.Request.PathBase.Add(context.Request.Path).Add("/" + id);
         context.Response.StatusCode = StatusCodes.Status201Created;
+        AdvertiseIceServers(context);
         context.Response.Headers.Location = location.ToString();
         context.Response.Headers.ETag = $"\"{id}\"";
         context.Response.ContentType = "application/sdp";
@@ -153,7 +157,17 @@ public static class HttpMediaEndpointRouteBuilderExtensions
     {
         context.Response.StatusCode = StatusCodes.Status204NoContent;
         context.Response.Headers["Accept-Post"] = "application/sdp";
+        AdvertiseIceServers(context);
         return Task.CompletedTask;
+    }
+
+    // The host's STUN and TURN servers, for the client to gather with (RFC 9725 section 4.6).
+    private static void AdvertiseIceServers(HttpContext context)
+    {
+        if (context.RequestServices.GetService<IIceServerProvider>() is { } provider)
+        {
+            context.Response.Headers.Link = new([.. IceServerLinks.Format(provider.GetIceServersForPeer())]);
+        }
     }
 
     private static async Task DeleteAsync(HttpContext context)
