@@ -57,13 +57,18 @@ public sealed class TestSignalGenerator
     /// <summary>Whether a frame shown from <paramref name="time"/> for <paramref name="duration"/> holds a flash.</summary>
     /// <param name="time">The frame's capture time.</param>
     /// <param name="duration">How long it shows.</param>
-    /// <returns>Whether the frame covers the start of a second.</returns>
+    /// <returns>Whether the frame is the one nearest the start of a second.</returns>
+    /// <remarks>
+    /// The nearest frame is at most half a frame from the click's instant, either way, so the offset a
+    /// receiver measures carries no bias from where frames fall.
+    /// </remarks>
     public bool IsFlash(MediaTime time, TimeSpan duration)
     {
         long since = (time - Origin).Ticks;
         long second = TimeSpan.TicksPerSecond;
         long into = ((since % second) + second) % second;
-        return into < duration.Ticks;
+        long half = duration.Ticks / 2;
+        return into < half || into >= second - half;
     }
 
     /// <summary>The wall time a capture time corresponds to.</summary>
