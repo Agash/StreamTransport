@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Runtime.ExceptionServices;
@@ -25,13 +26,15 @@ namespace Agash.StreamTransport.Sessions;
 /// <param name="Clock">The media clock.</param>
 /// <param name="Loggers">The logging.</param>
 /// <param name="Mobility">Re-probes connections when the host's networks change; null for none.</param>
+/// <param name="Metrics">The library's instruments.</param>
 internal sealed record SessionServices(
     MediaCodecRegistry Codecs,
     RtpPayloadFormatRegistry PayloadFormats,
     PeerConnectionFactory Connections,
     MediaClock Clock,
     ILoggerFactory Loggers,
-    MobilityEngine? Mobility
+    MobilityEngine? Mobility,
+    StreamTransportMetrics Metrics
 );
 
 /// <summary>
@@ -64,6 +67,8 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
     private readonly CaptureClock _captureClock;
     private PeerConnection? _connection;
     private RtpPacer? _pacer;
+    private Activity? _connecting;
+    private int _disposed;
     private IDisposable? _mobility;
     private VideoSendStream? _videoSend;
     private AudioSendStream? _audioSend;
@@ -96,8 +101,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         _options = options;
         _services = services;
         _logger = services.Loggers.CreateLogger<WebRtcMediaSession>();
-        _playout = new Playout(options, services.Clock, _logger);
+        _playout = new Playout(options, services.Clock, _logger, services.Metrics);
         _captureClock = new CaptureClock(services.Clock);
+        services.Metrics.SessionsActive.Add(1, StreamTransportMetrics.Role(role));
     }
 
     public event Action<PeerConnectionState>? StateChanged;
@@ -139,6 +145,25 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
+        // From here to media flowing, or to the failure, is one span and one measurement.
+        _connecting = StreamTransportDiagnostics.ActivitySource.StartActivity(
+            "streamtransport.session.connect"
+        );
+        _connecting?.SetTag(
+            "streamtransport.session.role",
+            _role == MediaSessionRole.Offerer ? "offerer" : "answerer"
+        );
+        _connecting?.SetTag("streamtransport.session.video", _endpoints.HasVideo);
+        _connecting?.SetTag("streamtransport.session.audio", _endpoints.HasAudio);
+        MediaTime started = _services.Clock.Now;
+        _ = _connected.Task.ContinueWith(
+            (task, state) => ((WebRtcMediaSession)state!).OnConnectSettled(task, started),
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default
+        );
+
         (List<IPEndPoint> stun, List<string> unresolved) = await StunServers
             .ResolveAsync(_options.IceServers, cancellationToken)
             .ConfigureAwait(false);
@@ -164,7 +189,11 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         connection.LocalIceCandidate += OnLocalCandidate;
         connection.StateChanged += OnStateChanged;
         connection.RtpReceived += OnRtp;
-        connection.KeyframeRequested += _ => _videoSend?.RequestKeyframe();
+        connection.KeyframeRequested += _ =>
+        {
+            _services.Metrics.KeyframeRequests.Add(1, StreamTransportMetrics.Direction("received"));
+            _videoSend?.RequestKeyframe();
+        };
         connection.BitrateEstimateChanged += OnBitrateEstimate;
         _signaling.DescriptionReceived += OnDescriptionAsync;
         _signaling.IceCandidateReceived += OnCandidateAsync;
@@ -180,6 +209,12 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _services.Metrics.SessionsActive.Add(-1, StreamTransportMetrics.Role(_role));
         _signaling.DescriptionReceived -= OnDescriptionAsync;
         _signaling.IceCandidateReceived -= OnCandidateAsync;
         _mobility?.Dispose();
@@ -444,6 +479,8 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 _services.Codecs,
                 _options,
                 _pacer!,
+                _services.Clock,
+                _services.Metrics,
                 _logger
             );
         }
@@ -461,6 +498,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 _services.Codecs,
                 _playout,
                 _services.Clock,
+                _services.Metrics,
                 _logger
             );
         }
@@ -485,7 +523,8 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 Writer(payloadFormat, local, media.LocalSsrc),
                 _services.Codecs,
                 _options,
-                _pacer!
+                _pacer!,
+                _services.Metrics
             );
         }
 
@@ -498,6 +537,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 _services.Codecs,
                 _playout,
                 _services.Clock,
+                _services.Metrics,
                 _logger
             );
         }
@@ -592,10 +632,36 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             cancellationToken
         );
 
+    // Records how the connect ended and closes its span.
+    private void OnConnectSettled(Task connected, MediaTime started)
+    {
+        string outcome =
+            connected.IsCompletedSuccessfully ? "connected"
+            : connected.IsCanceled ? "canceled"
+            : "failed";
+        _services.Metrics.SessionConnectDuration.Record(
+            (_services.Clock.Now - started).TotalSeconds,
+            StreamTransportMetrics.Role(_role),
+            StreamTransportMetrics.Outcome(outcome)
+        );
+        if (_connecting is { } activity)
+        {
+            activity.SetTag("streamtransport.outcome", outcome);
+            if (connected.Exception?.InnerException is { } exception)
+            {
+                activity.AddException(exception);
+                activity.SetStatus(ActivityStatusCode.Error, exception.Message);
+            }
+
+            activity.Stop();
+        }
+    }
+
     private async ValueTask RequestKeyframeAsync()
     {
         if (_connection is { } connection && _remoteVideoSsrc != 0)
         {
+            _services.Metrics.KeyframeRequests.Add(1, StreamTransportMetrics.Direction("sent"));
             await connection.RequestKeyframeAsync(_remoteVideoSsrc).ConfigureAwait(false);
         }
     }

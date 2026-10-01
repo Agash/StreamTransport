@@ -43,6 +43,8 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private readonly MediaCodecRegistry _registry;
     private readonly Playout _playout;
     private readonly TimeProvider _time;
+    private readonly MediaClock _clock;
+    private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
     private readonly RtpFrameBuffer _buffer;
     private readonly RtpClockAligner _aligner = new(new ClockRate(90_000));
@@ -74,6 +76,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <param name="registry">Where the decoder and processors come from.</param>
     /// <param name="playout">The session's playout.</param>
     /// <param name="clock">The local media clock.</param>
+    /// <param name="metrics">The library's instruments.</param>
     /// <param name="logger">The logger.</param>
     public VideoReceiveStream(
         VideoReceiveSetup setup,
@@ -81,6 +84,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         MediaCodecRegistry registry,
         Playout playout,
         MediaClock clock,
+        StreamTransportMetrics metrics,
         ILogger logger
     )
     {
@@ -88,7 +92,9 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         _sink = sink;
         _registry = registry;
         _playout = playout;
+        _metrics = metrics;
         _time = clock.TimeProvider;
+        _clock = clock;
         _logger = logger;
         _buffer = new RtpFrameBuffer(setup.PayloadFormat);
         _stamps = new ArrivalStamps(clock);
@@ -262,6 +268,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private void Skip(MediaTimestamp stamp)
     {
         Interlocked.Increment(ref _framesSkipped);
+        _metrics.VideoFramesSkipped.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
         _ = _stamps.TakeCapture(stamp);
     }
 
@@ -270,16 +277,23 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         try
         {
             _decoder ??= CreateDecoder();
+            MediaTime started = _clock.Now;
             _decoder.Decode(
                 new EncodedVideoFrame(frame.Span, _setup.Format.Codec, keyframe, stamp),
                 this
             );
+            _metrics.VideoDecodeDuration.Record(
+                (_clock.Now - started).TotalSeconds,
+                StreamTransportMetrics.Codec(_setup.Format.Codec)
+            );
             Interlocked.Increment(ref _framesDecoded);
+            _metrics.VideoFramesDecoded.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // A frame the decoder rejects loses the picture until the next keyframe, so one is asked for.
             Interlocked.Increment(ref _framesFailed);
+            _metrics.VideoFramesFailed.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
             LogDecodeFailed(exception);
             _ = _stamps.TakeCapture(stamp);
             _ = TryRequestKeyframe();

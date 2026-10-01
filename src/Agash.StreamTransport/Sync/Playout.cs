@@ -11,14 +11,22 @@ namespace Agash.StreamTransport.Sync;
 internal sealed class Playout : IAsyncDisposable
 {
     private readonly PlayoutScheduler? _scheduler;
+    private readonly StreamTransportMetrics _metrics;
     private long _audioOffsetTicks;
 
     /// <summary>Playout as the options ask.</summary>
     /// <param name="options">The session options.</param>
     /// <param name="clock">The local media clock.</param>
     /// <param name="logger">The logger.</param>
-    public Playout(MediaSessionOptions options, MediaClock clock, ILogger logger)
+    /// <param name="metrics">The library's instruments.</param>
+    public Playout(
+        MediaSessionOptions options,
+        MediaClock clock,
+        ILogger logger,
+        StreamTransportMetrics metrics
+    )
     {
+        _metrics = metrics;
         if (options.Playout == PlayoutMode.Synced)
         {
             _scheduler = new PlayoutScheduler(
@@ -55,6 +63,7 @@ internal sealed class Playout : IAsyncDisposable
         if (_scheduler is { } scheduler && capture is { } at)
         {
             scheduler.Schedule(at, new VideoEntry(frame.Retain(), sink));
+            _metrics.PlayoutDelay.Record(scheduler.CurrentDelay.TotalSeconds);
         }
         else
         {

@@ -13,6 +13,8 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     private readonly RtpStreamWriter _writer;
     private int _framesSent;
     private readonly RtpPacer _pacer;
+    private readonly StreamTransportMetrics _metrics;
+    private readonly AudioCodecId _codec;
     private readonly Lock _gate = new();
     private readonly IDisposable _connection;
     private bool _disposed;
@@ -24,17 +26,21 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     /// <param name="registry">Where the encoder comes from.</param>
     /// <param name="options">The session options.</param>
     /// <param name="pacer">Where packets go.</param>
+    /// <param name="metrics">The library's instruments.</param>
     public AudioSendStream(
         IAudioSource source,
         AudioCodecFormat format,
         RtpStreamWriter writer,
         MediaCodecRegistry registry,
         MediaSessionOptions options,
-        RtpPacer pacer
+        RtpPacer pacer,
+        StreamTransportMetrics metrics
     )
     {
         _writer = writer;
         _pacer = pacer;
+        _metrics = metrics;
+        _codec = format.Codec;
         _encoder = registry.TryCreateAudioEncoder(
             new AudioEncoderConfiguration(
                 format,
@@ -80,6 +86,7 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     {
         _writer.Write(frame.Data, frame.Timestamp, _pacer.EnqueueAudio);
         Interlocked.Increment(ref _framesSent);
+        _metrics.AudioFramesSent.Add(1, StreamTransportMetrics.Codec(_codec));
     }
 
     /// <inheritdoc/>

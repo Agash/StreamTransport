@@ -46,6 +46,8 @@ public sealed class VideoSendStreamTests
             registry,
             new MediaSessionOptions(),
             pacer,
+            MediaClock.System,
+            new StreamTransportMetrics(meterFactory: null),
             NullLogger.Instance
         );
         await sent.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.CancellationToken);

@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
@@ -13,14 +14,19 @@ namespace Agash.StreamTransport.Sessions;
 /// <param name="timeProvider">The clock every session runs on.</param>
 /// <param name="loggerFactory">The logging.</param>
 /// <param name="mobility">Re-probes connections when the host's networks change; null for none.</param>
+/// <param name="meterFactory">
+/// Where the metrics' meter comes from (<see cref="StreamTransportDiagnostics.MeterName"/>); a meter of
+/// the factory's own when null.
+/// </param>
 public sealed class WebRtcMediaSessionFactory(
     MediaCodecRegistry codecs,
     RtpPayloadFormatRegistry payloadFormats,
     PeerConnectionFactory connections,
     TimeProvider timeProvider,
     ILoggerFactory? loggerFactory = null,
-    MobilityEngine? mobility = null
-) : IMediaSessionFactory
+    MobilityEngine? mobility = null,
+    IMeterFactory? meterFactory = null
+) : IMediaSessionFactory, IDisposable
 {
     private readonly SessionServices _services = new(
         codecs,
@@ -28,8 +34,12 @@ public sealed class WebRtcMediaSessionFactory(
         connections,
         new MediaClock(timeProvider),
         loggerFactory ?? NullLoggerFactory.Instance,
-        mobility
+        mobility,
+        new StreamTransportMetrics(meterFactory)
     );
+
+    /// <inheritdoc/>
+    public void Dispose() => _services.Metrics.Dispose();
 
     /// <inheritdoc/>
     public IMediaSession Create(

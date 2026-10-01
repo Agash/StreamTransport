@@ -79,6 +79,39 @@ and say what they accept. A provider (`IVideoInputProvider`, `IVideoOutputProvid
 makes them reachable through `MediaDevices`; `VideoInput`, `VideoOutput`, `AudioInput` and `AudioOutput`
 wrap any source or sink for one.
 
+## Diagnostics
+
+Logging goes through `ILogger` with source-generated messages and an event id per message; ids are
+allocated per package (see `CONTRIBUTING.md`). Metrics and traces cost nothing until something listens.
+With DI the meters come from the host's `IMeterFactory`.
+
+| Meter and activity source | Package |
+|---|---|
+| `Agash.StreamTransport` | sessions, streams, playout |
+
+Instruments on `Agash.StreamTransport`, tagged with `streamtransport.codec` and, where it applies,
+`streamtransport.implementation`, `streamtransport.session.role`, `streamtransport.outcome`,
+`streamtransport.reason` or `streamtransport.direction`:
+
+| Instrument | Unit | What |
+|---|---|---|
+| `streamtransport.sessions.active` | `{session}` | sessions created and not yet disposed |
+| `streamtransport.session.connect.duration` | `s` | start to media flowing, or to failure |
+| `streamtransport.video.frames.sent` | `{frame}` | encoded frames handed to the link |
+| `streamtransport.video.frames.dropped` | `{frame}` | source frames not encoded (`encoder_busy`) |
+| `streamtransport.video.encode.duration` | `s` | one frame's encode, by encoder |
+| `streamtransport.video.encoder.failures` | `{failure}` | encoders passed over before their first frame |
+| `streamtransport.video.target_bitrate` | `bit/s` | the latest rate congestion control asked for |
+| `streamtransport.video.frames.decoded` / `.failed` / `.skipped` | `{frame}` | received frames by fate |
+| `streamtransport.video.decode.duration` | `s` | one frame's decode |
+| `streamtransport.video.keyframe_requests` | `{request}` | sent to or received from the peer |
+| `streamtransport.audio.frames.sent` / `.decoded` | `{frame}` | audio frames |
+| `streamtransport.audio.frames.repaired` | `{frame}` | lost audio, `concealed` or `recovered` |
+| `streamtransport.playout.delay` | `s` | synced playout depth per video frame |
+
+The activity `streamtransport.session.connect` spans a session from `StartAsync` to media flowing,
+with the role and the outcome.
+
 ## Packages
 
 | Package | What it is |

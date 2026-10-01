@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
@@ -41,12 +42,20 @@ public static class Natives
 // The container a host builds: sessions over WebRTC with the FFmpeg and Opus codecs.
 internal static class MediaServices
 {
-    public static ServiceProvider Create(ILoggerFactory? loggers = null)
+    public static ServiceProvider Create(
+        ILoggerFactory? loggers = null,
+        IMeterFactory? meters = null
+    )
     {
         ServiceCollection services = new();
         if (loggers is not null)
         {
             services.AddSingleton(loggers);
+        }
+
+        if (meters is not null)
+        {
+            services.AddSingleton(meters);
         }
 
         services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();

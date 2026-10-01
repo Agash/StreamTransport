@@ -32,6 +32,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private readonly MediaCodecRegistry _registry;
     private readonly MediaSessionOptions _options;
     private readonly RtpPacer _pacer;
+    private readonly MediaClock _clock;
+    private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
     private readonly WakeSignal _wake;
     private readonly Lock _gate = new();
@@ -60,6 +62,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     /// <param name="registry">Where encoders and processors come from.</param>
     /// <param name="options">The session options.</param>
     /// <param name="pacer">Where packets go.</param>
+    /// <param name="clock">The media clock, for encode timing.</param>
+    /// <param name="metrics">The library's instruments.</param>
     /// <param name="logger">The logger.</param>
     public VideoSendStream(
         IVideoSource source,
@@ -67,6 +71,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         MediaCodecRegistry registry,
         MediaSessionOptions options,
         RtpPacer pacer,
+        MediaClock clock,
+        StreamTransportMetrics metrics,
         ILogger logger
     )
     {
@@ -74,7 +80,13 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         _registry = registry;
         _options = options;
         _pacer = pacer;
+        _clock = clock;
+        _metrics = metrics;
         _logger = logger;
+        _metrics.VideoTargetBitrate.Record(
+            setup.StartBitsPerSecond,
+            StreamTransportMetrics.Codec(setup.Format.Codec)
+        );
         _bitsPerSecond = setup.StartBitsPerSecond;
         _rate = new FrameRateMeter(
             Math.Min(
@@ -145,8 +157,14 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
 
         if (replaced is not null)
         {
+            // The encoder had not taken the previous frame before this one came.
             replaced.Dispose();
             Interlocked.Increment(ref _framesDropped);
+            _metrics.VideoFramesDropped.Add(
+                1,
+                StreamTransportMetrics.Codec(_setup.Format.Codec),
+                StreamTransportMetrics.Reason("encoder_busy")
+            );
         }
 
         _wake.Signal();
@@ -189,6 +207,10 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
                     }
 
                     _encoder.Reconfigure(new RateTarget(rate, frames));
+                    _metrics.VideoTargetBitrate.Record(
+                        rate,
+                        StreamTransportMetrics.Codec(_setup.Format.Codec)
+                    );
                     appliedRate = rate;
                     appliedFrames = frames;
                 }
@@ -268,7 +290,13 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         bool keyframe = Interlocked.Exchange(ref _keyframeRequested, 0) == 1;
         try
         {
+            MediaTime started = _clock.Now;
             _encoder.Encode(in frame, new EncodeRequest(keyframe), _encoded);
+            _metrics.VideoEncodeDuration.Record(
+                (_clock.Now - started).TotalSeconds,
+                StreamTransportMetrics.Codec(_setup.Format.Codec),
+                StreamTransportMetrics.Implementation(_encoder.Info.ImplementationName)
+            );
         }
         catch (Exception exception)
             when (exception is not OutOfMemoryException && !_encoderDelivered)
@@ -283,6 +311,11 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private void Refuse(string implementation)
     {
         _ = _refused.Add(implementation);
+        _metrics.VideoEncoderFailures.Add(
+            1,
+            StreamTransportMetrics.Codec(_setup.Format.Codec),
+            StreamTransportMetrics.Implementation(implementation)
+        );
         if (
             _registry.QueryVideoEncoder(_setup.Format, device: null, _refused, _setup.Alpha) is
             { } next
@@ -431,6 +464,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         _encoderDelivered = true;
         _setup.Writer.Write(frame.Data, frame.Timestamp, _pacer.EnqueueVideo);
         Interlocked.Increment(ref _framesSent);
+        _metrics.VideoFramesSent.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
     }
 
     private sealed class Discarded : IEncodedVideoConsumer

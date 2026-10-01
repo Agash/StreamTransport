@@ -23,6 +23,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     private readonly IAudioSink _sink;
     private readonly IAudioDecoder _decoder;
     private readonly Playout _playout;
+    private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
     private readonly ClockRate _rtpRate;
     private readonly RtpClockAligner _aligner;
@@ -47,6 +48,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     /// <param name="registry">Where the decoder comes from.</param>
     /// <param name="playout">The session's playout.</param>
     /// <param name="clock">The local media clock.</param>
+    /// <param name="metrics">The library's instruments.</param>
     /// <param name="logger">The logger.</param>
     public AudioReceiveStream(
         AudioCodecFormat format,
@@ -55,10 +57,12 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
         MediaCodecRegistry registry,
         Playout playout,
         MediaClock clock,
+        StreamTransportMetrics metrics,
         ILogger logger
     )
     {
         _format = format;
+        _metrics = metrics;
         _sink = sink;
         _playout = playout;
         _logger = logger;
@@ -123,6 +127,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
             )
         );
         Interlocked.Increment(ref _framesDecoded);
+        _metrics.AudioFramesDecoded.Add(1, StreamTransportMetrics.Codec(_format.Codec));
         _playout.Audio(in frame, _playing, _sink);
     }
 
@@ -211,11 +216,21 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
             EncodedAudioFrame frame = new(next.Data.Span, _format.Codec, next.Stamp, TimeSpan.Zero);
             recovery.Recover(in frame, gap, stamp, this);
             Interlocked.Increment(ref _recovered);
+            _metrics.AudioFramesRepaired.Add(
+                1,
+                StreamTransportMetrics.Codec(_format.Codec),
+                StreamTransportMetrics.Reason("recovered")
+            );
         }
         else
         {
             _decoder.Conceal(gap, stamp, this);
             Interlocked.Increment(ref _concealed);
+            _metrics.AudioFramesRepaired.Add(
+                1,
+                StreamTransportMetrics.Codec(_format.Codec),
+                StreamTransportMetrics.Reason("concealed")
+            );
         }
     }
 
