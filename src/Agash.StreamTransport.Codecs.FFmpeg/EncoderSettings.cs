@@ -101,6 +101,45 @@ internal static class EncoderSettings
         };
     }
 
+    // The options that keep an encoder's H.264 within the profile the receiver declared: Constrained
+    // Baseline for the Baseline family, Main for Main, High for the High family. Null when the encoder
+    // cannot produce it; empty for encoders whose only output, Constrained Baseline, every profile takes,
+    // and for codecs other than H.264. With no B-frames, High output is within Constrained High.
+    public static ImmutableDictionary<string, string>? H264ProfileOptions(
+        string encoder,
+        H264Profile accepted
+    )
+    {
+        bool baseline = accepted is H264Profile.ConstrainedBaseline or H264Profile.Baseline;
+        bool high = !baseline && accepted != H264Profile.Main;
+        return encoder switch
+        {
+            "h264_nvenc" or "h264_qsv" => Profile(
+                baseline ? "baseline"
+                : high ? "high"
+                : "main"
+            ),
+            "h264_amf" or "h264_videotoolbox" => Profile(
+                baseline ? "constrained_baseline"
+                : high ? "constrained_high"
+                : "main"
+            ),
+            "h264_vaapi" or "h264_vulkan" => Profile(
+                baseline ? "constrained_baseline"
+                : high ? "high"
+                : "main"
+            ),
+            // D3D12 video encoding has no Baseline profile. Its High output (FFmpeg 9, NVIDIA) decodes
+            // differently in software, D3D12 and D3D11 decoders, so the High family gets Main, which they
+            // include and which decodes alike everywhere.
+            "h264_d3d12va" => baseline ? null : Profile("main"),
+            _ => [],
+        };
+
+        static ImmutableDictionary<string, string> Profile(string name) =>
+            Options(("profile", name));
+    }
+
     // The options that make an encoder code the frames' alpha as the codec's alpha layer, or null when it
     // cannot. VideoToolbox codes H.265 with an alpha layer from BGRA when given an alpha quality; edges
     // of a keyed or rendered subject want it high. Other FFmpeg encoders take BGRA but drop its alpha.

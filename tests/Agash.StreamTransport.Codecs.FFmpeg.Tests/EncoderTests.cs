@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
 
 namespace Agash.StreamTransport.Codecs.FFmpeg.Tests;
@@ -236,6 +237,153 @@ public sealed class EncoderTests
         {
             Assert.AreEqual(EncoderBackend.Vulkan, factories[0].Backend);
         }
+    }
+
+    public static IEnumerable<object[]> ProfileCases =>
+        from backend in Enum.GetValues<EncoderBackend>()
+        from profile in new[] { "42e01f", "640c1f" }
+        select new object[] { backend, profile };
+
+    // A receiver's declared H.264 profile bounds what the encoder writes: the SPS of its first keyframe
+    // names that profile or one the receiver's includes. An encoder that cannot keep to it is not offered.
+    [TestMethod]
+    [DynamicData(nameof(ProfileCases))]
+    public void Encode_H264ToADeclaredProfile_WritesAProfileTheReceiverTakes(
+        EncoderBackend backend,
+        string declared
+    )
+    {
+        FFmpegVideoEncoderFactory factory = new(backend);
+        _ = Available(factory, VideoCodecId.H264);
+        VideoCodecFormat format = new(
+            VideoCodecId.H264,
+            ImmutableSortedDictionary<string, string>.Empty.Add(
+                H264ProfileLevelId.ParameterName,
+                declared
+            )
+        );
+        Assert.IsTrue(H264ProfileLevelId.TryParse(declared, out H264ProfileLevelId accepted));
+        if (factory.QueryCapabilities(format, device: null) is not { } info)
+        {
+            // Some lack Constrained Baseline (D3D12 has no Baseline; Vulkan drivers may not offer it), but
+            // every H.264 encoder writes something within Constrained High.
+            Assert.AreEqual(
+                H264Profile.ConstrainedBaseline,
+                accepted.Profile,
+                $"{backend} refused {declared}."
+            );
+            return;
+        }
+
+        PixelFormat pixelFormat = info.Input.PixelFormats.Contains(PixelFormat.Nv12)
+            ? PixelFormat.Nv12
+            : PixelFormat.I420;
+        using IVideoEncoder encoder = factory.Create(
+            new VideoEncoderConfiguration(format, Pictures.Size, new RateTarget(2_000_000, 30)),
+            device: null
+        );
+        Collector collector = new();
+        for (int i = 0; i < 3; i++)
+        {
+            VideoFrame frame = Pictures.CpuFrame(pixelFormat, Pictures.Make(pixelFormat, i), i);
+            encoder.Encode(in frame, new EncodeRequest(Keyframe: i == 0), collector);
+        }
+
+        encoder.Flush(collector);
+        // Every decoder here reads the same pictures from it: a stream whose parameter sets misdescribe
+        // what was coded decodes differently in each.
+        foreach (DecoderBackend decoderBackend in Enum.GetValues<DecoderBackend>())
+        {
+            var decoders = new FFmpegVideoDecoderFactory(decoderBackend);
+            var output = VideoConstraints.Cpu(PixelFormat.Nv12);
+            if (decoders.QueryCapabilities(format, output) is null)
+            {
+                continue;
+            }
+
+            using IVideoDecoder decoder = decoders.Create(format, output);
+            MeanLumas lumas = new();
+            foreach ((byte[] data, bool keyframe, MediaTimestamp timestamp) in collector.Units)
+            {
+                decoder.Decode(
+                    new EncodedVideoFrame(data, VideoCodecId.H264, keyframe, timestamp),
+                    lumas
+                );
+            }
+
+            Assert.HasCount(
+                3,
+                lumas.Values,
+                $"{decoderBackend} decoding {info.ImplementationName}"
+            );
+            for (int i = 0; i < lumas.Values.Count; i++)
+            {
+                Assert.AreEqual(
+                    Pictures.MeanLuma(i),
+                    lumas.Values[i],
+                    6.0,
+                    $"{decoderBackend} decoding {info.ImplementationName}, frame {i}"
+                );
+            }
+        }
+
+        H264Profile written = SpsProfile(collector.Units[0].Data);
+        H264Profile[] taken =
+            accepted.Profile == H264Profile.ConstrainedBaseline
+                ? [H264Profile.ConstrainedBaseline]
+                :
+                [
+                    H264Profile.ConstrainedBaseline,
+                    H264Profile.Main,
+                    H264Profile.ConstrainedHigh,
+                    H264Profile.High,
+                ];
+        CollectionAssert.Contains(
+            taken,
+            written,
+            $"{info.ImplementationName} wrote {written} for {accepted.Profile}."
+        );
+    }
+
+    private sealed class MeanLumas : IVideoFrameConsumer
+    {
+        public List<double> Values { get; } = [];
+
+        public void OnFrame(in VideoFrame frame)
+        {
+            _ = frame.Storage.TryGetValue(out CpuImage image);
+            int stride = image.Planes[0].Stride;
+            ReadOnlySpan<byte> luma = frame.GetPlane(0);
+            long sum = 0;
+            int width = frame.Format.VisibleRect.Width;
+            int height = frame.Format.VisibleRect.Height;
+            for (int y = 0; y < height; y++)
+            {
+                foreach (byte value in luma.Slice(y * stride, width))
+                {
+                    sum += value;
+                }
+            }
+
+            Values.Add(sum / (double)(width * height));
+        }
+    }
+
+    // The profile an Annex B access unit's SPS names.
+    private static H264Profile SpsProfile(byte[] unit)
+    {
+        for (int i = 0; i + 6 < unit.Length; i++)
+        {
+            if (unit[i] == 0 && unit[i + 1] == 0 && unit[i + 2] == 1 && (unit[i + 3] & 0x1F) == 7)
+            {
+                string id = Convert.ToHexStringLower(unit.AsSpan(i + 4, 3));
+                Assert.IsTrue(H264ProfileLevelId.TryParse(id, out H264ProfileLevelId profile), id);
+                return profile.Profile;
+            }
+        }
+
+        Assert.Fail("The keyframe carries no SPS.");
+        return default;
     }
 
     private static VideoEncoderConfiguration Configuration(

@@ -113,7 +113,8 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             );
         ImmutableDictionary<string, string> options = PrivateOptions(
             resolved.Codec.Name,
-            configuration.Tuning
+            configuration.Tuning,
+            resolved.ProfileOptions
         );
         if (configuration.Alpha == AlphaLayout.Layer)
         {
@@ -170,6 +171,29 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             return null;
         }
 
+        // An H.264 stream stays within the profile the receiver declared, or the encoder is not offered;
+        // a format that names no profile leaves the encoder's own.
+        ImmutableDictionary<string, string> profileOptions = [];
+        if (
+            format.Codec == VideoCodecId.H264
+            && format.Parameters.ContainsKey(H264ProfileLevelId.ParameterName)
+        )
+        {
+            if (
+                !H264ProfileLevelId.TryRead(format.Parameters, out H264ProfileLevelId accepted)
+                || EncoderSettings.H264ProfileOptions(name, accepted.Profile) is not { } options
+                || (
+                    accepted.Profile is H264Profile.ConstrainedBaseline or H264Profile.Baseline
+                    && !probe.ConstrainedBaseline
+                )
+            )
+            {
+                return null;
+            }
+
+            profileOptions = options;
+        }
+
         GpuIdentity? identity = adapter is null ? null : Adapters.IdentityOf(adapter);
         ImmutableArray<VideoStorageKind> storages =
         [
@@ -186,7 +210,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             probe.ReconfigurableRate,
             EncodesAlphaLayer: EncoderSettings.AlphaLayerOptions(name) is not null
         );
-        return new Resolved(codec, adapter, info, probe.ForcesKeyframes);
+        return new Resolved(codec, adapter, info, probe.ForcesKeyframes, profileOptions);
     }
 
     private static bool SupportedHere(VideoStorageKind storage) =>
@@ -253,6 +277,16 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             return null;
         }
 
+        // Constrained Baseline, which a receiver may be all a receiver takes, is opened as well: a driver
+        // can lack it (Vulkan Video on NVIDIA) while encoding its default profile.
+        bool constrainedBaseline =
+            id != VideoCodecId.H264
+            || EncoderSettings.H264ProfileOptions(codec.Name, H264Profile.ConstrainedBaseline)
+                is { } baselineOptions
+                && (
+                    baselineOptions.IsEmpty
+                    || TryExercise(codec, id, adapter, working[0], baselineOptions)
+                );
         bool reconfigurable = codec.SupportsRateControlChanges;
         LogProbeSucceeded(_logger, codec.Name, adapter?.Name ?? "default", reconfigurable, forced);
         return new Probe(
@@ -261,8 +295,35 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                 : [.. candidates.SkipWhile(f => !working.Contains(f))],
             MaximumSize(adapter),
             reconfigurable,
-            forced
+            forced,
+            constrainedBaseline
         );
+    }
+
+    private bool TryExercise(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format,
+        ImmutableDictionary<string, string> profileOptions
+    )
+    {
+        try
+        {
+            _ = Exercise(codec, id, adapter, format, profileOptions);
+            return true;
+        }
+        catch (Exception ex)
+            when (ex
+                    is FF.FFmpegException
+                        or NotSupportedException
+                        or InvalidOperationException
+                        or ArgumentException
+            )
+        {
+            LogProfileRefused(_logger, codec.Name, ex.Message);
+            return false;
+        }
     }
 
     // Encodes three frames of one format; the third asks for a keyframe, to learn whether the encoder
@@ -271,7 +332,8 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         FF.Codec codec,
         VideoCodecId id,
         FF.GpuAdapter? adapter,
-        PixelFormat format
+        PixelFormat format,
+        ImmutableDictionary<string, string>? profileOptions = null
     )
     {
         const int size = 256;
@@ -303,7 +365,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             configuration,
             provisional,
             adapter,
-            PrivateOptions(codec.Name, EncodeTuning.Interactive),
+            PrivateOptions(codec.Name, EncodeTuning.Interactive, profileOptions ?? []),
             forcesKeyframes: true,
             _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
         );
@@ -389,12 +451,16 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         }
     }
 
-    private ImmutableDictionary<string, string> PrivateOptions(string encoder, EncodeTuning tuning)
+    // The built-in real-time settings, then the profile, then the application's own options for the encoder.
+    private ImmutableDictionary<string, string> PrivateOptions(
+        string encoder,
+        EncodeTuning tuning,
+        ImmutableDictionary<string, string> profileOptions
+    )
     {
-        ImmutableDictionary<string, string> options = EncoderSettings.PrivateOptions(
-            encoder,
-            tuning
-        );
+        ImmutableDictionary<string, string> options = EncoderSettings
+            .PrivateOptions(encoder, tuning)
+            .SetItems(profileOptions);
         return _options.EncoderOptions.TryGetValue(
             encoder,
             out ImmutableDictionary<string, string>? extra
@@ -407,14 +473,16 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         ImmutableArray<PixelFormat> Formats,
         VideoSize MaximumSize,
         bool ReconfigurableRate,
-        bool ForcesKeyframes
+        bool ForcesKeyframes,
+        bool ConstrainedBaseline
     );
 
     private sealed record Resolved(
         FF.Codec Codec,
         FF.GpuAdapter? Adapter,
         VideoEncoderInfo Info,
-        bool ForcesKeyframes
+        bool ForcesKeyframes,
+        ImmutableDictionary<string, string> ProfileOptions
     );
 
     private sealed class KeyframeRecorder : IEncodedVideoConsumer
@@ -460,4 +528,11 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         string reason,
         Exception? exception
     );
+
+    [LoggerMessage(
+        EventId = 1013,
+        Level = LogLevel.Debug,
+        Message = "{Encoder} does not encode H.264 Constrained Baseline: {Reason}"
+    )]
+    private static partial void LogProfileRefused(ILogger logger, string encoder, string reason);
 }
