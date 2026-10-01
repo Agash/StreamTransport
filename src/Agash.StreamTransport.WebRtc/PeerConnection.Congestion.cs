@@ -234,7 +234,7 @@ public sealed partial class PeerConnection
         }
 
         uint reportTimestamp = (uint)(now * 65536 / 1_000_000);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(1300 + SrtpSession.RtcpProtectionOverhead);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(1300 + SrtpSession.MaxRtcpProtectionOverhead);
         try
         {
             int length = Ccfb.Build(buffer, _rtcpSenderSsrc, _reportScratch, reportTimestamp);

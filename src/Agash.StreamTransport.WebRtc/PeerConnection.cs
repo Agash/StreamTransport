@@ -354,7 +354,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // RTP header + optional abs-capture-time + payload, with room for the SRTP tag. Rent from the
         // shared pool so the per-packet send path does not allocate (matters on an SBC's GC).
         int capacity =
-            RtpPacket.FixedHeaderLength + 16 + payload.Length + SrtpSession.ProtectionOverhead;
+            RtpPacket.FixedHeaderLength + 16 + payload.Length + SrtpSession.MaxProtectionOverhead;
         byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
         try
         {
@@ -427,7 +427,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(32 + SrtpSession.RtcpProtectionOverhead);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(32 + SrtpSession.MaxRtcpProtectionOverhead);
         try
         {
             int length = RtcpFeedback.BuildPli(buffer, _rtcpSenderSsrc, mediaSsrc);
@@ -645,7 +645,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
-                original.Length + 2 + SrtpSession.ProtectionOverhead
+                original.Length + 2 + SrtpSession.MaxProtectionOverhead
             );
             try
             {
@@ -889,6 +889,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             await agent.DisposeAsync().ConfigureAwait(false);
         }
+
+        // After the agent: nothing arrives to unprotect any more, and a send racing the close fails.
+        Interlocked.Exchange(ref _srtp, null)?.Dispose();
     }
 
     private sealed class RtxState(uint ssrc, byte payloadType)

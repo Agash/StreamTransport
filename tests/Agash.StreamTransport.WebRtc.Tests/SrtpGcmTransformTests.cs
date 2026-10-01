@@ -29,13 +29,8 @@ public sealed class SrtpGcmTransformTests
         byte[] buffer = new byte[Plaintext.Length + SrtpGcmTransform.TagLength];
         Plaintext.CopyTo(buffer, 0);
 
-        int length = SrtpGcmTransform.ProtectRtp(
-            Key,
-            Salt,
-            rolloverCounter: 0,
-            buffer,
-            Plaintext.Length
-        );
+        using SrtpGcmTransform transform = Transform();
+        int length = transform.ProtectRtp(rolloverCounter: 0, buffer, Plaintext.Length);
 
         Assert.AreEqual(Protected.Length, length);
         CollectionAssert.AreEqual(Protected, buffer[..length]);
@@ -46,9 +41,8 @@ public sealed class SrtpGcmTransformTests
     {
         byte[] buffer = (byte[])Protected.Clone();
 
-        bool ok = SrtpGcmTransform.UnprotectRtp(
-            Key,
-            Salt,
+        using SrtpGcmTransform transform = Transform();
+        bool ok = transform.UnprotectRtp(
             rolloverCounter: 0,
             buffer,
             Protected.Length,
@@ -66,14 +60,8 @@ public sealed class SrtpGcmTransformTests
         byte[] buffer = (byte[])Protected.Clone();
         buffer[^1] ^= 0xFF; // corrupt the tag
 
-        bool ok = SrtpGcmTransform.UnprotectRtp(
-            Key,
-            Salt,
-            rolloverCounter: 0,
-            buffer,
-            buffer.Length,
-            out _
-        );
+        using SrtpGcmTransform transform = Transform();
+        bool ok = transform.UnprotectRtp(rolloverCounter: 0, buffer, buffer.Length, out _);
         Assert.IsFalse(ok);
     }
 
@@ -124,22 +112,36 @@ public sealed class SrtpGcmTransformTests
         byte[] buffer = new byte[originalLength + SrtpGcmTransform.TagLength];
         packet.CopyTo(buffer, 0);
 
-        int protectedLength = SrtpGcmTransform.ProtectRtp(Key, Salt, 7, buffer, originalLength);
+        using SrtpGcmTransform transform = Transform();
+        int protectedLength = transform.ProtectRtp(7, buffer, originalLength);
         // header + extension must be unchanged (authenticated, not encrypted).
         CollectionAssert.AreEqual(packet[..28], buffer[..28]);
 
-        bool ok = SrtpGcmTransform.UnprotectRtp(
-            Key,
-            Salt,
-            7,
-            buffer,
-            protectedLength,
-            out int recovered
-        );
+        bool ok = transform.UnprotectRtp(7, buffer, protectedLength, out int recovered);
         Assert.IsTrue(ok);
         Assert.AreEqual(originalLength, recovered);
         CollectionAssert.AreEqual(packet, buffer[..recovered]);
     }
+
+    [TestMethod]
+    public void ProtectRtcp_ThenUnprotect_RoundTripsAndRejectsTampering()
+    {
+        byte[] rtcp = Hex("81c90007 deadbeef 01020304 05060708 090a0b0c 0d0e0f10 11121314 15161718");
+        byte[] buffer = new byte[rtcp.Length + SrtpGcmTransform.RtcpTrailerLength];
+        rtcp.CopyTo(buffer, 0);
+        using SrtpGcmTransform transform = Transform();
+
+        int protectedLength = transform.ProtectRtcp(5, buffer, rtcp.Length);
+        byte[] tampered = (byte[])buffer.Clone();
+        tampered[10] ^= 1;
+
+        Assert.IsTrue(transform.UnprotectRtcp(buffer, protectedLength, out int length));
+        CollectionAssert.AreEqual(rtcp, buffer[..length]);
+        Assert.IsFalse(transform.UnprotectRtcp(tampered, protectedLength, out _));
+    }
+
+    private static SrtpGcmTransform Transform() =>
+        new((byte[])Key.Clone(), (byte[])Salt.Clone(), (byte[])Key.Clone(), (byte[])Salt.Clone());
 
     private static byte[] Hex(string hex)
     {

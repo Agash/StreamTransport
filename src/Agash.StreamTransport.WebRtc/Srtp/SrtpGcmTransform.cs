@@ -4,59 +4,120 @@ using System.Security.Cryptography;
 namespace Agash.StreamTransport.WebRtc.Srtp;
 
 /// <summary>
-/// The AES-GCM SRTP/SRTCP transform (RFC 7714). Encrypts the RTP payload (or RTCP body) in place and
-/// appends the 16-octet GCM authentication tag, using the RTP header (or RTCP header + index) as
-/// additional authenticated data. Operates on a single session key + salt; key derivation and rollover
-/// tracking live in the SRTP session that drives this transform.
+/// The AES-GCM SRTP/SRTCP transform (RFC 7714), the <c>SRTP_AEAD_AES_128_GCM</c> and <c>_256_GCM</c>
+/// profiles. One instance protects or unprotects one direction with that direction's session keys. The
+/// payload (or RTCP body) is encrypted in place and the 16-octet tag appended; the RTP header (or RTCP
+/// header and index) is the additional authenticated data, passed as a span of the packet itself.
 /// </summary>
 /// <remarks>
-/// AEAD (GCM) only - the legacy AES-CTR + HMAC-SHA1 suite (RFC 3711) is not implemented, because both
-/// peers are our own first-party stack and negotiate a GCM profile. The tag is always 16 octets
-/// (<c>AEAD_AES_128_GCM</c> / <c>AEAD_AES_256_GCM</c>).
+/// The keyed <see cref="AesGcm"/> contexts live as long as the direction, so a packet costs no
+/// allocation. RTP and RTCP each have their own context and lock, because media and feedback are sent
+/// from different loops.
 /// </remarks>
-public static class SrtpGcmTransform
+internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
 {
-    /// <summary>The GCM authentication tag length for SRTP (RFC 7714 §13).</summary>
+    /// <summary>The GCM authentication tag length for SRTP (RFC 7714 section 13).</summary>
     public const int TagLength = 16;
 
     /// <summary>The SRTP/SRTCP session salt length (96 bits).</summary>
     public const int SaltLength = 12;
 
-    /// <summary>
-    /// Encrypts an RTP packet in place (RFC 7714 §8/§12): the header is left clear and authenticated, the
-    /// payload is encrypted, and the 16-octet tag is appended. <paramref name="packet"/> must have room for
-    /// <paramref name="length"/> + <see cref="TagLength"/> bytes.
-    /// </summary>
-    public static int ProtectRtp(
-        ReadOnlySpan<byte> sessionKey,
-        ReadOnlySpan<byte> sessionSalt,
-        uint rolloverCounter,
-        Span<byte> packet,
-        int length
+    /// <summary>The bytes SRTCP protection appends: the 4-octet E flag and index, then the tag.</summary>
+    public const int RtcpTrailerLength = 4 + TagLength;
+
+    private readonly Lock _rtpGate = new();
+    private readonly Lock _rtcpGate = new();
+    private readonly AesGcm _rtp;
+    private readonly AesGcm _rtcp;
+    private readonly byte[] _rtpSalt;
+    private readonly byte[] _rtcpSalt;
+    private bool _disposed;
+
+    /// <summary>A transform from session keys directly, as the RFC 7714 test vectors give them.</summary>
+    internal SrtpGcmTransform(byte[] rtpKey, byte[] rtpSalt, byte[] rtcpKey, byte[] rtcpSalt)
+    {
+        ArgumentOutOfRangeException.ThrowIfNotEqual(rtpSalt.Length, SaltLength);
+        ArgumentOutOfRangeException.ThrowIfNotEqual(rtcpSalt.Length, SaltLength);
+        _rtp = new AesGcm(rtpKey, TagLength);
+        _rtcp = new AesGcm(rtcpKey, TagLength);
+        _rtpSalt = rtpSalt;
+        _rtcpSalt = rtcpSalt;
+    }
+
+    /// <inheritdoc/>
+    public int RtpOverhead => TagLength;
+
+    /// <inheritdoc/>
+    public int RtcpOverhead => RtcpTrailerLength;
+
+    /// <summary>A transform from one direction's master key and salt (RFC 3711 key derivation).</summary>
+    /// <param name="masterKey">The 128- or 256-bit master key.</param>
+    /// <param name="masterSalt">The 96-bit master salt.</param>
+    public static SrtpGcmTransform FromMaster(
+        ReadOnlySpan<byte> masterKey,
+        ReadOnlySpan<byte> masterSalt
     )
     {
-        int headerLength = RtpHeaderLength(packet[..length]);
-        uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
-        ushort seq = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
+        int keyLength = masterKey.Length;
+        return new SrtpGcmTransform(
+            SrtpKeyDerivation.Derive(
+                masterKey,
+                masterSalt,
+                SrtpKeyDerivation.LabelRtpEncryption,
+                keyLength
+            ),
+            SrtpKeyDerivation.Derive(
+                masterKey,
+                masterSalt,
+                SrtpKeyDerivation.LabelRtpSalt,
+                SaltLength
+            ),
+            SrtpKeyDerivation.Derive(
+                masterKey,
+                masterSalt,
+                SrtpKeyDerivation.LabelRtcpEncryption,
+                keyLength
+            ),
+            SrtpKeyDerivation.Derive(
+                masterKey,
+                masterSalt,
+                SrtpKeyDerivation.LabelRtcpSalt,
+                SaltLength
+            )
+        );
+    }
 
+    /// <inheritdoc/>
+    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length)
+    {
+        int headerLength = RtpHeaderLength(packet[..length]);
         Span<byte> iv = stackalloc byte[SaltLength];
-        FormRtpIv(sessionSalt, ssrc, rolloverCounter, seq, iv);
+        FormRtpIv(
+            _rtpSalt,
+            BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4)),
+            rolloverCounter,
+            BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2)),
+            iv
+        );
 
         Span<byte> payload = packet[headerLength..length];
-        Span<byte> tag = packet.Slice(length, TagLength);
-        using var gcm = new AesGcm(sessionKey, TagLength);
-        gcm.Encrypt(iv, payload, payload, tag, packet[..headerLength]);
+        lock (_rtpGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _rtp.Encrypt(
+                iv,
+                payload,
+                payload,
+                packet.Slice(length, TagLength),
+                packet[..headerLength]
+            );
+        }
+
         return length + TagLength;
     }
 
-    /// <summary>
-    /// Decrypts and authenticates an RTP packet produced by <see cref="ProtectRtp"/>, writing the
-    /// recovered plaintext length to <paramref name="plaintextLength"/>. Returns <see langword="false"/>
-    /// (without modifying the caller's view of validity) if authentication fails.
-    /// </summary>
-    public static bool UnprotectRtp(
-        ReadOnlySpan<byte> sessionKey,
-        ReadOnlySpan<byte> sessionSalt,
+    /// <inheritdoc/>
+    public bool UnprotectRtp(
         uint rolloverCounter,
         Span<byte> packet,
         int length,
@@ -64,7 +125,7 @@ public static class SrtpGcmTransform
     )
     {
         plaintextLength = 0;
-        if (length < TagLength)
+        if (length < 12 + TagLength)
         {
             return false;
         }
@@ -76,21 +137,33 @@ public static class SrtpGcmTransform
             return false;
         }
 
-        uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
-        ushort seq = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
-
         Span<byte> iv = stackalloc byte[SaltLength];
-        FormRtpIv(sessionSalt, ssrc, rolloverCounter, seq, iv);
+        FormRtpIv(
+            _rtpSalt,
+            BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4)),
+            rolloverCounter,
+            BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2)),
+            iv
+        );
 
         Span<byte> cipher = packet.Slice(headerLength, encryptedLength);
-        ReadOnlySpan<byte> tag = packet.Slice(headerLength + encryptedLength, TagLength);
         try
         {
-            using var gcm = new AesGcm(sessionKey, TagLength);
-            gcm.Decrypt(iv, cipher, tag, cipher, packet[..headerLength]);
+            lock (_rtpGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _rtp.Decrypt(
+                    iv,
+                    cipher,
+                    packet.Slice(headerLength + encryptedLength, TagLength),
+                    cipher,
+                    packet[..headerLength]
+                );
+            }
         }
         catch (AuthenticationTagMismatchException)
         {
+            // Deliberately not logged: a forged or corrupted packet is reported by the false return.
             return false;
         }
 
@@ -98,79 +171,70 @@ public static class SrtpGcmTransform
         return true;
     }
 
-    /// <summary>The bytes SRTCP protection appends: the 4-octet E-flag/index trailer plus the GCM tag.</summary>
-    public const int RtcpOverhead = 4 + TagLength;
-
-    /// <summary>
-    /// Encrypts an RTCP packet in place (RFC 7714 §9): the 8-octet header is authenticated, the rest is
-    /// encrypted, then the 4-octet E-flag/SRTCP-index trailer and the 16-octet tag are appended.
-    /// </summary>
-    public static int ProtectRtcp(
-        ReadOnlySpan<byte> sessionKey,
-        ReadOnlySpan<byte> sessionSalt,
-        uint srtcpIndex,
-        Span<byte> packet,
-        int length
-    )
+    /// <inheritdoc/>
+    public int ProtectRtcp(uint srtcpIndex, Span<byte> packet, int length)
     {
-        uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
+        uint trailer = 0x8000_0000u | (srtcpIndex & 0x7FFF_FFFFu);
+        Span<byte> iv = stackalloc byte[SaltLength];
+        FormRtcpIv(_rtcpSalt, BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4)), trailer, iv);
 
+        // The AAD is the 8-octet header and the trailer; one 12-octet stack copy joins them.
         Span<byte> aad = stackalloc byte[12];
         packet[..8].CopyTo(aad);
-        uint trailer = 0x8000_0000u | (srtcpIndex & 0x7FFF_FFFFu); // E=1
         BinaryPrimitives.WriteUInt32BigEndian(aad[8..], trailer);
-
-        Span<byte> iv = stackalloc byte[SaltLength];
-        FormRtcpIv(sessionSalt, ssrc, srtcpIndex, iv);
-
-        Span<byte> payload = packet[8..length];
         BinaryPrimitives.WriteUInt32BigEndian(packet[length..], trailer);
-        Span<byte> tag = packet.Slice(length + 4, TagLength);
-        using var gcm = new AesGcm(sessionKey, TagLength);
-        gcm.Encrypt(iv, payload, payload, tag, aad);
-        return length + RtcpOverhead;
+
+        Span<byte> body = packet[8..length];
+        lock (_rtcpGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _rtcp.Encrypt(iv, body, body, packet.Slice(length + 4, TagLength), aad);
+        }
+
+        return length + RtcpTrailerLength;
     }
 
-    /// <summary>
-    /// Authenticates and decrypts an SRTCP packet produced by <see cref="ProtectRtcp"/>, writing the
-    /// recovered RTCP length to <paramref name="plaintextLength"/>. Returns <see langword="false"/> on
-    /// authentication failure.
-    /// </summary>
-    public static bool UnprotectRtcp(
-        ReadOnlySpan<byte> sessionKey,
-        ReadOnlySpan<byte> sessionSalt,
-        Span<byte> packet,
-        int length,
-        out int plaintextLength
-    )
+    /// <inheritdoc/>
+    public bool UnprotectRtcp(Span<byte> packet, int length, out int plaintextLength)
     {
         plaintextLength = 0;
-        if (length < 8 + RtcpOverhead)
+        if (length < 8 + RtcpTrailerLength)
         {
             return false;
         }
 
-        int rtcpLength = length - RtcpOverhead;
-        uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4));
+        int rtcpLength = length - RtcpTrailerLength;
         uint trailer = BinaryPrimitives.ReadUInt32BigEndian(packet[rtcpLength..]);
-        uint index = trailer & 0x7FFF_FFFFu;
+        Span<byte> iv = stackalloc byte[SaltLength];
+        FormRtcpIv(_rtcpSalt, BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4)), trailer, iv);
 
         Span<byte> aad = stackalloc byte[12];
         packet[..8].CopyTo(aad);
         BinaryPrimitives.WriteUInt32BigEndian(aad[8..], trailer);
-
-        Span<byte> iv = stackalloc byte[SaltLength];
-        FormRtcpIv(sessionSalt, ssrc, index, iv);
 
         Span<byte> cipher = packet[8..rtcpLength];
         ReadOnlySpan<byte> tag = packet.Slice(rtcpLength + 4, TagLength);
         try
         {
-            using var gcm = new AesGcm(sessionKey, TagLength);
-            gcm.Decrypt(iv, cipher, tag, cipher, aad);
+            lock (_rtcpGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if ((trailer & 0x8000_0000u) != 0)
+                {
+                    _rtcp.Decrypt(iv, cipher, tag, cipher, aad);
+                }
+                else
+                {
+                    // E clear: the body travelled in the clear and is authenticated as AAD (RFC 7714
+                    // section 9.3), so the whole packet up to the trailer is the AAD of an empty message.
+                    Span<byte> clearAad = packet[..(rtcpLength + 4)];
+                    _rtcp.Decrypt(iv, [], tag, [], clearAad);
+                }
+            }
         }
         catch (AuthenticationTagMismatchException)
         {
+            // Deliberately not logged: a forged or corrupted packet is reported by the false return.
             return false;
         }
 
@@ -178,25 +242,37 @@ public static class SrtpGcmTransform
         return true;
     }
 
-    /// <summary>Forms the 12-octet AES-GCM SRTCP IV (RFC 7714 §9.1): <c>(00 00 || SSRC || 00 00 || index) XOR salt</c>.</summary>
-    internal static void FormRtcpIv(
-        ReadOnlySpan<byte> salt,
-        uint ssrc,
-        uint srtcpIndex,
-        Span<byte> iv
-    )
+    /// <inheritdoc/>
+    public void Dispose()
     {
-        Span<byte> x = stackalloc byte[SaltLength];
-        BinaryPrimitives.WriteUInt32BigEndian(x[2..], ssrc);
-        BinaryPrimitives.WriteUInt32BigEndian(x[8..], srtcpIndex & 0x7FFF_FFFFu);
-        for (int i = 0; i < SaltLength; i++)
+        lock (_rtpGate)
+        lock (_rtcpGate)
         {
-            iv[i] = (byte)(salt[i] ^ x[i]);
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _rtp.Dispose();
+            _rtcp.Dispose();
         }
     }
 
     /// <summary>
-    /// Forms the 12-octet AES-GCM SRTP IV (RFC 7714 §8.1): <c>(00 00 || SSRC || ROC || SEQ) XOR salt</c>.
+    /// The 12-octet SRTCP IV (RFC 7714 section 9.1): <c>(00 00 || SSRC || 00 00 || index) XOR salt</c>,
+    /// the E flag masked off.
+    /// </summary>
+    internal static void FormRtcpIv(ReadOnlySpan<byte> salt, uint ssrc, uint srtcpIndex, Span<byte> iv)
+    {
+        iv.Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(iv[2..], ssrc);
+        BinaryPrimitives.WriteUInt32BigEndian(iv[8..], srtcpIndex & 0x7FFF_FFFFu);
+        Xor(iv, salt);
+    }
+
+    /// <summary>
+    /// The 12-octet SRTP IV (RFC 7714 section 8.1): <c>(00 00 || SSRC || ROC || SEQ) XOR salt</c>.
     /// </summary>
     internal static void FormRtpIv(
         ReadOnlySpan<byte> salt,
@@ -206,30 +282,30 @@ public static class SrtpGcmTransform
         Span<byte> iv
     )
     {
-        Span<byte> x = stackalloc byte[SaltLength];
-        x[0] = 0;
-        x[1] = 0;
-        BinaryPrimitives.WriteUInt32BigEndian(x[2..], ssrc);
-        BinaryPrimitives.WriteUInt32BigEndian(x[6..], roc);
-        BinaryPrimitives.WriteUInt16BigEndian(x[10..], seq);
-        for (int i = 0; i < SaltLength; i++)
-        {
-            iv[i] = (byte)(salt[i] ^ x[i]);
-        }
+        iv.Clear();
+        BinaryPrimitives.WriteUInt32BigEndian(iv[2..], ssrc);
+        BinaryPrimitives.WriteUInt32BigEndian(iv[6..], roc);
+        BinaryPrimitives.WriteUInt16BigEndian(iv[10..], seq);
+        Xor(iv, salt);
     }
 
-    /// <summary>Computes the RTP header length (12 + 4·CC + extension), accounting for CSRCs and one extension.</summary>
+    /// <summary>The RTP header length: 12 octets, the CSRCs and the header extension.</summary>
     internal static int RtpHeaderLength(ReadOnlySpan<byte> packet)
     {
-        int csrcCount = packet[0] & 0x0F;
-        int length = 12 + (csrcCount * 4);
-        bool hasExtension = (packet[0] & 0x10) != 0;
-        if (hasExtension && length + 4 <= packet.Length)
+        int length = 12 + ((packet[0] & 0x0F) * 4);
+        if ((packet[0] & 0x10) != 0 && length + 4 <= packet.Length)
         {
-            int words = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(length + 2, 2));
-            length += 4 + (words * 4);
+            length += 4 + (BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(length + 2, 2)) * 4);
         }
 
         return length;
+    }
+
+    private static void Xor(Span<byte> target, ReadOnlySpan<byte> mask)
+    {
+        for (int i = 0; i < target.Length; i++)
+        {
+            target[i] ^= mask[i];
+        }
     }
 }

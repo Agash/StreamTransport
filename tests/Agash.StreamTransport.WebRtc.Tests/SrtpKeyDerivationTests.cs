@@ -124,7 +124,7 @@ public sealed class SrtpKeyDerivationTests
     )
     {
         byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04, 0x05];
-        byte[] packet = new byte[12 + payload.Length + SrtpSession.ProtectionOverhead];
+        byte[] packet = new byte[12 + payload.Length + SrtpSession.MaxProtectionOverhead];
         packet[0] = 0x80;
         packet[1] = 0x60;
         packet[2] = (byte)(seq >> 8);
@@ -137,7 +137,7 @@ public sealed class SrtpKeyDerivationTests
         int plaintextLength = 12 + payload.Length;
 
         int protectedLength = sender.ProtectRtp(packet, plaintextLength);
-        Assert.AreEqual(plaintextLength + SrtpSession.ProtectionOverhead, protectedLength);
+        Assert.AreEqual(plaintextLength + sender.ProtectionOverhead, protectedLength);
 
         bool ok = receiver.UnprotectRtp(packet, protectedLength, out int recovered);
         Assert.IsTrue(ok, $"unprotect failed for seq {seq}");

@@ -27,7 +27,7 @@ public sealed class RtcpProtectionAndFeedbackTests
         int rtcpLength = sr.Write(buffer);
 
         int protectedLength = sender.ProtectRtcp(buffer, rtcpLength);
-        Assert.AreEqual(rtcpLength + SrtpSession.RtcpProtectionOverhead, protectedLength);
+        Assert.AreEqual(rtcpLength + SrtpSession.MaxRtcpProtectionOverhead, protectedLength);
 
         Assert.IsTrue(receiver.UnprotectRtcp(buffer, protectedLength, out int recovered));
         Assert.AreEqual(rtcpLength, recovered);

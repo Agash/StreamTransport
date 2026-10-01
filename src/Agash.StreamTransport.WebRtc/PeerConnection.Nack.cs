@@ -136,7 +136,7 @@ public sealed partial class PeerConnection
         }
 
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            12 + (sequences.Count * 4) + SrtpSession.RtcpProtectionOverhead
+            12 + (sequences.Count * 4) + SrtpSession.MaxRtcpProtectionOverhead
         );
         try
         {
