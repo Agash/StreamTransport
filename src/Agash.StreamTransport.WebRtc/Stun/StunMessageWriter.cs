@@ -61,7 +61,14 @@ public ref struct StunMessageWriter
     }
 
     /// <summary>Appends an XOR-MAPPED-ADDRESS attribute (RFC 8489 §14.2) for the given endpoint.</summary>
-    public void AddXorMappedAddress(IPEndPoint endpoint)
+    public void AddXorMappedAddress(IPEndPoint endpoint) =>
+        AddXorAddress(StunAttributeType.XorMappedAddress, endpoint);
+
+    /// <summary>
+    /// Appends an XOR-encoded address attribute: XOR-MAPPED-ADDRESS, or TURN's XOR-PEER-ADDRESS and
+    /// XOR-RELAYED-ADDRESS, which share its encoding (RFC 8489 §14.2).
+    /// </summary>
+    public void AddXorAddress(StunAttributeType type, IPEndPoint endpoint)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
 
@@ -93,7 +100,27 @@ public ref struct StunMessageWriter
             BinaryPrimitives.WriteUInt32BigEndian(value[4..], a ^ StunHeader.MagicCookie);
         }
 
-        AddAttribute(StunAttributeType.XorMappedAddress, value[..valueLength]);
+        AddAttribute(type, value[..valueLength]);
+    }
+
+    /// <summary>Appends ERROR-CODE (RFC 8489 §14.8) with a reason phrase.</summary>
+    public void AddErrorCode(int code, string reason)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        Span<byte> value = stackalloc byte[4 + System.Text.Encoding.UTF8.GetMaxByteCount(reason.Length)];
+        value[..2].Clear();
+        value[2] = (byte)(code / 100);
+        value[3] = (byte)(code % 100);
+        int length = System.Text.Encoding.UTF8.GetBytes(reason, value[4..]);
+        AddAttribute(StunAttributeType.ErrorCode, value[..(4 + length)]);
+    }
+
+    /// <summary>Appends a 32-bit big-endian attribute value, such as LIFETIME.</summary>
+    public void AddUInt32(StunAttributeType type, uint value)
+    {
+        Span<byte> bytes = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(bytes, value);
+        AddAttribute(type, bytes);
     }
 
     /// <summary>

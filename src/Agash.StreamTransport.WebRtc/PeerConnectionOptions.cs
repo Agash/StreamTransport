@@ -1,5 +1,7 @@
 using System.Net;
+using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Sdp;
+using Agash.StreamTransport.WebRtc.Turn;
 
 namespace Agash.StreamTransport.WebRtc;
 
@@ -53,6 +55,12 @@ public sealed class PeerConnectionOptions
 
     /// <summary>STUN servers to gather server-reflexive candidates from.</summary>
     public IReadOnlyList<IPEndPoint> StunServers { get; init; } = [];
+
+    /// <summary>TURN servers to allocate relayed candidates on.</summary>
+    public IReadOnlyList<TurnServer> TurnServers { get; init; } = [];
+
+    /// <summary>Which candidates ICE gathers; <see cref="IceTransportPolicy.Relay"/> sends only through TURN.</summary>
+    public IceTransportPolicy IceTransportPolicy { get; init; } = IceTransportPolicy.All;
 
     /// <summary>Include loopback candidates (for same-host tests). Off by default.</summary>
     public bool IncludeLoopback { get; init; }

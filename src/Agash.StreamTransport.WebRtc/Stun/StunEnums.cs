@@ -22,7 +22,23 @@ public enum StunMethod : ushort
     /// <summary>The STUN Binding method (RFC 8489 §3).</summary>
     Binding = 0x001,
 
-    // TURN methods (RFC 8656) are added when the relay package lands.
+    /// <summary>TURN Allocate (RFC 8656 section 7).</summary>
+    Allocate = 0x003,
+
+    /// <summary>TURN Refresh (RFC 8656 section 8).</summary>
+    Refresh = 0x004,
+
+    /// <summary>TURN Send indication (RFC 8656 section 11).</summary>
+    Send = 0x006,
+
+    /// <summary>TURN Data indication (RFC 8656 section 11).</summary>
+    Data = 0x007,
+
+    /// <summary>TURN CreatePermission (RFC 8656 section 10).</summary>
+    CreatePermission = 0x008,
+
+    /// <summary>TURN ChannelBind (RFC 8656 section 12).</summary>
+    ChannelBind = 0x009,
 }
 
 /// <summary>
@@ -45,6 +61,33 @@ public enum StunAttributeType : ushort
 
     /// <summary>UNKNOWN-ATTRIBUTES (RFC 8489 §14.9).</summary>
     UnknownAttributes = 0x000A,
+
+    /// <summary>CHANNEL-NUMBER (RFC 8656 section 18.1).</summary>
+    ChannelNumber = 0x000C,
+
+    /// <summary>LIFETIME in seconds (RFC 8656 section 18.2).</summary>
+    Lifetime = 0x000D,
+
+    /// <summary>XOR-PEER-ADDRESS (RFC 8656 section 18.3).</summary>
+    XorPeerAddress = 0x0012,
+
+    /// <summary>DATA (RFC 8656 section 18.4).</summary>
+    Data = 0x0013,
+
+    /// <summary>REALM (RFC 8489 §14.9).</summary>
+    Realm = 0x0014,
+
+    /// <summary>NONCE (RFC 8489 §14.10).</summary>
+    Nonce = 0x0015,
+
+    /// <summary>XOR-RELAYED-ADDRESS (RFC 8656 section 18.5).</summary>
+    XorRelayedAddress = 0x0016,
+
+    /// <summary>REQUESTED-ADDRESS-FAMILY (RFC 8656 section 18.6).</summary>
+    RequestedAddressFamily = 0x0017,
+
+    /// <summary>REQUESTED-TRANSPORT (RFC 8656 section 18.8).</summary>
+    RequestedTransport = 0x0019,
 
     /// <summary>MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6).</summary>
     MessageIntegritySha256 = 0x001C,

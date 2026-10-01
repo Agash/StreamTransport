@@ -75,23 +75,31 @@ internal sealed partial class IceStateMachine
 
     public void AddStunServer(IPEndPoint server) => _stunServers.Add(server);
 
-    /// <summary>Adds a bound local endpoint as a host candidate and pairs it with the known remotes.</summary>
+    /// <summary>Adds a bound local endpoint as a candidate and pairs it with the known remotes.</summary>
     /// <param name="handle">The driver's handle for the endpoint's socket.</param>
-    /// <param name="bound">The endpoint the socket is bound to.</param>
-    public void AddLocalEndpoint(int handle, IPEndPoint bound)
+    /// <param name="bound">The endpoint the socket sends from: its bound address, or a relayed address.</param>
+    /// <param name="kind">Host, or relayed for a TURN allocation.</param>
+    /// <param name="related">For a relayed candidate, the mapped address it was allocated from.</param>
+    public void AddLocalEndpoint(
+        int handle,
+        IPEndPoint bound,
+        IceCandidateKind kind = IceCandidateKind.Host,
+        IPEndPoint? related = null
+    )
     {
         uint priority = IceCandidate.ComputePriority(
-            IceCandidateKind.Host,
+            kind,
             bound.Address,
             IceCandidate.RtpComponent,
             _candidateIndex++
         );
         IceCandidate candidate = new(
-            Foundation(IceCandidateKind.Host, bound.Address),
+            Foundation(kind, bound.Address),
             IceCandidate.RtpComponent,
             priority,
             bound,
-            IceCandidateKind.Host
+            kind,
+            related
         );
         LocalEndpoint local = new(handle, candidate);
         _locals.Add(local);
@@ -113,6 +121,11 @@ internal sealed partial class IceStateMachine
         Span<byte> transaction = stackalloc byte[StunHeader.TransactionIdLength];
         foreach (LocalEndpoint local in _locals)
         {
+            if (local.Candidate.Kind != IceCandidateKind.Host)
+            {
+                continue;
+            }
+
             foreach (IPEndPoint server in _stunServers)
             {
                 if (!IceCandidate.CanReach(local.Candidate.Endpoint.Address, server.Address))

@@ -7,6 +7,7 @@ using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
+using Agash.StreamTransport.WebRtc.Turn;
 using Dtls.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -451,11 +452,17 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _options.IncludeLoopback,
             _loggerFactory.CreateLogger<IceAgent>(),
             socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences),
-            timeProvider: _time
+            timeProvider: _time,
+            transportPolicy: _options.IceTransportPolicy
         );
         foreach (IPEndPoint stun in _options.StunServers)
         {
             agent.AddStunServer(stun);
+        }
+
+        foreach (TurnServer turn in _options.TurnServers)
+        {
+            agent.AddTurnServer(turn);
         }
 
         agent.LocalCandidateGathered += c => LocalIceCandidate?.Invoke(c);

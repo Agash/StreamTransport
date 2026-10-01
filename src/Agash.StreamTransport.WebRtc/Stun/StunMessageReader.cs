@@ -117,13 +117,17 @@ public readonly ref struct StunMessageReader
     /// <summary>
     /// Decodes XOR-MAPPED-ADDRESS (RFC 8489 §14.2) into an <see cref="IPEndPoint"/>. Supports IPv4 and IPv6.
     /// </summary>
-    public bool TryGetXorMappedAddress(out IPEndPoint endpoint)
+    public bool TryGetXorMappedAddress(out IPEndPoint endpoint) =>
+        TryGetXorAddress(StunAttributeType.XorMappedAddress, out endpoint);
+
+    /// <summary>
+    /// Decodes an XOR-encoded address attribute (XOR-MAPPED-ADDRESS, XOR-PEER-ADDRESS,
+    /// XOR-RELAYED-ADDRESS) into an <see cref="IPEndPoint"/>.
+    /// </summary>
+    public bool TryGetXorAddress(StunAttributeType type, out IPEndPoint endpoint)
     {
         endpoint = default!;
-        if (
-            !TryFindAttribute(StunAttributeType.XorMappedAddress, out ReadOnlySpan<byte> value)
-            || value.Length < 8
-        )
+        if (!TryFindAttribute(type, out ReadOnlySpan<byte> value) || value.Length < 8)
         {
             return false;
         }
@@ -161,6 +165,32 @@ public readonly ref struct StunMessageReader
         }
 
         return false;
+    }
+
+    /// <summary>Reads ERROR-CODE (RFC 8489 §14.8): the class times 100 plus the number.</summary>
+    public bool TryGetErrorCode(out int code)
+    {
+        code = 0;
+        if (!TryFindAttribute(StunAttributeType.ErrorCode, out ReadOnlySpan<byte> value) || value.Length < 4)
+        {
+            return false;
+        }
+
+        code = ((value[2] & 0x07) * 100) + value[3];
+        return true;
+    }
+
+    /// <summary>Reads a 32-bit big-endian attribute value, such as LIFETIME.</summary>
+    public bool TryGetUInt32(StunAttributeType type, out uint value)
+    {
+        value = 0;
+        if (!TryFindAttribute(type, out ReadOnlySpan<byte> bytes) || bytes.Length < 4)
+        {
+            return false;
+        }
+
+        value = BinaryPrimitives.ReadUInt32BigEndian(bytes);
+        return true;
     }
 
     /// <summary>

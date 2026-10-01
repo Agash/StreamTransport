@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Agash.StreamTransport.Threading;
 using Agash.StreamTransport.WebRtc.Stun;
+using Agash.StreamTransport.WebRtc.Turn;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -9,8 +10,9 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>
 /// A full-ICE agent (RFC 8445) over UDP with trickle (RFC 8838): it gathers host candidates (one socket
-/// per local address, so the source address is pinned), runs STUN connectivity checks against trickled
-/// remote candidates, nominates, and keeps consent (RFC 7675) on the selected pair and warm alternates.
+/// per local address, so the source address is pinned) and relayed candidates from TURN servers
+/// (RFC 8656, reached over UDP, TCP or TLS), runs STUN connectivity checks against trickled remote
+/// candidates, nominates, and keeps consent (RFC 7675) on the selected pair and warm alternates.
 /// Non-STUN datagrams on its sockets (DTLS, SRTP) are surfaced through <see cref="DataReceived"/>;
 /// outbound media goes through <see cref="SendAsync"/>.
 /// </summary>
@@ -27,12 +29,15 @@ public sealed partial class IceAgent : IAsyncDisposable
     private readonly long _origin;
     private readonly bool _includeLoopback;
     private readonly IIceSocketFactory _socketFactory;
+    private readonly IceTransportPolicy _policy;
+    private readonly List<TurnServer> _turnServers = [];
     private readonly WakeSignal _wake;
     private readonly Lock _gate = new();
     private readonly Dictionary<int, LocalSocket> _sockets = [];
     private CancellationTokenSource? _cts;
     private Task? _timerLoop;
     private int _nextHandle;
+    private int _generation;
     private int _state = (int)IceConnectionState.New;
     private LocalSocket? _selectedSocket;
     private IPEndPoint? _selectedRemote;
@@ -52,6 +57,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// <param name="socketFactory">Creates the sockets candidates are gathered on.</param>
     /// <param name="timings">Check pacing, retransmission and consent timing.</param>
     /// <param name="timeProvider">The clock that paces checks and measures consent; the system's when null.</param>
+    /// <param name="transportPolicy">Which candidates to gather.</param>
     public IceAgent(
         IceCredentials localCredentials,
         IceRole role,
@@ -59,9 +65,11 @@ public sealed partial class IceAgent : IAsyncDisposable
         ILogger<IceAgent>? logger = null,
         IIceSocketFactory? socketFactory = null,
         IceTimings? timings = null,
-        TimeProvider? timeProvider = null
+        TimeProvider? timeProvider = null,
+        IceTransportPolicy transportPolicy = IceTransportPolicy.All
     )
     {
+        _policy = transportPolicy;
         _time = timeProvider ?? TimeProvider.System;
         _origin = _time.GetTimestamp();
         _includeLoopback = includeLoopback;
@@ -140,8 +148,22 @@ public sealed partial class IceAgent : IAsyncDisposable
     }
 
     /// <summary>
+    /// Adds a TURN server to allocate a relayed candidate on, one per address family the server
+    /// resolves to. Call before <see cref="Start"/>.
+    /// </summary>
+    /// <param name="server">The server and its credentials.</param>
+    public void AddTurnServer(TurnServer server)
+    {
+        ArgumentNullException.ThrowIfNull(server);
+        lock (_gate)
+        {
+            _turnServers.Add(server);
+        }
+    }
+
+    /// <summary>
     /// Binds a UDP socket per local address and raises <see cref="LocalCandidateGathered"/> for each host
-    /// candidate, then starts checking. Call once.
+    /// candidate, then starts checking. Relayed candidates follow as their allocations complete. Call once.
     /// </summary>
     public void Start()
     {
@@ -154,6 +176,7 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         Report();
         _timerLoop = TimerLoopAsync(_cts.Token);
+        StartRelays(_cts.Token);
     }
 
     /// <summary>Adds a remote candidate learned via signaling (trickle ICE).</summary>
@@ -220,11 +243,13 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
 
             _sockets.Clear();
+            _generation++;
             _machine.Restart(newLocalCredentials);
             Gather(_cts?.Token ?? CancellationToken.None);
         }
 
         Report();
+        StartRelays(_cts?.Token ?? CancellationToken.None);
         _wake.Signal();
     }
 
@@ -260,6 +285,11 @@ public sealed partial class IceAgent : IAsyncDisposable
     // Binds a socket per usable local address and hands each to the machine. Called holding the lock.
     private void Gather(CancellationToken cancellationToken)
     {
+        if (_policy == IceTransportPolicy.Relay)
+        {
+            return;
+        }
+
         foreach (IPAddress address in _socketFactory.GetLocalAddresses(_includeLoopback))
         {
             if (!_socketFactory.TryBind(address, out IIceSocket socket))
@@ -273,6 +303,124 @@ public sealed partial class IceAgent : IAsyncDisposable
             _machine.AddLocalEndpoint(handle, socket.LocalEndPoint);
             local.Receiving = ReceiveLoopAsync(local, cancellationToken);
         }
+    }
+
+    // Allocates on every TURN server in the background; each relay joins as a local endpoint when ready.
+    private void StartRelays(CancellationToken cancellationToken)
+    {
+        int generation;
+        TurnServer[] servers;
+        lock (_gate)
+        {
+            generation = _generation;
+            servers = [.. _turnServers];
+        }
+
+        foreach (TurnServer server in servers)
+        {
+            _ = AllocateRelaysAsync(server, generation, cancellationToken);
+        }
+    }
+
+    // One allocation per address family the server resolves to, IPv6 first.
+    private async Task AllocateRelaysAsync(
+        TurnServer server,
+        int generation,
+        CancellationToken cancellationToken
+    )
+    {
+        IPAddress[] addresses;
+        try
+        {
+            addresses = IPAddress.TryParse(server.Host, out IPAddress? literal)
+                ? [literal]
+                : await Dns.GetHostAddressesAsync(server.Host, cancellationToken)
+                    .ConfigureAwait(false);
+        }
+        catch (SocketException exception)
+        {
+            LogTurnUnresolved(exception, server.Host);
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            // Deliberately not logged: the agent stopped while resolving.
+            return;
+        }
+
+        IEnumerable<IPAddress> perFamily = addresses
+            .Where(static a =>
+                a.AddressFamily is AddressFamily.InterNetworkV6 or AddressFamily.InterNetwork
+            )
+            .GroupBy(static a => a.AddressFamily)
+            .OrderByDescending(static g => g.Key == AddressFamily.InterNetworkV6)
+            .Select(static g => g.First());
+        await Task.WhenAll(
+                perFamily.Select(address =>
+                    AllocateRelayAsync(
+                        server,
+                        new IPEndPoint(address, server.Port),
+                        generation,
+                        cancellationToken
+                    )
+                )
+            )
+            .ConfigureAwait(false);
+    }
+
+    private async Task AllocateRelayAsync(
+        TurnServer server,
+        IPEndPoint endpoint,
+        int generation,
+        CancellationToken cancellationToken
+    )
+    {
+        TurnAllocation allocation;
+        try
+        {
+            allocation = await TurnAllocation
+                .AllocateAsync(server, endpoint, _time, _logger, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Deliberately not logged: the agent stopped while allocating.
+            return;
+        }
+        catch (Exception exception)
+            when (exception
+                    is TurnException
+                        or SocketException
+                        or IOException
+                        or System.Security.Authentication.AuthenticationException
+            )
+        {
+            LogTurnFailed(exception, server.Host, endpoint);
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (cancellationToken.IsCancellationRequested || generation != _generation)
+            {
+                allocation.Dispose();
+                return;
+            }
+
+            int handle = _nextHandle++;
+            LocalSocket local = new(handle, allocation);
+            _sockets[handle] = local;
+            _machine.AddLocalEndpoint(
+                handle,
+                allocation.LocalEndPoint,
+                IceCandidateKind.Relayed,
+                allocation.MappedAddress
+            );
+            local.Receiving = ReceiveLoopAsync(local, cancellationToken);
+        }
+
+        Report();
+        _wake.Signal();
     }
 
     // Sends what the machine asks, then sleeps until it next needs the time or until a call from outside
@@ -335,6 +483,12 @@ public sealed partial class IceAgent : IAsyncDisposable
                 // Deliberately not logged: an ICMP port-unreachable from a check to a dead candidate
                 // surfaces here, once per such check.
                 continue;
+            }
+            catch (IOException exception)
+            {
+                // A TURN server's TCP or TLS connection closed; the relay's pairs fail over by consent.
+                LogSocketClosed(exception, local.Socket.LocalEndPoint);
+                return;
             }
 
             if (
@@ -463,6 +617,18 @@ public sealed partial class IceAgent : IAsyncDisposable
         Message = "A packet from {Source} failed in its handler; it is dropped and receiving goes on"
     )]
     private partial void LogDataHandlerFailed(Exception exception, IPEndPoint source);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TURN server {Server} did not resolve")]
+    private partial void LogTurnUnresolved(Exception exception, string server);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "TURN allocation on {Server} at {Endpoint} failed; no relayed candidate from it"
+    )]
+    private partial void LogTurnFailed(Exception exception, string server, IPEndPoint endpoint);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The connection behind {Local} closed")]
+    private partial void LogSocketClosed(Exception exception, IPEndPoint local);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An ICE event handler failed")]
     private partial void LogEventHandlerFailed(Exception exception);
