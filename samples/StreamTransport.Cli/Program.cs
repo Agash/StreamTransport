@@ -9,6 +9,7 @@ using Agash.StreamTransport.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StreamTransport.Cli;
+using System.Runtime.InteropServices;
 #if MACOS
 using Agash.StreamTransport.MacOS;
 using Syphon.NET;
@@ -54,12 +55,17 @@ static async Task<int> RunAsync(CommandLine command)
     services.AddSingleton(loggers);
     AddMedia(services);
 
+    // Ctrl+C, and SIGTERM from a service manager or kill, end the command cleanly, so servers it
+    // published (a Syphon server, a Spout sender) retire and receivers can find the next one.
     using CancellationTokenSource stop = new();
-    Console.CancelKeyPress += (_, e) =>
+    void Stop(PosixSignalContext context)
     {
-        e.Cancel = true;
+        context.Cancel = true;
         stop.Cancel();
-    };
+    }
+
+    using var interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, Stop);
+    using var terminate = PosixSignalRegistration.Create(PosixSignal.SIGTERM, Stop);
 
 #if !MACOS
     if (command.Serve)
