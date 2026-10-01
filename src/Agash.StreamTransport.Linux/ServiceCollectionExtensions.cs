@@ -26,6 +26,9 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoInputProvider, V4l2VideoInputProvider>()
         );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoOutputProvider, V4l2VideoOutputProvider>()
+        );
         services.TryAddSingleton<PipeWireConnection>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IVideoInputProvider, PipeWireVideoInputProvider>()

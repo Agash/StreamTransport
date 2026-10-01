@@ -9,10 +9,12 @@ internal static unsafe partial class V4l2Native
 {
     public const uint BufTypeVideoCapture = 1;
     public const uint BufTypeVideoCaptureMplane = 9;
+    public const uint BufTypeVideoOutput = 2;
     public const uint MemoryMmap = 1;
 
     public const uint CapVideoCapture = 0x0000_0001;
     public const uint CapVideoCaptureMplane = 0x0000_1000;
+    public const uint CapVideoOutput = 0x0000_0002;
     public const uint CapStreaming = 0x0400_0000;
     public const uint CapDeviceCaps = 0x8000_0000;
 
