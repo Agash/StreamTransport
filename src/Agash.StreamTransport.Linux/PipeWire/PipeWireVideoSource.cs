@@ -45,9 +45,10 @@ public sealed record PipeWireVideoSourceOptions
 /// <summary>
 /// Frames of a PipeWire video node: another application's output (OBS, VTube Studio, a compositor's
 /// screen capture), or a camera, which PipeWire serves as a node. A GPU producer's frames stay on the
-/// GPU: when the consumer takes DMA-BUFs, the capture offers to share BGRA buffers on this source's GPU,
-/// with the layouts it can import, and each frame is the producer's own buffer while a consumer's call
-/// lasts. Producers that cannot share, cameras among them, fall back to memory in any format read here.
+/// GPU: when the consumer takes DMA-BUFs, the capture offers to share buffers on this source's GPU in
+/// each format it imports (BGRA, and NV12 as a video producer such as a decoder makes it), in the
+/// consumer's order and the layouts it can import, and each frame is the producer's own buffer while a
+/// consumer's call lasts. Producers that cannot share, cameras among them, fall back to memory in any format read here.
 /// A consumer that keeps a frame gets a copy, on the GPU for a shared buffer. One stream serves every
 /// connected consumer and runs while any is connected.
 /// </summary>
@@ -194,12 +195,6 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
         DmaBufDeviceOffer? offer = constraints.Storages.Contains(VideoStorageKind.DmaBuf)
             ? Offer()
             : null;
-        if (offer is not null)
-        {
-            // The shared format first: the capture offers the first one on the GPU.
-            _ = preferred.Remove(PipeWireFormat.Bgra);
-            preferred.Insert(0, PipeWireFormat.Bgra);
-        }
 
         PipeWireVideoCapture capture = new(_context, _options.NodeName);
         capture.FrameReady += Deliver;
@@ -231,7 +226,8 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
         return capture;
     }
 
-    // The buffers this source's GPU imports: BGRA in the layouts it can sample and copy from.
+    // The buffers this source's GPU imports, in the layouts it can sample and copy from: BGRA as one
+    // image, NV12 as one single- and one two-channel image over its planes, so in the layouts both take.
     private DmaBufDeviceOffer? Offer()
     {
         try
@@ -244,11 +240,31 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
             return null;
         }
 
-        ulong[] modifiers = _engine.Modifiers(
-            VkFormat.B8G8R8A8Unorm,
-            VkFormatFeatureFlags.SampledImage | VkFormatFeatureFlags.TransferSrc
-        );
-        if (modifiers.Length == 0)
+        const VkFormatFeatureFlags Needed =
+            VkFormatFeatureFlags.SampledImage | VkFormatFeatureFlags.TransferSrc;
+        ulong[] bgra = _engine.Modifiers(VkFormat.B8G8R8A8Unorm, Needed);
+        ulong[] nv12 =
+        [
+            .. _engine
+                .Modifiers(VkFormat.R8Unorm, Needed)
+                .Intersect(_engine.Modifiers(VkFormat.R8G8Unorm, Needed)),
+        ];
+        List<DmaBufFormatModifiers> formats = [];
+        if (bgra.Length > 0)
+        {
+            formats.Add(
+                new DmaBufFormatModifiers(PipeWireFormat.Bgra, [.. bgra.Select(m => (long)m)])
+            );
+        }
+
+        if (nv12.Length > 0)
+        {
+            formats.Add(
+                new DmaBufFormatModifiers(PipeWireFormat.Nv12, [.. nv12.Select(m => (long)m)])
+            );
+        }
+
+        if (formats.Count == 0)
         {
             return null;
         }
@@ -256,10 +272,7 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
         ulong dev = _engine.Identity.Value;
         uint major = (uint)(((dev >> 32) & 0xfffff000) | ((dev >> 8) & 0xfff));
         uint minor = (uint)(((dev >> 12) & 0xffffff00) | (dev & 0xff));
-        return new DmaBufDeviceOffer(
-            DrmDevice.FromNumbers(major, minor),
-            [.. modifiers.Select(m => (long)m)]
-        );
+        return new DmaBufDeviceOffer(DrmDevice.FromNumbers(major, minor), [.. formats]);
     }
 
     private void Disconnect(IVideoFrameConsumer consumer)

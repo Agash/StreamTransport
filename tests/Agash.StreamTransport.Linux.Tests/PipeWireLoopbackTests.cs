@@ -64,25 +64,32 @@ public sealed class PipeWireLoopbackTests
     [TestMethod]
     [TestCategory("Integration")]
     [Timeout(30_000)]
-    public async Task GpuVideoSinkToSource_StaysOnTheGpu()
+    [DataRow(PixelFormat.Bgra)]
+    [DataRow(PixelFormat.Nv12)]
+    public async Task GpuVideoSinkToSource_StaysOnTheGpu(PixelFormat format)
     {
         await using PipeWireContext context = await StartAsync();
-        byte[] pixels = new byte[Width * Height * 4];
-        for (int i = 0; i < pixels.Length; i++)
+        bool nv12 = format == PixelFormat.Nv12;
+        byte[][] planes = nv12
+            ? [new byte[Width * Height], new byte[Width * Height / 2]]
+            : [new byte[Width * Height * 4]];
+        foreach (byte[] plane in planes)
         {
-            pixels[i] = (byte)(i * 7 % 251);
+            for (int i = 0; i < plane.Length; i++)
+            {
+                plane[i] = (byte)(i * 7 % 251);
+            }
         }
 
-        PooledDmaBuf picture = TestDmaBufs.Upload(PixelFormat.Bgra, Width, Height, pixels);
+        VideoColor color = nv12 ? VideoColor.Bt709 : VideoColor.Srgb;
+        PooledDmaBuf picture = TestDmaBufs.Upload(format, Width, Height, planes);
         try
         {
             using PipeWireVideoSink sink = new(
                 context,
                 $"streamtransport-gpu-test-{Guid.NewGuid():N}"
             );
-            sink.OnFrame(
-                TestDmaBufs.Frame(picture, PixelFormat.Bgra, Width, Height, VideoColor.Srgb)
-            );
+            sink.OnFrame(TestDmaBufs.Frame(picture, format, Width, Height, color));
             uint node = await sink.WaitForNodeIdAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
             using PipeWireVideoSource source = new(
@@ -96,16 +103,14 @@ public sealed class PipeWireLoopbackTests
             Keeper keeper = new();
             using IDisposable connection = source.Connect(
                 keeper,
-                new VideoConstraints([VideoStorageKind.DmaBuf], [PixelFormat.Bgra])
+                new VideoConstraints([VideoStorageKind.DmaBuf], [format])
             );
             using (PeriodicTimer frames = new(TimeSpan.FromMilliseconds(20)))
             using (CancellationTokenSource expiry = new(TimeSpan.FromSeconds(15)))
             {
                 while (!keeper.Kept.IsCompleted && await frames.WaitForNextTickAsync(expiry.Token))
                 {
-                    sink.OnFrame(
-                        TestDmaBufs.Frame(picture, PixelFormat.Bgra, Width, Height, VideoColor.Srgb)
-                    );
+                    sink.OnFrame(TestDmaBufs.Frame(picture, format, Width, Height, color));
                 }
             }
 
@@ -114,10 +119,12 @@ public sealed class PipeWireLoopbackTests
                 kept.Frame.Storage.TryGetValue(out DmaBufImage image),
                 $"the frame crossed on the GPU; it arrived as {kept.Frame.Storage.Kind}"
             );
-            CollectionAssert.AreEqual(
-                pixels,
-                TestDmaBufs.Download(image, PixelFormat.Bgra, Width, Height)[0]
-            );
+            Assert.AreEqual(format, kept.Frame.Format.PixelFormat);
+            byte[][] read = TestDmaBufs.Download(image, format, Width, Height);
+            for (int plane = 0; plane < planes.Length; plane++)
+            {
+                CollectionAssert.AreEqual(planes[plane], read[plane], $"plane {plane}");
+            }
         }
         finally
         {

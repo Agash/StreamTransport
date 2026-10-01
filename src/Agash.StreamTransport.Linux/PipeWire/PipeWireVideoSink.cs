@@ -205,6 +205,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 output.ConnectDmaBuf([
                     new DmaBufDeviceOffer(
                         Drm(_engine.Identity),
+                        PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
                         [(long)VulkanEngine.LinearModifier]
                     ),
                 ]);
