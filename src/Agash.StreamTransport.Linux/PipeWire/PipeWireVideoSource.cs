@@ -352,7 +352,7 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
             count > 1 ? frame.GetHostStride(1) : 0,
             count > 2 ? frame.GetHostPlane(2) : default,
             count > 2 ? frame.GetHostStride(2) : 0,
-            PipeWireMapping.ToMedia(frame.Color, format)
+            color: PipeWireMapping.ToMedia(frame.Color, format)
         );
         Hand(in video);
     }

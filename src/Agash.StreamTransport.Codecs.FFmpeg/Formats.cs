@@ -25,6 +25,7 @@ internal static class Formats
             PixelFormat.I420 => FF.PixelFormat.Yuv420P,
             PixelFormat.Bgra => FF.PixelFormat.Bgra,
             PixelFormat.Rgba => FF.PixelFormat.Rgba,
+            PixelFormat.Yuva420 => Yuva420P,
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
 
@@ -36,11 +37,14 @@ internal static class Formats
         : format == FF.PixelFormat.Yuv420P ? PixelFormat.I420
         : format == FF.PixelFormat.Bgra || format == Bgr0 ? PixelFormat.Bgra
         : format == FF.PixelFormat.Rgba || format == Rgb0 ? PixelFormat.Rgba
+        : format == Yuva420P ? PixelFormat.Yuva420
         : null;
 
     public static FF.PixelFormat Bgr0 { get; } = FF.PixelFormat.Parse("bgr0");
 
     public static FF.PixelFormat Rgb0 { get; } = FF.PixelFormat.Parse("rgb0");
+
+    public static FF.PixelFormat Yuva420P { get; } = FF.PixelFormat.Parse("yuva420p");
 
     // The DXGI format a Direct3D surface pool holds for a Media format.
     public static FF.PixelFormat SurfaceSoftwareFormat(PixelFormat format) =>

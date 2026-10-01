@@ -13,6 +13,7 @@ public readonly ref struct VideoFrame
     private readonly ReadOnlySpan<byte> _plane0;
     private readonly ReadOnlySpan<byte> _plane1;
     private readonly ReadOnlySpan<byte> _plane2;
+    private readonly ReadOnlySpan<byte> _plane3;
     private readonly IVideoFrameRetainer? _retainer;
 
     /// <summary>A frame in GPU memory, or in CPU memory as one buffer laid out as its storage says.</summary>
@@ -52,6 +53,7 @@ public readonly ref struct VideoFrame
             _plane0 = Slice(cpuData, format, layout, 0);
             _plane1 = Slice(cpuData, format, layout, 1);
             _plane2 = Slice(cpuData, format, layout, 2);
+            _plane3 = Slice(cpuData, format, layout, 3);
             Storage = new CpuImage(Unpacked(layout));
         }
         else
@@ -79,6 +81,8 @@ public readonly ref struct VideoFrame
     /// <param name="stride1">Its row pitch.</param>
     /// <param name="plane2">The third plane, if the format has one.</param>
     /// <param name="stride2">Its row pitch.</param>
+    /// <param name="plane3">The fourth plane, alpha, if the format has one.</param>
+    /// <param name="stride3">Its row pitch.</param>
     /// <param name="color">How samples map to colours.</param>
     /// <param name="orientation">How to turn the buffer upright.</param>
     /// <param name="duration">How long the frame is shown; zero when unknown.</param>
@@ -92,6 +96,8 @@ public readonly ref struct VideoFrame
         int stride1 = 0,
         ReadOnlySpan<byte> plane2 = default,
         int stride2 = 0,
+        ReadOnlySpan<byte> plane3 = default,
+        int stride3 = 0,
         VideoColor color = default,
         VideoOrientation orientation = default,
         TimeSpan duration = default,
@@ -99,17 +105,29 @@ public readonly ref struct VideoFrame
     )
     {
         int count = PlaneLayout.PlaneCount(format.PixelFormat);
-        if (plane0.IsEmpty || (count > 1 && plane1.IsEmpty) || (count > 2 && plane2.IsEmpty))
+        if (
+            plane0.IsEmpty
+            || (count > 1 && plane1.IsEmpty)
+            || (count > 2 && plane2.IsEmpty)
+            || (count > 3 && plane3.IsEmpty)
+        )
         {
             throw new ArgumentException(
                 $"A {format.PixelFormat} frame has {count} planes and needs each of them."
             );
         }
 
-        ReadOnlySpan<VideoPlane> strides = [new(0, stride0), new(0, stride1), new(0, stride2)];
+        ReadOnlySpan<VideoPlane> strides =
+        [
+            new(0, stride0),
+            new(0, stride1),
+            new(0, stride2),
+            new(0, stride3),
+        ];
         _plane0 = plane0;
         _plane1 = count > 1 ? plane1 : default;
         _plane2 = count > 2 ? plane2 : default;
+        _plane3 = count > 3 ? plane3 : default;
         Storage = new CpuImage(new PlaneLayout(strides[..count]));
         Format = format;
         Timestamp = timestamp;
@@ -158,7 +176,8 @@ public readonly ref struct VideoFrame
         {
             0 => _plane0,
             1 => _plane1,
-            _ => _plane2,
+            2 => _plane2,
+            _ => _plane3,
         };
     }
 
@@ -303,6 +322,8 @@ public abstract class VideoFrameLease : IDisposable
                 planes.Count > 1 ? planes[1].Stride : 0,
                 planes.Count > 2 ? GetPlane(2) : default,
                 planes.Count > 2 ? planes[2].Stride : 0,
+                planes.Count > 3 ? GetPlane(3) : default,
+                planes.Count > 3 ? planes[3].Stride : 0,
                 Color,
                 Orientation,
                 Duration,

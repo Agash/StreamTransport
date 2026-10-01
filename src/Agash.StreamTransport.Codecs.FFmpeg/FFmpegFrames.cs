@@ -35,6 +35,8 @@ internal static class FFmpegFrames
             count > 1 ? native->linesize[1] : 0,
             Plane(2),
             count > 2 ? native->linesize[2] : 0,
+            Plane(3),
+            count > 3 ? native->linesize[3] : 0,
             color,
             retainer: retainer
         );
@@ -71,7 +73,7 @@ internal static class FFmpegFrames
 
     // The first row of a plane for a visible rectangle starting at luma row y.
     private static int RowOffset(PixelFormat format, int plane, int y) =>
-        plane > 0 && format is PixelFormat.Nv12 or PixelFormat.P010 or PixelFormat.I420 ? y / 2 : y;
+        PlaneLayout.IsChroma(format, plane) ? y / 2 : y;
 
     // The first byte of a row for a visible rectangle starting at luma column x.
     private static int ByteOffset(PixelFormat format, int plane, int x) =>
@@ -79,7 +81,9 @@ internal static class FFmpegFrames
         {
             PixelFormat.Nv12 => x,
             PixelFormat.P010 => 2 * x,
-            PixelFormat.I420 => plane == 0 ? x : x / 2,
+            PixelFormat.I420 or PixelFormat.Yuva420 => PlaneLayout.IsChroma(format, plane)
+                ? x / 2
+                : x,
             _ => 4 * x,
         };
 }

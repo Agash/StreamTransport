@@ -19,6 +19,12 @@ public enum PixelFormat
 
     /// <summary>Packed 8-bit red, green, blue, alpha.</summary>
     Rgba,
+
+    /// <summary>
+    /// 8-bit 4:2:0 with alpha: Y, U and V planes as <see cref="I420"/>, then a full-resolution alpha
+    /// plane. What a decoder of a codec's alpha layer produces and an encoder of one takes.
+    /// </summary>
+    Yuva420,
 }
 
 /// <summary>The YUV to RGB matrix (ITU-T H.273 MatrixCoefficients).</summary>
@@ -148,6 +154,7 @@ public readonly record struct VideoColor(
     {
         bool rgb = Matrix == ColorMatrix.Identity;
         bool toRgb = format is PixelFormat.Bgra or PixelFormat.Rgba;
+        // Yuva420 is Y'CbCr with an alpha plane: its colour converts as the Y'CbCr formats do.
         return rgb == toRgb ? this
             : toRgb
                 ? this with
@@ -291,6 +298,12 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
                 new(w * h, w / 2),
                 new((w * h) + ((w / 2) * (h / 2)), w / 2),
             ]),
+            PixelFormat.Yuva420 => new PlaneLayout([
+                new(0, w),
+                new(w * h, w / 2),
+                new((w * h) + ((w / 2) * (h / 2)), w / 2),
+                new((w * h) + (2 * (w / 2) * (h / 2)), w),
+            ]),
             PixelFormat.Bgra or PixelFormat.Rgba => new PlaneLayout([new(0, 4 * w)]),
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
@@ -304,6 +317,7 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
         {
             PixelFormat.Nv12 or PixelFormat.P010 => 2,
             PixelFormat.I420 => 3,
+            PixelFormat.Yuva420 => 4,
             PixelFormat.Bgra or PixelFormat.Rgba => 1,
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
@@ -314,9 +328,19 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
     /// <param name="height">The coded height.</param>
     /// <returns>The row count.</returns>
     public static int PlaneRows(PixelFormat format, int plane, int height) =>
-        plane > 0 && format is PixelFormat.Nv12 or PixelFormat.P010 or PixelFormat.I420
-            ? (height + 1) / 2
-            : height;
+        IsChroma(format, plane) ? (height + 1) / 2 : height;
+
+    /// <summary>Whether a plane of a format is subsampled chroma: half the width and height.</summary>
+    /// <param name="format">The pixel format.</param>
+    /// <param name="plane">The plane.</param>
+    /// <returns>Whether it is a chroma plane of a 4:2:0 format.</returns>
+    public static bool IsChroma(PixelFormat format, int plane) =>
+        format switch
+        {
+            PixelFormat.Nv12 or PixelFormat.P010 or PixelFormat.I420 => plane > 0,
+            PixelFormat.Yuva420 => plane is 1 or 2,
+            _ => false,
+        };
 
     /// <summary>The bytes a tightly packed frame of a format takes.</summary>
     /// <param name="format">The pixel format.</param>
@@ -326,6 +350,7 @@ public readonly struct PlaneLayout : IEquatable<PlaneLayout>
         format switch
         {
             PixelFormat.Nv12 or PixelFormat.I420 => size.Width * size.Height * 3 / 2,
+            PixelFormat.Yuva420 => size.Width * size.Height * 5 / 2,
             PixelFormat.P010 => size.Width * size.Height * 3,
             PixelFormat.Bgra or PixelFormat.Rgba => size.Width * size.Height * 4,
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
