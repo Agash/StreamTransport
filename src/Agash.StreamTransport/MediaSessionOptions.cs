@@ -84,10 +84,11 @@ public sealed record MediaSessionOptions
     public EncodeTuning VideoTuning { get; init; } = EncodeTuning.Interactive;
 
     /// <summary>
-    /// The most video frames sent per second; a faster source is thinned to it. Null sends at the
-    /// source's own rate, which the rate control measures and plans for.
+    /// The most video frames sent per second; a faster source, such as a capture of a 144 Hz screen, is
+    /// thinned to it. Below it the source's own rate is sent, which rate control measures and plans for.
+    /// Null sends every frame the source makes.
     /// </summary>
-    public double? MaxFrameRate { get; init; }
+    public double? MaxFrameRate { get; init; } = 60;
 
     /// <summary>
     /// The longest gap between keyframes; zero for keyframes only when a receiver asks. Receivers ask
