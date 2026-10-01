@@ -18,6 +18,7 @@
     <Project Path="src/Agash.StreamTransport.Linux/Agash.StreamTransport.Linux.csproj" />
     <Project Path="src/Agash.StreamTransport.Abstractions/Agash.StreamTransport.Abstractions.csproj" />
     <Project Path="src/Agash.StreamTransport/Agash.StreamTransport.csproj" />
+    <Project Path="src/Agash.StreamTransport.AspNetCore/Agash.StreamTransport.AspNetCore.csproj" />
     <Project Path="src/Agash.StreamTransport.Signaling/Agash.StreamTransport.Signaling.csproj" />
     <Project Path="src/Agash.StreamTransport.Stun/Agash.StreamTransport.Stun.csproj" />
     <Project Path="src/Agash.StreamTransport.WebRtc.Abstractions/Agash.StreamTransport.WebRtc.Abstractions.csproj" />

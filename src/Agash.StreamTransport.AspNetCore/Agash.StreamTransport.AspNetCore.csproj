@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AssemblyName>Agash.StreamTransport.AspNetCore</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.AspNetCore</RootNamespace>
+    <PackageId>Agash.StreamTransport.AspNetCore</PackageId>
+    <Description>WHIP and WHEP endpoints for Agash.StreamTransport in an ASP.NET Core application: ingest from OBS or a browser, play to browsers, mapped onto the host's own routing.</Description>
+    <PackageTags>webrtc;whip;whep;aspnetcore;streaming;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Agash.StreamTransport\Agash.StreamTransport.csproj" />
+    <InternalsVisibleTo Include="Agash.StreamTransport.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
