@@ -52,7 +52,10 @@ public sealed class TurnAllocationTests
             }
         }
 
-        Assert.AreEqual("ping", System.Text.Encoding.ASCII.GetString(buffer, 0, arrived.ReceivedBytes));
+        Assert.AreEqual(
+            "ping",
+            System.Text.Encoding.ASCII.GetString(buffer, 0, arrived.ReceivedBytes)
+        );
         Assert.AreEqual(allocation.LocalEndPoint, arrived.RemoteEndPoint);
 
         _ = await peer.SendToAsync("pong"u8.ToArray(), SocketFlags.None, allocation.LocalEndPoint);
@@ -60,15 +63,37 @@ public sealed class TurnAllocationTests
         Assert.AreEqual("pong", System.Text.Encoding.ASCII.GetString(data));
         Assert.AreEqual(peerEndPoint, source);
 
-        await allocation.SendAsync("again"u8.ToArray(), peerEndPoint);
-        SocketReceiveFromResult again = await peer.ReceiveFromAsync(
-            buffer,
-            SocketFlags.None,
-            new IPEndPoint(IPAddress.Any, 0)
-        );
-        Assert.AreEqual("again", System.Text.Encoding.ASCII.GetString(buffer, 0, again.ReceivedBytes));
+        // The server installs the permission as it handles the ChannelBind, so the first ping can arrive
+        // before the client has the response; Send indications carry traffic until it does.
+        for (int attempt = 0; attempt < 50 && server.ChannelDataFrames == 0; attempt++)
+        {
+            await allocation.SendAsync("again"u8.ToArray(), peerEndPoint);
+            Assert.AreEqual("again", await ReceiveTextAsync(peer, "again"));
+        }
+
         Assert.AreEqual(1, server.ChannelBinds);
-        Assert.IsGreaterThan(0, server.ChannelDataFrames);
+        Assert.IsGreaterThan(0, server.ChannelDataFrames, "traffic moved to the channel");
+    }
+
+    // The next datagram reading as expected; earlier pings delayed past their retry are skipped.
+    private static async Task<string> ReceiveTextAsync(Socket socket, string expected)
+    {
+        byte[] buffer = new byte[64];
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (true)
+        {
+            SocketReceiveFromResult result = await socket.ReceiveFromAsync(
+                buffer,
+                SocketFlags.None,
+                new IPEndPoint(IPAddress.Any, 0),
+                timeout.Token
+            );
+            string text = System.Text.Encoding.ASCII.GetString(buffer, 0, result.ReceivedBytes);
+            if (text == expected || text != "ping")
+            {
+                return text;
+            }
+        }
     }
 
     [TestMethod]
@@ -76,10 +101,22 @@ public sealed class TurnAllocationTests
     public async Task AllocateAsync_WrongPassword_IsRefused()
     {
         await using var server = new TestTurnServer(IPAddress.Loopback);
-        var turn = new TurnServer("127.0.0.1", server.UdpEndPoint.Port, TurnTransport.Udp, TestTurnServer.Username, "wrong");
+        var turn = new TurnServer(
+            "127.0.0.1",
+            server.UdpEndPoint.Port,
+            TurnTransport.Udp,
+            TestTurnServer.Username,
+            "wrong"
+        );
 
         TurnException refused = await Assert.ThrowsExactlyAsync<TurnException>(() =>
-            TurnAllocation.AllocateAsync(turn, server.UdpEndPoint, TimeProvider.System, NullLogger.Instance, CancellationToken.None)
+            TurnAllocation.AllocateAsync(
+                turn,
+                server.UdpEndPoint,
+                TimeProvider.System,
+                NullLogger.Instance,
+                CancellationToken.None
+            )
         );
         Assert.AreEqual(401, refused.Code);
     }
@@ -89,7 +126,11 @@ public sealed class TurnAllocationTests
     public async Task ChannelBind_StaleNonce_RetriesWithTheFreshOne()
     {
         await using var server = new TestTurnServer(IPAddress.Loopback, staleNonces: 1);
-        using TurnAllocation allocation = await Allocate(server, TurnTransport.Udp, TimeProvider.System);
+        using TurnAllocation allocation = await Allocate(
+            server,
+            TurnTransport.Udp,
+            TimeProvider.System
+        );
         _ = Pump(allocation);
         var peer = new IPEndPoint(IPAddress.Loopback, 9);
 
@@ -207,7 +248,9 @@ public sealed class TurnAllocationTests
         for (int attempt = 0; attempt < 100 && !data.Task.IsCompleted; attempt++)
         {
             // The first byte puts the datagram in the RTP range of the demultiplexer.
-            await offerer.SendAsync(new byte[] { 0x80, (byte)'m', (byte)'e', (byte)'d', (byte)'i', (byte)'a' });
+            await offerer.SendAsync(
+                new byte[] { 0x80, (byte)'m', (byte)'e', (byte)'d', (byte)'i', (byte)'a' }
+            );
             await Task.WhenAny(data.Task, Task.Delay(50));
         }
 
@@ -223,9 +266,19 @@ public sealed class TurnAllocationTests
 
     [TestMethod]
     [DataRow("turn:turn.example.com", "turn.example.com", 3478, TurnTransport.Udp)]
-    [DataRow("turn:turn.example.com:3479?transport=tcp", "turn.example.com", 3479, TurnTransport.Tcp)]
+    [DataRow(
+        "turn:turn.example.com:3479?transport=tcp",
+        "turn.example.com",
+        3479,
+        TurnTransport.Tcp
+    )]
     [DataRow("turns:turn.example.com", "turn.example.com", 5349, TurnTransport.Tls)]
-    [DataRow("turns:turn.example.com:443?transport=tcp", "turn.example.com", 443, TurnTransport.Tls)]
+    [DataRow(
+        "turns:turn.example.com:443?transport=tcp",
+        "turn.example.com",
+        443,
+        TurnTransport.Tls
+    )]
     [DataRow("turn:[2001:db8::1]:3478?transport=udp", "2001:db8::1", 3478, TurnTransport.Udp)]
     [DataRow("TURN:192.0.2.1", "192.0.2.1", 3478, TurnTransport.Udp)]
     public void TryParse_TurnUris_ReadHostPortAndTransport(
@@ -294,11 +347,20 @@ public sealed class TurnAllocationTests
             {
                 while (true)
                 {
-                    IceReceiveResult result = await allocation.ReceiveAsync(buffer, CancellationToken.None);
+                    IceReceiveResult result = await allocation.ReceiveAsync(
+                        buffer,
+                        CancellationToken.None
+                    );
                     received.Writer.TryWrite((buffer[..result.Length], result.RemoteEndPoint));
                 }
             }
-            catch (Exception exception) when (exception is ObjectDisposedException or SocketException or IOException or OperationCanceledException)
+            catch (Exception exception)
+                when (exception
+                        is ObjectDisposedException
+                            or SocketException
+                            or IOException
+                            or OperationCanceledException
+                )
             {
                 received.Writer.TryComplete();
             }
