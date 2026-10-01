@@ -61,6 +61,17 @@ public sealed class EncoderTests
     }
 
     [TestMethod]
+    [DataRow(1_000_000L, 960_000L, false)]
+    [DataRow(1_000_000L, 840_000L, true)]
+    [DataRow(1_000_000L, 1_250_000L, false)]
+    [DataRow(1_000_000L, 1_310_000L, true)]
+    public void WorthReopening_FollowsFallsSoonerThanRises(
+        long opened,
+        long target,
+        bool expected
+    ) => Assert.AreEqual(expected, FFmpegVideoEncoder.WorthReopening(opened, target));
+
+    [TestMethod]
     [DynamicData(nameof(Cases))]
     public void Reconfigure_LowerRate_ShrinksTheStream(EncoderBackend backend, VideoCodecId codec)
     {

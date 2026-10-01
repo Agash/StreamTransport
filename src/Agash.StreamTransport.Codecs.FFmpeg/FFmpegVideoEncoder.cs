@@ -154,13 +154,20 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 );
                 LogRateChanged(_logger, Info.ImplementationName, target.BitsPerSecond);
             }
-            else
+            else if (WorthReopening(session.BitsPerSecond, target.BitsPerSecond))
             {
                 _reopen = true;
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
             }
         }
     }
+
+    // A reopen costs a keyframe and the encoder's start-up, and the congestion controller moves the
+    // target a few percent at a time; an encoder that applies its rate only when opened reopens when the
+    // target has moved well away from it. A fall is followed sooner than a rise: sending above a lowered
+    // target is what fills the bottleneck queue.
+    internal static bool WorthReopening(long opened, long target) =>
+        target < opened * 0.85 || target > opened * 1.3;
 
     public void Flush(IEncodedVideoConsumer consumer)
     {
@@ -289,7 +296,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 rate.BitsPerSecond,
                 EncoderSettings.Describe(_privateOptions)
             );
-            return new Session(encoder, input, frame.Storage.Kind);
+            return new Session(encoder, input, frame.Storage.Kind, rate.BitsPerSecond);
         }
         catch
         {
@@ -387,10 +394,17 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         (int)Math.Min(int.MaxValue, rate.BitsPerSecond * EncoderSettings.BufferSeconds(tuning));
 
     // The encoder and what feeds it, replaced together when the encoder reopens.
-    private sealed class Session(FF.Encoder encoder, EncoderInput input, VideoStorageKind storage)
-        : IDisposable
+    private sealed class Session(
+        FF.Encoder encoder,
+        EncoderInput input,
+        VideoStorageKind storage,
+        long bitsPerSecond
+    ) : IDisposable
     {
         public FF.Encoder Encoder { get; } = encoder;
+
+        // The rate the encoder was opened at, which it holds until it reopens.
+        public long BitsPerSecond { get; } = bitsPerSecond;
 
         public EncoderInput Input { get; } = input;
 
