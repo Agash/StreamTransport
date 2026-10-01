@@ -466,12 +466,13 @@ internal readonly record struct Obu(
     public static ReadOnlySpan<Obu> Parse(ReadOnlySpan<byte> temporalUnit, Span<Obu> into)
     {
         int offset = 0;
-        for (int i = 0; i < into.Length; i++)
+        int i = 0;
+        for (; i < into.Length && offset < temporalUnit.Length; i++)
         {
             (into[i], offset) = Next(temporalUnit, offset);
         }
 
-        return into;
+        return into[..i];
     }
 
     private static (Obu Obu, int End) Next(ReadOnlySpan<byte> temporalUnit, int offset)
