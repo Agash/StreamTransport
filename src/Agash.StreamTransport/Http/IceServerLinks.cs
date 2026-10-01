@@ -21,7 +21,9 @@ public static class IceServerLinks
                 StringBuilder link = new($"<{url}>; rel=\"ice-server\"");
                 if (server.Username is { } username && server.Credential is { } credential)
                 {
-                    link.Append($"; username=\"{Escape(username)}\"; credential=\"{Escape(credential)}\"; credential-type=\"password\"");
+                    link.Append(
+                        $"; username=\"{Escape(username)}\"; credential=\"{Escape(credential)}\"; credential-type=\"password\""
+                    );
                 }
 
                 yield return link.ToString();
@@ -53,7 +55,9 @@ public static class IceServerLinks
                     int equals = parameter.IndexOf('=', StringComparison.Ordinal);
                     if (equals > 0)
                     {
-                        parameters[parameter[..equals].Trim()] = Unquote(parameter[(equals + 1)..].Trim());
+                        parameters[parameter[..equals].Trim()] = Unquote(
+                            parameter[(equals + 1)..].Trim()
+                        );
                     }
                 }
 
@@ -106,10 +110,15 @@ public static class IceServerLinks
         return [.. parts];
     }
 
-    private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+    private static string Escape(string value) =>
+        value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static string Unquote(string value) =>
         value.Length >= 2 && value[0] == '"' && value[^1] == '"'
-            ? value[1..^1].Replace("\\\"", "\"", StringComparison.Ordinal).Replace("\\\\", "\\", StringComparison.Ordinal)
+            ? value[1..^1]
+                .Replace("\\\"", "\"", StringComparison.Ordinal)
+                .Replace("\\\\", "\\", StringComparison.Ordinal)
             : value;
 }

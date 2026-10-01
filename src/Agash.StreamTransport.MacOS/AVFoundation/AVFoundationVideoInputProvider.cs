@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using AVFoundation;
 using Agash.StreamTransport.MacOS.Metal;
 using Agash.StreamTransport.Media;
+using AVFoundation;
 using CoreFoundation;
 using CoreMedia;
 using CoreVideo;
@@ -30,7 +30,9 @@ public sealed partial class AVFoundationVideoInputProvider(ILoggerFactory? logge
     public int Rank => 100;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken)
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    )
     {
         using var discovery = AVCaptureDeviceDiscoverySession.Create(
             [
@@ -41,16 +43,20 @@ public sealed partial class AVFoundationVideoInputProvider(ILoggerFactory? logge
             AVMediaTypes.Video,
             AVCaptureDevicePosition.Unspecified
         );
-        return ValueTask.FromResult<ImmutableArray<VideoInputInfo>>(
-            [
-                .. discovery
-                    .Devices.Select(d => new VideoInputInfo(Name, d.UniqueID, d.LocalizedName, MediaInputKind.Camera, AVFoundationFormats.Modes(d))
-                    {
-                        DeviceKey = d.UniqueID,
-                    })
-                    .Where(static i => !i.Modes.IsEmpty),
-            ]
-        );
+        return ValueTask.FromResult<ImmutableArray<VideoInputInfo>>([
+            .. discovery
+                .Devices.Select(d => new VideoInputInfo(
+                    Name,
+                    d.UniqueID,
+                    d.LocalizedName,
+                    MediaInputKind.Camera,
+                    AVFoundationFormats.Modes(d)
+                )
+                {
+                    DeviceKey = d.UniqueID,
+                })
+                .Where(static i => !i.Modes.IsEmpty),
+        ]);
     }
 
     /// <inheritdoc/>
@@ -66,7 +72,9 @@ public sealed partial class AVFoundationVideoInputProvider(ILoggerFactory? logge
 
         // Without consent a capture session runs and delivers nothing; asking first makes the refusal
         // an error the caller sees. The first time, macOS asks the user.
-        AVAuthorizationStatus status = AVCaptureDevice.GetAuthorizationStatus(AVAuthorizationMediaType.Video);
+        AVAuthorizationStatus status = AVCaptureDevice.GetAuthorizationStatus(
+            AVAuthorizationMediaType.Video
+        );
         if (status == AVAuthorizationStatus.NotDetermined)
         {
             status = await AVCaptureDevice
@@ -110,7 +118,8 @@ internal static class AVFoundationFormats
 
     public static ImmutableArray<VideoInputMode> Modes(AVCaptureDevice device)
     {
-        ImmutableArray<VideoInputMode>.Builder modes = ImmutableArray.CreateBuilder<VideoInputMode>();
+        ImmutableArray<VideoInputMode>.Builder modes =
+            ImmutableArray.CreateBuilder<VideoInputMode>();
         foreach (AVCaptureDeviceFormat format in device.Formats)
         {
             if (
@@ -124,7 +133,11 @@ internal static class AVFoundationFormats
             CMVideoDimensions size = description.Dimensions;
             foreach (AVFrameRateRange range in format.VideoSupportedFrameRateRanges)
             {
-                VideoInputMode mode = new(pixels, new VideoSize(size.Width, size.Height), Math.Round(range.MaxFrameRate, 3));
+                VideoInputMode mode = new(
+                    pixels,
+                    new VideoSize(size.Width, size.Height),
+                    Math.Round(range.MaxFrameRate, 3)
+                );
                 if (!modes.Contains(mode))
                 {
                     modes.Add(mode);
@@ -145,7 +158,10 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
     private readonly AVCaptureVideoDataOutput _output = new();
     private readonly DispatchQueue _queue;
     private readonly Delegate _delegate;
-    private ImmutableArray<(IVideoFrameConsumer Consumer, VideoConstraints Constraints)> _consumers = [];
+    private ImmutableArray<(
+        IVideoFrameConsumer Consumer,
+        VideoConstraints Constraints
+    )> _consumers = [];
     private bool _disposed;
 
     public AVFoundationVideoInput(
@@ -164,16 +180,23 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         AVCaptureDeviceFormat format =
             device.Formats.FirstOrDefault(f =>
                 f.FormatDescription is CMVideoFormatDescription d
-                && AVFoundationFormats.ToMedia((CVPixelFormatType)d.MediaSubType) == mode.PixelFormat
+                && AVFoundationFormats.ToMedia((CVPixelFormatType)d.MediaSubType)
+                    == mode.PixelFormat
                 && d.Dimensions.Width == mode.Size.Width
                 && d.Dimensions.Height == mode.Size.Height
-                && f.VideoSupportedFrameRateRanges.Any(r => Math.Abs(r.MaxFrameRate - mode.FrameRate) < 0.01 || (r.MinFrameRate <= mode.FrameRate && r.MaxFrameRate >= mode.FrameRate))
+                && f.VideoSupportedFrameRateRanges.Any(r =>
+                    Math.Abs(r.MaxFrameRate - mode.FrameRate) < 0.01
+                    || (r.MinFrameRate <= mode.FrameRate && r.MaxFrameRate >= mode.FrameRate)
+                )
             ) ?? throw new NotSupportedException($"{info.Name} no longer offers {mode}.");
-        var pixels = (CVPixelFormatType)((CMVideoFormatDescription)format.FormatDescription!).MediaSubType;
+        var pixels = (CVPixelFormatType)
+            ((CMVideoFormatDescription)format.FormatDescription!).MediaSubType;
 
         AVCaptureDeviceInput input =
             AVCaptureDeviceInput.FromDevice(device, out NSError? error)
-            ?? throw new InvalidOperationException($"{info.Name} could not be opened: {error?.LocalizedDescription}");
+            ?? throw new InvalidOperationException(
+                $"{info.Name} could not be opened: {error?.LocalizedDescription}"
+            );
         _session.BeginConfiguration();
         if (!_session.CanAddInput(input))
         {
@@ -182,7 +205,10 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
 
         _session.AddInput(input);
         _output.AlwaysDiscardsLateVideoFrames = true;
-        _output.WeakVideoSettings = new CVPixelBufferAttributes { PixelFormatType = pixels }.Dictionary;
+        _output.WeakVideoSettings = new CVPixelBufferAttributes
+        {
+            PixelFormatType = pixels,
+        }.Dictionary;
         _output.SetSampleBufferDelegate(_delegate, _queue);
         _session.AddOutput(_output);
         if (device.LockForConfiguration(out error))
@@ -315,7 +341,12 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
                         && constraints.Device is { } device
                     )
                     {
-                        VideoFrame shared = new(new VideoStorage(new IOSurfaceImage(surface, device)), format, timestamp, color: color);
+                        VideoFrame shared = new(
+                            new VideoStorage(new IOSurfaceImage(surface, device)),
+                            format,
+                            timestamp,
+                            color: color
+                        );
                         consumer.OnFrame(in shared);
                         continue;
                     }
@@ -345,7 +376,12 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         }
     }
 
-    private static unsafe VideoFrame Mapped(CVPixelBuffer buffer, VideoFormat format, MediaTimestamp timestamp, VideoColor color)
+    private static unsafe VideoFrame Mapped(
+        CVPixelBuffer buffer,
+        VideoFormat format,
+        MediaTimestamp timestamp,
+        VideoColor color
+    )
     {
         int height = format.CodedSize.Height;
         if (format.PixelFormat == PixelFormat.Nv12)
@@ -357,7 +393,10 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
                 timestamp,
                 new ReadOnlySpan<byte>((void*)buffer.GetBaseAddress(0), lumaStride * height),
                 lumaStride,
-                new ReadOnlySpan<byte>((void*)buffer.GetBaseAddress(1), chromaStride * ((height + 1) / 2)),
+                new ReadOnlySpan<byte>(
+                    (void*)buffer.GetBaseAddress(1),
+                    chromaStride * ((height + 1) / 2)
+                ),
                 chromaStride,
                 color: color
             );
@@ -408,7 +447,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
     [LoggerMessage(2431, LogLevel.Warning, "A consumer failed to take a camera frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
-    private sealed class Delegate(AVFoundationVideoInput input) : AVCaptureVideoDataOutputSampleBufferDelegate
+    private sealed class Delegate(AVFoundationVideoInput input)
+        : AVCaptureVideoDataOutputSampleBufferDelegate
     {
         public override void DidOutputSampleBuffer(
             AVCaptureOutput captureOutput,
@@ -427,7 +467,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         }
     }
 
-    private sealed class Connection(AVFoundationVideoInput input, IVideoFrameConsumer consumer) : IDisposable
+    private sealed class Connection(AVFoundationVideoInput input, IVideoFrameConsumer consumer)
+        : IDisposable
     {
         private int _disposed;
 

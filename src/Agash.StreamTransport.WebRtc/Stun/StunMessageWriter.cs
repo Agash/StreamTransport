@@ -107,7 +107,8 @@ public ref struct StunMessageWriter
     public void AddErrorCode(int code, string reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
-        Span<byte> value = stackalloc byte[4 + System.Text.Encoding.UTF8.GetMaxByteCount(reason.Length)];
+        Span<byte> value =
+            stackalloc byte[4 + System.Text.Encoding.UTF8.GetMaxByteCount(reason.Length)];
         value[..2].Clear();
         value[2] = (byte)(code / 100);
         value[3] = (byte)(code % 100);

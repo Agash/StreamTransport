@@ -147,7 +147,10 @@ public sealed class SrtpSession : IDisposable
         ReplayWindow window = _receiveRtcp.GetOrAdd(ssrc, static _ => new ReplayWindow());
         lock (window)
         {
-            if (window.IsReplay(index) || !_receive.UnprotectRtcp(packet, length, out plaintextLength))
+            if (
+                window.IsReplay(index)
+                || !_receive.UnprotectRtcp(packet, length, out plaintextLength)
+            )
             {
                 return false;
             }

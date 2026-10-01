@@ -90,7 +90,9 @@ public sealed record TurnServer(
             {
                 transport = secure ? TurnTransport.Tls : TurnTransport.Tcp;
             }
-            else if (!parameter.Equals("transport=udp", StringComparison.OrdinalIgnoreCase) || secure)
+            else if (
+                !parameter.Equals("transport=udp", StringComparison.OrdinalIgnoreCase) || secure
+            )
             {
                 // TURN over DTLS (turns: with transport=udp) is not implemented.
                 return false;
@@ -107,8 +109,7 @@ public sealed record TurnServer(
                     NumberStyles.None,
                     CultureInfo.InvariantCulture,
                     out port
-                )
-                || port is <= 0 or > 65535
+                ) || port is <= 0 or > 65535
             )
             {
                 return false;

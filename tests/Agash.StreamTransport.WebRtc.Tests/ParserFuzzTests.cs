@@ -34,20 +34,23 @@ public sealed class ParserFuzzTests
     public void Stun_MutatedMessages_NeverThrow()
     {
         byte[][] seeds = [StunRequest(), StunDataIndication(), StunError()];
-        Fuzz(seeds, static input =>
-        {
-            if (StunMessageReader.TryParse(input, out StunMessageReader message))
+        Fuzz(
+            seeds,
+            static input =>
             {
-                _ = message.TryGetXorMappedAddress(out _);
-                _ = message.TryGetXorAddress(StunAttributeType.XorPeerAddress, out _);
-                _ = message.TryGetXorAddress(StunAttributeType.XorRelayedAddress, out _);
-                _ = message.TryGetErrorCode(out _);
-                _ = message.TryGetUInt32(StunAttributeType.Lifetime, out _);
-                _ = message.TryFindAttribute(StunAttributeType.Data, out _);
-                _ = message.VerifyFingerprint();
-                _ = message.VerifyMessageIntegrity("password"u8);
+                if (StunMessageReader.TryParse(input, out StunMessageReader message))
+                {
+                    _ = message.TryGetXorMappedAddress(out _);
+                    _ = message.TryGetXorAddress(StunAttributeType.XorPeerAddress, out _);
+                    _ = message.TryGetXorAddress(StunAttributeType.XorRelayedAddress, out _);
+                    _ = message.TryGetErrorCode(out _);
+                    _ = message.TryGetUInt32(StunAttributeType.Lifetime, out _);
+                    _ = message.TryFindAttribute(StunAttributeType.Data, out _);
+                    _ = message.VerifyFingerprint();
+                    _ = message.VerifyMessageIntegrity("password"u8);
+                }
             }
-        });
+        );
     }
 
     [TestMethod]
@@ -63,21 +66,24 @@ public sealed class ParserFuzzTests
         byte[][] seeds = [Nack(), Pli(), Ccfb(), [.. Pli(), .. Nack()]];
         List<ushort> lost = [];
         List<CcfbStreamReport> streams = [];
-        Fuzz(seeds, input =>
-        {
-            foreach (RtcpElement element in RtcpCompound.Enumerate(input))
+        Fuzz(
+            seeds,
+            input =>
             {
-                _ = element.Body.Length;
-            }
+                foreach (RtcpElement element in RtcpCompound.Enumerate(input))
+                {
+                    _ = element.Body.Length;
+                }
 
-            _ = RtcpSenderReport.TryParse(input, out _);
-            _ = RtcpReceiverReport.TryParse(input, out _);
-            lost.Clear();
-            _ = RtcpFeedback.TryParseNack(input, out _, lost);
-            _ = RtcpFeedback.ContainsPli(input, out _);
-            streams.Clear();
-            _ = Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(input, out _, out _, streams);
-        });
+                _ = RtcpSenderReport.TryParse(input, out _);
+                _ = RtcpReceiverReport.TryParse(input, out _);
+                lost.Clear();
+                _ = RtcpFeedback.TryParseNack(input, out _, lost);
+                _ = RtcpFeedback.ContainsPli(input, out _);
+                streams.Clear();
+                _ = Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(input, out _, out _, streams);
+            }
+        );
     }
 
     [TestMethod]
@@ -87,7 +93,13 @@ public sealed class ParserFuzzTests
         {
             int key = profile == SrtpProtectionProfile.AeadAes256Gcm ? 32 : 16;
             int salt = profile == SrtpProtectionProfile.Aes128CmHmacSha180 ? 14 : 12;
-            var keying = new SrtpKeyingMaterial(profile, new byte[key], new byte[salt], new byte[key], new byte[salt]);
+            var keying = new SrtpKeyingMaterial(
+                profile,
+                new byte[key],
+                new byte[salt],
+                new byte[key],
+                new byte[salt]
+            );
             using var sender = new SrtpSession(keying, true);
             using var receiver = new SrtpSession(keying, false);
             byte[] packet = new byte[512];
@@ -98,11 +110,15 @@ public sealed class ParserFuzzTests
             byte[] pli = Pli();
             pli.CopyTo(rtcp, 0);
             byte[] protectedRtcp = rtcp[..sender.ProtectRtcp(rtcp, pli.Length)];
-            Fuzz([protectedRtp, protectedRtcp], input =>
-            {
-                _ = receiver.UnprotectRtp(input, input.Length, out _);
-                _ = receiver.UnprotectRtcp(input, input.Length, out _);
-            }, Iterations / 4);
+            Fuzz(
+                [protectedRtp, protectedRtcp],
+                input =>
+                {
+                    _ = receiver.UnprotectRtp(input, input.Length, out _);
+                    _ = receiver.UnprotectRtcp(input, input.Length, out _);
+                },
+                Iterations / 4
+            );
         }
     }
 
@@ -139,20 +155,24 @@ public sealed class ParserFuzzTests
             a=candidate:1 1 udp 2130706431 2001:db8::1 50000 typ host
             """;
         byte[] seed = Encoding.UTF8.GetBytes(offer.ReplaceLineEndings("\r\n"));
-        Fuzz([seed], static input =>
-        {
-            string text = Encoding.UTF8.GetString(input);
-            if (SdpReader.TryParse(text, out SdpDescription description))
+        Fuzz(
+            [seed],
+            static input =>
             {
-                _ = SdpWriter.Write(description);
-            }
+                string text = Encoding.UTF8.GetString(input);
+                if (SdpReader.TryParse(text, out SdpDescription description))
+                {
+                    _ = SdpWriter.Write(description);
+                }
 
-            foreach (string line in text.Split('\n'))
-            {
-                _ = IceCandidate.TryParse(line, out _);
-                _ = TurnServer.TryParse(line, "u", "p", out _);
-            }
-        }, Iterations / 4);
+                foreach (string line in text.Split('\n'))
+                {
+                    _ = IceCandidate.TryParse(line, out _);
+                    _ = TurnServer.TryParse(line, "u", "p", out _);
+                }
+            },
+            Iterations / 4
+        );
     }
 
     [TestMethod]
@@ -171,9 +191,37 @@ public sealed class ParserFuzzTests
         };
         byte[] frame = codec switch
         {
-            "H264" => AnnexB([0x67, 0x42, 0xE0, 0x1F], [0x68, 0xCE, 0x3C, 0x80], [0x65, .. Bytes(3000)]),
-            "H265" => AnnexB([0x40, 0x01, 0x0C], [0x42, 0x01, 0x01], [0x44, 0x01, 0xC0], [0x26, 0x01, .. Bytes(3000)]),
-            "AV1" => [0x12, 0x00, 0x0A, 0x0B, 0x00, 0x00, 0x00, 0x24, 0xCF, 0x7F, 0x0D, 0xBF, 0xFF, 0x30, 0x32, 0xA0, .. Bytes(10)],
+            "H264" => AnnexB(
+                [0x67, 0x42, 0xE0, 0x1F],
+                [0x68, 0xCE, 0x3C, 0x80],
+                [0x65, .. Bytes(3000)]
+            ),
+            "H265" => AnnexB(
+                [0x40, 0x01, 0x0C],
+                [0x42, 0x01, 0x01],
+                [0x44, 0x01, 0xC0],
+                [0x26, 0x01, .. Bytes(3000)]
+            ),
+            "AV1" =>
+            [
+                0x12,
+                0x00,
+                0x0A,
+                0x0B,
+                0x00,
+                0x00,
+                0x00,
+                0x24,
+                0xCF,
+                0x7F,
+                0x0D,
+                0xBF,
+                0xFF,
+                0x30,
+                0x32,
+                0xA0,
+                .. Bytes(10),
+            ],
             _ => Bytes(200),
         };
         RtpPayloadWriter writer = new();
@@ -183,40 +231,55 @@ public sealed class ParserFuzzTests
         using var buffer = new RtpFrameBuffer(format);
         var random = new Random(7);
         ushort sequence = 0;
-        Fuzz(seeds, input =>
-        {
-            if (depacketizer.TryPush(input, random.Next(4) == 0, out EncodedFrameBuffer assembled))
+        Fuzz(
+            seeds,
+            input =>
             {
-                assembled.Dispose();
-            }
+                if (
+                    depacketizer.TryPush(
+                        input,
+                        random.Next(4) == 0,
+                        out EncodedFrameBuffer assembled
+                    )
+                )
+                {
+                    assembled.Dispose();
+                }
 
-            RtpFrameBuffer.InsertResult result = buffer.Insert(
-                (ushort)(sequence + random.Next(-3, 5)),
-                (uint)(random.Next(3) * 3000),
-                random.Next(3) == 0,
-                input
-            );
-            sequence++;
-            foreach (RtpFrameBuffer.AssembledFrame done in result.Frames)
-            {
-                done.Frame.Dispose();
+                RtpFrameBuffer.InsertResult result = buffer.Insert(
+                    (ushort)(sequence + random.Next(-3, 5)),
+                    (uint)(random.Next(3) * 3000),
+                    random.Next(3) == 0,
+                    input
+                );
+                sequence++;
+                foreach (RtpFrameBuffer.AssembledFrame done in result.Frames)
+                {
+                    done.Frame.Dispose();
+                }
             }
-        });
+        );
         if (format == Av1PayloadFormat.Instance)
         {
             var obus = new Obu[64];
             // The sender parses its own encoder's output; malformed units are refused as invalid data.
-            Fuzz([frame], input =>
-            {
-                try
+            Fuzz(
+                [frame],
+                input =>
                 {
-                    _ = Obu.Parse(input, obus.AsSpan(0, Math.Min(obus.Length, Obu.Count(input)))).Length;
+                    try
+                    {
+                        _ = Obu.Parse(
+                            input,
+                            obus.AsSpan(0, Math.Min(obus.Length, Obu.Count(input)))
+                        ).Length;
+                    }
+                    catch (InvalidDataException)
+                    {
+                        // The designed refusal.
+                    }
                 }
-                catch (InvalidDataException)
-                {
-                    // The designed refusal.
-                }
-            });
+            );
         }
     }
 
@@ -231,7 +294,11 @@ public sealed class ParserFuzzTests
 
         for (int i = 0; i < (iterations ?? Iterations); i++)
         {
-            byte[] input = Mutate(seeds[random.Next(seeds.Length)], seeds[random.Next(seeds.Length)], random);
+            byte[] input = Mutate(
+                seeds[random.Next(seeds.Length)],
+                seeds[random.Next(seeds.Length)],
+                random
+            );
             Run(target, input);
         }
     }
@@ -248,7 +315,11 @@ public sealed class ParserFuzzTests
             Assert.Fail($"{exception} for input {Convert.ToHexString(input)}");
         }
 
-        Assert.IsLessThan(1000, Stopwatch.GetElapsedTime(start).TotalMilliseconds, $"slow input {Convert.ToHexString(input)}");
+        Assert.IsLessThan(
+            1000,
+            Stopwatch.GetElapsedTime(start).TotalMilliseconds,
+            $"slow input {Convert.ToHexString(input)}"
+        );
     }
 
     private static byte[] Mutate(byte[] seed, byte[] other, Random random)
@@ -298,7 +369,12 @@ public sealed class ParserFuzzTests
     private static byte[] StunRequest()
     {
         byte[] buffer = new byte[256];
-        StunMessageWriter writer = new(buffer, StunMessageClass.Request, StunMethod.Binding, RandomNumberGenerator.GetBytes(12));
+        StunMessageWriter writer = new(
+            buffer,
+            StunMessageClass.Request,
+            StunMethod.Binding,
+            RandomNumberGenerator.GetBytes(12)
+        );
         writer.AddAttribute(StunAttributeType.Username, "abcd:efgh"u8);
         writer.AddXorMappedAddress(new IPEndPoint(IPAddress.Parse("2001:db8::7"), 4000));
         writer.AddAttribute(StunAttributeType.UseCandidate, default);
@@ -310,8 +386,16 @@ public sealed class ParserFuzzTests
     private static byte[] StunDataIndication()
     {
         byte[] buffer = new byte[256];
-        StunMessageWriter writer = new(buffer, StunMessageClass.Indication, StunMethod.Data, RandomNumberGenerator.GetBytes(12));
-        writer.AddXorAddress(StunAttributeType.XorPeerAddress, new IPEndPoint(IPAddress.Parse("192.0.2.1"), 5000));
+        StunMessageWriter writer = new(
+            buffer,
+            StunMessageClass.Indication,
+            StunMethod.Data,
+            RandomNumberGenerator.GetBytes(12)
+        );
+        writer.AddXorAddress(
+            StunAttributeType.XorPeerAddress,
+            new IPEndPoint(IPAddress.Parse("192.0.2.1"), 5000)
+        );
         writer.AddAttribute(StunAttributeType.Data, Bytes(40));
         return buffer[..writer.Length];
     }
@@ -319,7 +403,12 @@ public sealed class ParserFuzzTests
     private static byte[] StunError()
     {
         byte[] buffer = new byte[256];
-        StunMessageWriter writer = new(buffer, StunMessageClass.ErrorResponse, StunMethod.Allocate, RandomNumberGenerator.GetBytes(12));
+        StunMessageWriter writer = new(
+            buffer,
+            StunMessageClass.ErrorResponse,
+            StunMethod.Allocate,
+            RandomNumberGenerator.GetBytes(12)
+        );
         writer.AddErrorCode(401, "Unauthorized");
         writer.AddAttribute(StunAttributeType.Realm, "realm"u8);
         writer.AddAttribute(StunAttributeType.Nonce, "nonce"u8);
@@ -330,7 +419,17 @@ public sealed class ParserFuzzTests
     private static byte[] Rtp(bool withExtension)
     {
         byte[] buffer = new byte[256];
-        int length = RtpPacket.Write(buffer, true, 96, 1000, 90000, 0x11223344, Bytes(60), withExtension ? 1 : 0, withExtension ? 0x0123456789ABCDEFUL : 0);
+        int length = RtpPacket.Write(
+            buffer,
+            true,
+            96,
+            1000,
+            90000,
+            0x11223344,
+            Bytes(60),
+            withExtension ? 1 : 0,
+            withExtension ? 0x0123456789ABCDEFUL : 0
+        );
         return buffer[..length];
     }
 
@@ -349,11 +448,16 @@ public sealed class ParserFuzzTests
     private static byte[] Ccfb()
     {
         byte[] buffer = new byte[256];
-        CcfbStreamReport report = new(2, 100, [new CcfbMetric(true, 0, 10), new CcfbMetric(false, 0, 0), new CcfbMetric(true, 1, 20)]);
+        CcfbStreamReport report = new(
+            2,
+            100,
+            [new CcfbMetric(true, 0, 10), new CcfbMetric(false, 0, 0), new CcfbMetric(true, 1, 20)]
+        );
         return buffer[..Agash.StreamTransport.WebRtc.Rtcp.Ccfb.Build(buffer, 1, [report], 1234)];
     }
 
-    private static byte[] AnnexB(params byte[][] units) => [.. units.SelectMany(static u => (byte[])[0, 0, 0, 1, .. u])];
+    private static byte[] AnnexB(params byte[][] units) =>
+        [.. units.SelectMany(static u => (byte[])[0, 0, 0, 1, .. u])];
 
     private static byte[] Bytes(int count)
     {

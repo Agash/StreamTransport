@@ -18,9 +18,7 @@ public sealed class SrtpCmTransformTests
         "800F1234DECAFBADCAFEBABE" + "ABABABABABABABABABABABABABABABAB";
 
     private const string ReferenceProtected =
-        "800F1234DECAFBADCAFEBABE"
-        + "4E55DC4CE79978D88CA4D215949D2402"
-        + "B78D6ACC99EA179B8DBB";
+        "800F1234DECAFBADCAFEBABE" + "4E55DC4CE79978D88CA4D215949D2402" + "B78D6ACC99EA179B8DBB";
 
     [TestMethod]
     public void ProtectRtp_Rfc3711KeystreamVector_EncryptsWithExpectedKeystream()

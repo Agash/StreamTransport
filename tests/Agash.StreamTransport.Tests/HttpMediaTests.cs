@@ -27,22 +27,28 @@ public sealed class HttpMediaTests
         TestSignalAnalyzer analyzer = new();
         int ended = 0;
         await using WebApplication app = await StartAsync(web =>
-            web.MapWhip("/whip/{room}", (context, _) =>
-                ValueTask.FromResult<HttpMediaSetup?>(
-                    (string?)context.Request.RouteValues["room"] == "studio"
-                        ? new HttpMediaSetup(
-                            new MediaEndpoints { VideoSink = analyzer.WrapVideo(), AudioSink = analyzer.WrapAudio() },
-                            Loopback()
-                        )
-                        {
-                            Ended = () =>
+            web.MapWhip(
+                "/whip/{room}",
+                (context, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        (string?)context.Request.RouteValues["room"] == "studio"
+                            ? new HttpMediaSetup(
+                                new MediaEndpoints
+                                {
+                                    VideoSink = analyzer.WrapVideo(),
+                                    AudioSink = analyzer.WrapAudio(),
+                                },
+                                Loopback()
+                            )
                             {
-                                Interlocked.Increment(ref ended);
-                                return ValueTask.CompletedTask;
-                            },
-                        }
-                        : null
-                )
+                                Ended = () =>
+                                {
+                                    Interlocked.Increment(ref ended);
+                                    return ValueTask.CompletedTask;
+                                },
+                            }
+                            : null
+                    )
             )
         );
         IServiceProvider services = app.Services;
@@ -106,10 +112,15 @@ public sealed class HttpMediaTests
             CancellationToken.None
         );
         await using WebApplication app = await StartAsync(web =>
-            web.MapWhep("/whep", (_, _) =>
-                ValueTask.FromResult<HttpMediaSetup?>(
-                    new HttpMediaSetup(new MediaEndpoints { VideoSource = video, AudioSource = audio }, Loopback())
-                )
+            web.MapWhep(
+                "/whep",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(
+                            new MediaEndpoints { VideoSource = video, AudioSource = audio },
+                            Loopback()
+                        )
+                    )
             )
         );
         TestSignalAnalyzer analyzer = new();
@@ -117,7 +128,11 @@ public sealed class HttpMediaTests
         HttpMediaSession playing = await WhepClient.PlayAsync(
             app.Services.GetRequiredService<IMediaSessionFactory>(),
             new Uri(Address(app), "/whep"),
-            new MediaEndpoints { VideoSink = analyzer.WrapVideo(), AudioSink = analyzer.WrapAudio() },
+            new MediaEndpoints
+            {
+                VideoSink = analyzer.WrapVideo(),
+                AudioSink = analyzer.WrapAudio(),
+            },
             Loopback()
         );
         await using (playing)
@@ -141,10 +156,21 @@ public sealed class HttpMediaTests
         );
         using HttpClient http = new() { BaseAddress = Address(app) };
 
-        using HttpResponseMessage wrongType = await http.PostAsync("/whip/x", new StringContent("v=0", Encoding.UTF8, "text/plain"));
-        using HttpResponseMessage notSdp = await http.PostAsync("/whip/x", new StringContent("hello", Encoding.UTF8, "application/sdp"));
-        using HttpResponseMessage options = await http.SendAsync(new HttpRequestMessage(HttpMethod.Options, "/whip/x"));
-        using HttpResponseMessage patch = await http.PatchAsync("/whip/x/abc", new StringContent("a=candidate", Encoding.UTF8, "application/trickle-ice-sdpfrag"));
+        using HttpResponseMessage wrongType = await http.PostAsync(
+            "/whip/x",
+            new StringContent("v=0", Encoding.UTF8, "text/plain")
+        );
+        using HttpResponseMessage notSdp = await http.PostAsync(
+            "/whip/x",
+            new StringContent("hello", Encoding.UTF8, "application/sdp")
+        );
+        using HttpResponseMessage options = await http.SendAsync(
+            new HttpRequestMessage(HttpMethod.Options, "/whip/x")
+        );
+        using HttpResponseMessage patch = await http.PatchAsync(
+            "/whip/x/abc",
+            new StringContent("a=candidate", Encoding.UTF8, "application/trickle-ice-sdpfrag")
+        );
         using HttpResponseMessage delete = await http.DeleteAsync("/whip/x/abc");
 
         Assert.AreEqual(HttpStatusCode.UnsupportedMediaType, wrongType.StatusCode);
@@ -160,10 +186,17 @@ public sealed class HttpMediaTests
         IceServer[] servers =
         [
             new(["stun:stun.example.net:3478"]),
-            new(["turn:turn.example.net?transport=udp", "turns:turn.example.net"], "user, \"quoted\"", "p;a,ss"),
+            new(
+                ["turn:turn.example.net?transport=udp", "turns:turn.example.net"],
+                "user, \"quoted\"",
+                "p;a,ss"
+            ),
         ];
 
-        List<IceServer> parsed = IceServerLinks.Parse([string.Join(", ", IceServerLinks.Format(servers)), "<https://example.net>; rel=\"next\""]);
+        List<IceServer> parsed = IceServerLinks.Parse([
+            string.Join(", ", IceServerLinks.Format(servers)),
+            "<https://example.net>; rel=\"next\"",
+        ]);
 
         Assert.HasCount(3, parsed);
         Assert.AreEqual("stun:stun.example.net:3478", parsed[0].Urls[0]);
@@ -179,13 +212,18 @@ public sealed class HttpMediaTests
     {
         await using WebApplication app = await StartAsync(
             web => web.MapWhip("/whip", (_, _) => ValueTask.FromResult<HttpMediaSetup?>(null)),
-            services => services.AddSingleton<IIceServerProvider>(
-                new Agash.StreamTransport.Stun.StaticIceServerProvider([new IceServer(["turn:relay.example.net"], "u", "p")])
-            )
+            services =>
+                services.AddSingleton<IIceServerProvider>(
+                    new Agash.StreamTransport.Stun.StaticIceServerProvider([
+                        new IceServer(["turn:relay.example.net"], "u", "p"),
+                    ])
+                )
         );
         using HttpClient http = new() { BaseAddress = Address(app) };
 
-        using HttpResponseMessage options = await http.SendAsync(new HttpRequestMessage(HttpMethod.Options, "/whip"));
+        using HttpResponseMessage options = await http.SendAsync(
+            new HttpRequestMessage(HttpMethod.Options, "/whip")
+        );
         List<IceServer> advertised = IceServerLinks.Parse(options.Headers.GetValues("Link"));
 
         Assert.HasCount(1, advertised);
@@ -197,11 +235,18 @@ public sealed class HttpMediaTests
         MediaServices.Loopback(new MediaSessionOptions { VideoCodecs = [VideoCodecId.H264] });
 
     // An ordinary ASP.NET Core application on a loopback port, with the media services and the endpoints.
-    private static async Task<WebApplication> StartAsync(Action<WebApplication> map, Action<IServiceCollection>? services = null)
+    private static async Task<WebApplication> StartAsync(
+        Action<WebApplication> map,
+        Action<IServiceCollection>? services = null
+    )
     {
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
-        builder.Services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs().AddHttpMediaEndpoints();
+        builder
+            .Services.AddStreamTransport()
+            .AddFFmpegCodecs()
+            .AddOpusCodecs()
+            .AddHttpMediaEndpoints();
         services?.Invoke(builder.Services);
         WebApplication app = builder.Build();
         map(app);
@@ -210,5 +255,9 @@ public sealed class HttpMediaTests
     }
 
     private static Uri Address(WebApplication app) =>
-        new(app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
+        new(
+            app.Services.GetRequiredService<IServer>()
+                .Features.Get<IServerAddressesFeature>()!
+                .Addresses.First()
+        );
 }

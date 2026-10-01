@@ -182,7 +182,11 @@ public sealed class MetalProcessorTests
         );
         using VideoFrameLease output = Run(
             in frame,
-            Description(PixelFormat.Bgra, Width) with { Storage = VideoStorageKind.Cpu, Device = null },
+            Description(PixelFormat.Bgra, Width) with
+            {
+                Storage = VideoStorageKind.Cpu,
+                Device = null,
+            },
             new VideoProcessing(BgraOutput()),
             out VideoProcessorInfo info
         );
@@ -207,7 +211,11 @@ public sealed class MetalProcessorTests
         );
         using VideoFrameLease output = Run(
             in frame,
-            Description(PixelFormat.Nv12, Width) with { Storage = VideoStorageKind.Cpu, Device = null },
+            Description(PixelFormat.Nv12, Width) with
+            {
+                Storage = VideoStorageKind.Cpu,
+                Device = null,
+            },
             new VideoProcessing(BgraOutput()),
             out VideoProcessorInfo info
         );

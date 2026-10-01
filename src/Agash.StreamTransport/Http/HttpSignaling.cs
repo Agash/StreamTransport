@@ -66,10 +66,23 @@ public sealed class HttpMediaSession : IAsyncDisposable
         if (options.IceServers.IsEmpty)
         {
             // The server's own STUN and TURN servers, when it advertises them.
-            options = options with { IceServers = [.. await channel.DiscoverIceServersAsync(cancellationToken).ConfigureAwait(false)] };
+            options = options with
+            {
+                IceServers =
+                [
+                    .. await channel
+                        .DiscoverIceServersAsync(cancellationToken)
+                        .ConfigureAwait(false),
+                ],
+            };
         }
 
-        IMediaSession session = sessions.Create(channel, MediaSessionRole.Offerer, endpoints, options);
+        IMediaSession session = sessions.Create(
+            channel,
+            MediaSessionRole.Offerer,
+            endpoints,
+            options
+        );
         try
         {
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -152,14 +165,19 @@ public static class WhepClient
 }
 
 // The client's side of WHIP and WHEP signaling: one offer out, one answer back, candidates inside both.
-internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions options, ILogger logger)
-    : ISignalingChannel
+internal sealed partial class HttpSdpChannel(
+    Uri endpoint,
+    HttpSignalingOptions options,
+    ILogger logger
+) : ISignalingChannel
 {
     private const string SdpMediaType = "application/sdp";
 
     private readonly HttpClient _http = options.HttpClient ?? new HttpClient();
     private readonly bool _ownsClient = options.HttpClient is null;
-    private readonly TaskCompletionSource _answered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _answered = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
 
     public event Func<SessionDescription, Task>? DescriptionReceived;
 
@@ -171,7 +189,10 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
 
     public Task Answered => _answered.Task;
 
-    public async Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default)
+    public async Task SendAsync(
+        SessionDescription description,
+        CancellationToken cancellationToken = default
+    )
     {
         if (description.Kind != SdpKind.Offer)
         {
@@ -189,7 +210,9 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
             Authorize(request);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(options.Timeout);
-            using HttpResponseMessage response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
+            using HttpResponseMessage response = await _http
+                .SendAsync(request, timeout.Token)
+                .ConfigureAwait(false);
             if (response.StatusCode != HttpStatusCode.Created)
             {
                 throw new HttpRequestException(
@@ -202,11 +225,14 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
             Resource = response.Headers.Location is { } location
                 ? new Uri(endpoint, location)
                 : null;
-            string answer = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+            string answer = await response
+                .Content.ReadAsStringAsync(timeout.Token)
+                .ConfigureAwait(false);
             LogAnswered(endpoint, Resource);
             if (DescriptionReceived is { } received)
             {
-                await received(new SessionDescription(SdpKind.Answer, answer)).ConfigureAwait(false);
+                await received(new SessionDescription(SdpKind.Answer, answer))
+                    .ConfigureAwait(false);
             }
 
             _answered.TrySetResult();
@@ -228,8 +254,13 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
             Authorize(request);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(options.Timeout);
-            using HttpResponseMessage response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
-            List<IceServer> servers = response.Headers.TryGetValues("Link", out IEnumerable<string>? links)
+            using HttpResponseMessage response = await _http
+                .SendAsync(request, timeout.Token)
+                .ConfigureAwait(false);
+            List<IceServer> servers = response.Headers.TryGetValues(
+                "Link",
+                out IEnumerable<string>? links
+            )
                 ? IceServerLinks.Parse(links)
                 : [];
             LogDiscovered(endpoint, servers.Count);
@@ -255,7 +286,9 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
             {
                 using HttpRequestMessage request = new(HttpMethod.Delete, resource);
                 Authorize(request);
-                using HttpResponseMessage response = await _http.SendAsync(request).ConfigureAwait(false);
+                using HttpResponseMessage response = await _http
+                    .SendAsync(request)
+                    .ConfigureAwait(false);
                 LogDeleted(resource, (int)response.StatusCode);
             }
             catch (HttpRequestException exception)
@@ -278,18 +311,30 @@ internal sealed partial class HttpSdpChannel(Uri endpoint, HttpSignalingOptions 
         }
     }
 
-    [LoggerMessage(2700, LogLevel.Information, "{Endpoint} answered; the session's resource is {Resource}.")]
+    [LoggerMessage(
+        2700,
+        LogLevel.Information,
+        "{Endpoint} answered; the session's resource is {Resource}."
+    )]
     private partial void LogAnswered(Uri endpoint, Uri? resource);
 
     [LoggerMessage(2701, LogLevel.Debug, "Deleted {Resource}: {Status}.")]
     private partial void LogDeleted(Uri resource, int status);
 
-    [LoggerMessage(2702, LogLevel.Warning, "Deleting {Resource} failed; the server ends it when it times out.")]
+    [LoggerMessage(
+        2702,
+        LogLevel.Warning,
+        "Deleting {Resource} failed; the server ends it when it times out."
+    )]
     private partial void LogDeleteFailed(Exception exception, Uri resource);
 
     [LoggerMessage(2703, LogLevel.Debug, "{Endpoint} advertises {Count} ICE servers.")]
     private partial void LogDiscovered(Uri endpoint, int count);
 
-    [LoggerMessage(2704, LogLevel.Debug, "Asking {Endpoint} for its ICE servers failed; gathering without them.")]
+    [LoggerMessage(
+        2704,
+        LogLevel.Debug,
+        "Asking {Endpoint} for its ICE servers failed; gathering without them."
+    )]
     private partial void LogDiscoveryFailed(Exception exception, Uri endpoint);
 }

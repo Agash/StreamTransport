@@ -77,7 +77,10 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         _logger = logger;
         _bitsPerSecond = setup.StartBitsPerSecond;
         _rate = new FrameRateMeter(
-            Math.Min((source as IVideoInput)?.Mode?.FrameRate ?? 30, options.MaxFrameRate ?? double.MaxValue)
+            Math.Min(
+                (source as IVideoInput)?.Mode?.FrameRate ?? 30,
+                options.MaxFrameRate ?? double.MaxValue
+            )
         );
         _wake = new WakeSignal();
         _encoded = new EncodedConsumer(this);
@@ -391,7 +394,11 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         }
     }
 
-    [LoggerMessage(2044, LogLevel.Information, "The source sends {FramesPerSecond:0.#} frames a second; rate control plans for it.")]
+    [LoggerMessage(
+        2044,
+        LogLevel.Information,
+        "The source sends {FramesPerSecond:0.#} frames a second; rate control plans for it."
+    )]
     private partial void LogFrameRate(double framesPerSecond);
 
     [LoggerMessage(

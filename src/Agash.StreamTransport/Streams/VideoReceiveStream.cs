@@ -243,7 +243,11 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private void CatchUp(MediaTimestamp stamp, int backlog)
     {
         Skip(stamp);
-        while (_frames.Reader.TryRead(out (EncodedFrameBuffer Frame, bool Keyframe, MediaTimestamp Stamp) waiting))
+        while (
+            _frames.Reader.TryRead(
+                out (EncodedFrameBuffer Frame, bool Keyframe, MediaTimestamp Stamp) waiting
+            )
+        )
         {
             Interlocked.Decrement(ref _waiting);
             waiting.Frame.Dispose();
@@ -388,7 +392,11 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         }
     }
 
-    [LoggerMessage(2072, LogLevel.Error, "The video decode worker stopped; no more video is played.")]
+    [LoggerMessage(
+        2072,
+        LogLevel.Error,
+        "The video decode worker stopped; no more video is played."
+    )]
     private partial void LogWorkerFailed(Exception exception);
 
     [LoggerMessage(

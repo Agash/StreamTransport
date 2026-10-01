@@ -176,7 +176,12 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
     {
         uint trailer = 0x8000_0000u | (srtcpIndex & 0x7FFF_FFFFu);
         Span<byte> iv = stackalloc byte[SaltLength];
-        FormRtcpIv(_rtcpSalt, BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4)), trailer, iv);
+        FormRtcpIv(
+            _rtcpSalt,
+            BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4)),
+            trailer,
+            iv
+        );
 
         // The AAD is the 8-octet header and the trailer; one 12-octet stack copy joins them.
         Span<byte> aad = stackalloc byte[12];
@@ -206,7 +211,12 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
         int rtcpLength = length - RtcpTrailerLength;
         uint trailer = BinaryPrimitives.ReadUInt32BigEndian(packet[rtcpLength..]);
         Span<byte> iv = stackalloc byte[SaltLength];
-        FormRtcpIv(_rtcpSalt, BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4)), trailer, iv);
+        FormRtcpIv(
+            _rtcpSalt,
+            BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(4, 4)),
+            trailer,
+            iv
+        );
 
         Span<byte> aad = stackalloc byte[12];
         packet[..8].CopyTo(aad);
@@ -246,24 +256,29 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
     public void Dispose()
     {
         lock (_rtpGate)
-        lock (_rtcpGate)
-        {
-            if (_disposed)
+            lock (_rtcpGate)
             {
-                return;
-            }
+                if (_disposed)
+                {
+                    return;
+                }
 
-            _disposed = true;
-            _rtp.Dispose();
-            _rtcp.Dispose();
-        }
+                _disposed = true;
+                _rtp.Dispose();
+                _rtcp.Dispose();
+            }
     }
 
     /// <summary>
     /// The 12-octet SRTCP IV (RFC 7714 section 9.1): <c>(00 00 || SSRC || 00 00 || index) XOR salt</c>,
     /// the E flag masked off.
     /// </summary>
-    internal static void FormRtcpIv(ReadOnlySpan<byte> salt, uint ssrc, uint srtcpIndex, Span<byte> iv)
+    internal static void FormRtcpIv(
+        ReadOnlySpan<byte> salt,
+        uint ssrc,
+        uint srtcpIndex,
+        Span<byte> iv
+    )
     {
         iv.Clear();
         BinaryPrimitives.WriteUInt32BigEndian(iv[2..], ssrc);

@@ -129,7 +129,9 @@ public sealed class TestSignalAnalyzer
     }
 
     private static TimeSpan Mean(List<TimeSpan> values) =>
-        values.Count == 0 ? TimeSpan.Zero : TimeSpan.FromTicks((long)values.Average(static v => v.Ticks));
+        values.Count == 0
+            ? TimeSpan.Zero
+            : TimeSpan.FromTicks((long)values.Average(static v => v.Ticks));
 
     private void OnVideo(in VideoFrame frame)
     {
@@ -148,7 +150,13 @@ public sealed class TestSignalAnalyzer
         int stride = image.Planes[0].Stride;
         DateTimeOffset received = _time.GetUtcNow();
         TimeSpan? latency =
-            TestSignalGenerator.TryReadBarcode(luma, stride, size, received, out DateTimeOffset sent)
+            TestSignalGenerator.TryReadBarcode(
+                luma,
+                stride,
+                size,
+                received,
+                out DateTimeOffset sent
+            )
             && (received - sent).Duration() <= MaxLatency
                 ? received - sent
                 : null;
@@ -194,9 +202,11 @@ public sealed class TestSignalAnalyzer
         int onset = -1;
         for (int i = 0; i < count; i++)
         {
-            float value = frame.Format.SampleFormat == SampleFormat.F32
-                ? BinaryPrimitives.ReadSingleLittleEndian(frame.Samples[(i * channels * 4)..])
-                : BinaryPrimitives.ReadInt16LittleEndian(frame.Samples[(i * channels * 2)..]) / 32768f;
+            float value =
+                frame.Format.SampleFormat == SampleFormat.F32
+                    ? BinaryPrimitives.ReadSingleLittleEndian(frame.Samples[(i * channels * 4)..])
+                    : BinaryPrimitives.ReadInt16LittleEndian(frame.Samples[(i * channels * 2)..])
+                        / 32768f;
             bool loud = Math.Abs(value) > 0.1f;
             if (loud && !_clicking && _silentSamples > frame.Format.SampleRate / 10 && onset < 0)
             {

@@ -49,7 +49,9 @@ public sealed unsafe partial class V4l2VideoInputProvider : IVideoInputProvider
     public int Rank => 100;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken)
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    )
     {
         if (!OperatingSystem.IsLinux() || !Directory.Exists(_directory))
         {
@@ -57,7 +59,9 @@ public sealed unsafe partial class V4l2VideoInputProvider : IVideoInputProvider
         }
 
         List<VideoInputInfo> inputs = [];
-        foreach (string path in Directory.EnumerateFiles(_directory, "video*").Order(NodeOrder.Instance))
+        foreach (
+            string path in Directory.EnumerateFiles(_directory, "video*").Order(NodeOrder.Instance)
+        )
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (Describe(path) is { } input)
@@ -69,7 +73,10 @@ public sealed unsafe partial class V4l2VideoInputProvider : IVideoInputProvider
         // Two devices of one model share a card name; their paths tell them apart.
         HashSet<string> shared =
         [
-            .. inputs.GroupBy(static i => i.Name).Where(static g => g.Count() > 1).Select(static g => g.Key),
+            .. inputs
+                .GroupBy(static i => i.Name)
+                .Where(static g => g.Count() > 1)
+                .Select(static g => g.Key),
         ];
         for (int i = 0; i < inputs.Count; i++)
         {
@@ -146,7 +153,8 @@ public sealed unsafe partial class V4l2VideoInputProvider : IVideoInputProvider
 
     private static ImmutableArray<VideoInputMode> Modes(int fd, uint type)
     {
-        ImmutableArray<VideoInputMode>.Builder modes = ImmutableArray.CreateBuilder<VideoInputMode>();
+        ImmutableArray<VideoInputMode>.Builder modes =
+            ImmutableArray.CreateBuilder<VideoInputMode>();
         for (uint index = 0; ; index++)
         {
             FmtDesc description = new() { Index = index, Type = type };

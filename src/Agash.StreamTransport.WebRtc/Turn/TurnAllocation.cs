@@ -103,7 +103,9 @@ internal sealed partial class TurnAllocation : IIceSocket
         var allocation = new TurnAllocation(server, connection, time, logger);
         try
         {
-            await allocation.RequestAllocationAsync(endpoint.AddressFamily, cancellationToken).ConfigureAwait(false);
+            await allocation
+                .RequestAllocationAsync(endpoint.AddressFamily, cancellationToken)
+                .ConfigureAwait(false);
             allocation._maintenance = time.CreateTimer(
                 static state => ((TurnAllocation)state!).Maintain(),
                 allocation,
@@ -203,12 +205,16 @@ internal sealed partial class TurnAllocation : IIceSocket
         {
             // Releases the relay now instead of when its lifetime runs out.
             byte[] buffer = new byte[1024];
-            int length = WriteRequest(buffer, StunMethod.Refresh, NewTransaction(), static (ref w) =>
-                w.AddUInt32(StunAttributeType.Lifetime, 0)
+            int length = WriteRequest(
+                buffer,
+                StunMethod.Refresh,
+                NewTransaction(),
+                static (ref w) => w.AddUInt32(StunAttributeType.Lifetime, 0)
             );
             _connection.SendFinal(buffer.AsSpan(0, length));
         }
-        catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException)
+        catch (Exception exception)
+            when (exception is IOException or SocketException or ObjectDisposedException)
         {
             LogDeallocateFailed(exception, _server.Host);
         }
@@ -229,7 +235,10 @@ internal sealed partial class TurnAllocation : IIceSocket
 
     // Allocate, answering the 401 challenge and a stale nonce once each. The ICE loop is not reading yet,
     // so each exchange reads its own response.
-    private async Task RequestAllocationAsync(AddressFamily family, CancellationToken cancellationToken)
+    private async Task RequestAllocationAsync(
+        AddressFamily family,
+        CancellationToken cancellationToken
+    )
     {
         for (int attempt = 0; attempt < 3; attempt++)
         {
@@ -247,14 +256,22 @@ internal sealed partial class TurnAllocation : IIceSocket
             {
                 if (
                     !VerifyIntegrity(message)
-                    || !message.TryGetXorAddress(StunAttributeType.XorRelayedAddress, out IPEndPoint relayed)
+                    || !message.TryGetXorAddress(
+                        StunAttributeType.XorRelayedAddress,
+                        out IPEndPoint relayed
+                    )
                 )
                 {
-                    throw new TurnException(0, "The TURN server's allocation response did not verify.");
+                    throw new TurnException(
+                        0,
+                        "The TURN server's allocation response did not verify."
+                    );
                 }
 
                 LocalEndPoint = relayed;
-                MappedAddress = message.TryGetXorMappedAddress(out IPEndPoint mapped) ? mapped : relayed;
+                MappedAddress = message.TryGetXorMappedAddress(out IPEndPoint mapped)
+                    ? mapped
+                    : relayed;
                 _expires = Now + Lifetime(message);
                 LogAllocated(_server.Host, relayed, MappedAddress);
                 return;
@@ -305,7 +322,11 @@ internal sealed partial class TurnAllocation : IIceSocket
         byte[] request = build(transaction);
         byte[] buffer = new byte[2048];
         TimeSpan rto = _connection.IsReliable ? ReliableTimeout : InitialRto;
-        for (int transmit = 0; transmit < (_connection.IsReliable ? 1 : MaxUdpTransmits); transmit++)
+        for (
+            int transmit = 0;
+            transmit < (_connection.IsReliable ? 1 : MaxUdpTransmits);
+            transmit++
+        )
         {
             await _connection.SendAsync(request, cancellationToken).ConfigureAwait(false);
             using var timeout = new CancellationTokenSource(rto, _time);
@@ -360,7 +381,11 @@ internal sealed partial class TurnAllocation : IIceSocket
             try
             {
                 TimeSpan rto = _connection.IsReliable ? ReliableTimeout : InitialRto;
-                for (int transmit = 0; transmit < (_connection.IsReliable ? 1 : MaxUdpTransmits); transmit++)
+                for (
+                    int transmit = 0;
+                    transmit < (_connection.IsReliable ? 1 : MaxUdpTransmits);
+                    transmit++
+                )
                 {
                     await _connection.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     try
@@ -442,7 +467,8 @@ internal sealed partial class TurnAllocation : IIceSocket
                 )
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException)
+        catch (Exception exception)
+            when (exception is OperationCanceledException or ObjectDisposedException)
         {
             // Deliberately not logged: the allocation or the send that asked for the binding is closing.
         }
@@ -486,7 +512,8 @@ internal sealed partial class TurnAllocation : IIceSocket
             {
                 _ = await TransactAsync(
                         StunMethod.Refresh,
-                        static (ref w) => w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime),
+                        static (ref w) =>
+                            w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime),
                         cancellationToken
                     )
                     .ConfigureAwait(false);
@@ -495,7 +522,12 @@ internal sealed partial class TurnAllocation : IIceSocket
             List<Peer> due;
             lock (_gate)
             {
-                due = [.. _peers.Values.Where(p => p.Bound && !p.Binding && Now - p.BoundAt >= BindingRefresh)];
+                due =
+                [
+                    .. _peers.Values.Where(p =>
+                        p.Bound && !p.Binding && Now - p.BoundAt >= BindingRefresh
+                    ),
+                ];
                 foreach (Peer peer in due)
                 {
                     peer.Binding = true;
@@ -507,7 +539,8 @@ internal sealed partial class TurnAllocation : IIceSocket
                 await BindAsync(peer, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException)
+        catch (Exception exception)
+            when (exception is OperationCanceledException or ObjectDisposedException)
         {
             // Deliberately not logged: the allocation is closing.
         }
@@ -586,21 +619,23 @@ internal sealed partial class TurnAllocation : IIceSocket
     private byte[] BuildAllocate(UInt128 transaction, AddressFamily family)
     {
         byte[] buffer = new byte[1024];
-        return buffer[..WriteRequest(
-            buffer,
-            StunMethod.Allocate,
-            transaction,
-            (ref w) =>
-            {
-                // UDP relaying (protocol 17), of the family the client reached the server with.
-                w.AddUInt32(StunAttributeType.RequestedTransport, 17u << 24);
-                w.AddUInt32(
-                    StunAttributeType.RequestedAddressFamily,
-                    family == AddressFamily.InterNetworkV6 ? 0x02u << 24 : 0x01u << 24
-                );
-                w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime);
-            }
-        )];
+        return buffer[
+            ..WriteRequest(
+                buffer,
+                StunMethod.Allocate,
+                transaction,
+                (ref w) =>
+                {
+                    // UDP relaying (protocol 17), of the family the client reached the server with.
+                    w.AddUInt32(StunAttributeType.RequestedTransport, 17u << 24);
+                    w.AddUInt32(
+                        StunAttributeType.RequestedAddressFamily,
+                        family == AddressFamily.InterNetworkV6 ? 0x02u << 24 : 0x01u << 24
+                    );
+                    w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime);
+                }
+            )
+        ];
     }
 
     // Writes a request with the long-term credential attributes once the server has challenged.
@@ -619,7 +654,10 @@ internal sealed partial class TurnAllocation : IIceSocket
         {
             if (_key.Length > 0)
             {
-                writer.AddAttribute(StunAttributeType.Username, Encoding.UTF8.GetBytes(_server.Username));
+                writer.AddAttribute(
+                    StunAttributeType.Username,
+                    Encoding.UTF8.GetBytes(_server.Username)
+                );
                 writer.AddAttribute(StunAttributeType.Realm, _realm);
                 writer.AddAttribute(StunAttributeType.Nonce, _nonce);
                 writer.AddMessageIntegrity(_key);
@@ -630,7 +668,11 @@ internal sealed partial class TurnAllocation : IIceSocket
         return writer.Length;
     }
 
-    private static int WriteSendIndication(Span<byte> buffer, IPEndPoint peer, ReadOnlySpan<byte> data)
+    private static int WriteSendIndication(
+        Span<byte> buffer,
+        IPEndPoint peer,
+        ReadOnlySpan<byte> data
+    )
     {
         Span<byte> id = stackalloc byte[StunHeader.TransactionIdLength];
         RandomNumberGenerator.Fill(id);
@@ -655,13 +697,21 @@ internal sealed partial class TurnAllocation : IIceSocket
 
     private static TimeSpan Lifetime(StunMessageReader message) =>
         TimeSpan.FromSeconds(
-            message.TryGetUInt32(StunAttributeType.Lifetime, out uint seconds) ? seconds : RequestedLifetime
+            message.TryGetUInt32(StunAttributeType.Lifetime, out uint seconds)
+                ? seconds
+                : RequestedLifetime
         );
 
     // The long-term credential key: MD5(username ":" realm ":" password) (RFC 8489 section 9.2.2).
 #pragma warning disable CA5351 // The STUN long-term credential mechanism defines the key as MD5.
     private static byte[] LongTermKey(string username, ReadOnlySpan<byte> realm, string password) =>
-        MD5.HashData([.. Encoding.UTF8.GetBytes(username), (byte)':', .. realm, (byte)':', .. Encoding.UTF8.GetBytes(password)]);
+        MD5.HashData([
+            .. Encoding.UTF8.GetBytes(username),
+            (byte)':',
+            .. realm,
+            (byte)':',
+            .. Encoding.UTF8.GetBytes(password),
+        ]);
 #pragma warning restore CA5351
 
     private static UInt128 NewTransaction()
@@ -672,7 +722,10 @@ internal sealed partial class TurnAllocation : IIceSocket
     }
 
     private static UInt128 ReadTransaction(ReadOnlySpan<byte> id) =>
-        new(BinaryPrimitives.ReadUInt32BigEndian(id), BinaryPrimitives.ReadUInt64BigEndian(id[4..]));
+        new(
+            BinaryPrimitives.ReadUInt32BigEndian(id),
+            BinaryPrimitives.ReadUInt64BigEndian(id[4..])
+        );
 
     private static void WriteTransaction(UInt128 transaction, Span<byte> id)
     {
@@ -687,19 +740,39 @@ internal sealed partial class TurnAllocation : IIceSocket
     )]
     private partial void LogAllocated(string server, IPEndPoint relayed, IPEndPoint mapped);
 
-    [LoggerMessage(EventId = 1151, Level = LogLevel.Warning, Message = "TURN {Method} to {Server} timed out")]
+    [LoggerMessage(
+        EventId = 1151,
+        Level = LogLevel.Warning,
+        Message = "TURN {Method} to {Server} timed out"
+    )]
     private partial void LogRequestTimedOut(StunMethod method, string server);
 
-    [LoggerMessage(EventId = 1152, Level = LogLevel.Warning, Message = "TURN {Method} refused by {Server} with {Code}")]
+    [LoggerMessage(
+        EventId = 1152,
+        Level = LogLevel.Warning,
+        Message = "TURN {Method} refused by {Server} with {Code}"
+    )]
     private partial void LogRequestRefused(StunMethod method, int code, string server);
 
-    [LoggerMessage(EventId = 1153, Level = LogLevel.Warning, Message = "TURN channel bind for {Peer} on {Server} failed")]
+    [LoggerMessage(
+        EventId = 1153,
+        Level = LogLevel.Warning,
+        Message = "TURN channel bind for {Peer} on {Server} failed"
+    )]
     private partial void LogBindFailed(Exception exception, IPEndPoint peer, string server);
 
-    [LoggerMessage(EventId = 1154, Level = LogLevel.Warning, Message = "TURN refresh on {Server} failed")]
+    [LoggerMessage(
+        EventId = 1154,
+        Level = LogLevel.Warning,
+        Message = "TURN refresh on {Server} failed"
+    )]
     private partial void LogRefreshFailed(Exception exception, string server);
 
-    [LoggerMessage(EventId = 1155, Level = LogLevel.Debug, Message = "TURN deallocation on {Server} was not sent")]
+    [LoggerMessage(
+        EventId = 1155,
+        Level = LogLevel.Debug,
+        Message = "TURN deallocation on {Server} was not sent"
+    )]
     private partial void LogDeallocateFailed(Exception exception, string server);
 
     private delegate void WriteAttributes(ref StunMessageWriter writer);

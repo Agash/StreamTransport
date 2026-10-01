@@ -13,7 +13,9 @@ public sealed class MediaDevicesTests
     {
         ServiceCollection services = new();
         services.AddStreamTransport();
-        services.AddSingleton<IVideoInputProvider>(new FakeVideoProvider("ndi", 10, [("Studio A", MediaInputKind.Network, null)]));
+        services.AddSingleton<IVideoInputProvider>(
+            new FakeVideoProvider("ndi", 10, [("Studio A", MediaInputKind.Network, null)])
+        );
         services.AddSingleton<IVideoOutputProvider, FakeVideoOutputProvider>();
         await using ServiceProvider provider = services.BuildServiceProvider();
         MediaDevices devices = provider.GetRequiredService<MediaDevices>();
@@ -23,7 +25,10 @@ public sealed class MediaDevicesTests
         using IVideoOutput output = await devices.CreateVideoOutputAsync("ndi", "Guest");
 
         Assert.IsTrue(inputs.Any(static i => i.Provider == "ndi" && i.Name == "Studio A"));
-        Assert.IsTrue(inputs.Any(static i => i.Provider == "test"), "the test signal is registered too");
+        Assert.IsTrue(
+            inputs.Any(static i => i.Provider == "test"),
+            "the test signal is registered too"
+        );
         Assert.AreEqual("Studio A", opened.Info.Name);
         Assert.AreEqual("Guest", output.Name);
     }
@@ -32,7 +37,11 @@ public sealed class MediaDevicesTests
     public async Task OpenVideoInput_ByKindNameOrProvider_FindsTheInput()
     {
         MediaDevices devices = Devices(
-            new FakeVideoProvider("cams", 100, [("Desk", MediaInputKind.Camera, null), ("Overhead", MediaInputKind.Camera, null)]),
+            new FakeVideoProvider(
+                "cams",
+                100,
+                [("Desk", MediaInputKind.Camera, null), ("Overhead", MediaInputKind.Camera, null)]
+            ),
             new FakeVideoProvider("apps", 50, [("OBS", MediaInputKind.Application, null)])
         );
 
@@ -50,7 +59,11 @@ public sealed class MediaDevicesTests
     {
         MediaDevices devices = Devices(
             new FakeVideoProvider("native", 100, [("Cam", MediaInputKind.Camera, "/dev/video0")]),
-            new FakeVideoProvider("graph", 50, [("Cam (graph)", MediaInputKind.Camera, "/dev/video0")]),
+            new FakeVideoProvider(
+                "graph",
+                50,
+                [("Cam (graph)", MediaInputKind.Camera, "/dev/video0")]
+            ),
             new FakeVideoProvider("fallback", 10, [("Cam", MediaInputKind.Camera, null)])
         );
 
@@ -63,8 +76,19 @@ public sealed class MediaDevicesTests
     [TestMethod]
     public async Task Open_FailingProvider_FallsBackToTheNextThatHasTheDevice()
     {
-        var native = new FakeVideoProvider("native", 100, [("Cam", MediaInputKind.Camera, "/dev/video0")]) { Fails = true };
-        var fallback = new FakeVideoProvider("fallback", 10, [("Cam", MediaInputKind.Camera, null)]);
+        var native = new FakeVideoProvider(
+            "native",
+            100,
+            [("Cam", MediaInputKind.Camera, "/dev/video0")]
+        )
+        {
+            Fails = true,
+        };
+        var fallback = new FakeVideoProvider(
+            "fallback",
+            10,
+            [("Cam", MediaInputKind.Camera, null)]
+        );
         MediaDevices devices = Devices(native, fallback);
 
         using IVideoInput opened = await devices.OpenVideoInputAsync("Cam");
@@ -75,9 +99,13 @@ public sealed class MediaDevicesTests
     [TestMethod]
     public async Task Open_Unknown_Throws()
     {
-        MediaDevices devices = Devices(new FakeVideoProvider("cams", 100, [("Desk", MediaInputKind.Camera, null)]));
+        MediaDevices devices = Devices(
+            new FakeVideoProvider("cams", 100, [("Desk", MediaInputKind.Camera, null)])
+        );
 
-        _ = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => devices.OpenVideoInputAsync("nothing"));
+        _ = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            devices.OpenVideoInputAsync("nothing")
+        );
     }
 
     [TestMethod]
@@ -93,14 +121,24 @@ public sealed class MediaDevicesTests
 
         Assert.AreEqual(modes[2], new VideoInputRequest().Choose(modes));
         Assert.AreEqual(modes[1], new VideoInputRequest { FrameRate = 30 }.Choose(modes));
-        Assert.AreEqual(modes[0], new VideoInputRequest { FrameRate = 30, PixelFormat = PixelFormat.Yuy2 }.Choose(modes));
-        Assert.AreEqual(modes[3], new VideoInputRequest { Size = new VideoSize(1280, 720) }.Choose(modes));
+        Assert.AreEqual(
+            modes[0],
+            new VideoInputRequest { FrameRate = 30, PixelFormat = PixelFormat.Yuy2 }.Choose(modes)
+        );
+        Assert.AreEqual(
+            modes[3],
+            new VideoInputRequest { Size = new VideoSize(1280, 720) }.Choose(modes)
+        );
     }
 
-    private static MediaDevices Devices(params IVideoInputProvider[] providers) => new(providers, [], [], []);
+    private static MediaDevices Devices(params IVideoInputProvider[] providers) =>
+        new(providers, [], [], []);
 
-    private sealed class FakeVideoProvider(string name, int rank, (string Name, MediaInputKind Kind, string? Key)[] inputs)
-        : IVideoInputProvider
+    private sealed class FakeVideoProvider(
+        string name,
+        int rank,
+        (string Name, MediaInputKind Kind, string? Key)[] inputs
+    ) : IVideoInputProvider
     {
         public bool Fails { get; init; }
 
@@ -108,12 +146,21 @@ public sealed class MediaDevicesTests
 
         public int Rank => rank;
 
-        public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken) =>
-            ValueTask.FromResult<ImmutableArray<VideoInputInfo>>(
-                [.. inputs.Select(i => new VideoInputInfo(name, i.Name, i.Name, i.Kind, []) { DeviceKey = i.Key })]
-            );
+        public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+            CancellationToken cancellationToken
+        ) =>
+            ValueTask.FromResult<ImmutableArray<VideoInputInfo>>([
+                .. inputs.Select(i => new VideoInputInfo(name, i.Name, i.Name, i.Kind, [])
+                {
+                    DeviceKey = i.Key,
+                }),
+            ]);
 
-        public ValueTask<IVideoInput> OpenAsync(VideoInputInfo input, VideoInputRequest request, CancellationToken cancellationToken) =>
+        public ValueTask<IVideoInput> OpenAsync(
+            VideoInputInfo input,
+            VideoInputRequest request,
+            CancellationToken cancellationToken
+        ) =>
             Fails
                 ? throw new IOException("The device is busy.")
                 : ValueTask.FromResult<IVideoInput>(new VideoInput(new NoFrames(), input));
@@ -123,13 +170,16 @@ public sealed class MediaDevicesTests
     {
         public string Name => "ndi";
 
-        public ValueTask<IVideoOutput> CreateAsync(string name, CancellationToken cancellationToken) =>
-            ValueTask.FromResult<IVideoOutput>(new VideoOutput(new NullSink(), Name, name));
+        public ValueTask<IVideoOutput> CreateAsync(
+            string name,
+            CancellationToken cancellationToken
+        ) => ValueTask.FromResult<IVideoOutput>(new VideoOutput(new NullSink(), Name, name));
     }
 
     private sealed class NoFrames : IVideoSource
     {
-        public IDisposable Connect(IVideoFrameConsumer consumer, VideoConstraints constraints) => new Nothing();
+        public IDisposable Connect(IVideoFrameConsumer consumer, VideoConstraints constraints) =>
+            new Nothing();
     }
 
     private sealed class NullSink : IVideoSink
@@ -177,7 +227,11 @@ public sealed class TestSignalTests
         // A frame lands up to one period after its click's sample, and timers add a few milliseconds.
         Assert.IsLessThan(45, Math.Abs(measured.MeanOffset.TotalMilliseconds), measured.ToString());
         Assert.IsLessThan(45, measured.MeanLatency.TotalMilliseconds, measured.ToString());
-        Assert.IsGreaterThan(-5, measured.MinLatency.TotalMilliseconds, "the barcode reads the wall time it was made at");
+        Assert.IsGreaterThan(
+            -5,
+            measured.MinLatency.TotalMilliseconds,
+            "the barcode reads the wall time it was made at"
+        );
     }
 
     [TestMethod]
@@ -188,10 +242,27 @@ public sealed class TestSignalTests
         byte[] picture = new byte[size.Width * size.Height * 3 / 2];
         MediaTime time = generator.Origin + TimeSpan.FromMilliseconds(1234);
 
-        generator.Draw(picture.AsSpan(0, size.Width * size.Height), picture.AsSpan(size.Width * size.Height), size, time, TimeSpan.FromMilliseconds(33));
-        Assert.IsTrue(TestSignalGenerator.TryReadBarcode(picture, size.Width, size, DateTimeOffset.UtcNow, out DateTimeOffset read));
+        generator.Draw(
+            picture.AsSpan(0, size.Width * size.Height),
+            picture.AsSpan(size.Width * size.Height),
+            size,
+            time,
+            TimeSpan.FromMilliseconds(33)
+        );
+        Assert.IsTrue(
+            TestSignalGenerator.TryReadBarcode(
+                picture,
+                size.Width,
+                size,
+                DateTimeOffset.UtcNow,
+                out DateTimeOffset read
+            )
+        );
 
-        Assert.AreEqual(generator.WallTime(time).ToUnixTimeMilliseconds(), read.ToUnixTimeMilliseconds());
+        Assert.AreEqual(
+            generator.WallTime(time).ToUnixTimeMilliseconds(),
+            read.ToUnixTimeMilliseconds()
+        );
     }
 
     [TestMethod]
@@ -200,7 +271,9 @@ public sealed class TestSignalTests
         VideoSize size = new(640, 360);
         byte[] grey = [.. Enumerable.Repeat((byte)128, size.Width * size.Height)];
 
-        Assert.IsFalse(TestSignalGenerator.TryReadBarcode(grey, size.Width, size, DateTimeOffset.UtcNow, out _));
+        Assert.IsFalse(
+            TestSignalGenerator.TryReadBarcode(grey, size.Width, size, DateTimeOffset.UtcNow, out _)
+        );
     }
 
     [TestMethod]
@@ -246,7 +319,11 @@ public sealed class FrameRateMeterTests
         }
 
         Assert.AreEqual(60, meter.FramesPerSecond, 0.5);
-        Assert.IsTrue(Agash.StreamTransport.Streams.FrameRateMeter.Moved(30, meter.FramesPerSecond));
-        Assert.IsFalse(Agash.StreamTransport.Streams.FrameRateMeter.Moved(59, meter.FramesPerSecond));
+        Assert.IsTrue(
+            Agash.StreamTransport.Streams.FrameRateMeter.Moved(30, meter.FramesPerSecond)
+        );
+        Assert.IsFalse(
+            Agash.StreamTransport.Streams.FrameRateMeter.Moved(59, meter.FramesPerSecond)
+        );
     }
 }

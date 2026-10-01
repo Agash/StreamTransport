@@ -32,7 +32,10 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
     private readonly int[] _planeBuffers;
     private readonly Slot[] _slots;
     private readonly bool _canShare;
-    private ImmutableArray<(IVideoFrameConsumer Consumer, VideoConstraints Constraints)> _consumers = [];
+    private ImmutableArray<(
+        IVideoFrameConsumer Consumer,
+        VideoConstraints Constraints
+    )> _consumers = [];
     private Thread? _thread;
     private int _wake = -1;
     private int _generation;
@@ -46,14 +49,19 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
         _fd = Open(info.Id, ORdWr | ONonBlock | OCloExec);
         if (_fd < 0)
         {
-            throw new IOException($"{info.Id} could not be opened ({Marshal.GetLastPInvokeError()}).");
+            throw new IOException(
+                $"{info.Id} could not be opened ({Marshal.GetLastPInvokeError()})."
+            );
         }
 
         try
         {
             Capability capability = default;
             Check(Control(_fd, QueryCap, ref capability), "query its capabilities");
-            _type = (capability.Effective & CapVideoCapture) != 0 ? BufTypeVideoCapture : BufTypeVideoCaptureMplane;
+            _type =
+                (capability.Effective & CapVideoCapture) != 0
+                    ? BufTypeVideoCapture
+                    : BufTypeVideoCaptureMplane;
             Format format = SetFormat(mode);
             bool mplane = _type == BufTypeVideoCaptureMplane;
             uint width = mplane ? format.PixMp.Width : format.Pix.Width;
@@ -61,9 +69,26 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
             _format = new VideoFormat(mode.PixelFormat, (int)width, (int)height);
             Mode = mode with { Size = new VideoSize((int)width, (int)height) };
             _color = mplane
-                ? Color(format.PixMp.Colorspace, format.PixMp.YcbcrEncoding, format.PixMp.Quantization, format.PixMp.TransferFunction, mode.PixelFormat)
-                : Color(format.Pix.Colorspace, format.Pix.YcbcrEncoding, format.Pix.Quantization, format.Pix.TransferFunction, mode.PixelFormat);
-            (_strides, _planeOffsets, _planeBuffers) = Layout(format, mplane, mode.PixelFormat, (int)height);
+                ? Color(
+                    format.PixMp.Colorspace,
+                    format.PixMp.YcbcrEncoding,
+                    format.PixMp.Quantization,
+                    format.PixMp.TransferFunction,
+                    mode.PixelFormat
+                )
+                : Color(
+                    format.Pix.Colorspace,
+                    format.Pix.YcbcrEncoding,
+                    format.Pix.Quantization,
+                    format.Pix.TransferFunction,
+                    mode.PixelFormat
+                );
+            (_strides, _planeOffsets, _planeBuffers) = Layout(
+                format,
+                mplane,
+                mode.PixelFormat,
+                (int)height
+            );
             SetRate(mode.FrameRate);
             _slots = Allocate(_planeBuffers.Max() + 1, out bool exported);
             _canShare =
@@ -129,7 +154,9 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
 
     VideoFrameLease IVideoFrameRetainer.Retain(in VideoFrame frame)
     {
-        Slot slot = _delivering ?? throw new InvalidOperationException("Frames are kept while they are delivered.");
+        Slot slot =
+            _delivering
+            ?? throw new InvalidOperationException("Frames are kept while they are delivered.");
         _ = Interlocked.Increment(ref slot.Holds);
         return new V4l2FrameLease(this, slot, in frame);
     }
@@ -147,7 +174,11 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
         int type = (int)_type;
         Check(Control(_fd, StreamOn, ref type), "start streaming");
         int generation = ++_generation;
-        _thread = new Thread(() => Run(generation)) { IsBackground = true, Name = $"V4L2 {Info.Name}" };
+        _thread = new Thread(() => Run(generation))
+        {
+            IsBackground = true,
+            Name = $"V4L2 {Info.Name}",
+        };
         _thread.Start();
     }
 
@@ -199,7 +230,13 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
                 return;
             }
 
-            V4l2Buffer buffer = new() { Type = _type, Memory = MemoryMmap, Planes = planes, Length = MaxPlanes };
+            V4l2Buffer buffer = new()
+            {
+                Type = _type,
+                Memory = MemoryMmap,
+                Planes = planes,
+                Length = MaxPlanes,
+            };
             if (Control(_fd, DqBuf, ref buffer) < 0)
             {
                 int errno = Marshal.GetLastPInvokeError();
@@ -227,7 +264,12 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
     {
         MediaTimestamp timestamp =
             (buffer.Flags & BufFlagTimestampMask) == BufFlagTimestampMonotonic
-                ? MediaTimestamp.Captured(new MediaTime((buffer.TimestampSeconds * 1_000_000_000) + (buffer.TimestampMicroseconds * 1000)))
+                ? MediaTimestamp.Captured(
+                    new MediaTime(
+                        (buffer.TimestampSeconds * 1_000_000_000)
+                            + (buffer.TimestampMicroseconds * 1000)
+                    )
+                )
                 : MediaTimestamp.Observed(MediaClock.System.Now);
         _delivering = slot;
         try
@@ -279,16 +321,27 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
         consumer.OnFrame(in frame);
     }
 
-    private void DeliverShared(IVideoFrameConsumer consumer, Slot slot, MediaTimestamp timestamp, GpuIdentity device)
+    private void DeliverShared(
+        IVideoFrameConsumer consumer,
+        Slot slot,
+        MediaTimestamp timestamp,
+        GpuIdentity device
+    )
     {
         Span<DmaBufPlane> planes = stackalloc DmaBufPlane[_strides.Length];
         for (int i = 0; i < planes.Length; i++)
         {
-            planes[i] = new DmaBufPlane(slot.Exported[_planeBuffers[i]], _planeOffsets[i], _strides[i]);
+            planes[i] = new DmaBufPlane(
+                slot.Exported[_planeBuffers[i]],
+                _planeOffsets[i],
+                _strides[i]
+            );
         }
 
         VideoFrame frame = new(
-            new VideoStorage(new DmaBufImage(planes, V4l2Formats.DrmFourCc(_format.PixelFormat), 0, device)),
+            new VideoStorage(
+                new DmaBufImage(planes, V4l2Formats.DrmFourCc(_format.PixelFormat), 0, device)
+            ),
             _format,
             timestamp,
             color: _color,
@@ -326,7 +379,14 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
     private void Queue(Slot slot)
     {
         Plane* planes = stackalloc Plane[MaxPlanes];
-        V4l2Buffer buffer = new() { Index = slot.Index, Type = _type, Memory = MemoryMmap, Planes = planes, Length = MaxPlanes };
+        V4l2Buffer buffer = new()
+        {
+            Index = slot.Index,
+            Type = _type,
+            Memory = MemoryMmap,
+            Planes = planes,
+            Length = MaxPlanes,
+        };
         if (Control(_fd, QBuf, ref buffer) < 0)
         {
             LogFailed("queue a buffer", Marshal.GetLastPInvokeError());
@@ -357,7 +417,11 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
 
             if (
                 Control(_fd, SetFmt, ref format) == 0
-                && (_type == BufTypeVideoCaptureMplane ? format.PixMp.PixelFormat : format.Pix.PixelFormat) == fourcc
+                && (
+                    _type == BufTypeVideoCaptureMplane
+                        ? format.PixMp.PixelFormat
+                        : format.Pix.PixelFormat
+                ) == fourcc
             )
             {
                 return format;
@@ -445,7 +509,12 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
 
     private Slot[] Allocate(int memoryPlanes, out bool canShare)
     {
-        RequestBuffers request = new() { Count = BufferCount, Type = _type, Memory = MemoryMmap };
+        RequestBuffers request = new()
+        {
+            Count = BufferCount,
+            Type = _type,
+            Memory = MemoryMmap,
+        };
         Check(Control(_fd, ReqBufs, ref request), "allocate buffers");
         if (request.Count == 0)
         {
@@ -457,7 +526,14 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
         Plane* planes = stackalloc Plane[MaxPlanes];
         for (uint index = 0; index < request.Count; index++)
         {
-            V4l2Buffer buffer = new() { Index = index, Type = _type, Memory = MemoryMmap, Planes = planes, Length = MaxPlanes };
+            V4l2Buffer buffer = new()
+            {
+                Index = index,
+                Type = _type,
+                Memory = MemoryMmap,
+                Planes = planes,
+                Length = MaxPlanes,
+            };
             Check(Control(_fd, QueryBuf, ref buffer), "describe a buffer");
             Slot slot = new(index, memoryPlanes);
             slots[index] = slot;
@@ -469,12 +545,20 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
                 nint map = Mmap(0, length, ProtRead, MapShared, _fd, offset);
                 if (map == -1)
                 {
-                    throw new IOException($"{Info.Name} buffer {index} could not be mapped ({Marshal.GetLastPInvokeError()}).");
+                    throw new IOException(
+                        $"{Info.Name} buffer {index} could not be mapped ({Marshal.GetLastPInvokeError()})."
+                    );
                 }
 
                 slot.Maps[plane] = map;
                 slot.Lengths[plane] = length;
-                ExportBuffer export = new() { Type = _type, Index = index, Plane = (uint)plane, Flags = (uint)OCloExec };
+                ExportBuffer export = new()
+                {
+                    Type = _type,
+                    Index = index,
+                    Plane = (uint)plane,
+                    Flags = (uint)OCloExec,
+                };
                 if (Control(_fd, ExpBuf, ref export) == 0)
                 {
                     slot.Exported[plane] = export.Fd;
@@ -490,7 +574,13 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
     }
 
     // The colour V4L2 describes, with its defaults for what it leaves unsaid.
-    private static VideoColor Color(uint colorspace, uint encoding, uint quantization, uint transfer, PixelFormat format)
+    private static VideoColor Color(
+        uint colorspace,
+        uint encoding,
+        uint quantization,
+        uint transfer,
+        PixelFormat format
+    )
     {
         bool rgb = format is PixelFormat.Bgra or PixelFormat.Rgba;
         // V4L2_COLORSPACE_: SMPTE170M 1, REC709 3, SRGB 8, BT2020 10.
@@ -501,7 +591,8 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
             _ => ColorPrimaries.Bt709,
         };
         // V4L2_YCBCR_ENC_: 601 1, 709 2, BT2020 6; the default follows the colorspace (sRGB cameras use 601).
-        ColorMatrix matrix = rgb ? ColorMatrix.Identity
+        ColorMatrix matrix = rgb
+            ? ColorMatrix.Identity
             : encoding switch
             {
                 1 => ColorMatrix.Bt601,
@@ -535,7 +626,9 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
     {
         if (result < 0)
         {
-            throw new IOException($"{Info.Name} could not {what} ({Marshal.GetLastPInvokeError()}).");
+            throw new IOException(
+                $"{Info.Name} could not {what} ({Marshal.GetLastPInvokeError()})."
+            );
         }
     }
 
@@ -554,7 +647,11 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
         }
     }
 
-    [LoggerMessage(2565, LogLevel.Information, "Opened {Device} in {Mode} ({FourCc}); sharing DMA-BUFs: {Shared}.")]
+    [LoggerMessage(
+        2565,
+        LogLevel.Information,
+        "Opened {Device} in {Mode} ({FourCc}); sharing DMA-BUFs: {Shared}."
+    )]
     private partial void LogOpened(string device, VideoInputMode? mode, string fourCc, bool shared);
 
     [LoggerMessage(2566, LogLevel.Error, "V4L2 capture could not {What} ({Errno}); it stops.")]
@@ -563,7 +660,11 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
     [LoggerMessage(2567, LogLevel.Warning, "A consumer failed to take a V4L2 frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
-    [LoggerMessage(2568, LogLevel.Information, "{Device} keeps its own frame rate instead of {Rate}.")]
+    [LoggerMessage(
+        2568,
+        LogLevel.Information,
+        "{Device} keeps its own frame rate instead of {Rate}."
+    )]
     private partial void LogRateKept(string device, double rate);
 
     // One driver buffer: its mappings and exported DMA-BUFs per memory plane, and who holds it.
@@ -598,7 +699,8 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
         }
     }
 
-    private sealed class Connection(V4l2VideoInput input, IVideoFrameConsumer consumer) : IDisposable
+    private sealed class Connection(V4l2VideoInput input, IVideoFrameConsumer consumer)
+        : IDisposable
     {
         private int _disposed;
 
@@ -619,7 +721,14 @@ internal sealed class V4l2FrameLease : VideoFrameLease
     private readonly V4l2VideoInput.Slot _slot;
 
     public V4l2FrameLease(V4l2VideoInput input, V4l2VideoInput.Slot slot, in VideoFrame frame)
-        : base(frame.Storage, frame.Format, frame.Timestamp, frame.Color, frame.Orientation, frame.Duration)
+        : base(
+            frame.Storage,
+            frame.Format,
+            frame.Timestamp,
+            frame.Color,
+            frame.Orientation,
+            frame.Duration
+        )
     {
         _input = input;
         _slot = slot;

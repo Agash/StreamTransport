@@ -12,7 +12,8 @@ namespace Agash.StreamTransport.Linux.V4l2;
 /// OBS open as a camera. The output is named by the device's path or card name.
 /// </summary>
 /// <param name="loggerFactory">Where outputs log.</param>
-public sealed class V4l2VideoOutputProvider(ILoggerFactory? loggerFactory = null) : IVideoOutputProvider
+public sealed class V4l2VideoOutputProvider(ILoggerFactory? loggerFactory = null)
+    : IVideoOutputProvider
 {
     private readonly ILoggerFactory _loggers = loggerFactory ?? NullLoggerFactory.Instance;
 
@@ -53,7 +54,11 @@ public sealed class V4l2VideoOutputProvider(ILoggerFactory? loggerFactory = null
                 if (
                     Control(fd, QueryCap, ref capability) == 0
                     && (capability.Effective & CapVideoOutput) != 0
-                    && string.Equals(Text(Card(ref capability)), name, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(
+                        Text(Card(ref capability)),
+                        name,
+                        StringComparison.OrdinalIgnoreCase
+                    )
                 )
                 {
                     return path;
@@ -104,7 +109,8 @@ internal sealed partial class V4l2VideoOutput : IVideoOutput
 
     public string Name { get; }
 
-    public VideoConstraints Constraints { get; } = VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.Yuy2, PixelFormat.I420);
+    public VideoConstraints Constraints { get; } =
+        VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.Yuy2, PixelFormat.I420);
 
     public unsafe void OnFrame(in VideoFrame frame)
     {
@@ -131,8 +137,14 @@ internal sealed partial class V4l2VideoOutput : IVideoOutput
             _ = frame.Storage.TryGetValue(out CpuImage image);
             for (int plane = 0; plane < frame.PlaneCount; plane++)
             {
-                int rows = PlaneLayout.PlaneRows(frame.Format.PixelFormat, plane, frame.Format.CodedSize.Height);
-                int row = PlaneLayout.Packed(frame.Format.PixelFormat, frame.Format.CodedSize)[plane].Stride;
+                int rows = PlaneLayout.PlaneRows(
+                    frame.Format.PixelFormat,
+                    plane,
+                    frame.Format.CodedSize.Height
+                );
+                int row = PlaneLayout
+                    .Packed(frame.Format.PixelFormat, frame.Format.CodedSize)[plane]
+                    .Stride;
                 ReadOnlySpan<byte> source = frame.GetPlane(plane);
                 int stride = image.Planes[plane].Stride;
                 for (int y = 0; y < rows; y++)
@@ -174,21 +186,34 @@ internal sealed partial class V4l2VideoOutput : IVideoOutput
         request.Pix.Height = (uint)format.CodedSize.Height;
         request.Pix.PixelFormat = V4l2Formats.FromMedia(format.PixelFormat)[0];
         request.Pix.Field = 1;
-        request.Pix.BytesPerLine = (uint)PlaneLayout.Packed(format.PixelFormat, format.CodedSize)[0].Stride;
+        request.Pix.BytesPerLine = (uint)
+            PlaneLayout.Packed(format.PixelFormat, format.CodedSize)[0].Stride;
         request.Pix.SizeImage = (uint)size;
         if (Control(_fd, SetFmt, ref request) < 0)
         {
-            throw new IOException($"{Name} did not take {format.PixelFormat} at {format.CodedSize.Width}x{format.CodedSize.Height} ({Marshal.GetLastPInvokeError()}).");
+            throw new IOException(
+                $"{Name} did not take {format.PixelFormat} at {format.CodedSize.Width}x{format.CodedSize.Height} ({Marshal.GetLastPInvokeError()})."
+            );
         }
 
         _picture = new byte[size];
         _format = format;
-        LogFormat(Name, format.PixelFormat, format.CodedSize.Width.ToString(CultureInfo.InvariantCulture) + "x" + format.CodedSize.Height.ToString(CultureInfo.InvariantCulture));
+        LogFormat(
+            Name,
+            format.PixelFormat,
+            format.CodedSize.Width.ToString(CultureInfo.InvariantCulture)
+                + "x"
+                + format.CodedSize.Height.ToString(CultureInfo.InvariantCulture)
+        );
     }
 
     [LoggerMessage(2570, LogLevel.Information, "Writing {Device} as {Format} {Size}.")]
     private partial void LogFormat(string device, PixelFormat format, string size);
 
-    [LoggerMessage(2571, LogLevel.Warning, "A frame could not be written to {Device} ({Errno}, width {Width}).")]
+    [LoggerMessage(
+        2571,
+        LogLevel.Warning,
+        "A frame could not be written to {Device} ({Errno}, width {Width})."
+    )]
     private partial void LogWriteFailed(string device, int errno, int width);
 }

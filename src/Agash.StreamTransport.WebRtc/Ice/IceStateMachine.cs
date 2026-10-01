@@ -625,19 +625,39 @@ internal sealed partial class IceStateMachine
         }
     }
 
-    [LoggerMessage(EventId = 1130, Level = LogLevel.Debug, Message = "ICE local candidate {Kind} {Endpoint}")]
+    [LoggerMessage(
+        EventId = 1130,
+        Level = LogLevel.Debug,
+        Message = "ICE local candidate {Kind} {Endpoint}"
+    )]
     private partial void LogLocalCandidate(IceCandidateKind kind, IPEndPoint endpoint);
 
-    [LoggerMessage(EventId = 1131, Level = LogLevel.Debug, Message = "ICE remote candidate {Kind} {Endpoint}")]
+    [LoggerMessage(
+        EventId = 1131,
+        Level = LogLevel.Debug,
+        Message = "ICE remote candidate {Kind} {Endpoint}"
+    )]
     private partial void LogRemoteCandidate(IceCandidateKind kind, IPEndPoint endpoint);
 
-    [LoggerMessage(EventId = 1132, Level = LogLevel.Debug, Message = "ICE pair succeeded {Local} -> {Remote}")]
+    [LoggerMessage(
+        EventId = 1132,
+        Level = LogLevel.Debug,
+        Message = "ICE pair succeeded {Local} -> {Remote}"
+    )]
     private partial void LogPairSucceeded(IPEndPoint local, IPEndPoint remote);
 
-    [LoggerMessage(EventId = 1133, Level = LogLevel.Information, Message = "ICE selected pair {Local} -> {Remote}")]
+    [LoggerMessage(
+        EventId = 1133,
+        Level = LogLevel.Information,
+        Message = "ICE selected pair {Local} -> {Remote}"
+    )]
     private partial void LogSelectedPair(IPEndPoint local, IPEndPoint remote);
 
-    [LoggerMessage(EventId = 1134, Level = LogLevel.Warning, Message = "ICE consent lost to {Remote}")]
+    [LoggerMessage(
+        EventId = 1134,
+        Level = LogLevel.Warning,
+        Message = "ICE consent lost to {Remote}"
+    )]
     private partial void LogConsentLost(IPEndPoint remote);
 
     [LoggerMessage(

@@ -107,9 +107,16 @@ internal sealed record CommandLine(
         if (args is ["serve", ..])
         {
             int urls = Array.IndexOf(args, "--urls");
-            string listen = urls >= 0 && urls + 1 < args.Length ? args[urls + 1] : "http://[::]:8090";
-            string[] rest = [.. args[1..].Where((_, i) => urls < 0 || (i != urls - 1 && i != urls))];
-            return Parse(["publish", "--relay", listen, "--room", "serve", .. rest]) with { Serve = true };
+            string listen =
+                urls >= 0 && urls + 1 < args.Length ? args[urls + 1] : "http://[::]:8090";
+            string[] rest =
+            [
+                .. args[1..].Where((_, i) => urls < 0 || (i != urls - 1 && i != urls)),
+            ];
+            return Parse(["publish", "--relay", listen, "--room", "serve", .. rest]) with
+            {
+                Serve = true,
+            };
         }
 
         if (args.Length == 0 || args[0] is not ("publish" or "subscribe"))
@@ -167,7 +174,8 @@ internal sealed record CommandLine(
                 [
                     new IceServer(
                         [turn],
-                        Value(named, "turn-user") ?? throw new FormatException("--turn needs --turn-user."),
+                        Value(named, "turn-user")
+                            ?? throw new FormatException("--turn needs --turn-user."),
                         Value(named, "turn-password")
                             ?? throw new FormatException("--turn needs --turn-password.")
                     ),

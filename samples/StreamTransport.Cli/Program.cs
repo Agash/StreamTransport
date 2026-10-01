@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
@@ -9,7 +10,6 @@ using Agash.StreamTransport.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StreamTransport.Cli;
-using System.Runtime.InteropServices;
 #if MACOS
 using Agash.StreamTransport.MacOS;
 using Syphon.NET;
@@ -83,7 +83,9 @@ static async Task<int> RunAsync(CommandLine command)
             string modes = input.Modes.IsEmpty
                 ? string.Empty
                 : $", {input.Modes.Length} modes, largest {input.Modes.MaxBy(static m => (long)m.Size.Width * m.Size.Height)}";
-            Console.WriteLine($"video  {input.Provider}:{input.Id}  {input.Name} ({input.Kind}){modes}");
+            Console.WriteLine(
+                $"video  {input.Provider}:{input.Id}  {input.Name} ({input.Kind}){modes}"
+            );
         }
 
         foreach (AudioInputInfo input in await devices.GetAudioInputsAsync(stop.Token))
@@ -99,7 +101,11 @@ static async Task<int> RunAsync(CommandLine command)
     if (command.FeedOutput is { } target)
     {
         int colon = target.IndexOf(':', StringComparison.Ordinal);
-        using IVideoInput input = await devices.OpenVideoInputAsync(command.Video!, command.Capture, stop.Token);
+        using IVideoInput input = await devices.OpenVideoInputAsync(
+            command.Video!,
+            command.Capture,
+            stop.Token
+        );
         using IVideoOutput output = await devices.CreateVideoOutputAsync(
             colon < 0 ? target : target[..colon],
             colon < 0 ? "StreamTransport" : target[(colon + 1)..],
@@ -107,7 +113,11 @@ static async Task<int> RunAsync(CommandLine command)
         );
         using (provider.GetRequiredService<MediaCodecRegistry>().Route(input, output))
         {
-            log.LogInformation("Feeding {Input} to {Output}; Ctrl+C stops.", input.Info.Name, output.Name);
+            log.LogInformation(
+                "Feeding {Input} to {Output}; Ctrl+C stops.",
+                input.Info.Name,
+                output.Name
+            );
             TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
             using (stop.Token.Register(() => stopped.TrySetResult()))
             {

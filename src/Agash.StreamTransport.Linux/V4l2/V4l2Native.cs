@@ -56,13 +56,17 @@ internal static unsafe partial class V4l2Native
         (uint)(code[0] | (code[1] << 8) | (code[2] << 16) | (code[3] << 24));
 
     public static string FourCcName(uint code) =>
-        string.Create(4, code, static (span, c) =>
-        {
-            for (int i = 0; i < 4; i++)
+        string.Create(
+            4,
+            code,
+            static (span, c) =>
             {
-                span[i] = (char)((c >> (8 * i)) & 0xFF);
+                for (int i = 0; i < 4; i++)
+                {
+                    span[i] = (char)((c >> (8 * i)) & 0xFF);
+                }
             }
-        });
+        );
 
     public static string Text(ReadOnlySpan<byte> bytes)
     {
@@ -86,7 +90,12 @@ internal static unsafe partial class V4l2Native
         return result;
     }
 
-    [LibraryImport("libc", EntryPoint = "open", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(
+        "libc",
+        EntryPoint = "open",
+        SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf8
+    )]
     public static partial int Open(string path, int flags);
 
     [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
@@ -96,7 +105,14 @@ internal static unsafe partial class V4l2Native
     private static partial int Ioctl(int fd, nuint request, void* argument);
 
     [LibraryImport("libc", EntryPoint = "mmap", SetLastError = true)]
-    public static partial nint Mmap(nint address, nuint length, int protection, int flags, int fd, long offset);
+    public static partial nint Mmap(
+        nint address,
+        nuint length,
+        int protection,
+        int flags,
+        int fd,
+        long offset
+    );
 
     [LibraryImport("libc", EntryPoint = "munmap", SetLastError = true)]
     public static partial int Munmap(nint address, nuint length);

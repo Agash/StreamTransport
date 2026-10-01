@@ -126,7 +126,9 @@ public sealed class SrtpGcmTransformTests
     [TestMethod]
     public void ProtectRtcp_ThenUnprotect_RoundTripsAndRejectsTampering()
     {
-        byte[] rtcp = Hex("81c90007 deadbeef 01020304 05060708 090a0b0c 0d0e0f10 11121314 15161718");
+        byte[] rtcp = Hex(
+            "81c90007 deadbeef 01020304 05060708 090a0b0c 0d0e0f10 11121314 15161718"
+        );
         byte[] buffer = new byte[rtcp.Length + SrtpGcmTransform.RtcpTrailerLength];
         rtcp.CopyTo(buffer, 0);
         using SrtpGcmTransform transform = Transform();

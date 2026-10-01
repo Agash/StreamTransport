@@ -35,7 +35,11 @@ internal sealed class Endpoints : IDisposable
                 {
                     VideoSource = command.Video is { } video
                         ? endpoints.Own(
-                            await devices.OpenVideoInputAsync(video, command.Capture, cancellationToken)
+                            await devices.OpenVideoInputAsync(
+                                video,
+                                command.Capture,
+                                cancellationToken
+                            )
                         )
                         : null,
                     AudioSource = command.Audio is { } audio
@@ -67,7 +71,9 @@ internal sealed class Endpoints : IDisposable
 
                 IAudioSink? audioSink = command.Audio is null
                     ? null
-                    : endpoints.Own(await devices.CreateAudioOutputAsync(null, null, cancellationToken));
+                    : endpoints.Own(
+                        await devices.CreateAudioOutputAsync(null, null, cancellationToken)
+                    );
                 endpoints.Media = new MediaEndpoints
                 {
                     VideoSink = videoSink,

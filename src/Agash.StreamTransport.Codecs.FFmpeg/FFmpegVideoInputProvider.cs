@@ -13,7 +13,8 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 /// the way to cameras that send only MJPEG, which it decodes. It ranks below the native providers.
 /// </summary>
 /// <param name="loggerFactory">Where inputs log.</param>
-public sealed partial class FFmpegVideoInputProvider(ILoggerFactory? loggerFactory = null) : IVideoInputProvider
+public sealed partial class FFmpegVideoInputProvider(ILoggerFactory? loggerFactory = null)
+    : IVideoInputProvider
 {
     private readonly ILoggerFactory _loggers = loggerFactory ?? NullLoggerFactory.Instance;
 
@@ -30,26 +31,30 @@ public sealed partial class FFmpegVideoInputProvider(ILoggerFactory? loggerFacto
         : "v4l2";
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken)
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    )
     {
         ImmutableArray<FF.CaptureDevice> devices = FF.MediaReader.ListDevices(DeviceFormat);
-        return ValueTask.FromResult<ImmutableArray<VideoInputInfo>>(
-            [
-                .. devices
-                    .Where(static d => d.MediaTypes.IsEmpty || d.MediaTypes.Contains(FF.MediaType.Video))
-                    .Select(d => new VideoInputInfo(
-                        Name,
-                        d.Name,
-                        d.Description.Length > 0 ? d.Description : d.Name,
-                        MediaInputKind.Camera,
-                        []
-                    )
-                    {
-                        // A V4L2 node is the same device the V4L2 provider lists.
-                        DeviceKey = d.Name.StartsWith("/dev/", StringComparison.Ordinal) ? d.Name : null,
-                    }),
-            ]
-        );
+        return ValueTask.FromResult<ImmutableArray<VideoInputInfo>>([
+            .. devices
+                .Where(static d =>
+                    d.MediaTypes.IsEmpty || d.MediaTypes.Contains(FF.MediaType.Video)
+                )
+                .Select(d => new VideoInputInfo(
+                    Name,
+                    d.Name,
+                    d.Description.Length > 0 ? d.Description : d.Name,
+                    MediaInputKind.Camera,
+                    []
+                )
+                {
+                    // A V4L2 node is the same device the V4L2 provider lists.
+                    DeviceKey = d.Name.StartsWith("/dev/", StringComparison.Ordinal)
+                        ? d.Name
+                        : null,
+                }),
+        ]);
     }
 
     /// <inheritdoc/>
@@ -114,7 +119,9 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
         _stream =
             reader.FindBestStream(FF.MediaType.Video)
             ?? throw new InvalidOperationException($"{info.Name} has no video stream.");
-        _decoder = _stream.CreateDecoder(options: new FF.DecoderOptions { LowDelay = true, PacketTimeBase = _stream.TimeBase });
+        _decoder = _stream.CreateDecoder(
+            options: new FF.DecoderOptions { LowDelay = true, PacketTimeBase = _stream.TimeBase }
+        );
         FF.Rational rate = _stream.FrameRate;
         Mode = new VideoInputMode(
             PixelFormat.Nv12,
@@ -138,7 +145,11 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
             if (_thread is null)
             {
                 _stopping = false;
-                _thread = new Thread(Run) { IsBackground = true, Name = $"FFmpeg capture {Info.Name}" };
+                _thread = new Thread(Run)
+                {
+                    IsBackground = true,
+                    Name = $"FFmpeg capture {Info.Name}",
+                };
                 _thread.Start();
             }
         }
@@ -279,7 +290,9 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
         }
 
         FF.Rational timeBase = _stream.TimeBase;
-        var captured = new MediaTime((long)((Int128)value * timeBase.Numerator * 1_000_000_000 / timeBase.Denominator));
+        var captured = new MediaTime(
+            (long)((Int128)value * timeBase.Numerator * 1_000_000_000 / timeBase.Denominator)
+        );
         return (now - captured).Duration() < PlausibleSkew
             ? MediaTimestamp.Captured(captured)
             : MediaTimestamp.Observed(now);
@@ -303,13 +316,18 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
     [LoggerMessage(1030, LogLevel.Information, "Opened {Camera} through FFmpeg: {Codec}, {Mode}.")]
     private partial void LogOpened(string camera, string codec, VideoInputMode mode);
 
-    [LoggerMessage(1031, LogLevel.Error, "Reading {Camera} through FFmpeg failed; its capture stops.")]
+    [LoggerMessage(
+        1031,
+        LogLevel.Error,
+        "Reading {Camera} through FFmpeg failed; its capture stops."
+    )]
     private partial void LogReadFailed(Exception exception, string camera);
 
     [LoggerMessage(1032, LogLevel.Warning, "A consumer failed to take a captured frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
-    private sealed class Connection(FFmpegVideoInput input, IVideoFrameConsumer consumer) : IDisposable
+    private sealed class Connection(FFmpegVideoInput input, IVideoFrameConsumer consumer)
+        : IDisposable
     {
         private int _disposed;
 

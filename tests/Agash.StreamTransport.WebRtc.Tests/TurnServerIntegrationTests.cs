@@ -86,7 +86,10 @@ public sealed class TurnServerIntegrationTests
         }
 
         string[] parts = setting.Split(',');
-        int port = int.Parse(parts[transport == TurnTransport.Tls ? 2 : 1], System.Globalization.CultureInfo.InvariantCulture);
+        int port = int.Parse(
+            parts[transport == TurnTransport.Tls ? 2 : 1],
+            System.Globalization.CultureInfo.InvariantCulture
+        );
         return new TurnServer(parts[0], port, transport, parts[3], parts[4])
         {
             // The lab server's certificate is self-signed.

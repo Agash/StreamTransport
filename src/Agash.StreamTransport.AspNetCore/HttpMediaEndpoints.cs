@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
+using Agash.StreamTransport.Http;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -9,7 +10,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Agash.StreamTransport.Http;
 using WebRtcSdp = Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.AspNetCore;
@@ -105,9 +105,19 @@ public static class HttpMediaEndpointRouteBuilderExtensions
         return group;
     }
 
-    private static async Task OfferAsync(HttpContext context, HttpMediaHandler handler, string protocol)
+    private static async Task OfferAsync(
+        HttpContext context,
+        HttpMediaHandler handler,
+        string protocol
+    )
     {
-        if (!string.Equals(context.Request.ContentType?.Split(';')[0].Trim(), "application/sdp", StringComparison.OrdinalIgnoreCase))
+        if (
+            !string.Equals(
+                context.Request.ContentType?.Split(';')[0].Trim(),
+                "application/sdp",
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
         {
             context.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
             return;
@@ -136,7 +146,14 @@ public static class HttpMediaEndpointRouteBuilderExtensions
         IServiceProvider services = context.RequestServices;
         HttpMediaResources resources = services.GetRequiredService<HttpMediaResources>();
         string? answer = await resources
-            .AnswerAsync(services.GetRequiredService<IMediaSessionFactory>(), setup, offer, protocol, out string id, cancellationToken)
+            .AnswerAsync(
+                services.GetRequiredService<IMediaSessionFactory>(),
+                setup,
+                offer,
+                protocol,
+                out string id,
+                cancellationToken
+            )
             .ConfigureAwait(false);
         if (answer is null)
         {
@@ -166,7 +183,9 @@ public static class HttpMediaEndpointRouteBuilderExtensions
     {
         if (context.RequestServices.GetService<IIceServerProvider>() is { } provider)
         {
-            context.Response.Headers.Link = new([.. IceServerLinks.Format(provider.GetIceServersForPeer())]);
+            context.Response.Headers.Link = new([
+                .. IceServerLinks.Format(provider.GetIceServersForPeer()),
+            ]);
         }
     }
 
@@ -177,7 +196,9 @@ public static class HttpMediaEndpointRouteBuilderExtensions
             .RequestServices.GetRequiredService<HttpMediaResources>()
             .EndAsync(resource)
             .ConfigureAwait(false);
-        context.Response.StatusCode = ended ? StatusCodes.Status200OK : StatusCodes.Status404NotFound;
+        context.Response.StatusCode = ended
+            ? StatusCodes.Status200OK
+            : StatusCodes.Status404NotFound;
     }
 
     private static Task NoTrickle(HttpContext context)
@@ -189,11 +210,14 @@ public static class HttpMediaEndpointRouteBuilderExtensions
 }
 
 /// <summary>The sessions WHIP and WHEP endpoints made, by resource id; ends them all at shutdown.</summary>
-internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? logger = null) : IAsyncDisposable
+internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? logger = null)
+    : IAsyncDisposable
 {
     private static readonly TimeSpan AnswerLimit = TimeSpan.FromSeconds(10);
 
-    private readonly ConcurrentDictionary<string, Resource> _resources = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Resource> _resources = new(
+        StringComparer.Ordinal
+    );
     private readonly ILogger _logger = logger ?? NullLogger<HttpMediaResources>.Instance;
 
     public int Count => _resources.Count;
@@ -222,12 +246,19 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
     )
     {
         OfferChannel channel = new();
-        IMediaSession session = sessions.Create(channel, MediaSessionRole.Answerer, setup.Endpoints, setup.Options);
+        IMediaSession session = sessions.Create(
+            channel,
+            MediaSessionRole.Answerer,
+            setup.Endpoints,
+            setup.Options
+        );
         Resource resource = new(session, setup.Ended);
         try
         {
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
-            string answer = await channel.AnswerAsync(offer, AnswerLimit, cancellationToken).ConfigureAwait(false);
+            string answer = await channel
+                .AnswerAsync(offer, AnswerLimit, cancellationToken)
+                .ConfigureAwait(false);
             _resources[id] = resource;
             session.StateChanged += state =>
             {
@@ -239,7 +270,12 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             LogCreated(protocol, id);
             return answer;
         }
-        catch (Exception exception) when (exception is TimeoutException or InvalidOperationException or OperationCanceledException)
+        catch (Exception exception)
+            when (exception
+                    is TimeoutException
+                        or InvalidOperationException
+                        or OperationCanceledException
+            )
         {
             LogAnswerFailed(exception, protocol);
             await resource.DisposeAsync().ConfigureAwait(false);
@@ -298,7 +334,9 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
     // The server's side of WHIP and WHEP signaling: the offer in, the answer out, candidates inside both.
     private sealed class OfferChannel : ISignalingChannel
     {
-        private readonly TaskCompletionSource<string> _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string> _answer = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
 
         public event Func<SessionDescription, Task>? DescriptionReceived;
 
@@ -306,7 +344,11 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
 
         public bool SupportsTrickle => false;
 
-        public async Task<string> AnswerAsync(string offer, TimeSpan limit, CancellationToken cancellationToken)
+        public async Task<string> AnswerAsync(
+            string offer,
+            TimeSpan limit,
+            CancellationToken cancellationToken
+        )
         {
             _ = IceCandidateReceived;
             if (DescriptionReceived is { } received)
@@ -317,7 +359,10 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             return await _answer.Task.WaitAsync(limit, cancellationToken).ConfigureAwait(false);
         }
 
-        public Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default)
+        public Task SendAsync(
+            SessionDescription description,
+            CancellationToken cancellationToken = default
+        )
         {
             if (description.Kind == SdpKind.Answer)
             {
@@ -327,7 +372,10 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             return Task.CompletedTask;
         }
 
-        public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SendAsync(
+            IceCandidate candidate,
+            CancellationToken cancellationToken = default
+        ) => Task.CompletedTask;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

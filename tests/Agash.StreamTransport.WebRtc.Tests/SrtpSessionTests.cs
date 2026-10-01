@@ -57,7 +57,11 @@ public sealed class SrtpSessionTests
     [TestMethod]
     public void UnprotectRtp_ReplayedPacket_IsRejected()
     {
-        (SrtpSession client, SrtpSession server) = Pair(SrtpProtectionProfile.AeadAes128Gcm, 16, 12);
+        (SrtpSession client, SrtpSession server) = Pair(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            16,
+            12
+        );
         using (client)
         using (server)
         {
@@ -102,7 +106,11 @@ public sealed class SrtpSessionTests
     [TestMethod]
     public void UnprotectRtp_OlderThanWindow_IsRejected()
     {
-        (SrtpSession client, SrtpSession server) = Pair(SrtpProtectionProfile.AeadAes128Gcm, 16, 12);
+        (SrtpSession client, SrtpSession server) = Pair(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            16,
+            12
+        );
         using (client)
         using (server)
         {
@@ -119,7 +127,11 @@ public sealed class SrtpSessionTests
     [TestMethod]
     public void UnprotectRtp_ForgedPacket_DoesNotAdvanceTheRollover()
     {
-        (SrtpSession client, SrtpSession server) = Pair(SrtpProtectionProfile.AeadAes128Gcm, 16, 12);
+        (SrtpSession client, SrtpSession server) = Pair(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            16,
+            12
+        );
         using (client)
         using (server)
         {
@@ -138,7 +150,11 @@ public sealed class SrtpSessionTests
     [TestMethod]
     public void ProtectRtp_RepeatedSequence_Throws()
     {
-        (SrtpSession client, SrtpSession server) = Pair(SrtpProtectionProfile.AeadAes128Gcm, 16, 12);
+        (SrtpSession client, SrtpSession server) = Pair(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            16,
+            12
+        );
         using (client)
         using (server)
         {

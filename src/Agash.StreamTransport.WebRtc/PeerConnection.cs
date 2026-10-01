@@ -175,7 +175,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     if (
                         CodecsMatch(lc, rc)
                         && !answered.Exists(a =>
-                            string.Equals(a.EncodingName, lc.EncodingName, StringComparison.OrdinalIgnoreCase)
+                            string.Equals(
+                                a.EncodingName,
+                                lc.EncodingName,
+                                StringComparison.OrdinalIgnoreCase
+                            )
                         )
                     )
                     {
@@ -220,8 +224,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// <param name="limit">The longest to wait.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <returns>A task that completes when gathering finished or the limit passed.</returns>
-    public Task WhenCandidatesGatheredAsync(TimeSpan limit, CancellationToken cancellationToken = default) =>
-        _iceAgent?.WhenGatheredAsync(limit, cancellationToken) ?? Task.CompletedTask;
+    public Task WhenCandidatesGatheredAsync(
+        TimeSpan limit,
+        CancellationToken cancellationToken = default
+    ) => _iceAgent?.WhenGatheredAsync(limit, cancellationToken) ?? Task.CompletedTask;
 
     /// <summary>A local description with the candidates gathered so far in every section, ending them.</summary>
     /// <param name="description">The offer or answer.</param>
@@ -237,7 +243,16 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         return description with
         {
-            Media = [.. description.Media.Select(m => m with { Candidates = candidates, EndOfCandidates = true })],
+            Media =
+            [
+                .. description.Media.Select(m =>
+                    m with
+                    {
+                        Candidates = candidates,
+                        EndOfCandidates = true,
+                    }
+                ),
+            ],
         };
     }
 
@@ -344,7 +359,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
 
         // Candidates the description carries, as a peer that does not trickle sends them.
-        foreach (IceCandidate candidate in description.Media.SelectMany(static m => m.Candidates).Distinct())
+        foreach (
+            IceCandidate candidate in description
+                .Media.SelectMany(static m => m.Candidates)
+                .Distinct()
+        )
         {
             AddRemoteIceCandidate(candidate);
         }
@@ -909,7 +928,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         (
             _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
             ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
-        )?.LocalSsrc ?? 0;
+        )?.LocalSsrc
+        ?? 0;
 
     // The codecs this endpoint can handle for a kind, taken from the configured offer lines.
     private IReadOnlyList<SdpCodec> LocalCodecsFor(SdpMediaKind kind)
@@ -940,9 +960,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         codec
             .FormatParameters?.Split(';')
             .Select(static p => p.Trim())
-            .FirstOrDefault(static p => p.StartsWith("packetization-mode=", StringComparison.Ordinal))?[
-            "packetization-mode=".Length..
-        ] ?? "0";
+            .FirstOrDefault(static p =>
+                p.StartsWith("packetization-mode=", StringComparison.Ordinal)
+            )
+            ?["packetization-mode=".Length..]
+        ?? "0";
 
     // What this endpoint does on a kind of media, from its lines; send and receive when it has none.
     private SdpDirection LocalDirectionFor(SdpMediaKind kind) =>
@@ -1022,6 +1044,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SrtpProtectionProfile profile
     );
 
-    [LoggerMessage(EventId = 1101, Level = LogLevel.Error, Message = "PeerConnection DTLS handshake failed")]
+    [LoggerMessage(
+        EventId = 1101,
+        Level = LogLevel.Error,
+        Message = "PeerConnection DTLS handshake failed"
+    )]
     private static partial void LogHandshakeFailed(ILogger logger, Exception exception);
 }

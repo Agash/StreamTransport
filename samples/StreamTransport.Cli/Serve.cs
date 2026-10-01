@@ -43,37 +43,63 @@ internal static class Serve
         TestSignalAnalyzer? analyzer = command.Measure ? new TestSignalAnalyzer() : null;
 
         app.MapGet("/", () => Results.Content(Page, "text/html"));
-        app.MapWhep("/whep", (_, _) =>
-            ValueTask.FromResult<HttpMediaSetup?>(
-                new HttpMediaSetup(new MediaEndpoints { VideoSource = video, AudioSource = audio }, command.Session)
-            )
+        app.MapWhep(
+            "/whep",
+            (_, _) =>
+                ValueTask.FromResult<HttpMediaSetup?>(
+                    new HttpMediaSetup(
+                        new MediaEndpoints { VideoSource = video, AudioSource = audio },
+                        command.Session
+                    )
+                )
         );
-        app.MapWhip("/whip/{name}", async (context, cancellationToken) =>
-        {
-            string name = (string)context.Request.RouteValues["name"]!;
-            if (analyzer is not null)
+        app.MapWhip(
+            "/whip/{name}",
+            async (context, cancellationToken) =>
             {
-                return new HttpMediaSetup(
-                    new MediaEndpoints { VideoSink = analyzer.WrapVideo(), AudioSink = analyzer.WrapAudio() },
-                    command.Session
-                );
-            }
-
-            IVideoOutput output = await devices.CreateVideoOutputAsync(null, name, cancellationToken);
-            IAudioOutput speaker = await devices.CreateAudioOutputAsync(null, null, cancellationToken);
-            return new HttpMediaSetup(new MediaEndpoints { VideoSink = output, AudioSink = speaker }, command.Session)
-            {
-                Ended = () =>
+                string name = (string)context.Request.RouteValues["name"]!;
+                if (analyzer is not null)
                 {
-                    output.Dispose();
-                    speaker.Dispose();
-                    return ValueTask.CompletedTask;
-                },
-            };
-        });
+                    return new HttpMediaSetup(
+                        new MediaEndpoints
+                        {
+                            VideoSink = analyzer.WrapVideo(),
+                            AudioSink = analyzer.WrapAudio(),
+                        },
+                        command.Session
+                    );
+                }
+
+                IVideoOutput output = await devices.CreateVideoOutputAsync(
+                    null,
+                    name,
+                    cancellationToken
+                );
+                IAudioOutput speaker = await devices.CreateAudioOutputAsync(
+                    null,
+                    null,
+                    cancellationToken
+                );
+                return new HttpMediaSetup(
+                    new MediaEndpoints { VideoSink = output, AudioSink = speaker },
+                    command.Session
+                )
+                {
+                    Ended = () =>
+                    {
+                        output.Dispose();
+                        speaker.Dispose();
+                        return ValueTask.CompletedTask;
+                    },
+                };
+            }
+        );
 
         await app.StartAsync(stop);
-        log.LogInformation("Serving WHEP at /whep, WHIP at /whip/{{name}} and a test page at / on {Urls}; Ctrl+C stops.", command.Relay);
+        log.LogInformation(
+            "Serving WHEP at /whep, WHIP at /whip/{{name}} and a test page at / on {Urls}; Ctrl+C stops.",
+            command.Relay
+        );
         using PeriodicTimer every = new(TimeSpan.FromSeconds(5));
         try
         {

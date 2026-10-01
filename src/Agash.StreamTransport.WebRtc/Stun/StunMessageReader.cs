@@ -171,7 +171,10 @@ public readonly ref struct StunMessageReader
     public bool TryGetErrorCode(out int code)
     {
         code = 0;
-        if (!TryFindAttribute(StunAttributeType.ErrorCode, out ReadOnlySpan<byte> value) || value.Length < 4)
+        if (
+            !TryFindAttribute(StunAttributeType.ErrorCode, out ReadOnlySpan<byte> value)
+            || value.Length < 4
+        )
         {
             return false;
         }

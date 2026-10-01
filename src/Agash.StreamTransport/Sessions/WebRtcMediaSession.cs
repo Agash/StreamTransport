@@ -239,7 +239,10 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             lines.Add(
                 new MediaLine("0", SdpMediaKind.Audio, NewSsrc(), codecs)
                 {
-                    Direction = Direction(_endpoints.AudioSource is not null, _endpoints.AudioSink is not null),
+                    Direction = Direction(
+                        _endpoints.AudioSource is not null,
+                        _endpoints.AudioSink is not null
+                    ),
                 }
             );
         }
@@ -288,7 +291,10 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 {
                     RtxSsrc = NewSsrc(),
                     RtxPayloadType = VideoRtxPayloadType,
-                    Direction = Direction(_endpoints.VideoSource is not null, _endpoints.VideoSink is not null),
+                    Direction = Direction(
+                        _endpoints.VideoSource is not null,
+                        _endpoints.VideoSink is not null
+                    ),
                 }
             );
         }
@@ -656,7 +662,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         if (!_signaling.SupportsTrickle && _connection is { } connection)
         {
             // One description carries every candidate to a peer that takes no others.
-            await connection.WhenCandidatesGatheredAsync(GatherLimit, cancellationToken).ConfigureAwait(false);
+            await connection
+                .WhenCandidatesGatheredAsync(GatherLimit, cancellationToken)
+                .ConfigureAwait(false);
             description = connection.WithLocalCandidates(description);
         }
 

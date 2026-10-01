@@ -55,7 +55,10 @@ public static class SdpReader
                 continue;
             }
 
-            if (TryValue(line, "a=candidate:", out _) && IceCandidate.TryParse(line, out IceCandidate parsed))
+            if (
+                TryValue(line, "a=candidate:", out _)
+                && IceCandidate.TryParse(line, out IceCandidate parsed)
+            )
             {
                 (current?.Candidates ?? sessionCandidates).Add(parsed);
                 continue;

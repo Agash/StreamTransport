@@ -35,7 +35,13 @@
     />
     <FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(BuildMacOS)' != 'true'" />
     <Compile Remove="Serve.cs" Condition="'$(BuildMacOS)' == 'true'" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Condition="'$(BuildMacOS)' == 'true'" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="'$(BuildMacOS)' == 'true'" />
+    <PackageReference
+      Include="Microsoft.Extensions.DependencyInjection"
+      Condition="'$(BuildMacOS)' == 'true'"
+    />
+    <PackageReference
+      Include="Microsoft.Extensions.Logging.Console"
+      Condition="'$(BuildMacOS)' == 'true'"
+    />
   </ItemGroup>
 </Project>

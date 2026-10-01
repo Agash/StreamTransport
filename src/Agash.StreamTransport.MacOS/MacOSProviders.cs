@@ -17,7 +17,9 @@ public sealed class SyphonVideoInputProvider(ILoggerFactory? loggerFactory = nul
     : IVideoInputProvider,
         IDisposable
 {
-    private readonly Lazy<SyphonServerDirectory> _directory = new(() => new SyphonServerDirectory(loggerFactory));
+    private readonly Lazy<SyphonServerDirectory> _directory = new(() =>
+        new SyphonServerDirectory(loggerFactory)
+    );
 
     /// <inheritdoc/>
     public string Name => "syphon";
@@ -26,10 +28,18 @@ public sealed class SyphonVideoInputProvider(ILoggerFactory? loggerFactory = nul
     public int Rank => 50;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken) =>
-        ValueTask.FromResult<ImmutableArray<VideoInputInfo>>(
-            [.. _directory.Value.Servers.Select(s => new VideoInputInfo(Name, s.Uuid, Title(s), MediaInputKind.Application, []))]
-        );
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    ) =>
+        ValueTask.FromResult<ImmutableArray<VideoInputInfo>>([
+            .. _directory.Value.Servers.Select(s => new VideoInputInfo(
+                Name,
+                s.Uuid,
+                Title(s),
+                MediaInputKind.Application,
+                []
+            )),
+        ]);
 
     /// <inheritdoc/>
     public async ValueTask<IVideoInput> OpenAsync(
@@ -63,7 +73,8 @@ public sealed class SyphonVideoInputProvider(ILoggerFactory? loggerFactory = nul
 
 /// <summary>Received video published as a Syphon server.</summary>
 /// <param name="loggerFactory">Where outputs log.</param>
-public sealed class SyphonVideoOutputProvider(ILoggerFactory? loggerFactory = null) : IVideoOutputProvider
+public sealed class SyphonVideoOutputProvider(ILoggerFactory? loggerFactory = null)
+    : IVideoOutputProvider
 {
     /// <inheritdoc/>
     public string Name => "syphon";
@@ -77,7 +88,8 @@ public sealed class SyphonVideoOutputProvider(ILoggerFactory? loggerFactory = nu
 
 /// <summary>The default Core Audio input.</summary>
 /// <param name="loggerFactory">Where inputs log.</param>
-public sealed class CoreAudioInputProvider(ILoggerFactory? loggerFactory = null) : IAudioInputProvider
+public sealed class CoreAudioInputProvider(ILoggerFactory? loggerFactory = null)
+    : IAudioInputProvider
 {
     /// <inheritdoc/>
     public string Name => "coreaudio";
@@ -86,19 +98,33 @@ public sealed class CoreAudioInputProvider(ILoggerFactory? loggerFactory = null)
     public int Rank => 100;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<AudioInputInfo>> GetInputsAsync(CancellationToken cancellationToken) =>
-        ValueTask.FromResult<ImmutableArray<AudioInputInfo>>(
-            [new AudioInputInfo(Name, "default", "Default input", MediaInputKind.Microphone, IsDefault: true)]
-        );
+    public ValueTask<ImmutableArray<AudioInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    ) =>
+        ValueTask.FromResult<ImmutableArray<AudioInputInfo>>([
+            new AudioInputInfo(
+                Name,
+                "default",
+                "Default input",
+                MediaInputKind.Microphone,
+                IsDefault: true
+            ),
+        ]);
 
     /// <inheritdoc/>
-    public ValueTask<IAudioInput> OpenAsync(AudioInputInfo input, CancellationToken cancellationToken) =>
-        ValueTask.FromResult<IAudioInput>(new AudioInput(new CoreAudioSource(loggerFactory), input));
+    public ValueTask<IAudioInput> OpenAsync(
+        AudioInputInfo input,
+        CancellationToken cancellationToken
+    ) =>
+        ValueTask.FromResult<IAudioInput>(
+            new AudioInput(new CoreAudioSource(loggerFactory), input)
+        );
 }
 
 /// <summary>Received audio played on the default Core Audio output.</summary>
 /// <param name="loggerFactory">Where outputs log.</param>
-public sealed class CoreAudioOutputProvider(ILoggerFactory? loggerFactory = null) : IAudioOutputProvider
+public sealed class CoreAudioOutputProvider(ILoggerFactory? loggerFactory = null)
+    : IAudioOutputProvider
 {
     /// <inheritdoc/>
     public string Name => "coreaudio";

@@ -34,7 +34,11 @@ public enum MediaInputKind
 /// <param name="PixelFormat">The pixel format it sends.</param>
 /// <param name="Size">The frame size.</param>
 /// <param name="FrameRate">Frames per second.</param>
-public readonly record struct VideoInputMode(PixelFormat PixelFormat, VideoSize Size, double FrameRate)
+public readonly record struct VideoInputMode(
+    PixelFormat PixelFormat,
+    VideoSize Size,
+    double FrameRate
+)
 {
     /// <inheritdoc/>
     public override string ToString() =>

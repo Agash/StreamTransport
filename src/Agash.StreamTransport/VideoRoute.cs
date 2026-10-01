@@ -15,7 +15,11 @@ public static class VideoRouteExtensions
     /// <param name="source">The video.</param>
     /// <param name="sink">Where it goes.</param>
     /// <returns>A handle that ends the route when disposed.</returns>
-    public static IDisposable Route(this MediaCodecRegistry registry, IVideoSource source, IVideoSink sink)
+    public static IDisposable Route(
+        this MediaCodecRegistry registry,
+        IVideoSource source,
+        IVideoSink sink
+    )
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(source);
@@ -25,7 +29,9 @@ public static class VideoRouteExtensions
     }
 
     // Converts what the sink cannot take, keeping one processor for each kind of frame in turn.
-    private sealed class VideoRoute(MediaCodecRegistry registry, IVideoSink sink) : IVideoFrameConsumer, IDisposable
+    private sealed class VideoRoute(MediaCodecRegistry registry, IVideoSink sink)
+        : IVideoFrameConsumer,
+            IDisposable
     {
         private readonly Lock _gate = new();
         private VideoStreamDescription? _described;

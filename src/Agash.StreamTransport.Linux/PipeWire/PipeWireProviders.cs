@@ -44,7 +44,9 @@ public sealed class PipeWireConnection : IAsyncDisposable
                 PipeWireContext context = new("streamtransport", _loggers);
                 await context.StartAsync(cancellationToken).ConfigureAwait(false);
                 PipeWireRegistry registry = new(context);
-                await registry.WaitForInitialEnumerationAsync(cancellationToken).ConfigureAwait(false);
+                await registry
+                    .WaitForInitialEnumerationAsync(cancellationToken)
+                    .ConfigureAwait(false);
                 (_context, _registry) = (context, registry);
             }
 
@@ -100,7 +102,9 @@ public sealed class PipeWireVideoInputProvider(
             return [];
         }
 
-        (_, PipeWireRegistry registry) = await connection.GetAsync(cancellationToken).ConfigureAwait(false);
+        (_, PipeWireRegistry registry) = await connection
+            .GetAsync(cancellationToken)
+            .ConfigureAwait(false);
         return [.. registry.Current.GetVideoSources().Select(Describe)];
     }
 
@@ -110,10 +114,12 @@ public sealed class PipeWireVideoInputProvider(
         PipeWireProperties properties = node.Properties;
         string? path =
             properties.GetValueOrDefault("api.v4l2.path")
-            ?? (properties.GetValueOrDefault("object.path") is { } objectPath
+            ?? (
+                properties.GetValueOrDefault("object.path") is { } objectPath
                 && objectPath.StartsWith("v4l2:", StringComparison.Ordinal)
-                ? objectPath["v4l2:".Length..]
-                : null);
+                    ? objectPath["v4l2:".Length..]
+                    : null
+            );
         bool camera =
             path is not null
             || properties.GetValueOrDefault("device.api") is "v4l2" or "libcamera"
@@ -140,7 +146,9 @@ public sealed class PipeWireVideoInputProvider(
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(request);
-        (PipeWireContext context, _) = await connection.GetAsync(cancellationToken).ConfigureAwait(false);
+        (PipeWireContext context, _) = await connection
+            .GetAsync(cancellationToken)
+            .ConfigureAwait(false);
         PipeWireVideoSourceOptions options = new()
         {
             TargetNodeId = uint.Parse(input.Id, CultureInfo.InvariantCulture),
@@ -163,9 +171,14 @@ public sealed class PipeWireVideoOutputProvider(
     public string Name => "pipewire";
 
     /// <inheritdoc/>
-    public async ValueTask<IVideoOutput> CreateAsync(string name, CancellationToken cancellationToken)
+    public async ValueTask<IVideoOutput> CreateAsync(
+        string name,
+        CancellationToken cancellationToken
+    )
     {
-        (PipeWireContext context, _) = await connection.GetAsync(cancellationToken).ConfigureAwait(false);
+        (PipeWireContext context, _) = await connection
+            .GetAsync(cancellationToken)
+            .ConfigureAwait(false);
 
         // Left for the consumer to link rather than routed by the session manager.
         PipeWireVideoSink sink = new(
@@ -196,22 +209,41 @@ public sealed class PipeWireAudioInputProvider(
     public int Rank => 50;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<AudioInputInfo>> GetInputsAsync(CancellationToken cancellationToken) =>
+    public ValueTask<ImmutableArray<AudioInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    ) =>
         ValueTask.FromResult<ImmutableArray<AudioInputInfo>>(
             OperatingSystem.IsLinux()
                 ?
                 [
-                    new AudioInputInfo(Name, Microphone, "Default input", MediaInputKind.Microphone, IsDefault: true),
-                    new AudioInputInfo(Name, Output, "Default output", MediaInputKind.Loopback, IsDefault: true),
+                    new AudioInputInfo(
+                        Name,
+                        Microphone,
+                        "Default input",
+                        MediaInputKind.Microphone,
+                        IsDefault: true
+                    ),
+                    new AudioInputInfo(
+                        Name,
+                        Output,
+                        "Default output",
+                        MediaInputKind.Loopback,
+                        IsDefault: true
+                    ),
                 ]
                 : []
         );
 
     /// <inheritdoc/>
-    public async ValueTask<IAudioInput> OpenAsync(AudioInputInfo input, CancellationToken cancellationToken)
+    public async ValueTask<IAudioInput> OpenAsync(
+        AudioInputInfo input,
+        CancellationToken cancellationToken
+    )
     {
         ArgumentNullException.ThrowIfNull(input);
-        (PipeWireContext context, _) = await connection.GetAsync(cancellationToken).ConfigureAwait(false);
+        (PipeWireContext context, _) = await connection
+            .GetAsync(cancellationToken)
+            .ConfigureAwait(false);
         return new AudioInput(
             new PipeWireAudioSource(
                 context,
@@ -225,15 +257,21 @@ public sealed class PipeWireAudioInputProvider(
 
 /// <summary>Received audio played on the default PipeWire output.</summary>
 /// <param name="connection">The shared daemon connection.</param>
-public sealed class PipeWireAudioOutputProvider(PipeWireConnection connection) : IAudioOutputProvider
+public sealed class PipeWireAudioOutputProvider(PipeWireConnection connection)
+    : IAudioOutputProvider
 {
     /// <inheritdoc/>
     public string Name => "pipewire";
 
     /// <inheritdoc/>
-    public async ValueTask<IAudioOutput> CreateAsync(string? name, CancellationToken cancellationToken)
+    public async ValueTask<IAudioOutput> CreateAsync(
+        string? name,
+        CancellationToken cancellationToken
+    )
     {
-        (PipeWireContext context, _) = await connection.GetAsync(cancellationToken).ConfigureAwait(false);
+        (PipeWireContext context, _) = await connection
+            .GetAsync(cancellationToken)
+            .ConfigureAwait(false);
         PipeWireAudioSink sink = new(
             context,
             name is null ? null : new PipeWireAudioOptions { NodeName = name }

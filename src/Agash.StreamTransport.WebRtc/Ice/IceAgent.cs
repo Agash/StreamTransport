@@ -39,7 +39,9 @@ public sealed partial class IceAgent : IAsyncDisposable
     private int _nextHandle;
     private int _generation;
     private int _pendingRelays;
-    private TaskCompletionSource _gathered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource _gathered = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
     private int _state = (int)IceConnectionState.New;
     private LocalSocket? _selectedSocket;
     private IPEndPoint? _selectedRemote;
@@ -200,7 +202,10 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// <param name="limit">The longest to wait.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <returns>A task that completes when gathering finished or the limit passed.</returns>
-    public async Task WhenGatheredAsync(TimeSpan limit, CancellationToken cancellationToken = default)
+    public async Task WhenGatheredAsync(
+        TimeSpan limit,
+        CancellationToken cancellationToken = default
+    )
     {
         Task gathered;
         lock (_gate)
@@ -281,7 +286,9 @@ public sealed partial class IceAgent : IAsyncDisposable
         {
             if (_gathered.Task.IsCompleted)
             {
-                _gathered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _gathered = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously
+                );
             }
         }
 
@@ -675,7 +682,11 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
-    [LoggerMessage(EventId = 1110, Level = LogLevel.Debug, Message = "ICE send to {Destination} failed")]
+    [LoggerMessage(
+        EventId = 1110,
+        Level = LogLevel.Debug,
+        Message = "ICE send to {Destination} failed"
+    )]
     private partial void LogSendFailed(Exception exception, IPEndPoint destination);
 
     [LoggerMessage(
@@ -685,7 +696,11 @@ public sealed partial class IceAgent : IAsyncDisposable
     )]
     private partial void LogDataHandlerFailed(Exception exception, IPEndPoint source);
 
-    [LoggerMessage(EventId = 1112, Level = LogLevel.Warning, Message = "TURN server {Server} did not resolve")]
+    [LoggerMessage(
+        EventId = 1112,
+        Level = LogLevel.Warning,
+        Message = "TURN server {Server} did not resolve"
+    )]
     private partial void LogTurnUnresolved(Exception exception, string server);
 
     [LoggerMessage(
@@ -695,7 +710,11 @@ public sealed partial class IceAgent : IAsyncDisposable
     )]
     private partial void LogTurnFailed(Exception exception, string server, IPEndPoint endpoint);
 
-    [LoggerMessage(EventId = 1114, Level = LogLevel.Warning, Message = "The connection behind {Local} closed")]
+    [LoggerMessage(
+        EventId = 1114,
+        Level = LogLevel.Warning,
+        Message = "The connection behind {Local} closed"
+    )]
     private partial void LogSocketClosed(Exception exception, IPEndPoint local);
 
     [LoggerMessage(EventId = 1115, Level = LogLevel.Error, Message = "An ICE event handler failed")]

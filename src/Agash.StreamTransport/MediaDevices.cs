@@ -46,10 +46,12 @@ public sealed partial class MediaDevices
     }
 
     /// <summary>The names of the registered video output providers.</summary>
-    public ImmutableArray<string> VideoOutputProviders => [.. _videoOutputs.Select(static p => p.Name)];
+    public ImmutableArray<string> VideoOutputProviders =>
+        [.. _videoOutputs.Select(static p => p.Name)];
 
     /// <summary>The names of the registered audio output providers.</summary>
-    public ImmutableArray<string> AudioOutputProviders => [.. _audioOutputs.Select(static p => p.Name)];
+    public ImmutableArray<string> AudioOutputProviders =>
+        [.. _audioOutputs.Select(static p => p.Name)];
 
     /// <summary>The video inputs present now, each by its best provider.</summary>
     /// <param name="cancellationToken">Cancels the enumeration.</param>
@@ -61,7 +63,10 @@ public sealed partial class MediaDevices
         List<VideoInputInfo> inputs = [];
         foreach (IVideoInputProvider provider in _videoInputs)
         {
-            foreach (VideoInputInfo input in await EnumerateAsync(provider, cancellationToken).ConfigureAwait(false))
+            foreach (
+                VideoInputInfo input in await EnumerateAsync(provider, cancellationToken)
+                    .ConfigureAwait(false)
+            )
             {
                 if (!inputs.Exists(i => Same(i, input)))
                 {
@@ -83,7 +88,10 @@ public sealed partial class MediaDevices
         List<AudioInputInfo> inputs = [];
         foreach (IAudioInputProvider provider in _audioInputs)
         {
-            foreach (AudioInputInfo input in await EnumerateAsync(provider, cancellationToken).ConfigureAwait(false))
+            foreach (
+                AudioInputInfo input in await EnumerateAsync(provider, cancellationToken)
+                    .ConfigureAwait(false)
+            )
             {
                 if (
                     !inputs.Exists(i =>
@@ -128,7 +136,10 @@ public sealed partial class MediaDevices
                 continue;
             }
 
-            ImmutableArray<VideoInputInfo> inputs = await EnumerateAsync(provider, cancellationToken)
+            ImmutableArray<VideoInputInfo> inputs = await EnumerateAsync(
+                    provider,
+                    cancellationToken
+                )
                 .ConfigureAwait(false);
             VideoInputInfo? input = chosen is { } first
                 // A fallback provider must have the same input.
@@ -142,8 +153,14 @@ public sealed partial class MediaDevices
             chosen ??= input;
             try
             {
-                IVideoInput opened = await provider.OpenAsync(input, request, cancellationToken).ConfigureAwait(false);
-                LogOpened(input.Name, provider.Name, opened.Mode?.ToString() ?? "the producer's format");
+                IVideoInput opened = await provider
+                    .OpenAsync(input, request, cancellationToken)
+                    .ConfigureAwait(false);
+                LogOpened(
+                    input.Name,
+                    provider.Name,
+                    opened.Mode?.ToString() ?? "the producer's format"
+                );
                 return opened;
             }
             catch (Exception exception) when (IsOpenFailure(exception))
@@ -175,7 +192,10 @@ public sealed partial class MediaDevices
         (string? providerName, string? name) = Split(spec, _audioInputs.Select(static p => p.Name));
         // A bare provider means its first input; no spec or "default" the default microphone.
         bool wantsDefault = name is null ? providerName is null : Is(name, "default");
-        MediaInputKind? kind = wantsDefault ? MediaInputKind.Microphone : providerName is null ? Kind(name) : null;
+        MediaInputKind? kind =
+            wantsDefault ? MediaInputKind.Microphone
+            : providerName is null ? Kind(name)
+            : null;
         List<Exception> failures = [];
         AudioInputInfo? chosen = null;
         foreach (IAudioInputProvider provider in _audioInputs)
@@ -185,14 +205,18 @@ public sealed partial class MediaDevices
                 continue;
             }
 
-            ImmutableArray<AudioInputInfo> inputs = await EnumerateAsync(provider, cancellationToken)
+            ImmutableArray<AudioInputInfo> inputs = await EnumerateAsync(
+                    provider,
+                    cancellationToken
+                )
                 .ConfigureAwait(false);
-            AudioInputInfo? input = chosen is { } first
-                ? inputs.FirstOrDefault(i => Same(i.Kind, i.Name, first.Kind, first.Name))
+            AudioInputInfo? input =
+                chosen is { } first
+                    ? inputs.FirstOrDefault(i => Same(i.Kind, i.Name, first.Kind, first.Name))
                 : wantsDefault
                     ? inputs.FirstOrDefault(i => i.Kind == kind && i.IsDefault)
                         ?? inputs.FirstOrDefault(i => i.Kind == kind)
-                    : inputs.FirstOrDefault(i => Matches(i.Id, i.Name, i.Kind, name, kind));
+                : inputs.FirstOrDefault(i => Matches(i.Id, i.Name, i.Kind, name, kind));
             if (input is null)
             {
                 continue;
@@ -201,7 +225,9 @@ public sealed partial class MediaDevices
             chosen ??= input;
             try
             {
-                IAudioInput opened = await provider.OpenAsync(input, cancellationToken).ConfigureAwait(false);
+                IAudioInput opened = await provider
+                    .OpenAsync(input, cancellationToken)
+                    .ConfigureAwait(false);
                 LogOpened(input.Name, provider.Name, opened.Format.ToString());
                 return opened;
             }
@@ -234,7 +260,9 @@ public sealed partial class MediaDevices
     {
         IVideoOutputProvider chosen =
             _videoOutputs.FirstOrDefault(p => provider is null || Is(p.Name, provider))
-            ?? throw new InvalidOperationException($"There is no video output provider '{provider}'.");
+            ?? throw new InvalidOperationException(
+                $"There is no video output provider '{provider}'."
+            );
         return await chosen.CreateAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
@@ -252,7 +280,9 @@ public sealed partial class MediaDevices
     {
         IAudioOutputProvider chosen =
             _audioOutputs.FirstOrDefault(p => provider is null || Is(p.Name, provider))
-            ?? throw new InvalidOperationException($"There is no audio output provider '{provider}'.");
+            ?? throw new InvalidOperationException(
+                $"There is no audio output provider '{provider}'."
+            );
         return await chosen.CreateAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
@@ -289,7 +319,10 @@ public sealed partial class MediaDevices
     }
 
     // provider:name, provider, or name; a leading part is a provider only when one is registered by it.
-    private static (string? Provider, string? Name) Split(string spec, IEnumerable<string> providers)
+    private static (string? Provider, string? Name) Split(
+        string spec,
+        IEnumerable<string> providers
+    )
     {
         int colon = spec.IndexOf(':', StringComparison.Ordinal);
         string head = colon < 0 ? spec : spec[..colon];
@@ -307,7 +340,13 @@ public sealed partial class MediaDevices
             ? kind
             : null;
 
-    private static bool Matches(string id, string inputName, MediaInputKind inputKind, string? name, MediaInputKind? kind) =>
+    private static bool Matches(
+        string id,
+        string inputName,
+        MediaInputKind inputKind,
+        string? name,
+        MediaInputKind? kind
+    ) =>
         name is null
         || (kind is { } k && inputKind == k)
         || string.Equals(id, name, StringComparison.Ordinal)
@@ -325,7 +364,8 @@ public sealed partial class MediaDevices
     private static bool Same(MediaInputKind a, string aName, MediaInputKind b, string bName) =>
         a == b && string.Equals(aName, bName, StringComparison.OrdinalIgnoreCase);
 
-    private static bool Is(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    private static bool Is(string a, string b) =>
+        string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     private static bool IsOpenFailure(Exception exception) =>
         exception
@@ -337,7 +377,8 @@ public sealed partial class MediaDevices
                 or TimeoutException;
 
     private static bool IsEnumerationFailure(Exception exception) =>
-        IsOpenFailure(exception) || exception is DllNotFoundException or EntryPointNotFoundException;
+        IsOpenFailure(exception)
+        || exception is DllNotFoundException or EntryPointNotFoundException;
 
     [LoggerMessage(2900, LogLevel.Information, "Opened {Input} through {Provider}: {Mode}.")]
     private partial void LogOpened(string input, string provider, string mode);

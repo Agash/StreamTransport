@@ -55,7 +55,12 @@ public sealed class V4l2InputTests
         var provider = new V4l2VideoInputProvider();
         using IVideoInput input = await provider.OpenAsync(
             vivid[device],
-            new VideoInputRequest { Size = new VideoSize(1280, 720), FrameRate = 30, PixelFormat = format },
+            new VideoInputRequest
+            {
+                Size = new VideoSize(1280, 720),
+                FrameRate = 30,
+                PixelFormat = format,
+            },
             CancellationToken.None
         );
         var consumer = new Recorder(frames: 12, keep: 3);
@@ -68,13 +73,30 @@ public sealed class V4l2InputTests
         Assert.AreEqual(format, input.Mode!.Value.PixelFormat);
         Assert.AreEqual(new VideoSize(1280, 720), input.Mode.Value.Size);
         Assert.IsTrue(consumer.Frames.All(f => f.Format.PixelFormat == format));
-        Assert.IsTrue(consumer.Frames.All(f => f.Kind == TimestampKind.Capture), "driver timestamps are capture times");
+        Assert.IsTrue(
+            consumer.Frames.All(f => f.Kind == TimestampKind.Capture),
+            "driver timestamps are capture times"
+        );
         MediaTime now = MediaClock.System.Now;
-        Assert.IsTrue(consumer.Frames.All(f => now - f.Time < TimeSpan.FromSeconds(5)), "capture times are on the media clock");
-        TimeSpan[] gaps = [.. consumer.Frames.Zip(consumer.Frames.Skip(1), static (a, b) => b.Time - a.Time)];
+        Assert.IsTrue(
+            consumer.Frames.All(f => now - f.Time < TimeSpan.FromSeconds(5)),
+            "capture times are on the media clock"
+        );
+        TimeSpan[] gaps =
+        [
+            .. consumer.Frames.Zip(consumer.Frames.Skip(1), static (a, b) => b.Time - a.Time),
+        ];
         Assert.IsTrue(gaps.All(static g => g > TimeSpan.Zero), "capture times increase");
-        Assert.AreEqual(1000.0 / 30, gaps.Average(static g => g.TotalMilliseconds), 6.0, "frames come at the requested rate");
-        Assert.IsTrue(consumer.Frames.All(static f => f.Bytes > 0 && f.Luma > 0), "the planes are the picture");
+        Assert.AreEqual(
+            1000.0 / 30,
+            gaps.Average(static g => g.TotalMilliseconds),
+            6.0,
+            "frames come at the requested rate"
+        );
+        Assert.IsTrue(
+            consumer.Frames.All(static f => f.Bytes > 0 && f.Luma > 0),
+            "the planes are the picture"
+        );
         foreach (VideoFrameLease kept in consumer.Kept)
         {
             Assert.AreEqual(format, kept.Frame.Format.PixelFormat);
@@ -91,7 +113,11 @@ public sealed class V4l2InputTests
         var provider = new V4l2VideoInputProvider();
         using IVideoInput input = await provider.OpenAsync(
             vivid[0],
-            new VideoInputRequest { Size = new VideoSize(640, 480), PixelFormat = PixelFormat.Yuy2 },
+            new VideoInputRequest
+            {
+                Size = new VideoSize(640, 480),
+                PixelFormat = PixelFormat.Yuy2,
+            },
             CancellationToken.None
         );
 
@@ -128,18 +154,32 @@ public sealed class V4l2InputTests
         var provider = new V4l2VideoInputProvider();
         using IVideoInput input = await provider.OpenAsync(
             vivid[0],
-            new VideoInputRequest { Size = new VideoSize(640, 480), PixelFormat = PixelFormat.Nv12 },
+            new VideoInputRequest
+            {
+                Size = new VideoSize(640, 480),
+                PixelFormat = PixelFormat.Nv12,
+            },
             CancellationToken.None
         );
         var factory = new VulkanVideoProcessorFactory();
-        VideoStreamDescription description = new(VideoStorageKind.DmaBuf, PixelFormat.Nv12, new VideoSize(640, 480), engine.Identity);
+        VideoStreamDescription description = new(
+            VideoStorageKind.DmaBuf,
+            PixelFormat.Nv12,
+            new VideoSize(640, 480),
+            engine.Identity
+        );
         using IVideoProcessor processor = factory.Create(
             description,
             new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Bgra))
         );
         var gpu = new Converter(processor);
 
-        using (input.Connect(gpu, new VideoConstraints([VideoStorageKind.DmaBuf], [PixelFormat.Nv12], engine.Identity)))
+        using (
+            input.Connect(
+                gpu,
+                new VideoConstraints([VideoStorageKind.DmaBuf], [PixelFormat.Nv12], engine.Identity)
+            )
+        )
         {
             await gpu.Done.Task;
         }
@@ -148,14 +188,22 @@ public sealed class V4l2InputTests
         Assert.IsNotNull(gpu.Result);
         Assert.AreEqual(PixelFormat.Bgra, gpu.Result.Frame.Format.PixelFormat);
         ReadOnlySpan<byte> pixels = gpu.Result.Frame.GetPlane(0);
-        Assert.IsTrue(pixels.ToArray().Any(static b => b is > 16 and < 240), "the imported picture has content");
+        Assert.IsTrue(
+            pixels.ToArray().Any(static b => b is > 16 and < 240),
+            "the imported picture has content"
+        );
         gpu.Result.Dispose();
     }
 
     private static async Task<ImmutableArray<VideoInputInfo>> Vivid()
     {
-        ImmutableArray<VideoInputInfo> inputs = await new V4l2VideoInputProvider().GetInputsAsync(CancellationToken.None);
-        ImmutableArray<VideoInputInfo> vivid = [.. inputs.Where(static i => i.Name.StartsWith("vivid", StringComparison.Ordinal))];
+        ImmutableArray<VideoInputInfo> inputs = await new V4l2VideoInputProvider().GetInputsAsync(
+            CancellationToken.None
+        );
+        ImmutableArray<VideoInputInfo> vivid =
+        [
+            .. inputs.Where(static i => i.Name.StartsWith("vivid", StringComparison.Ordinal)),
+        ];
         if (vivid.IsEmpty)
         {
             Assert.Inconclusive("The vivid driver is not loaded.");
@@ -164,7 +212,13 @@ public sealed class V4l2InputTests
         return vivid;
     }
 
-    private sealed record Seen(VideoFormat Format, MediaTime Time, TimestampKind Kind, int Bytes, byte Luma);
+    private sealed record Seen(
+        VideoFormat Format,
+        MediaTime Time,
+        TimestampKind Kind,
+        int Bytes,
+        byte Luma
+    );
 
     // Records frames and keeps some of them.
     private sealed class Recorder(int frames, int keep) : IVideoFrameConsumer
@@ -175,7 +229,8 @@ public sealed class V4l2InputTests
 
         public List<VideoFrameLease> Kept { get; } = [];
 
-        public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Done { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void OnFrame(in VideoFrame frame)
         {
@@ -185,7 +240,15 @@ public sealed class V4l2InputTests
             }
 
             ReadOnlySpan<byte> plane = frame.GetPlane(0);
-            Seen.Enqueue(new Seen(frame.Format, frame.Timestamp.Time, frame.Timestamp.Kind, plane.Length, plane[plane.Length / 2]));
+            Seen.Enqueue(
+                new Seen(
+                    frame.Format,
+                    frame.Timestamp.Time,
+                    frame.Timestamp.Kind,
+                    plane.Length,
+                    plane[plane.Length / 2]
+                )
+            );
             if (Kept.Count < keep)
             {
                 Kept.Add(frame.Retain());
@@ -208,7 +271,8 @@ public sealed class V4l2InputTests
 
         public VideoFrameLease? Result => _keeper.Result;
 
-        public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Done { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void OnFrame(in VideoFrame frame)
         {

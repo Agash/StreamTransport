@@ -70,8 +70,12 @@ public sealed class AudioInput(IAudioSource source, AudioInputInfo info, IDispos
 /// <param name="provider">The provider that made it.</param>
 /// <param name="name">The name it is published under.</param>
 /// <param name="owner">What disposing the output releases: usually the sink itself.</param>
-public sealed class VideoOutput(IVideoSink sink, string provider, string name, IDisposable? owner = null)
-    : IVideoOutput
+public sealed class VideoOutput(
+    IVideoSink sink,
+    string provider,
+    string name,
+    IDisposable? owner = null
+) : IVideoOutput
 {
     private int _disposed;
 
@@ -102,8 +106,12 @@ public sealed class VideoOutput(IVideoSink sink, string provider, string name, I
 /// <param name="provider">The provider that made it.</param>
 /// <param name="name">The device or name it plays to.</param>
 /// <param name="owner">What disposing the output releases: usually the sink itself.</param>
-public sealed class AudioOutput(IAudioSink sink, string provider, string name, IDisposable? owner = null)
-    : IAudioOutput
+public sealed class AudioOutput(
+    IAudioSink sink,
+    string provider,
+    string name,
+    IDisposable? owner = null
+) : IAudioOutput
 {
     private int _disposed;
 

@@ -16,11 +16,14 @@ namespace Agash.StreamTransport.Windows.MediaFoundation;
 /// that sends only MJPEG is left to a fallback provider.
 /// </summary>
 /// <param name="loggerFactory">Where inputs log.</param>
-public sealed unsafe partial class MediaFoundationVideoInputProvider(ILoggerFactory? loggerFactory = null)
-    : IVideoInputProvider
+public sealed unsafe partial class MediaFoundationVideoInputProvider(
+    ILoggerFactory? loggerFactory = null
+) : IVideoInputProvider
 {
     private readonly ILoggerFactory _loggers = loggerFactory ?? NullLoggerFactory.Instance;
-    private readonly ILogger _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<MediaFoundationVideoInputProvider>();
+    private readonly ILogger _logger = (
+        loggerFactory ?? NullLoggerFactory.Instance
+    ).CreateLogger<MediaFoundationVideoInputProvider>();
 
     /// <inheritdoc/>
     public string Name => "mediafoundation";
@@ -29,7 +32,9 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(ILoggerFact
     public int Rank => 100;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken)
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    )
     {
         MediaFoundationPlatform.Start();
         List<VideoInputInfo> inputs = [];
@@ -46,8 +51,14 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(ILoggerFact
             for (uint i = 0; i < count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string name = MediaFoundationPlatform.String(devices[i], Win32.MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME);
-                string link = MediaFoundationPlatform.String(devices[i], Win32.MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK);
+                string name = MediaFoundationPlatform.String(
+                    devices[i],
+                    Win32.MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME
+                );
+                string link = MediaFoundationPlatform.String(
+                    devices[i],
+                    Win32.MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK
+                );
                 ImmutableArray<VideoInputMode> modes;
                 try
                 {
@@ -66,7 +77,12 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(ILoggerFact
                     continue;
                 }
 
-                inputs.Add(new VideoInputInfo(Name, link, name, MediaInputKind.Camera, modes) { DeviceKey = link });
+                inputs.Add(
+                    new VideoInputInfo(Name, link, name, MediaInputKind.Camera, modes)
+                    {
+                        DeviceKey = link,
+                    }
+                );
             }
         }
         finally
@@ -102,13 +118,23 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(ILoggerFact
         VideoInputMode mode =
             request.Choose(input.Modes)
             ?? throw new NotSupportedException($"{input.Name} has no mode this provider delivers.");
-        return ValueTask.FromResult<IVideoInput>(new MediaFoundationVideoInput(input, mode, _loggers));
+        return ValueTask.FromResult<IVideoInput>(
+            new MediaFoundationVideoInput(input, mode, _loggers)
+        );
     }
 
-    [LoggerMessage(2340, LogLevel.Warning, "{Camera} could not be asked its modes; it is not listed now.")]
+    [LoggerMessage(
+        2340,
+        LogLevel.Warning,
+        "{Camera} could not be asked its modes; it is not listed now."
+    )]
     private partial void LogUnreadable(Exception exception, string camera);
 
-    [LoggerMessage(2341, LogLevel.Information, "{Camera} sends no uncompressed format this provider delivers; it is not listed.")]
+    [LoggerMessage(
+        2341,
+        LogLevel.Information,
+        "{Camera} sends no uncompressed format this provider delivers; it is not listed."
+    )]
     private partial void LogNoModes(string camera);
 }
 
@@ -155,7 +181,8 @@ internal static unsafe class MediaFoundationPlatform
             IMFSourceReader* reader = Reader((IMFMediaSource*)source);
             try
             {
-                ImmutableArray<VideoInputMode>.Builder modes = ImmutableArray.CreateBuilder<VideoInputMode>();
+                ImmutableArray<VideoInputMode>.Builder modes =
+                    ImmutableArray.CreateBuilder<VideoInputMode>();
                 foreach ((VideoInputMode mode, _) in NativeTypes(reader))
                 {
                     if (!modes.Contains(mode))
@@ -207,7 +234,8 @@ internal static unsafe class MediaFoundationPlatform
             {
                 reader->GetNativeMediaType(FirstVideoStream, index, &type);
             }
-            catch (COMException exception) when (exception.HResult == MediaFoundationErrors.NoMoreTypes)
+            catch (COMException exception)
+                when (exception.HResult == MediaFoundationErrors.NoMoreTypes)
             {
                 // Deliberately not logged: the end of the list.
                 break;
@@ -265,13 +293,14 @@ internal static unsafe class MediaFoundationPlatform
 
         // MFVideoTransferMatrix: BT709 1, BT601 2, BT2020 4; MFNominalRange: 0-255 is 1, 16-235 is 2.
         return new VideoColor(
-            rgb ? ColorMatrix.Identity
-            : matrix switch
-            {
-                1 => ColorMatrix.Bt709,
-                4 => ColorMatrix.Bt2020,
-                _ => ColorMatrix.Bt601,
-            },
+            rgb
+                ? ColorMatrix.Identity
+                : matrix switch
+                {
+                    1 => ColorMatrix.Bt709,
+                    4 => ColorMatrix.Bt2020,
+                    _ => ColorMatrix.Bt601,
+                },
             range switch
             {
                 1 => ColorRange.Full,

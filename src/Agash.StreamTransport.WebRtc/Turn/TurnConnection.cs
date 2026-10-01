@@ -58,8 +58,7 @@ internal abstract class TurnConnection : IDisposable
                             new SslClientAuthenticationOptions
                             {
                                 TargetHost = server.Host,
-                                RemoteCertificateValidationCallback =
-                                    server.CertificateValidation,
+                                RemoteCertificateValidationCallback = server.CertificateValidation,
                             },
                             cancellationToken
                         )
@@ -146,9 +145,7 @@ internal abstract class TurnConnection : IDisposable
                 int pad = Padding(message.Span);
                 if (pad > 0)
                 {
-                    await stream
-                        .WriteAsync(new byte[pad], cancellationToken)
-                        .ConfigureAwait(false);
+                    await stream.WriteAsync(new byte[pad], cancellationToken).ConfigureAwait(false);
                 }
 
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -192,9 +189,10 @@ internal abstract class TurnConnection : IDisposable
                 .ConfigureAwait(false);
 
             // The padding after a ChannelData frame is not part of it.
-            int content = (_frame[0] & 0xC0) == 0x40
-                ? 4 + BinaryPrimitives.ReadUInt16BigEndian(_frame.AsSpan(2))
-                : length;
+            int content =
+                (_frame[0] & 0xC0) == 0x40
+                    ? 4 + BinaryPrimitives.ReadUInt16BigEndian(_frame.AsSpan(2))
+                    : length;
             if (content > buffer.Length)
             {
                 return 0;
@@ -219,7 +217,9 @@ internal abstract class TurnConnection : IDisposable
             {
                 0x00 => 20 + declared,
                 0x40 => 4 + ((declared + 3) & ~3),
-                _ => throw new IOException("The TURN stream carried a frame that is neither STUN nor ChannelData."),
+                _ => throw new IOException(
+                    "The TURN stream carried a frame that is neither STUN nor ChannelData."
+                ),
             };
         }
 

@@ -82,7 +82,13 @@ internal sealed class TestTurnServer : IAsyncDisposable
         {
             await Task.WhenAll(_loops);
         }
-        catch (Exception exception) when (exception is OperationCanceledException or SocketException or ObjectDisposedException or IOException)
+        catch (Exception exception)
+            when (exception
+                    is OperationCanceledException
+                        or SocketException
+                        or ObjectDisposedException
+                        or IOException
+            )
         {
             // Shutting down.
         }
@@ -117,7 +123,8 @@ internal sealed class TestTurnServer : IAsyncDisposable
             {
                 result = await _udp.ReceiveFromAsync(buffer, SocketFlags.None, any, _stop.Token);
             }
-            catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException)
+            catch (Exception exception)
+                when (exception is OperationCanceledException or ObjectDisposedException)
             {
                 return;
             }
@@ -145,7 +152,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
             {
                 client = await listener.AcceptTcpClientAsync(_stop.Token);
             }
-            catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or SocketException)
+            catch (Exception exception)
+                when (exception
+                        is OperationCanceledException
+                            or ObjectDisposedException
+                            or SocketException
+                )
             {
                 return;
             }
@@ -191,7 +203,10 @@ internal sealed class TestTurnServer : IAsyncDisposable
                             try
                             {
                                 await stream.WriteAsync(reply);
-                                int pad = (reply.Span[0] & 0xC0) == 0x40 ? (4 - (reply.Length & 3)) & 3 : 0;
+                                int pad =
+                                    (reply.Span[0] & 0xC0) == 0x40
+                                        ? (4 - (reply.Length & 3)) & 3
+                                        : 0;
                                 await stream.WriteAsync(new byte[pad]);
                             }
                             finally
@@ -204,7 +219,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
                     );
                 }
             }
-            catch (Exception exception) when (exception is OperationCanceledException or IOException or ObjectDisposedException)
+            catch (Exception exception)
+                when (exception
+                        is OperationCanceledException
+                            or IOException
+                            or ObjectDisposedException
+                )
             {
                 // The client went away or the server stopped.
             }
@@ -229,7 +249,10 @@ internal sealed class TestTurnServer : IAsyncDisposable
         {
             ushort channel = BinaryPrimitives.ReadUInt16BigEndian(message.Span);
             int length = BinaryPrimitives.ReadUInt16BigEndian(message.Span[2..]);
-            if (_allocations.TryGetValue(key, out Allocation? bound) && bound.Channels.TryGetValue(channel, out IPEndPoint? peer))
+            if (
+                _allocations.TryGetValue(key, out Allocation? bound)
+                && bound.Channels.TryGetValue(channel, out IPEndPoint? peer)
+            )
             {
                 Interlocked.Increment(ref ChannelDataFrames);
                 await bound.Relay.SendToAsync(message.Slice(4, length), SocketFlags.None, peer);
@@ -238,7 +261,13 @@ internal sealed class TestTurnServer : IAsyncDisposable
             return;
         }
 
-        byte[]? response = Respond(key, client, message.ToArray(), reply, out (byte[] Data, IPEndPoint Peer, Allocation Allocation)? forward);
+        byte[]? response = Respond(
+            key,
+            client,
+            message.ToArray(),
+            reply,
+            out (byte[] Data, IPEndPoint Peer, Allocation Allocation)? forward
+        );
         if (response is not null)
         {
             await reply(response);
@@ -307,7 +336,11 @@ internal sealed class TestTurnServer : IAsyncDisposable
             {
                 if (allocation is null)
                 {
-                    var relay = new Socket(client.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+                    var relay = new Socket(
+                        client.AddressFamily,
+                        SocketType.Dgram,
+                        ProtocolType.Udp
+                    );
                     relay.Bind(new IPEndPoint(((IPEndPoint)_udp.LocalEndPoint!).Address, 0));
                     allocation = new Allocation(relay);
                     _allocations[key] = allocation;
@@ -315,12 +348,18 @@ internal sealed class TestTurnServer : IAsyncDisposable
                     Interlocked.Increment(ref Allocations);
                 }
 
-                return Success(request, (ref StunMessageWriter w) =>
-                {
-                    w.AddXorAddress(StunAttributeType.XorRelayedAddress, (IPEndPoint)allocation.Relay.LocalEndPoint!);
-                    w.AddXorMappedAddress(client);
-                    w.AddUInt32(StunAttributeType.Lifetime, 600);
-                });
+                return Success(
+                    request,
+                    (ref StunMessageWriter w) =>
+                    {
+                        w.AddXorAddress(
+                            StunAttributeType.XorRelayedAddress,
+                            (IPEndPoint)allocation.Relay.LocalEndPoint!
+                        );
+                        w.AddXorMappedAddress(client);
+                        w.AddUInt32(StunAttributeType.Lifetime, 600);
+                    }
+                );
             }
 
             case StunMethod.Refresh:
@@ -333,7 +372,10 @@ internal sealed class TestTurnServer : IAsyncDisposable
                     released.Relay.Dispose();
                 }
 
-                return Success(request, (ref StunMessageWriter w) => w.AddUInt32(StunAttributeType.Lifetime, lifetime));
+                return Success(
+                    request,
+                    (ref StunMessageWriter w) => w.AddUInt32(StunAttributeType.Lifetime, lifetime)
+                );
             }
 
             case StunMethod.CreatePermission when allocation is not null:
@@ -350,7 +392,10 @@ internal sealed class TestTurnServer : IAsyncDisposable
             {
                 if (
                     !request.TryGetUInt32(StunAttributeType.ChannelNumber, out uint number)
-                    || !request.TryGetXorAddress(StunAttributeType.XorPeerAddress, out IPEndPoint peer)
+                    || !request.TryGetXorAddress(
+                        StunAttributeType.XorPeerAddress,
+                        out IPEndPoint peer
+                    )
                 )
                 {
                     return Error(request, 400, Nonce);
@@ -369,11 +414,16 @@ internal sealed class TestTurnServer : IAsyncDisposable
         }
     }
 
-    private async Task RelayLoopAsync(Allocation allocation, Func<ReadOnlyMemory<byte>, ValueTask<int>> reply)
+    private async Task RelayLoopAsync(
+        Allocation allocation,
+        Func<ReadOnlyMemory<byte>, ValueTask<int>> reply
+    )
     {
         byte[] buffer = new byte[4096];
         EndPoint any = new IPEndPoint(
-            allocation.Relay.AddressFamily == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any,
+            allocation.Relay.AddressFamily == AddressFamily.InterNetworkV6
+                ? IPAddress.IPv6Any
+                : IPAddress.Any,
             0
         );
         while (!_stop.IsCancellationRequested)
@@ -381,9 +431,15 @@ internal sealed class TestTurnServer : IAsyncDisposable
             SocketReceiveFromResult result;
             try
             {
-                result = await allocation.Relay.ReceiveFromAsync(buffer, SocketFlags.None, any, _stop.Token);
+                result = await allocation.Relay.ReceiveFromAsync(
+                    buffer,
+                    SocketFlags.None,
+                    any,
+                    _stop.Token
+                );
             }
-            catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException)
+            catch (Exception exception)
+                when (exception is OperationCanceledException or ObjectDisposedException)
             {
                 return;
             }
@@ -403,7 +459,10 @@ internal sealed class TestTurnServer : IAsyncDisposable
             {
                 frame = new byte[4 + result.ReceivedBytes];
                 BinaryPrimitives.WriteUInt16BigEndian(frame, channel);
-                BinaryPrimitives.WriteUInt16BigEndian(frame.AsSpan(2), (ushort)result.ReceivedBytes);
+                BinaryPrimitives.WriteUInt16BigEndian(
+                    frame.AsSpan(2),
+                    (ushort)result.ReceivedBytes
+                );
                 buffer.AsSpan(0, result.ReceivedBytes).CopyTo(frame.AsSpan(4));
             }
             else
@@ -424,7 +483,8 @@ internal sealed class TestTurnServer : IAsyncDisposable
             {
                 await reply(frame);
             }
-            catch (Exception exception) when (exception is SocketException or IOException or ObjectDisposedException)
+            catch (Exception exception)
+                when (exception is SocketException or IOException or ObjectDisposedException)
             {
                 return;
             }
@@ -436,7 +496,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
     private byte[] Success(StunMessageReader request, Attributes attributes)
     {
         byte[] buffer = new byte[512];
-        StunMessageWriter writer = new(buffer, StunMessageClass.SuccessResponse, request.Method, request.TransactionId);
+        StunMessageWriter writer = new(
+            buffer,
+            StunMessageClass.SuccessResponse,
+            request.Method,
+            request.TransactionId
+        );
         attributes(ref writer);
         writer.AddMessageIntegrity(_key);
         writer.AddFingerprint();
@@ -446,7 +511,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
     private static byte[] Error(StunMessageReader request, int code, byte[] nonce)
     {
         byte[] buffer = new byte[512];
-        StunMessageWriter writer = new(buffer, StunMessageClass.ErrorResponse, request.Method, request.TransactionId);
+        StunMessageWriter writer = new(
+            buffer,
+            StunMessageClass.ErrorResponse,
+            request.Method,
+            request.TransactionId
+        );
         writer.AddErrorCode(code, code == 438 ? "Stale Nonce" : "Unauthorized");
         writer.AddAttribute(StunAttributeType.Realm, Encoding.UTF8.GetBytes(Realm));
         writer.AddAttribute(StunAttributeType.Nonce, nonce);

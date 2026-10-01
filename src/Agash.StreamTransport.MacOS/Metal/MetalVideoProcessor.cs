@@ -99,7 +99,10 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
         return null;
     }
 
-    private static VideoProcessorInfo? Upload(VideoStreamDescription input, VideoProcessing processing)
+    private static VideoProcessorInfo? Upload(
+        VideoStreamDescription input,
+        VideoProcessing processing
+    )
     {
         VideoConstraints output = processing.Output;
         if (
@@ -116,9 +119,11 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
 
         PixelFormat? target =
             output.PixelFormats.Contains(input.PixelFormat) ? input.PixelFormat
-            : input.PixelFormat == PixelFormat.Nv12 && output.PixelFormats.Contains(PixelFormat.Bgra)
+            : input.PixelFormat == PixelFormat.Nv12
+            && output.PixelFormats.Contains(PixelFormat.Bgra)
                 ? PixelFormat.Bgra
-            : input.PixelFormat == PixelFormat.Bgra && output.PixelFormats.Contains(PixelFormat.Nv12)
+            : input.PixelFormat == PixelFormat.Bgra
+            && output.PixelFormats.Contains(PixelFormat.Nv12)
                 ? PixelFormat.Nv12
             : null;
         return target is { } format
@@ -244,15 +249,23 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
             for (int plane = 0; plane < frame.PlaneCount; plane++)
             {
                 bool planar = frame.Format.PixelFormat == PixelFormat.Nv12;
-                byte* target = (byte*)(planar ? surface.GetBaseAddress((nuint)plane) : surface.BaseAddress);
-                int targetStride = (int)(planar ? surface.GetBytesPerRow((nuint)plane) : surface.BytesPerRow);
+                byte* target = (byte*)(
+                    planar ? surface.GetBaseAddress((nuint)plane) : surface.BaseAddress
+                );
+                int targetStride = (int)(
+                    planar ? surface.GetBytesPerRow((nuint)plane) : surface.BytesPerRow
+                );
                 int rows = PlaneLayout.PlaneRows(frame.Format.PixelFormat, plane, height);
-                int rowBytes = PlaneLayout.Packed(frame.Format.PixelFormat, frame.Format.CodedSize)[plane].Stride;
+                int rowBytes = PlaneLayout
+                    .Packed(frame.Format.PixelFormat, frame.Format.CodedSize)[plane]
+                    .Stride;
                 int stride = cpu.Planes[plane].Stride;
                 ReadOnlySpan<byte> source = frame.GetPlane(plane);
                 for (int y = 0; y < rows; y++)
                 {
-                    source.Slice(y * stride, rowBytes).CopyTo(new Span<byte>(target + (y * targetStride), rowBytes));
+                    source
+                        .Slice(y * stride, rowBytes)
+                        .CopyTo(new Span<byte>(target + (y * targetStride), rowBytes));
                 }
             }
         }
@@ -265,7 +278,12 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
     }
 
     // Hands on a finished surface on the GPU, which the consumer may keep.
-    private void Deliver(PooledSurface surface, in VideoFrame frame, VideoColor color, IVideoFrameConsumer consumer)
+    private void Deliver(
+        PooledSurface surface,
+        in VideoFrame frame,
+        VideoColor color,
+        IVideoFrameConsumer consumer
+    )
     {
         VideoStreamDescription described = Info.Output;
         VideoFrame result = new(
@@ -292,7 +310,11 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         }
     }
 
-    private void ProcessSurface(in VideoFrame frame, IOSurfaceImage image, IVideoFrameConsumer consumer)
+    private void ProcessSurface(
+        in VideoFrame frame,
+        IOSurfaceImage image,
+        IVideoFrameConsumer consumer
+    )
     {
         lock (_gate)
         {

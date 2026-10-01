@@ -37,7 +37,10 @@ public sealed class TestSignalGenerator
         // its own clock (a virtual camera fed on another machine) lines up with this signal's audio.
         MediaTime now = Clock.Now;
         DateTimeOffset wall = TimeProvider.GetUtcNow();
-        DateTimeOffset second = new(wall.Ticks - (wall.Ticks % TimeSpan.TicksPerSecond), TimeSpan.Zero);
+        DateTimeOffset second = new(
+            wall.Ticks - (wall.Ticks % TimeSpan.TicksPerSecond),
+            TimeSpan.Zero
+        );
         Origin = now - (wall - second);
         WallOrigin = second;
     }
@@ -82,7 +85,13 @@ public sealed class TestSignalGenerator
     /// <param name="size">The picture size.</param>
     /// <param name="time">The frame's capture time.</param>
     /// <param name="duration">How long it shows.</param>
-    public void Draw(Span<byte> luma, Span<byte> chroma, VideoSize size, MediaTime time, TimeSpan duration)
+    public void Draw(
+        Span<byte> luma,
+        Span<byte> chroma,
+        VideoSize size,
+        MediaTime time,
+        TimeSpan duration
+    )
     {
         int w = size.Width;
         int h = size.Height;
@@ -120,9 +129,10 @@ public sealed class TestSignalGenerator
         {
             long n = firstSample + i;
             long into = n % sampleRate;
-            float value = into < clickSamples
-                ? (float)(0.5 * Math.Sin(2 * Math.PI * ClickHertz * into / sampleRate))
-                : 0f;
+            float value =
+                into < clickSamples
+                    ? (float)(0.5 * Math.Sin(2 * Math.PI * ClickHertz * into / sampleRate))
+                    : 0f;
             samples.Slice(i * channels, channels).Fill(value);
         }
     }
@@ -200,7 +210,8 @@ public sealed class TestSignalGenerator
         int rows = Math.Max(1, size.Height / 48);
         for (int bit = 0; bit < BarcodeBits; bit++)
         {
-            byte value = ((milliseconds >> (BarcodeBits - 1 - bit)) & 1) != 0 ? (byte)235 : (byte)16;
+            byte value =
+                ((milliseconds >> (BarcodeBits - 1 - bit)) & 1) != 0 ? (byte)235 : (byte)16;
             for (int y = 0; y < rows; y++)
             {
                 luma.Slice((y * w) + (bit * cell), cell).Fill(value);
@@ -211,7 +222,8 @@ public sealed class TestSignalGenerator
 
 /// <summary>The test signal's video as an input, named <c>test</c>.</summary>
 /// <param name="generator">The signal; a shared one keeps video and audio aligned.</param>
-public sealed class TestSignalVideoInputProvider(TestSignalGenerator generator) : IVideoInputProvider
+public sealed class TestSignalVideoInputProvider(TestSignalGenerator generator)
+    : IVideoInputProvider
 {
     private static readonly ImmutableArray<VideoInputMode> Modes =
     [
@@ -229,10 +241,12 @@ public sealed class TestSignalVideoInputProvider(TestSignalGenerator generator) 
     public int Rank => 0;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(CancellationToken cancellationToken) =>
-        ValueTask.FromResult<ImmutableArray<VideoInputInfo>>(
-            [new VideoInputInfo(Name, "signal", "Test signal", MediaInputKind.Generated, Modes)]
-        );
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    ) =>
+        ValueTask.FromResult<ImmutableArray<VideoInputInfo>>([
+            new VideoInputInfo(Name, "signal", "Test signal", MediaInputKind.Generated, Modes),
+        ]);
 
     /// <inheritdoc/>
     public ValueTask<IVideoInput> OpenAsync(
@@ -249,7 +263,8 @@ public sealed class TestSignalVideoInputProvider(TestSignalGenerator generator) 
 
 /// <summary>The test signal's audio as an input, named <c>test</c>: 48 kHz stereo, 10 ms frames.</summary>
 /// <param name="generator">The signal; a shared one keeps video and audio aligned.</param>
-public sealed class TestSignalAudioInputProvider(TestSignalGenerator generator) : IAudioInputProvider
+public sealed class TestSignalAudioInputProvider(TestSignalGenerator generator)
+    : IAudioInputProvider
 {
     /// <inheritdoc/>
     public string Name => "test";
@@ -258,14 +273,18 @@ public sealed class TestSignalAudioInputProvider(TestSignalGenerator generator) 
     public int Rank => 0;
 
     /// <inheritdoc/>
-    public ValueTask<ImmutableArray<AudioInputInfo>> GetInputsAsync(CancellationToken cancellationToken) =>
-        ValueTask.FromResult<ImmutableArray<AudioInputInfo>>(
-            [new AudioInputInfo(Name, "signal", "Test signal", MediaInputKind.Generated)]
-        );
+    public ValueTask<ImmutableArray<AudioInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    ) =>
+        ValueTask.FromResult<ImmutableArray<AudioInputInfo>>([
+            new AudioInputInfo(Name, "signal", "Test signal", MediaInputKind.Generated),
+        ]);
 
     /// <inheritdoc/>
-    public ValueTask<IAudioInput> OpenAsync(AudioInputInfo input, CancellationToken cancellationToken) =>
-        ValueTask.FromResult<IAudioInput>(new TestSignalAudioInput(generator, input));
+    public ValueTask<IAudioInput> OpenAsync(
+        AudioInputInfo input,
+        CancellationToken cancellationToken
+    ) => ValueTask.FromResult<IAudioInput>(new TestSignalAudioInput(generator, input));
 }
 
 // Pushes NV12 frames on the generator's clock; capture times are the frames' scheduled times.
@@ -277,7 +296,11 @@ internal sealed class TestSignalVideoInput : IVideoInput
     private ImmutableArray<IVideoFrameConsumer> _consumers = [];
     private Task? _loop;
 
-    public TestSignalVideoInput(TestSignalGenerator generator, VideoInputInfo info, VideoInputMode mode)
+    public TestSignalVideoInput(
+        TestSignalGenerator generator,
+        VideoInputInfo info,
+        VideoInputMode mode
+    )
     {
         _generator = generator;
         Info = info;
@@ -344,7 +367,8 @@ internal sealed class TestSignalVideoInput : IVideoInput
         }
     }
 
-    private sealed class Connection(TestSignalVideoInput input, IVideoFrameConsumer consumer) : IDisposable
+    private sealed class Connection(TestSignalVideoInput input, IVideoFrameConsumer consumer)
+        : IDisposable
     {
         public void Dispose()
         {
@@ -357,7 +381,8 @@ internal sealed class TestSignalVideoInput : IVideoInput
 }
 
 // Pushes 10 ms of 48 kHz stereo float audio per tick, sample-exact against the generator's origin.
-internal sealed class TestSignalAudioInput(TestSignalGenerator generator, AudioInputInfo info) : IAudioInput
+internal sealed class TestSignalAudioInput(TestSignalGenerator generator, AudioInputInfo info)
+    : IAudioInput
 {
     private const int SampleRate = 48_000;
     private const int Channels = 2;
@@ -391,7 +416,8 @@ internal sealed class TestSignalAudioInput(TestSignalGenerator generator, AudioI
         byte[] bytes = new byte[samples.Length * sizeof(float)];
         ClockRate rate = new(SampleRate);
         using PeriodicTimer timer = new(TimeSpan.FromMilliseconds(10), generator.TimeProvider);
-        long next = rate.ToTicks(generator.Clock.Now - generator.Origin) / FrameSamples * FrameSamples;
+        long next =
+            rate.ToTicks(generator.Clock.Now - generator.Origin) / FrameSamples * FrameSamples;
         try
         {
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
@@ -424,7 +450,8 @@ internal sealed class TestSignalAudioInput(TestSignalGenerator generator, AudioI
         }
     }
 
-    private sealed class Connection(TestSignalAudioInput input, IAudioFrameConsumer consumer) : IDisposable
+    private sealed class Connection(TestSignalAudioInput input, IAudioFrameConsumer consumer)
+        : IDisposable
     {
         public void Dispose()
         {

@@ -29,7 +29,11 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
     private volatile bool _stopping;
     private bool _disposed;
 
-    public MediaFoundationVideoInput(VideoInputInfo info, VideoInputMode mode, ILoggerFactory loggers)
+    public MediaFoundationVideoInput(
+        VideoInputInfo info,
+        VideoInputMode mode,
+        ILoggerFactory loggers
+    )
     {
         Info = info;
         Mode = mode;
@@ -40,11 +44,17 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
         {
             _reader = MediaFoundationPlatform.Reader(_source);
             IMFMediaType* type = null;
-            foreach ((VideoInputMode native, uint index) in MediaFoundationPlatform.NativeTypes(_reader))
+            foreach (
+                (VideoInputMode native, uint index) in MediaFoundationPlatform.NativeTypes(_reader)
+            )
             {
                 if (native == mode)
                 {
-                    _reader->GetNativeMediaType(MediaFoundationPlatform.FirstVideoStream, index, &type);
+                    _reader->GetNativeMediaType(
+                        MediaFoundationPlatform.FirstVideoStream,
+                        index,
+                        &type
+                    );
                     break;
                 }
             }
@@ -94,7 +104,11 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
             if (_thread is null)
             {
                 _stopping = false;
-                _thread = new Thread(Run) { IsBackground = true, Name = $"Media Foundation {Info.Name}" };
+                _thread = new Thread(Run)
+                {
+                    IsBackground = true,
+                    Name = $"Media Foundation {Info.Name}",
+                };
                 _thread.Start();
             }
         }
@@ -172,7 +186,14 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
                 IMFSample* sample = null;
                 try
                 {
-                    _reader->ReadSample(MediaFoundationPlatform.FirstVideoStream, 0, null, &flags, &time, &sample);
+                    _reader->ReadSample(
+                        MediaFoundationPlatform.FirstVideoStream,
+                        0,
+                        null,
+                        &flags,
+                        &time,
+                        &sample
+                    );
                 }
                 catch (COMException exception)
                 {
@@ -333,7 +354,8 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
     [LoggerMessage(2347, LogLevel.Warning, "A consumer failed to take a Media Foundation frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
-    private sealed class Connection(MediaFoundationVideoInput input, IVideoFrameConsumer consumer) : IDisposable
+    private sealed class Connection(MediaFoundationVideoInput input, IVideoFrameConsumer consumer)
+        : IDisposable
     {
         private int _disposed;
 
