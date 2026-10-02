@@ -8,7 +8,24 @@ namespace Agash.StreamTransport.Linux.Tests;
 // frame's planes the way a consumer on another device would.
 internal static class TestDmaBufs
 {
-    public static VulkanEngine Engine { get; } = VulkanEngine.For(null);
+    // The machine's Vulkan GPU; a test that needs one is inconclusive where there is none (a CI runner).
+    private static readonly Lazy<(VulkanEngine? Engine, string? Missing)> s_engine = new(Create);
+
+    public static VulkanEngine Engine =>
+        s_engine.Value.Engine
+        ?? throw new AssertInconclusiveException(s_engine.Value.Missing ?? "No Vulkan GPU.");
+
+    private static (VulkanEngine?, string?) Create()
+    {
+        try
+        {
+            return (VulkanEngine.For(null), null);
+        }
+        catch (Exception exception) when (exception is VkException or InvalidOperationException)
+        {
+            return (null, $"No Vulkan GPU that shares DMA-BUFs: {exception.Message}");
+        }
+    }
 
     // A pooled picture holding the planes, tightly packed rows each; the pool goes with the picture.
     public static PooledDmaBuf Upload(
