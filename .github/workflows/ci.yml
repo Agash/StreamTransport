@@ -29,6 +29,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The sister libraries build from source until each is released: CI checks out their main branches
+      # beside this repo and points the build at them, as a development machine with the clones does.
+      - name: Check out sister libraries
+        shell: bash
+        run: |
+          for repo in Dtls.Core FFmpeg.Interop PipeWire.NET Spout2.NET Syphon.NET; do
+            git clone --depth 1 "https://github.com/Agash/$repo.git" "$RUNNER_TEMP/deps/$repo"
+          done
+          {
+            echo "DtlsCoreProject=$RUNNER_TEMP/deps/Dtls.Core/src/Dtls.Core/Dtls.Core.csproj"
+            echo "FFmpegInteropProject=$RUNNER_TEMP/deps/FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj"
+            echo "PipeWireNetMediaProject=$RUNNER_TEMP/deps/PipeWire.NET/src/PipeWire.NET.Media/PipeWire.NET.Media.csproj"
+            echo "Spout2NetProject=$RUNNER_TEMP/deps/Spout2.NET/src/Spout2.NET/Spout2.NET.csproj"
+            echo "SyphonNetProject=$RUNNER_TEMP/deps/Syphon.NET/src/Syphon.NET/Syphon.NET.csproj"
+          } >> "$GITHUB_ENV"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
@@ -77,16 +93,12 @@ jobs:
       - name: Build
         run: dotnet build StreamTransport.slnx -c Release --no-restore
 
-      # The gating suite: everything except TestCategory=Integration. Integration covers full real-socket E2E
-      # tests (HttpListener relay + loopback ICE/DTLS/SRTP) that are intermittently slow-or-stuck to establish
-      # under a loaded CI host - a connect race specific to rapid in-process loopback setup, not a logic bug
-      # (cross-machine runs connect reliably; the per-component logic is covered by the WebRtc unit + loopback
-      # tests here). Keeping them off the gate stops a transient flake from blocking every build. (#1)
+      # The gating suite: everything except TestCategory=Integration, which needs real sockets or a live
+      # server (the relay over HttpListener, ICE over loopback UDP, coturn). PeerConnection behaviour runs here
+      # on an in-memory network.
       - name: Test
         run: dotnet test --solution StreamTransport.slnx -c Release --no-build --filter "TestCategory!=Integration" -- --coverage --coverage-settings coverage.settings.xml --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
 
-      # Non-gating: exercise the real-socket E2E integration tests once (Linux, most reliable loopback) so they
-      # still get coverage, but a transient connect flake is reported, not fatal.
       - name: Summarize coverage
         # Renders the cobertura totals into the run summary. Uploading the raw XML alone means nobody
         # ever looks at it; this puts the numbers on the run page itself.
