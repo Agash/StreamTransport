@@ -434,8 +434,9 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                 }
             }
         }
-        catch (FF.FFmpegException ex)
+        catch (Exception ex) when (ex is FF.FFmpegException or NotSupportedException)
         {
+            // No device of the backend's API on that GPU: the backend cannot encode there.
             LogProbeFailed(_logger, codec.Name, ex.Message, ex);
         }
 
@@ -461,7 +462,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                 constraints.MaxHeight > 0 ? constraints.MaxHeight : fallback
             );
         }
-        catch (FF.FFmpegException ex)
+        catch (Exception ex) when (ex is FF.FFmpegException or NotSupportedException)
         {
             LogProbeFailed(_logger, _spec.Backend.ToString(), ex.Message, ex);
             return new VideoSize(fallback, fallback);

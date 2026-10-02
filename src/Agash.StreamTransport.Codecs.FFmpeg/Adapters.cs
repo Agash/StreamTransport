@@ -35,13 +35,16 @@ internal static class Adapters
             device
         );
 
-    // The named GPU if it is of the vendor, or the vendor's GPU with the most dedicated memory.
+    // The named GPU if it is a hardware one of the vendor, or the vendor's hardware GPU with the most
+    // dedicated memory. A software rasterizer (WARP, llvmpipe) runs no hardware codec.
     public static FF.GpuAdapter? For(FF.GpuVendor? vendor, GpuIdentity? device)
     {
         if (device is { } identity)
         {
             FF.GpuAdapter? named = Find(identity);
-            return named is not null && (vendor is null || named.Vendor == vendor) ? named : null;
+            return named is { IsSoftware: false } && (vendor is null || named.Vendor == vendor)
+                ? named
+                : null;
         }
 
         FF.GpuAdapter? best = null;
