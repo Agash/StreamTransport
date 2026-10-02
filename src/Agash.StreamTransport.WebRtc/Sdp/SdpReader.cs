@@ -100,6 +100,7 @@ public static class SdpReader
                     Kind = m.Kind,
                     Mid = m.Mid ?? result.Count.ToString(CultureInfo.InvariantCulture),
                     Direction = m.Direction,
+                    Rejected = m.Rejected,
                     Codecs = m.BuildCodecs(),
                     IceUfrag = m.IceUfrag ?? sessionUfrag,
                     IcePwd = m.IcePwd ?? sessionPwd,
@@ -185,6 +186,7 @@ public static class SdpReader
         public uint? Ssrc { get; private set; }
         public string? Cname { get; private set; }
         public uint? RtxSsrc { get; private set; }
+        public bool Rejected { get; init; }
         public List<IceCandidate> Candidates { get; } = [];
         public bool EndOfCandidates { get; private set; }
 
@@ -204,7 +206,7 @@ public static class SdpReader
                 _ => SdpMediaKind.Application,
             };
 
-            var builder = new MediaBuilder { Kind = kind };
+            var builder = new MediaBuilder { Kind = kind, Rejected = parts[1] == "0" };
             for (int i = 3; i < parts.Length; i++)
             {
                 if (

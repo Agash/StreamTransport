@@ -231,9 +231,31 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 }
             }
 
+            // A section with no codec in common is rejected (RFC 3264 section 6): port 0, listing the
+            // offered formats, and no media negotiated for it.
+            if (answered.Count == 0)
+            {
+                LogSectionRejected(_logger, remote.Kind, remote.Mid);
+                media.Add(
+                    BuildMediaSection(
+                        remote.Mid,
+                        remote.Kind,
+                        remote.Codecs,
+                        ssrc,
+                        SdpSetup.Active,
+                        SdpDirection.Inactive,
+                        rtxSsrc: null
+                    ) with
+                    {
+                        Rejected = true,
+                    }
+                );
+                continue;
+            }
+
             bool repairs = answered.Exists(Rtx.IsRtx);
-            IReadOnlyList<SdpCodec> answerCodecs = answered.Count > 0 ? answered : remote.Codecs;
-            IReadOnlyList<SdpCodec> remoteCodecs = answered.Count > 0 ? offered : remote.Codecs;
+            IReadOnlyList<SdpCodec> answerCodecs = answered;
+            IReadOnlyList<SdpCodec> remoteCodecs = offered;
 
             media.Add(
                 BuildMediaSection(
@@ -377,6 +399,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
             var negotiated = new List<NegotiatedMediaInfo>(description.Media.Count);
             foreach (SdpMediaDescription answered in description.Media)
             {
+                if (answered.Rejected)
+                {
+                    LogSectionRejected(_logger, answered.Kind, answered.Mid);
+                    continue;
+                }
+
                 IReadOnlyList<SdpCodec> offered = LocalCodecsFor(answered.Kind);
                 List<SdpCodec> ours =
                 [
@@ -1229,4 +1257,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "Retransmission negotiated: this side repairs {Sent} streams and asks for repairs of {Received}."
     )]
     private partial void LogRtx(int sent, int received);
+
+    [LoggerMessage(
+        EventId = 1103,
+        Level = LogLevel.Warning,
+        Message = "The {Kind} section {Mid} is rejected: the peers share no codec for it."
+    )]
+    private static partial void LogSectionRejected(ILogger logger, SdpMediaKind kind, string mid);
 }

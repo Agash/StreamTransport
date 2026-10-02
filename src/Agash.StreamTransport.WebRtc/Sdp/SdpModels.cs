@@ -85,6 +85,12 @@ public sealed record SdpMediaDescription
     /// <summary>The direction.</summary>
     public SdpDirection Direction { get; init; } = SdpDirection.SendRecv;
 
+    /// <summary>
+    /// Whether the section is rejected: port 0 on its m-line, as an answerer declines a section it
+    /// shares no codec with (RFC 3264 section 6). A rejected section carries no media.
+    /// </summary>
+    public bool Rejected { get; init; }
+
     /// <summary>The offered/answered codecs in preference order.</summary>
     public required IReadOnlyList<SdpCodec> Codecs { get; init; }
 

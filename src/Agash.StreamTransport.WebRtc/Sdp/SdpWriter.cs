@@ -51,7 +51,10 @@ public static class SdpWriter
             _ => "application",
         };
 
-        sb.Append(CultureInfo.InvariantCulture, $"m={kind} 9 UDP/TLS/RTP/SAVPF");
+        sb.Append(
+            CultureInfo.InvariantCulture,
+            $"m={kind} {(media.Rejected ? 0 : 9)} UDP/TLS/RTP/SAVPF"
+        );
         foreach (SdpCodec codec in media.Codecs)
         {
             sb.Append(CultureInfo.InvariantCulture, $" {codec.PayloadType}");
