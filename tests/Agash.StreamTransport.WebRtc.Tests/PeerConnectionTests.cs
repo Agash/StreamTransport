@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.CongestionControl;
 using Agash.StreamTransport.WebRtc.Rtp;
@@ -25,18 +26,18 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task OfferAnswer_ConnectsAndDeliversEncryptedRtp()
     {
+        InMemoryIceNetwork network = new();
         var opusCodec = new SdpCodec(111, "opus", 48000, 2, null, []);
         var offererOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x1111_1111, [opusCodec])],
         };
         var answererOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.2")),
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x2222_2222, [opusCodec])],
         };
 
@@ -108,21 +109,21 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task Mobility_Recovery_ReconnectsAndPreservesSrtpSession()
     {
+        InMemoryIceNetwork network = new();
         // Connect, then force a mobility recovery on the sender. A packet sent AFTER recovery must still
         // decrypt at the receiver - which only works if the SRTP session (keys + rollover counter) was
         // preserved across the re-probe, the core mobility guarantee.
         var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
         var offererOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x1111_1111, [opus])],
         };
         var answererOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.2")),
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x2222_2222, [opus])],
         };
 
@@ -187,18 +188,18 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task IceRestart_RotatesCredentials_AndPreservesSrtpSession()
     {
+        InMemoryIceNetwork network = new();
         var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
         var offererOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x3333_3333, [opus])],
         };
         var answererOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.2")),
             Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x4444_4444, [opus])],
         };
 
@@ -269,23 +270,21 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
-    // Live two-PeerConnection loopback (real ICE/DTLS handshake): off the gate, as the loopback connect races on
-    // a loaded CI host - notably the macOS runner (#1). Runs in the non-gating Integration leg.
-    [TestCategory("Integration")]
     public async Task Congestion_FeedbackLoop_IsLive_AndProducesEstimates()
     {
+        InMemoryIceNetwork network = new();
         // Proves the congestion loop is actually wired in a live connection (CCFB timer + estimate event +
         // controller integration run end to end). It does not assert backoff behaviour - that needs a lossy
         // link; SCReAM's algorithm itself is unit-tested separately.
         var videoCodec = new SdpCodec(96, "H265", 90000, null, null, ["nack", "nack pli"]);
         var senderOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xCCCC_0001, [videoCodec])],
         };
         var receiverOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.2")),
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xDDDD_0001, [videoCodec])],
         };
 
@@ -518,9 +517,9 @@ public sealed class PeerConnectionTests
 
     [TestMethod]
     [Timeout(90_000)]
-    [TestCategory("Integration")] // live loopback ICE/DTLS connect; off the gate, races on the GH macOS runner (#1)
     public async Task Receiver_RequestKeyframe_ReachesSenderAsRtcpPli()
     {
+        InMemoryIceNetwork network = new();
         var videoCodec = new SdpCodec(
             96,
             "H264",
@@ -531,12 +530,12 @@ public sealed class PeerConnectionTests
         );
         var senderOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xAAAA_0001, [videoCodec])],
         };
         var receiverOptions = new PeerConnectionOptions
         {
-            IncludeLoopback = true,
+            SocketFactory = network.Factory(IPAddress.Parse("10.0.0.2")),
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0001, [videoCodec])],
         };
 
