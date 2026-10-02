@@ -23,11 +23,19 @@ internal sealed class InMemoryIceNetwork
     public IReadOnlyList<IPEndPoint> BoundOn(IPAddress address) =>
         [.. _sockets.Keys.Where(endpoint => endpoint.Address.Equals(address))];
 
+    /// <summary>Decides which datagrams the network loses: true drops one.</summary>
+    public Func<IPEndPoint, IPEndPoint, byte[], bool>? Drop { get; set; }
+
     /// <summary>Puts a datagram on a socket as if it arrived from <paramref name="from"/>.</summary>
     public void Inject(IPEndPoint from, IPEndPoint to, byte[] data) => Deliver(from, to, data);
 
     private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data)
     {
+        if (Drop?.Invoke(from, to, data) == true)
+        {
+            return;
+        }
+
         if (_sockets.TryGetValue(to, out FakeSocket? destination))
         {
             destination.Enqueue(from, data);

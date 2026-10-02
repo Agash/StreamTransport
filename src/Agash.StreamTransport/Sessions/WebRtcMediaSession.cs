@@ -48,7 +48,6 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
     // RTP payload size that fits a 1280-byte IPv6 minimum MTU after IP, UDP, RTP, extension and SRTP.
     private const int MaxPayloadSize = 1100;
     private const int FirstVideoPayloadType = 96;
-    private const byte VideoRtxPayloadType = 97;
     private const int AudioPayloadType = 111;
     private const long DefaultStartBitsPerSecond = 2_000_000;
     private const long MinimumVideoBitsPerSecond = 100_000;
@@ -306,11 +305,6 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 ImmutableArray<AlphaLayout> alpha = AlphaWays(codec);
                 foreach (string? parameters in format.FormatParameterSets)
                 {
-                    if (payloadType == VideoRtxPayloadType)
-                    {
-                        payloadType++;
-                    }
-
                     var offered = format.ToSdpCodec(payloadType++, parameters);
                     if (!alpha.IsEmpty)
                     {
@@ -325,6 +319,9 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                     }
 
                     codecs.Add(offered);
+
+                    // Its retransmissions, on a payload type of their own (RFC 4588).
+                    codecs.Add(Rtx.For(payloadType++, offered.PayloadType, offered.ClockRate));
                 }
             }
 
@@ -333,7 +330,6 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 new MediaLine("1", SdpMediaKind.Video, ssrc, codecs)
                 {
                     RtxSsrc = NewSsrc(),
-                    RtxPayloadType = VideoRtxPayloadType,
                     Direction = Direction(
                         _endpoints.VideoSource is not null,
                         _endpoints.VideoSink is not null

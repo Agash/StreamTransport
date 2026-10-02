@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
@@ -38,7 +39,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly Dictionary<uint, ushort> _sendSequence = [];
     private readonly ConcurrentDictionary<uint, RtpSendHistory> _sendHistory = new();
-    private readonly Dictionary<uint, RtxState> _rtx = [];
+
+    // Retransmission as negotiated: replaced whole when a description is applied, read without a lock.
+    private RtxConfiguration _rtx = RtxConfiguration.None;
     private readonly Lock _gate = new();
     private uint _rtcpSenderSsrc;
 
@@ -97,11 +100,6 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 _rtcpSenderSsrc = line.LocalSsrc;
             }
-
-            if (line is { RtxSsrc: { } rtxSsrc, RtxPayloadType: { } rtxPt })
-            {
-                _rtx[line.LocalSsrc] = new RtxState(rtxSsrc, rtxPt);
-            }
         }
     }
 
@@ -147,7 +145,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Codecs,
                     line.LocalSsrc,
                     SdpSetup.ActPass,
-                    line.Direction
+                    line.Direction,
+                    line.RtxSsrc
                 )
             );
         }
@@ -182,8 +181,18 @@ public sealed partial class PeerConnection : IAsyncDisposable
             List<SdpCodec> answered = [];
             foreach (SdpCodec rc in remote.Codecs)
             {
+                if (Rtx.IsRtx(rc))
+                {
+                    continue;
+                }
+
                 foreach (SdpCodec lc in local)
                 {
+                    if (Rtx.IsRtx(lc))
+                    {
+                        continue;
+                    }
+
                     // One payload type per codec: a browser offers several of each (H.264 profiles and
                     // packetization modes), and the first that matches is the one used.
                     if (
@@ -204,6 +213,25 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 }
             }
 
+            // Retransmission for each answered codec the offer pairs with an rtx codec, when this
+            // endpoint retransmits on the line too (RFC 4588).
+            uint? rtxSsrc = LocalRtxSsrcFor(remote.Mid, remote.Kind);
+            if (rtxSsrc is not null)
+            {
+                foreach (SdpCodec primary in answered.ToArray())
+                {
+                    if (
+                        remote.Codecs.FirstOrDefault(c => Rtx.Repairs(c) == primary.PayloadType) is
+                        { EncodingName: not null } repair
+                    )
+                    {
+                        offered.Add(repair);
+                        answered.Add(Rtx.For(repair.PayloadType, primary.PayloadType));
+                    }
+                }
+            }
+
+            bool repairs = answered.Exists(Rtx.IsRtx);
             IReadOnlyList<SdpCodec> answerCodecs = answered.Count > 0 ? answered : remote.Codecs;
             IReadOnlyList<SdpCodec> remoteCodecs = answered.Count > 0 ? offered : remote.Codecs;
 
@@ -214,7 +242,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     answerCodecs,
                     ssrc,
                     SdpSetup.Active,
-                    Answer(remote.Direction, LocalDirectionFor(remote.Kind))
+                    Answer(remote.Direction, LocalDirectionFor(remote.Kind)),
+                    repairs ? rtxSsrc : null
                 )
             );
             negotiated.Add(
@@ -223,6 +252,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         NegotiatedMedia = negotiated;
+        ConfigureRtx(offer);
         if (_iceAgent is null)
         {
             StartIce(IceRole.Controlled);
@@ -305,7 +335,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Codecs,
                     line.LocalSsrc,
                     SdpSetup.ActPass,
-                    line.Direction
+                    line.Direction,
+                    line.RtxSsrc
                 )
             );
         }
@@ -368,6 +399,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             NegotiatedMedia = negotiated;
+            ConfigureRtx(description);
         }
 
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
@@ -473,7 +505,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             // Keep the cleartext packet for possible NACK-driven RTX retransmission.
-            if (_rtx.ContainsKey(ssrc))
+            if (Volatile.Read(ref _rtx).Send.ContainsKey(ssrc))
             {
                 _sendHistory
                     .GetOrAdd(ssrc, static _ => new RtpSendHistory())
@@ -547,7 +579,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             role,
             _options.IncludeLoopback,
             _loggerFactory.CreateLogger<IceAgent>(),
-            socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences),
+            socketFactory: _options.SocketFactory
+                ?? new UdpIceSocketFactory(_options.LocalAddressPreferences),
             timeProvider: _time,
             transportPolicy: _options.IceTransportPolicy,
             meterFactory: _meterFactory
@@ -798,7 +831,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         if (
             _srtp is not { } srtp
             || _iceAgent is not { } agent
-            || !_rtx.TryGetValue(mediaSsrc, out RtxState? rtx)
+            || !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
             || !_sendHistory.TryGetValue(mediaSsrc, out RtpSendHistory? history)
         )
         {
@@ -807,7 +840,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         foreach (ushort seq in lostSequences)
         {
-            if (!history.TryGet(seq, out ReadOnlyMemory<byte> original))
+            // The repair travels with the rtx payload type paired with the original's (RFC 4588).
+            if (
+                !history.TryGet(seq, out ReadOnlyMemory<byte> original)
+                || original.Length < 2
+                || !rtx.PayloadTypes.TryGetValue(
+                    (byte)(original.Span[1] & 0x7F),
+                    out byte rtxPayloadType
+                )
+            )
             {
                 continue;
             }
@@ -821,7 +862,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     !RtxStream.TryWrap(
                         original.Span,
                         buffer,
-                        rtx.PayloadType,
+                        rtxPayloadType,
                         rtx.Ssrc,
                         rtx.NextSequence(),
                         out int rtxLength
@@ -843,27 +884,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
-    // Test-only injected packet loss: STX_RTP_DROP=<0..0.9> drops that fraction of incoming media/RTX/FEC RTP
-    // packets, so loss-resilience (FEC / NACK-RTX / intra-refresh / PLI) can be exercised on a clean loopback.
-    // Parsed once; zero (and no overhead beyond the compare) in production where the env var is unset.
-    private static readonly double s_rtpDropRate =
-        double.TryParse(
-            Environment.GetEnvironmentVariable("STX_RTP_DROP"),
-            System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out double r
-        )
-        && r > 0
-            ? Math.Min(r, 0.9)
-            : 0d;
-
     private void ReceiveRtp(Memory<byte> data, byte ecn)
     {
-        if (s_rtpDropRate > 0d && Random.Shared.NextDouble() < s_rtpDropRate)
-        {
-            return; // injected loss (test-only)
-        }
-
         if (_srtp is not { } srtp)
         {
             return;
@@ -947,11 +969,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         RecordArrival(header.Ssrc, header.SequenceNumber, NowMicros(), ecn);
 
-        // Loss recovery (NACK): only for media the peer can retransmit (an RTX partner is configured for it).
-        // Remember its PT so an inbound RTX packet can be unwrapped back to the right payload type.
-        if (_rtx.ContainsKey(header.Ssrc))
+        // Loss recovery (NACK): only for media the peer said it retransmits.
+        if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
         {
-            RememberMediaPayloadType(header.Ssrc, header.PayloadType);
             OnMediaSequence(header.Ssrc, header.SequenceNumber);
         }
 
@@ -980,7 +1000,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         IReadOnlyList<SdpCodec> codecs,
         uint ssrc,
         SdpSetup setup,
-        SdpDirection direction
+        SdpDirection direction,
+        uint? rtxSsrc
     ) =>
         new()
         {
@@ -993,6 +1014,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Fingerprint = _certificate.Fingerprint,
             Setup = setup,
             Ssrc = ssrc == 0 ? null : ssrc,
+            RtxSsrc = ssrc == 0 ? null : rtxSsrc,
             Cname = "streamtransport",
         };
 
@@ -1004,6 +1026,66 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
         )?.LocalSsrc
         ?? 0;
+
+    private uint? LocalRtxSsrcFor(string mid, SdpMediaKind kind) =>
+        (
+            _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
+            ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
+        )?.RtxSsrc;
+
+    // What retransmission the negotiation agreed: per line, an rtx codec on both sides for a media
+    // codec. This endpoint sends repairs of its media on its RTX SSRC with the rtx payload type paired
+    // with the original's; it asks for repairs (NACK) of the peer's media the peer announced an RTX SSRC
+    // for, and reads them back by that SSRC.
+    private void ConfigureRtx(SdpDescription remote)
+    {
+        Dictionary<uint, RtxSender> send = [];
+        Dictionary<uint, RtxReceiver> receive = [];
+        HashSet<uint> repairable = [];
+        foreach (NegotiatedMediaInfo media in NegotiatedMedia)
+        {
+            Dictionary<byte, byte> rtxFor = [];
+            foreach (SdpCodec codec in media.Codecs)
+            {
+                if (Rtx.Repairs(codec) is { } primary)
+                {
+                    rtxFor[(byte)primary] = (byte)codec.PayloadType;
+                }
+            }
+
+            if (rtxFor.Count == 0)
+            {
+                continue;
+            }
+
+            if (LocalRtxSsrcFor(media.Mid, media.Kind) is { } localRtx && media.LocalSsrc != 0)
+            {
+                send[media.LocalSsrc] = new RtxSender(localRtx, rtxFor.ToFrozenDictionary());
+            }
+
+            if (
+                remote.Media.FirstOrDefault(m => m.Mid == media.Mid) is
+                { Ssrc: { } remoteMedia, RtxSsrc: { } remoteRtx }
+            )
+            {
+                receive[remoteRtx] = new RtxReceiver(
+                    remoteMedia,
+                    rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
+                );
+                _ = repairable.Add(remoteMedia);
+            }
+        }
+
+        Volatile.Write(
+            ref _rtx,
+            new RtxConfiguration(
+                send.ToFrozenDictionary(),
+                receive.ToFrozenDictionary(),
+                repairable.ToFrozenSet()
+            )
+        );
+        LogRtx(send.Count, receive.Count);
+    }
 
     // The codecs this endpoint can handle for a kind, taken from the configured offer lines.
     private IReadOnlyList<SdpCodec> LocalCodecsFor(SdpMediaKind kind)
@@ -1094,14 +1176,33 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Interlocked.Exchange(ref _srtp, null)?.Dispose();
     }
 
-    private sealed class RtxState(uint ssrc, byte payloadType)
+    // Repairs of one of this endpoint's media streams: the RTX SSRC, the rtx payload type for each
+    // media payload type, and the RTX stream's own sequence.
+    private sealed class RtxSender(uint ssrc, FrozenDictionary<byte, byte> payloadTypes)
     {
         private int _sequence;
 
         public uint Ssrc { get; } = ssrc;
-        public byte PayloadType { get; } = payloadType;
+
+        public FrozenDictionary<byte, byte> PayloadTypes { get; } = payloadTypes;
 
         public ushort NextSequence() => (ushort)Interlocked.Increment(ref _sequence);
+    }
+
+    // The peer's repairs of one of its media streams: the media SSRC, and the original payload type for
+    // each rtx payload type.
+    private sealed record RtxReceiver(
+        uint MediaSsrc,
+        FrozenDictionary<byte, byte> OriginalPayloadTypes
+    );
+
+    private sealed record RtxConfiguration(
+        FrozenDictionary<uint, RtxSender> Send,
+        FrozenDictionary<uint, RtxReceiver> Receive,
+        FrozenSet<uint> Repairable
+    )
+    {
+        public static RtxConfiguration None { get; } = new([], [], []);
     }
 
     [LoggerMessage(
@@ -1121,4 +1222,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "PeerConnection DTLS handshake failed"
     )]
     private static partial void LogHandshakeFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 1102,
+        Level = LogLevel.Debug,
+        Message = "Retransmission negotiated: this side repairs {Sent} streams and asks for repairs of {Received}."
+    )]
+    private partial void LogRtx(int sent, int received);
 }

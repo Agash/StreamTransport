@@ -107,6 +107,7 @@ public static class SdpReader
                     Setup = m.Setup ?? sessionSetup,
                     RtcpMux = m.RtcpMux,
                     Ssrc = m.Ssrc,
+                    RtxSsrc = m.RtxSsrc,
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
                     EndOfCandidates = m.EndOfCandidates,
@@ -183,6 +184,7 @@ public static class SdpReader
         public bool RtcpMux { get; private set; }
         public uint? Ssrc { get; private set; }
         public string? Cname { get; private set; }
+        public uint? RtxSsrc { get; private set; }
         public List<IceCandidate> Candidates { get; } = [];
         public bool EndOfCandidates { get; private set; }
 
@@ -284,6 +286,10 @@ public static class SdpReader
             {
                 ParseFeedback(fb);
             }
+            else if (TryValue(line, "a=ssrc-group:FID ", out string fid))
+            {
+                ParseFid(fid);
+            }
             else if (TryValue(line, "a=ssrc:", out string ssrc))
             {
                 ParseSsrc(ssrc);
@@ -354,16 +360,33 @@ public static class SdpReader
             }
         }
 
+        // a=ssrc lines name the media SSRC first; a later one (the RTX SSRC, a FEC SSRC) does not
+        // replace it. An FID group says which is which.
         private void ParseSsrc(string value)
         {
             string[] parts = value.Split(' ', 2);
             if (uint.TryParse(parts[0], out uint ssrc))
             {
-                Ssrc = ssrc;
+                Ssrc ??= ssrc;
                 if (parts.Length == 2 && TryValue(parts[1], "cname:", out string cname))
                 {
-                    Cname = cname;
+                    Cname ??= cname;
                 }
+            }
+        }
+
+        // a=ssrc-group:FID <media> <rtx> (RFC 5576, RFC 4588).
+        private void ParseFid(string value)
+        {
+            string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (
+                parts.Length == 2
+                && uint.TryParse(parts[0], out uint media)
+                && uint.TryParse(parts[1], out uint rtx)
+            )
+            {
+                Ssrc = media;
+                RtxSsrc = rtx;
             }
         }
     }

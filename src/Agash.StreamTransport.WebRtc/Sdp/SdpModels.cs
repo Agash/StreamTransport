@@ -103,8 +103,14 @@ public sealed record SdpMediaDescription
     /// <summary>Whether RTP and RTCP are multiplexed on one port (<c>a=rtcp-mux</c>); always true here.</summary>
     public bool RtcpMux { get; init; } = true;
 
-    /// <summary>The local SSRC for this section, if announced (<c>a=ssrc</c>).</summary>
+    /// <summary>The media SSRC of this section, if announced (<c>a=ssrc</c>).</summary>
     public uint? Ssrc { get; init; }
+
+    /// <summary>
+    /// The SSRC retransmissions of <see cref="Ssrc"/> travel on (RFC 4588), as
+    /// <c>a=ssrc-group:FID media rtx</c> pairs them; null when the section announces none.
+    /// </summary>
+    public uint? RtxSsrc { get; init; }
 
     /// <summary>The RTCP canonical name (<c>a=ssrc ... cname:</c>).</summary>
     public string? Cname { get; init; }

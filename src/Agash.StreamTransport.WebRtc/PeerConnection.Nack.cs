@@ -17,7 +17,6 @@ public sealed partial class PeerConnection
 {
     private readonly Lock _nackGate = new();
     private readonly Dictionary<uint, NackStream> _nackStreams = [];
-    private readonly Dictionary<uint, byte> _remoteMediaPayloadType = [];
     private readonly List<ushort> _nackScratch = [];
 
     // libwebrtc parity: bound the missing set, give up to a keyframe after a fixed retry budget, and treat a
@@ -27,20 +26,9 @@ public sealed partial class PeerConnection
     private const int MaxNackPacketAge = 10_000; // a forward jump beyond this is a reset, not loss (kMaxPacketAge)
     private const long NackResendIntervalMicros = 100_000; // resend a still-missing seq at most every RTT (kDefaultRtt)
 
-    // The original media payload type to restore when unwrapping an RTX packet (RFC 4588 carries only the
-    // original sequence number, not the PT). Learned from the media stream's own packets, which always precede
-    // any retransmission of them.
-    private void RememberMediaPayloadType(uint mediaSsrc, byte payloadType)
-    {
-        lock (_nackGate)
-        {
-            _remoteMediaPayloadType[mediaSsrc] = payloadType;
-        }
-    }
-
-    // Recognize an inbound RTX packet: its SSRC + PT match a configured RTX stream. SSRC config is symmetric
-    // (both peers use the same constants), so _rtx - built for our send side - also describes the RTX stream the
-    // peer retransmits on. Returns the media SSRC the retransmission belongs to and the PT to restore.
+    // An inbound packet on the RTX SSRC the peer announced for one of its media streams, with an rtx
+    // payload type paired with one of that stream's: the media SSRC it repairs and the payload type the
+    // original had.
     private bool TryRecognizeRtx(
         uint ssrc,
         byte payloadType,
@@ -48,16 +36,13 @@ public sealed partial class PeerConnection
         out byte originalPayloadType
     )
     {
-        foreach ((uint media, RtxState rtx) in _rtx)
+        if (
+            Volatile.Read(ref _rtx).Receive.TryGetValue(ssrc, out RtxReceiver? receiver)
+            && receiver.OriginalPayloadTypes.TryGetValue(payloadType, out originalPayloadType)
+        )
         {
-            if (rtx.Ssrc == ssrc && rtx.PayloadType == payloadType)
-            {
-                mediaSsrc = media;
-                lock (_nackGate)
-                {
-                    return _remoteMediaPayloadType.TryGetValue(media, out originalPayloadType);
-                }
-            }
+            mediaSsrc = receiver.MediaSsrc;
+            return true;
         }
 
         mediaSsrc = 0;

@@ -114,10 +114,17 @@ public static class SdpWriter
 
         if (media.Ssrc is { } ssrc)
         {
-            sb.Append(
-                CultureInfo.InvariantCulture,
-                $"a=ssrc:{ssrc} cname:{media.Cname ?? "streamtransport"}\r\n"
-            );
+            string cname = media.Cname ?? "streamtransport";
+            if (media.RtxSsrc is { } rtx)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc-group:FID {ssrc} {rtx}\r\n");
+            }
+
+            sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{ssrc} cname:{cname}\r\n");
+            if (media.RtxSsrc is { } rtxSsrc)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{rtxSsrc} cname:{cname}\r\n");
+            }
         }
     }
 

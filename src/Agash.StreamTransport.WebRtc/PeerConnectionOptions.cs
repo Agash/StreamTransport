@@ -19,14 +19,12 @@ public sealed record MediaLine(
 )
 {
     /// <summary>
-    /// The RTX SSRC for retransmissions of this line (RFC 4588). Required to serve NACKs: SRTP forbids
-    /// nonce reuse, so a lost packet must be retransmitted on a distinct SSRC with a fresh sequence number,
-    /// never by resending the original. Null disables retransmission for this line.
+    /// The SSRC this endpoint retransmits the line's media on (RFC 4588). SRTP forbids nonce reuse, so a
+    /// lost packet travels again on a distinct SSRC with a fresh sequence number, never as the original.
+    /// Retransmission is offered with an <c>rtx</c> codec per media codec in <see cref="Codecs"/>
+    /// (<c>apt=</c> its payload type); null offers none.
     /// </summary>
     public uint? RtxSsrc { get; init; }
-
-    /// <summary>The RTX payload type (RFC 4588) used for retransmissions of this line.</summary>
-    public byte? RtxPayloadType { get; init; }
 
     /// <summary>Whether this endpoint sends, receives or both on the line.</summary>
     public SdpDirection Direction { get; init; } = SdpDirection.SendRecv;
@@ -63,6 +61,13 @@ public sealed class PeerConnectionOptions
     /// </summary>
     public RtpPayloadFormatRegistry PayloadFormats { get; init; } =
         RtpPayloadFormatRegistry.BuiltIn;
+
+    /// <summary>
+    /// Where ICE gets its sockets; UDP on this host's addresses, ranked by
+    /// <see cref="LocalAddressPreferences"/>, when null. An embedder supplies its own to put ICE on a
+    /// transport of its choosing; tests supply an in-memory network.
+    /// </summary>
+    public IIceSocketFactory? SocketFactory { get; init; }
 
     /// <summary>STUN servers to gather server-reflexive candidates from.</summary>
     public IReadOnlyList<IPEndPoint> StunServers { get; init; } = [];
