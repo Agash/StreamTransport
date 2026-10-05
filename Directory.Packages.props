@@ -36,7 +36,7 @@
     <PackageVersion Include="Vortice.D3DCompiler" Version="3.8.3" />
     <!-- Linux GPU alpha pack/unpack: Vulkan compute over a dmabuf VkImage (zero-copy), with runtime
          GLSL->SPIR-V via shaderc - the cross-platform parallel to Vortice.Direct3D11 + Vortice.D3DCompiler. -->
-    <PackageVersion Include="Vortice.Vulkan" Version="3.2.3" />
+    <PackageVersion Include="Vortice.Vulkan" Version="3.3.0" />
     <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
     <!-- Friendly console UX for the sample agent. -->
     <PackageVersion Include="Spectre.Console" Version="0.57.2" />
