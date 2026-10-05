@@ -121,10 +121,23 @@ internal static unsafe partial class Recording
         VkPipelineStageFlags toStage
     )
     {
+        // The planes of a multi-planar picture are one image, which takes one barrier.
         VkImageMemoryBarrier* barriers = stackalloc VkImageMemoryBarrier[images.Length];
+        int count = 0;
         for (int i = 0; i < images.Length; i++)
         {
-            barriers[i] = new VkImageMemoryBarrier
+            bool seen = false;
+            for (int j = 0; j < count && !seen; j++)
+            {
+                seen = barriers[j].image == images[i].Image;
+            }
+
+            if (seen)
+            {
+                continue;
+            }
+
+            barriers[count++] = new VkImageMemoryBarrier
             {
                 srcAccessMask = fromAccess,
                 dstAccessMask = toAccess,
@@ -154,7 +167,7 @@ internal static unsafe partial class Recording
             null,
             0,
             null,
-            (uint)images.Length,
+            (uint)count,
             barriers
         );
     }

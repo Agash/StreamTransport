@@ -128,14 +128,9 @@ internal static unsafe class VulkanTransfer
             {
                 VkImageCopy region = new()
                 {
-                    srcSubresource = new VkImageSubresourceLayers(
-                        VkImageAspectFlags.Color,
-                        0,
-                        0,
-                        1
-                    ),
+                    srcSubresource = new VkImageSubresourceLayers(imported[plane].Aspect, 0, 0, 1),
                     dstSubresource = new VkImageSubresourceLayers(
-                        VkImageAspectFlags.Color,
+                        destination[plane].Aspect,
                         0,
                         0,
                         1
@@ -218,7 +213,7 @@ internal static unsafe class VulkanTransfer
     private static VkBufferImageCopy Region(VulkanImage image) =>
         new()
         {
-            imageSubresource = new VkImageSubresourceLayers(VkImageAspectFlags.Color, 0, 0, 1),
+            imageSubresource = new VkImageSubresourceLayers(image.Aspect, 0, 0, 1),
             imageExtent = new VkExtent3D(image.Width, image.Height, 1),
         };
 

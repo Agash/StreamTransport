@@ -7,24 +7,21 @@ namespace Agash.StreamTransport.Linux.Vulkan;
 
 /// <summary>
 /// One plane of a picture as a Vulkan image on DMA-BUF memory: imported from a producer's buffer, or
-/// allocated here and exported for a consumer. Planar pictures are one image per plane; an exported
-/// picture's planes share one DMA-BUF at their own offsets, as producers lay them out, since importers
-/// such as VA-API map only pictures made of a single DMA-BUF object.
+/// allocated here and exported for a consumer. An imported plane is an image of its own. An exported
+/// picture is one image on one dedicated allocation, exported once, whose planes are the image's plane
+/// aspects: importers such as VA-API and Vulkan Video take pictures made of a single DMA-BUF object, and
+/// drivers want exported images on memory of their own.
 /// </summary>
 internal sealed unsafe partial class VulkanImage : IDisposable
 {
     private readonly VulkanEngine _engine;
-
-    // An imported image owns its memory; an exported one shares its picture's allocation.
-    private readonly VkDeviceMemory _memory;
-    private readonly ExportedAllocation? _allocation;
+    private readonly SharedImage _shared;
     private int _disposed;
 
     private VulkanImage(
         VulkanEngine engine,
-        VkImage image,
-        VkDeviceMemory memory,
-        ExportedAllocation? allocation,
+        SharedImage shared,
+        VkImageAspectFlags aspect,
         VkFormat format,
         int width,
         int height,
@@ -33,9 +30,8 @@ internal sealed unsafe partial class VulkanImage : IDisposable
     )
     {
         _engine = engine;
-        Image = image;
-        _memory = memory;
-        _allocation = allocation;
+        _shared = shared;
+        Aspect = aspect;
         Format = format;
         Width = width;
         Height = height;
@@ -43,8 +39,13 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         Modifier = modifier;
     }
 
-    public VkImage Image { get; }
+    /// <summary>The image the plane is in: the plane's own, or its picture's.</summary>
+    public VkImage Image => _shared.Image;
 
+    /// <summary>The plane in the image: the color aspect, or one plane of a multi-planar picture.</summary>
+    public VkImageAspectFlags Aspect { get; }
+
+    /// <summary>How the shaders see the plane's texels.</summary>
     public VkFormat Format { get; }
 
     public int Width { get; }
@@ -52,7 +53,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
     public int Height { get; }
 
     /// <summary>The DMA-BUF this image's picture exports; null for an imported image.</summary>
-    public SafeFileHandle? Exported => _allocation?.Handle;
+    public SafeFileHandle? Exported => _shared.Exported;
 
     /// <summary>Where the plane lies in its DMA-BUF.</summary>
     public DmaBufPlane Plane { get; }
@@ -136,12 +137,19 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                 allocated.CheckResult();
             }
 
-            api.vkBindImageMemory(image, memory, 0).CheckResult();
+            VkResult bound = api.vkBindImageMemory(image, memory, 0);
+            if (bound != VkResult.Success)
+            {
+                api.vkFreeMemory(memory, null);
+                bound.CheckResult();
+            }
+
+            SharedImage shared = new(engine, image, memory, exported: null, planes: 1);
+            image = VkImage.Null;
             return new VulkanImage(
                 engine,
-                image,
-                memory,
-                null,
+                shared,
+                VkImageAspectFlags.Color,
                 format,
                 width,
                 height,
@@ -149,21 +157,24 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                 modifier
             );
         }
-        catch
+        finally
         {
-            api.vkDestroyImage(image, null);
-            throw;
+            if (image != VkImage.Null)
+            {
+                api.vkDestroyImage(image, null);
+            }
         }
     }
 
     /// <summary>
-    /// Allocates a picture's planes as linear images in one exported DMA-BUF, each at its own offset,
-    /// and exports it once: every plane names the same descriptor.
+    /// Allocates a picture as one linear image on a dedicated allocation and exports it once: a single
+    /// plane, or the planes of a multi-planar format, each at the offset the driver lays it at. Every
+    /// plane names the same descriptor.
     /// </summary>
     /// <param name="engine">The GPU.</param>
-    /// <param name="planes">Each plane's texel format and size.</param>
-    /// <param name="usage">How the images are used here.</param>
-    /// <returns>The planes' images, which share the allocation until the last is disposed.</returns>
+    /// <param name="planes">Each plane's texel format and size, as the shaders see it.</param>
+    /// <param name="usage">How the planes are used here.</param>
+    /// <returns>The planes, which share the image until the last is disposed.</returns>
     public static VulkanImage[] ExportPicture(
         VulkanEngine engine,
         ReadOnlySpan<(VkFormat Format, int Width, int Height)> planes,
@@ -171,6 +182,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
     )
     {
         VkDeviceApi api = engine.Api;
+        VkFormat format = planes.Length == 1 ? planes[0].Format : MultiPlanar(planes);
         ulong linear = VulkanEngine.LinearModifier;
         VkImageDrmFormatModifierListCreateInfoEXT modifiers = new()
         {
@@ -183,50 +195,50 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             handleTypes = VkExternalMemoryHandleTypeFlags.DmaBufEXT,
         };
 
-        var images = new VkImage[planes.Length];
-        ulong[] offsets = new ulong[planes.Length];
-        VkDeviceMemory memory = default;
-        try
+        // A multi-planar picture is written plane by plane through views in each plane's own format.
+        VkFormat* viewFormats = stackalloc VkFormat[planes.Length + 1];
+        viewFormats[0] = format;
+        for (int i = 0; i < planes.Length; i++)
         {
-            // The planes laid end to end, each at its own alignment, in memory every plane can use.
-            ulong size = 0;
-            uint memoryTypes = uint.MaxValue;
-            for (int i = 0; i < planes.Length; i++)
-            {
-                images[i] = CreateImage(
+            viewFormats[i + 1] = planes[i].Format;
+        }
+
+        VkImage image =
+            planes.Length == 1
+                ? CreateImage(api, &external, format, planes[0].Width, planes[0].Height, usage)
+                : CreatePlanarImage(
                     api,
                     &external,
-                    planes[i].Format,
-                    planes[i].Width,
-                    planes[i].Height,
+                    format,
+                    new ReadOnlySpan<VkFormat>(viewFormats, planes.Length + 1),
+                    planes[0].Width,
+                    planes[0].Height,
                     usage
                 );
-                VkMemoryRequirements requirements;
-                api.vkGetImageMemoryRequirements(images[i], &requirements);
-                ulong alignment = Math.Max(requirements.alignment, 1);
-                offsets[i] = (size + alignment - 1) / alignment * alignment;
-                size = offsets[i] + requirements.size;
-                memoryTypes &= requirements.memoryTypeBits;
-            }
-
-            // One image alone takes a dedicated allocation, which some drivers want for export.
-            VkMemoryDedicatedAllocateInfo dedicated = new() { image = images[0] };
+        VkDeviceMemory memory = default;
+        SharedImage? shared = null;
+        try
+        {
+            VkImageMemoryRequirementsInfo2 requirementsInfo = new() { image = image };
+            VkMemoryRequirements2 requirements = new();
+            api.vkGetImageMemoryRequirements2(&requirementsInfo, &requirements);
+            VkMemoryDedicatedAllocateInfo dedicated = new() { image = image };
             VkExportMemoryAllocateInfo export = new()
             {
-                pNext = planes.Length == 1 ? &dedicated : null,
+                pNext = &dedicated,
                 handleTypes = VkExternalMemoryHandleTypeFlags.DmaBufEXT,
             };
             VkMemoryAllocateInfo allocate = new()
             {
                 pNext = &export,
-                allocationSize = size,
-                memoryTypeIndex = engine.MemoryType(memoryTypes, VkMemoryPropertyFlags.DeviceLocal),
+                allocationSize = requirements.memoryRequirements.size,
+                memoryTypeIndex = engine.MemoryType(
+                    requirements.memoryRequirements.memoryTypeBits,
+                    VkMemoryPropertyFlags.DeviceLocal
+                ),
             };
             api.vkAllocateMemory(&allocate, null, &memory).CheckResult();
-            for (int i = 0; i < planes.Length; i++)
-            {
-                api.vkBindImageMemory(images[i], memory, offsets[i]).CheckResult();
-            }
+            api.vkBindImageMemory(image, memory, 0).CheckResult();
 
             VkMemoryGetFdInfoKHR getFd = new()
             {
@@ -235,79 +247,51 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             };
             int fd;
             api.vkGetMemoryFdKHR(&getFd, &fd).CheckResult();
-            ExportedAllocation allocation = new(
+            shared = new SharedImage(
                 engine,
+                image,
                 memory,
                 new SafeFileHandle(fd, ownsHandle: true),
                 planes.Length
             );
+            image = VkImage.Null;
+            memory = VkDeviceMemory.Null;
 
             var result = new VulkanImage[planes.Length];
             for (int i = 0; i < planes.Length; i++)
             {
-                VkImageSubresource subresource = new()
-                {
-                    aspectMask = VkImageAspectFlags.MemoryPlane0EXT,
-                };
+                VkImageSubresource subresource = new() { aspectMask = MemoryPlane(i) };
                 VkSubresourceLayout layout;
-                api.vkGetImageSubresourceLayout(images[i], &subresource, &layout);
+                api.vkGetImageSubresourceLayout(shared.Image, &subresource, &layout);
                 result[i] = new VulkanImage(
                     engine,
-                    images[i],
-                    memory,
-                    allocation,
+                    shared,
+                    planes.Length == 1 ? VkImageAspectFlags.Color : PlaneAspect(i),
                     planes[i].Format,
                     planes[i].Width,
                     planes[i].Height,
-                    new DmaBufPlane(fd, (int)(offsets[i] + layout.offset), (int)layout.rowPitch),
+                    new DmaBufPlane(fd, (int)layout.offset, (int)layout.rowPitch),
                     VulkanEngine.LinearModifier
                 );
             }
 
             return result;
         }
-        catch
+        finally
         {
             if (memory != VkDeviceMemory.Null)
             {
                 api.vkFreeMemory(memory, null);
             }
 
-            foreach (VkImage image in images)
+            if (image != VkImage.Null)
             {
-                if (image != VkImage.Null)
-                {
-                    api.vkDestroyImage(image, null);
-                }
-            }
-
-            throw;
-        }
-    }
-
-    // The memory and descriptor a picture's exported planes share, freed when the last plane goes.
-    private sealed class ExportedAllocation(
-        VulkanEngine engine,
-        VkDeviceMemory memory,
-        SafeFileHandle handle,
-        int planes
-    )
-    {
-        private int _planes = planes;
-
-        public SafeFileHandle Handle { get; } = handle;
-
-        public void Release()
-        {
-            if (Interlocked.Decrement(ref _planes) == 0)
-            {
-                engine.Api.vkFreeMemory(memory, null);
-                Handle.Dispose();
+                api.vkDestroyImage(image, null);
             }
         }
     }
 
-    /// <summary>A view of the image in a format of the same texel size.</summary>
+    /// <summary>A view of the plane in a format of the same texel size.</summary>
     public VkImageView View(VkFormat format)
     {
         VkImageViewCreateInfo info = new()
@@ -315,7 +299,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             image = Image,
             viewType = VkImageViewType.Image2D,
             format = format,
-            subresourceRange = new VkImageSubresourceRange(VkImageAspectFlags.Color, 0, 1, 0, 1),
+            subresourceRange = new VkImageSubresourceRange(Aspect, 0, 1, 0, 1),
         };
         VkImageView view;
         _engine.Api.vkCreateImageView(&info, null, &view).CheckResult();
@@ -326,17 +310,41 @@ internal sealed unsafe partial class VulkanImage : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            _engine.Api.vkDestroyImage(Image, null);
-            if (_allocation is { } allocation)
-            {
-                allocation.Release();
-            }
-            else
-            {
-                _engine.Api.vkFreeMemory(_memory, null);
-            }
+            _shared.Release();
         }
     }
+
+    // The multi-planar format whose planes are these: luma, then chroma at half size in both directions.
+    private static VkFormat MultiPlanar(
+        ReadOnlySpan<(VkFormat Format, int Width, int Height)> planes
+    ) =>
+        planes switch
+        {
+            [(VkFormat.R8Unorm, _, _), (VkFormat.R8G8Unorm, _, _)] => VkFormat.G8B8R82Plane420Unorm,
+            [(VkFormat.R16Unorm, _, _), (VkFormat.R16G16Unorm, _, _)] =>
+                VkFormat.G16B16R162Plane420Unorm,
+            [(VkFormat.R8Unorm, _, _), (VkFormat.R8Unorm, _, _), (VkFormat.R8Unorm, _, _)] =>
+                VkFormat.G8B8R83Plane420Unorm,
+            _ => throw new NotSupportedException(
+                $"No multi-planar format has the planes {string.Join(", ", planes.ToArray().Select(p => p.Format))}."
+            ),
+        };
+
+    private static VkImageAspectFlags PlaneAspect(int plane) =>
+        plane switch
+        {
+            0 => VkImageAspectFlags.Plane0,
+            1 => VkImageAspectFlags.Plane1,
+            _ => VkImageAspectFlags.Plane2,
+        };
+
+    private static VkImageAspectFlags MemoryPlane(int plane) =>
+        plane switch
+        {
+            0 => VkImageAspectFlags.MemoryPlane0EXT,
+            1 => VkImageAspectFlags.MemoryPlane1EXT,
+            _ => VkImageAspectFlags.MemoryPlane2EXT,
+        };
 
     private static VkImage CreateImage(
         VkDeviceApi api,
@@ -364,10 +372,63 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             pViewFormats = formats,
         };
         bool mutable = other != VkFormat.Undefined;
+        return Create(
+            api,
+            mutable ? &list : next,
+            mutable ? VkImageCreateFlags.MutableFormat : 0,
+            format,
+            width,
+            height,
+            usage
+        );
+    }
+
+    // A multi-planar image whose planes take views in their own formats, for storage writes the
+    // multi-planar format itself does not support.
+    private static VkImage CreatePlanarImage(
+        VkDeviceApi api,
+        void* next,
+        VkFormat format,
+        ReadOnlySpan<VkFormat> viewFormats,
+        int width,
+        int height,
+        VkImageUsageFlags usage
+    )
+    {
+        fixed (VkFormat* formats = viewFormats)
+        {
+            VkImageFormatListCreateInfo list = new()
+            {
+                pNext = next,
+                viewFormatCount = (uint)viewFormats.Length,
+                pViewFormats = formats,
+            };
+            return Create(
+                api,
+                &list,
+                VkImageCreateFlags.MutableFormat | VkImageCreateFlags.ExtendedUsage,
+                format,
+                width,
+                height,
+                usage
+            );
+        }
+    }
+
+    private static VkImage Create(
+        VkDeviceApi api,
+        void* next,
+        VkImageCreateFlags flags,
+        VkFormat format,
+        int width,
+        int height,
+        VkImageUsageFlags usage
+    )
+    {
         VkImageCreateInfo info = new()
         {
-            pNext = mutable ? &list : next,
-            flags = mutable ? VkImageCreateFlags.MutableFormat : 0,
+            pNext = next,
+            flags = flags,
             imageType = VkImageType.Image2D,
             format = format,
             extent = new VkExtent3D(width, height, 1),
@@ -399,4 +460,31 @@ internal sealed unsafe partial class VulkanImage : IDisposable
 
     [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
     private static partial int Close(int fd);
+
+    // An image, its memory, and the descriptor it exports, shared by its planes and destroyed when the
+    // last of them goes.
+    private sealed class SharedImage(
+        VulkanEngine engine,
+        VkImage image,
+        VkDeviceMemory memory,
+        SafeFileHandle? exported,
+        int planes
+    )
+    {
+        private int _planes = planes;
+
+        public VkImage Image { get; } = image;
+
+        public SafeFileHandle? Exported { get; } = exported;
+
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref _planes) == 0)
+            {
+                engine.Api.vkDestroyImage(Image, null);
+                engine.Api.vkFreeMemory(memory, null);
+                Exported?.Dispose();
+            }
+        }
+    }
 }
