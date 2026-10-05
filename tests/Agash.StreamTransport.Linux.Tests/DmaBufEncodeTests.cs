@@ -6,8 +6,8 @@ using Vortice.Vulkan;
 namespace Agash.StreamTransport.Linux.Tests;
 
 /// <summary>
-/// GPU pictures made here, encoded through VA-API as DMA-BUFs: what the PipeWire sink publishes and a
-/// PipeWire source hands an encoder.
+/// GPU pictures made here, encoded as DMA-BUFs through VA-API and Vulkan Video, which read them in place:
+/// what the PipeWire sink publishes and a PipeWire source hands an encoder.
 /// </summary>
 [TestClass]
 [TestCategory("Integration")]
@@ -46,9 +46,11 @@ public sealed class DmaBufEncodeTests
     }
 
     [TestMethod]
-    public void Vaapi_EncodesNv12DmaBufs()
+    [DataRow(EncoderBackend.Vaapi)]
+    [DataRow(EncoderBackend.Vulkan)]
+    public void Encoder_EncodesNv12DmaBufs(EncoderBackend backend)
     {
-        IVideoEncoder encoder = Vaapi();
+        IVideoEncoder encoder = Create(backend);
         using (encoder)
         {
             PooledDmaBuf picture = Grey();
@@ -82,9 +84,11 @@ public sealed class DmaBufEncodeTests
     }
 
     [TestMethod]
-    public void Vaapi_PlanesInTwoBuffers_FailCleanly()
+    [DataRow(EncoderBackend.Vaapi)]
+    [DataRow(EncoderBackend.Vulkan)]
+    public void Encoder_PlanesInTwoBuffers_FailCleanly(EncoderBackend backend)
     {
-        IVideoEncoder encoder = Vaapi();
+        IVideoEncoder encoder = Create(backend);
         using VulkanImage luma = VulkanImage.ExportPicture(
             TestDmaBufs.Engine,
             [(VkFormat.R8Unorm, Width, Height)],
@@ -109,14 +113,15 @@ public sealed class DmaBufEncodeTests
             color: VideoColor.Bt709
         );
 
-        // VA-API maps only pictures made of one DMA-BUF object: the frame is refused, and ending the
-        // encoder afterwards, as a pipeline does before trying the next one, is safe.
+        // VA-API and Vulkan read only pictures made of one DMA-BUF object: the frame is refused, and
+        // ending the encoder afterwards, as a pipeline does before trying the next one, is safe.
         bool refused = false;
         try
         {
             encoder.Encode(frame, new EncodeRequest(Keyframe: true), new Recorder());
         }
-        catch (FFmpeg.Interop.FFmpegException)
+        catch (Exception exception)
+            when (exception is FFmpeg.Interop.FFmpegException or NotSupportedException)
         {
             refused = true;
         }
@@ -126,12 +131,15 @@ public sealed class DmaBufEncodeTests
         encoder.Dispose();
     }
 
-    private static IVideoEncoder Vaapi()
+    private static IVideoEncoder Create(EncoderBackend backend)
     {
-        FFmpegVideoEncoderFactory factory = new(EncoderBackend.Vaapi);
-        if (factory.QueryCapabilities(Configuration.Format, device: null) is null)
+        FFmpegVideoEncoderFactory factory = new(backend);
+        if (
+            factory.QueryCapabilities(Configuration.Format, device: null) is not { } info
+            || !info.Input.Storages.Contains(VideoStorageKind.DmaBuf)
+        )
         {
-            Assert.Inconclusive("No VA-API H.264 encoder on this machine.");
+            Assert.Inconclusive($"No {backend} H.264 encoder takes DMA-BUFs on this machine.");
         }
 
         return factory.Create(Configuration, device: null);

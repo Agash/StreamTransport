@@ -115,14 +115,14 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             Session session = _session ??= Open(in frame, reason);
             _reopen = null;
 
-            session.Frame.Reset();
-            session.Input.Prepare(in frame, session.Frame);
             long pts = ToPts(frame.Timestamp.Time);
             if (pts <= _lastPts)
             {
                 pts = _lastPts + 1;
             }
 
+            session.Frame.Reset();
+            session.Input.Prepare(in frame, pts, session.Frame);
             _lastPts = pts;
             _timestamps.Add(pts, frame.Timestamp);
             if (frame.Storage.Kind != VideoStorageKind.Cpu)
@@ -245,11 +245,15 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 format,
                 size
             ),
-            VideoStorageKind.DmaBuf when OperatingSystem.IsLinux() => new DmaBufInput(
-                CreateDevice(),
-                format,
-                size
-            ),
+            VideoStorageKind.DmaBuf when OperatingSystem.IsLinux() => _spec.DeviceType
+            == FF.HardwareDeviceType.Vulkan
+                ? new VulkanDmaBufInput(
+                    CreateDevice(),
+                    format,
+                    size,
+                    modifier => LogDmaBufCopied(_logger, Info.ImplementationName, modifier)
+                )
+                : new DmaBufInput(CreateDevice(), format, size),
             VideoStorageKind.IOSurface when OperatingSystem.IsMacOS() => new IOSurfaceInput(
                 CreateDevice(),
                 format,
@@ -406,6 +410,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     // Releases the GPU frames of every packet up to and including a pts: the encoder has read them.
     private void ReleaseRead(long pts)
     {
+        _session?.Input.Read(pts);
         while (_reading.TryPeek(out (long Pts, VideoFrameLease Frame) oldest) && oldest.Pts <= pts)
         {
             _ = _reading.Dequeue();
@@ -527,4 +532,11 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         Message = "{Encoder} cannot change rate while running; reopening at {BitsPerSecond} b/s on the next frame"
     )]
     private static partial void LogRateReopen(ILogger logger, string encoder, long bitsPerSecond);
+
+    [LoggerMessage(
+        EventId = 1003,
+        Level = LogLevel.Information,
+        Message = "{Encoder} cannot read DMA-BUFs with modifier 0x{Modifier:x16} in place on this GPU; each picture is copied on the GPU"
+    )]
+    internal static partial void LogDmaBufCopied(ILogger logger, string encoder, ulong modifier);
 }
