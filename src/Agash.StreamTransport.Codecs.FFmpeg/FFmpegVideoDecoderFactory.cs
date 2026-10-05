@@ -112,6 +112,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
                 resolved.Identity,
                 resolved.Storage,
                 resolved.CpuFormat,
+                DrmModifiers(resolved.Storage, output),
                 resolved.Info,
                 _loggerFactory.CreateLogger<FFmpegVideoDecoder>()
             );
@@ -202,6 +203,15 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
         );
         return new Resolved(codec, adapter, identity, storage, cpu ?? PixelFormat.Nv12, info);
     }
+
+    // A Vulkan decoder shares its pictures as DMA-BUFs only when it decodes into a modifier the consumer
+    // reads: the consumer's, or linear when it names none. VA-API surfaces export as they are.
+    private ImmutableArray<ulong> DrmModifiers(VideoStorageKind storage, VideoConstraints output) =>
+        storage == VideoStorageKind.DmaBuf && _spec.DeviceType == FF.HardwareDeviceType.Vulkan
+            ? output.DrmModifiers.IsDefaultOrEmpty
+                ? [DmaBufImage.LinearModifier]
+                : output.DrmModifiers
+            : [];
 
     private static bool SupportedHere(VideoStorageKind storage) =>
         storage switch

@@ -124,6 +124,9 @@ public readonly record struct DrmSyncTimeline(
 /// <summary>A Linux DMA-BUF, whatever made it: PipeWire, V4L2, a DRM plane or a capture block.</summary>
 public readonly struct DmaBufImage : IEquatable<DmaBufImage>
 {
+    /// <summary><c>DRM_FORMAT_MOD_LINEAR</c>: rows one after another, which every importer takes.</summary>
+    public const ulong LinearModifier = 0;
+
     private readonly DmaBufPlanes _planes;
 
     /// <summary>A DMA-BUF.</summary>

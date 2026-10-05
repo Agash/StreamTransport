@@ -78,9 +78,7 @@ internal static class DecoderCatalog
         new(
             DecoderBackend.Vulkan,
             FF.HardwareDeviceType.Vulkan,
-            // Vulkan decoder images use optimal tiling, which FFmpeg cannot map to DRM, so Vulkan decode
-            // delivers system memory; VA-API on the same GPU serves DMA-BUF output.
-            [],
+            [VideoStorageKind.DmaBuf],
             WindowsRank: 70,
             LinuxRank: 100,
             MacRank: 0

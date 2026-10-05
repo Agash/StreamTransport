@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
 using static FFmpeg.Interop.D3D11VAExtensions;
@@ -41,6 +42,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         GpuIdentity? identity,
         VideoStorageKind output,
         PixelFormat cpuFormat,
+        ImmutableArray<ulong> drmModifiers,
         VideoDecoderInfo info,
         ILogger logger
     )
@@ -59,6 +61,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
                 HardwareDevice = device,
                 LowDelay = true,
                 PacketTimeBase = TimeBase,
+                DrmModifiers = drmModifiers,
             }
         );
     }

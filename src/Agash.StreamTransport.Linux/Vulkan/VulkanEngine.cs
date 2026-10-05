@@ -16,7 +16,7 @@ namespace Agash.StreamTransport.Linux.Vulkan;
 internal sealed unsafe partial class VulkanEngine
 {
     /// <summary>DRM_FORMAT_MOD_LINEAR: rows one after another, which every importer takes.</summary>
-    public const ulong LinearModifier = 0;
+    public const ulong LinearModifier = DmaBufImage.LinearModifier;
 
     private static readonly ConcurrentDictionary<ulong, Lazy<VulkanEngine>> Engines = new();
     private static readonly Lazy<(VkInstance Instance, VkInstanceApi Api)> Instance = new(
