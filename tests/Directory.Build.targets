@@ -1,0 +1,11 @@
+<Project>
+  <!-- A test project for one operating system (TestOperatingSystem: Linux, Windows or OSX) builds on every
+       host, so its code is always compiled, and is a test application only on its own: dotnet test runs
+       the projects whose IsTestingPlatformApplication is true. -->
+  <PropertyGroup Condition="'$(TestOperatingSystem)' != '' and !$([MSBuild]::IsOSPlatform('$(TestOperatingSystem)'))">
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <IsTestProject>false</IsTestProject>
+    <EnableMSTestRunner>false</EnableMSTestRunner>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+</Project>
