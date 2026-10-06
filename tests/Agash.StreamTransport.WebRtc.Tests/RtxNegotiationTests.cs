@@ -1,3 +1,4 @@
+using Agash.StreamTransport.Adaptation;
 using System.Collections.Concurrent;
 using System.Net;
 using Agash.StreamTransport.WebRtc.Rtp;
@@ -164,12 +165,8 @@ public sealed class RtxNegotiationTests
 
         for (int i = 0; i < 20; i++)
         {
-            await sender.SendRtp(
-                96,
-                0xAAAA_0001,
-                (uint)(i * 3000),
-                marker: true,
-                new byte[] { 0x65, (byte)i }
+            Assert.IsTrue(
+                sender.TrySendRtp(96, 0xAAAA_0001, (uint)(i * 3000), marker: true, [0x65, (byte)i])
             );
         }
 
@@ -179,6 +176,11 @@ public sealed class RtxNegotiationTests
         Assert.Contains(((ushort)lost, (byte)96), received, "the repair arrives as the original");
         Assert.IsGreaterThan(0, receiver.CurrentLossStats.NackSequencesRequested);
         Assert.IsGreaterThan(0, sender.CurrentLossStats.RtxPacketsSent);
+        Assert.IsGreaterThan(
+            0,
+            sender.SentBytes(TrafficClass.Retransmission),
+            "the repair went through the pacer, inside the budget"
+        );
         Assert.IsGreaterThan(0, receiver.CurrentLossStats.RtxPacketsRecovered);
     }
 

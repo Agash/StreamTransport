@@ -48,6 +48,7 @@ are unique across the library; `LoggingTests` checks both.
 | 2300-2399 | `Windows` |
 | 2400-2499 | `MacOS` |
 | 2500-2599 | `Linux` |
+| 2600-2699 | `Adaptation` |
 | 2700-2709 | `StreamTransport` (WHIP and WHEP clients) |
 | 2710-2719 | `AspNetCore` |
 | 2800-2849 | `Signaling` |

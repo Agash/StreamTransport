@@ -66,9 +66,10 @@ async Task AwaitFirstRtp()
 {
     await connected.Task.ConfigureAwait(false);
     byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE];
-    await offerer
-        .SendRtp(111, 0x1111_1111, rtpTimestamp: 0, marker: true, payload)
-        .ConfigureAwait(false);
+    if (!offerer.TrySendRtp(111, 0x1111_1111, rtpTimestamp: 0, marker: true, payload))
+    {
+        throw new InvalidOperationException("SRTP was not established");
+    }
     byte[] got = await received.Task.ConfigureAwait(false);
     if (!got.AsSpan().SequenceEqual(payload))
     {

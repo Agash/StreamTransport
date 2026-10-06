@@ -130,12 +130,8 @@ public sealed class RtcpReportTests
             && await frames.WaitForNextTickAsync(expiry.Token)
         )
         {
-            await pair.Sender.SendRtp(
-                96,
-                0xAAAA_0001,
-                timestamp += 1800,
-                true,
-                new byte[] { 0x65, 1 }
+            Assert.IsTrue(
+                pair.Sender.TrySendRtp(96, 0xAAAA_0001, timestamp += 1800, true, [0x65, 1])
             );
         }
 
@@ -156,12 +152,8 @@ public sealed class RtcpReportTests
         for (int i = 0; i < 25; i++)
         {
             _ = await frames.WaitForNextTickAsync(TestContext.CancellationToken);
-            await pair.Sender.SendRtp(
-                96,
-                0xAAAA_0001,
-                (uint)(i * 1800),
-                true,
-                new byte[] { 0x65, 1 }
+            Assert.IsTrue(
+                pair.Sender.TrySendRtp(96, 0xAAAA_0001, (uint)(i * 1800), true, [0x65, 1])
             );
         }
 

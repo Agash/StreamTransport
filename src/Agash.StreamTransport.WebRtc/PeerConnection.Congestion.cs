@@ -85,6 +85,13 @@ public sealed partial class PeerConnection
     }
 
     // Microseconds on the connection's monotonic clock, counted from its creation.
+    // A new estimate retunes the pacer here, so media and repairs follow it, then the media layer.
+    private void OnEstimate(BitrateEstimate estimate)
+    {
+        _pacer.BitsPerSecond = Math.Max(0, estimate.PacingRateBps);
+        BitrateEstimateChanged?.Invoke(estimate);
+    }
+
     private long NowMicros() => _time.GetElapsedTime(_origin).Ticks / TimeSpan.TicksPerMicrosecond;
 
     private static long Key(uint ssrc, ushort seq) => ((long)ssrc << 16) | seq;
@@ -178,7 +185,7 @@ public sealed partial class PeerConnection
             estimate = _controller.OnProcessInterval(NowMicros());
         }
 
-        BitrateEstimateChanged?.Invoke(estimate);
+        OnEstimate(estimate);
     }
 
     // Build one CCFB packet from the arrivals seen since the last report and send it SRTP-protected.
@@ -279,7 +286,7 @@ public sealed partial class PeerConnection
 
         if (estimate is { } changed)
         {
-            BitrateEstimateChanged?.Invoke(changed);
+            OnEstimate(changed);
         }
     }
 

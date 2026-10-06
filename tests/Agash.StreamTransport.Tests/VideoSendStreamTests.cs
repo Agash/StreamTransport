@@ -20,16 +20,6 @@ public sealed class VideoSendStreamTests
         Encoders working = new(rank: 1, "working");
         MediaCodecRegistry registry = new([broken, working], [], [], [], []);
         TaskCompletionSource sent = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using RtpPacer pacer = new(
-            (_, _) =>
-            {
-                sent.TrySetResult();
-                return ValueTask.CompletedTask;
-            },
-            10_000_000,
-            TimeProvider.System
-        );
-
         await using VideoSendStream stream = new(
             new GradientSource(TimeSpan.FromMilliseconds(10)),
             new VideoSendSetup(
@@ -45,7 +35,7 @@ public sealed class VideoSendStreamTests
             ),
             registry,
             new MediaSessionOptions(),
-            pacer,
+            (_, _, _, _, _, _) => sent.TrySetResult(),
             MediaClock.System,
             new StreamTransportMetrics(meterFactory: null),
             NullLogger.Instance

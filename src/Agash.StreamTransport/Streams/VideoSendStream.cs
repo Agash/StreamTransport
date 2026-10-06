@@ -31,7 +31,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private readonly VideoSendSetup _setup;
     private readonly MediaCodecRegistry _registry;
     private readonly MediaSessionOptions _options;
-    private readonly RtpPacer _pacer;
+    private readonly RtpPayloadSink _send;
     private readonly MediaClock _clock;
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
@@ -61,7 +61,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     /// <param name="setup">The negotiated format and RTP writer.</param>
     /// <param name="registry">Where encoders and processors come from.</param>
     /// <param name="options">The session options.</param>
-    /// <param name="pacer">Where packets go.</param>
+    /// <param name="send">Where the RTP payloads go.</param>
     /// <param name="clock">The media clock, for encode timing.</param>
     /// <param name="metrics">The library's instruments.</param>
     /// <param name="logger">The logger.</param>
@@ -70,7 +70,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         VideoSendSetup setup,
         MediaCodecRegistry registry,
         MediaSessionOptions options,
-        RtpPacer pacer,
+        RtpPayloadSink send,
         MediaClock clock,
         StreamTransportMetrics metrics,
         ILogger logger
@@ -79,7 +79,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         _setup = setup;
         _registry = registry;
         _options = options;
-        _pacer = pacer;
+        _send = send;
         _clock = clock;
         _metrics = metrics;
         _logger = logger;
@@ -462,7 +462,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private void Transmit(in EncodedVideoFrame frame)
     {
         _encoderDelivered = true;
-        _setup.Writer.Write(frame.Data, frame.Timestamp, _pacer.EnqueueVideo);
+        _setup.Writer.Write(frame.Data, frame.Timestamp, _send);
         Interlocked.Increment(ref _framesSent);
         _metrics.VideoFramesSent.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
     }

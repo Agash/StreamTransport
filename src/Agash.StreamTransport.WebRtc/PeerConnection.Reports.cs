@@ -159,9 +159,7 @@ public sealed partial class PeerConnection
                 i++
             )
             {
-                var block = RtcpReportBlock.Read(
-                    body[(blocksAt + (i * RtcpReportBlock.Length))..]
-                );
+                var block = RtcpReportBlock.Read(body[(blocksAt + (i * RtcpReportBlock.Length))..]);
                 if (block.LastSenderReport == 0 || !IsOwnSource(block.Ssrc))
                 {
                     continue;

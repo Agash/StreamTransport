@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Security;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
@@ -21,7 +22,7 @@ namespace Agash.StreamTransport.WebRtc;
 /// <summary>
 /// A point-to-point WebRTC peer connection: it composes the ICE agent, the DTLS-SRTP transport, and the
 /// SRTP/RTP layers behind a JSEP-style offer/answer surface. One BUNDLE transport carries all media
-/// (rtcp-mux). Protected media is sent with <see cref="SendRtp"/> and surfaced via <see cref="RtpReceived"/>.
+/// (rtcp-mux). Media is paced and sent with <see cref="TrySendRtp"/> and surfaced via <see cref="RtpReceived"/>.
 /// </summary>
 public sealed partial class PeerConnection : IAsyncDisposable
 {
@@ -38,6 +39,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly List<IceCandidate> _bufferedRemoteCandidates = [];
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly Dictionary<uint, ushort> _sendSequence = [];
+
+    // UDP over IPv4 and the largest SRTP tag: what each packet costs the budget beyond itself.
+    private static readonly int PacketOverhead = 28 + SrtpSession.MaxProtectionOverhead;
+    private readonly Pacer _pacer;
+    private readonly FrozenSet<uint> _audioSsrcs;
     private readonly ConcurrentDictionary<uint, RtpSendHistory> _sendHistory = new();
 
     // Retransmission as negotiated: replaced whole when a description is applied, read without a lock.
@@ -101,6 +107,20 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 _rtcpSenderSsrc = line.LocalSsrc;
             }
         }
+
+        _audioSsrcs = options
+            .Media.Where(static l => l.Kind == SdpMediaKind.Audio)
+            .Select(static l => l.LocalSsrc)
+            .ToFrozenSet();
+        _pacer = new Pacer(
+            TransmitAsync,
+            PacketOverhead,
+            _time,
+            _loggerFactory.CreateLogger<Pacer>()
+        )
+        {
+            BitsPerSecond = Math.Max(0, controller?.CurrentEstimate.PacingRateBps ?? 0),
+        };
 
         // A receive-only endpoint still reports, under an SSRC of its own.
         while (_rtcpSenderSsrc == 0)
@@ -487,96 +507,91 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends a media payload as a protected RTP packet on the connection's transport. The sequence number
-    /// is managed per SSRC; abs-capture-time is added when configured and <paramref name="captureNtp"/> is set.
+    /// Queues a media payload as an RTP packet at the connection's pacer, which protects and sends it in
+    /// turn with the retransmissions and FEC repairs that share its budget. The sequence number is managed
+    /// per SSRC; abs-capture-time is added when configured and <paramref name="captureNtp"/> is set. The
+    /// payload is copied once, into the packet.
     /// </summary>
-    public async ValueTask SendRtp(
+    /// <param name="payloadType">The RTP payload type.</param>
+    /// <param name="ssrc">The stream's SSRC.</param>
+    /// <param name="rtpTimestamp">The RTP timestamp.</param>
+    /// <param name="marker">The marker bit.</param>
+    /// <param name="payload">The payload.</param>
+    /// <param name="captureNtp">The abs-capture-time, or zero for none.</param>
+    /// <returns>False, dropping the packet, when DTLS-SRTP is not established yet.</returns>
+    public bool TrySendRtp(
         byte payloadType,
         uint ssrc,
         uint rtpTimestamp,
         bool marker,
-        ReadOnlyMemory<byte> payload,
-        ulong captureNtp = 0,
-        CancellationToken cancellationToken = default
+        ReadOnlySpan<byte> payload,
+        ulong captureNtp = 0
     )
     {
-        SrtpSession srtp =
-            _srtp ?? throw new InvalidOperationException("DTLS-SRTP is not established.");
-        IceAgent agent = _iceAgent ?? throw new InvalidOperationException("ICE is not started.");
-        byte[]? fecRepair = null;
-
-        ushort sequence;
-        lock (_gate)
+        if (_srtp is null)
         {
-            sequence = _sendSequence.TryGetValue(ssrc, out ushort s)
-                ? s
-                : (ushort)Random.Shared.Next(0, 0x10000);
-            _sendSequence[ssrc] = (ushort)(sequence + 1);
+            return false;
         }
 
-        // RTP header + optional abs-capture-time + payload, with room for the SRTP tag. Rent from the
-        // shared pool so the per-packet send path does not allocate (matters on an SBC's GC).
-        int capacity =
-            RtpPacket.FixedHeaderLength + 16 + payload.Length + SrtpSession.MaxProtectionOverhead;
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
-        try
+        ushort sequence = NextSequence(ssrc);
+
+        // RTP header + optional abs-capture-time + payload, with room to protect it in place. Rented from
+        // the shared pool so the per-packet path does not allocate (matters on an SBC's GC).
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            RtpPacket.FixedHeaderLength + 16 + payload.Length + SrtpSession.MaxProtectionOverhead
+        );
+        int rtpLength = RtpPacket.Write(
+            buffer,
+            marker,
+            payloadType,
+            sequence,
+            rtpTimestamp,
+            ssrc,
+            payload,
+            captureNtp != 0 ? _options.AbsCaptureTimeExtensionId : 0,
+            captureNtp
+        );
+        ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
+
+        // FlexFEC protects the video stream: the cleartext is what FEC XORs.
+        byte[]? fecRepair =
+            FecEnabled && ssrc == _options.FecProtectedSsrc ? AccumulateFec(packet) : null;
+
+        // Kept for a NACK-driven RTX retransmission.
+        if (Volatile.Read(ref _rtx).Send.ContainsKey(ssrc))
         {
-            int rtpLength = RtpPacket.Write(
+            _sendHistory.GetOrAdd(ssrc, static _ => new RtpSendHistory()).Store(sequence, packet);
+        }
+
+        _pacer.Enqueue(
+            new PacedPacket(
                 buffer,
-                marker,
-                payloadType,
-                sequence,
-                rtpTimestamp,
-                ssrc,
-                payload.Span,
-                captureNtp != 0 ? _options.AbsCaptureTimeExtensionId : 0,
-                captureNtp
-            );
+                rtpLength,
+                _audioSsrcs.Contains(ssrc) ? TrafficClass.Audio : TrafficClass.Video
+            )
+        );
 
-            // FlexFEC: protect the video stream (the cleartext is what FEC XORs; the FEC packet rides FecSsrc).
-            if (FecEnabled && ssrc == _options.FecProtectedSsrc)
-            {
-                fecRepair = AccumulateFec(buffer.AsSpan(0, rtpLength));
-            }
-
-            // Keep the cleartext packet for possible NACK-driven RTX retransmission.
-            if (Volatile.Read(ref _rtx).Send.ContainsKey(ssrc))
-            {
-                _sendHistory
-                    .GetOrAdd(ssrc, static _ => new RtpSendHistory())
-                    .Store(sequence, buffer.AsSpan(0, rtpLength));
-            }
-
-            int protectedLength = srtp.ProtectRtp(buffer, rtpLength);
-            long sentMicros = NowMicros();
-            RecordSent(ssrc, sequence, protectedLength, sentMicros);
-            RecordSentForReports(ssrc, payloadType, rtpTimestamp, payload.Length, sentMicros);
-            Interlocked.Increment(ref _mediaPacketsSent);
-            _metrics.PacketsSent.Add(1);
-            await agent
-                .SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-
-        // Send the FlexFEC repair (if a group just completed) after the media packet, on the same chain - so
-        // SRTP protect is never invoked concurrently. The FEC packet rides its own SSRC and is not FEC-protected.
+        // The repair rides its own SSRC behind the group it protects, and is not itself protected.
         if (fecRepair is not null)
         {
-            await SendRtp(
-                    _options.FecPayloadType,
-                    _options.FecSsrc,
-                    0,
-                    marker: false,
-                    fecRepair,
-                    0,
-                    cancellationToken
-                )
-                .ConfigureAwait(false);
+            byte[] repair = ArrayPool<byte>.Shared.Rent(
+                RtpPacket.FixedHeaderLength + fecRepair.Length + SrtpSession.MaxProtectionOverhead
+            );
+            int repairLength = RtpPacket.Write(
+                repair,
+                false,
+                _options.FecPayloadType,
+                NextSequence(_options.FecSsrc),
+                0,
+                _options.FecSsrc,
+                fecRepair,
+                0,
+                0
+            );
+            _pacer.Enqueue(new PacedPacket(repair, repairLength, TrafficClass.Repair));
         }
+
+        return true;
     }
 
     /// <summary>
@@ -612,6 +627,62 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }
+
+    private ushort NextSequence(uint ssrc)
+    {
+        lock (_gate)
+        {
+            ushort sequence = _sendSequence.TryGetValue(ssrc, out ushort s)
+                ? s
+                : (ushort)Random.Shared.Next(0, 0x10000);
+            _sendSequence[ssrc] = (ushort)(sequence + 1);
+            return sequence;
+        }
+    }
+
+    // The pacer's send: protect in place, account for it (congestion feedback, sender reports), send.
+    // The pacer runs one send at a time in queue order, so SRTP protection is never concurrent.
+    private ValueTask TransmitAsync(PacedPacket packet, CancellationToken cancellationToken)
+    {
+        if (
+            _srtp is not { } srtp
+            || _iceAgent is not { } agent
+            || !RtpPacket.TryParse(
+                packet.Buffer.AsSpan(0, packet.Length),
+                out RtpHeader header,
+                out ReadOnlySpan<byte> payload
+            )
+        )
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        int payloadLength = payload.Length;
+        int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
+        long now = NowMicros();
+        RecordSent(header.Ssrc, header.SequenceNumber, protectedLength, now);
+        RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
+        if (packet.Class == TrafficClass.Retransmission)
+        {
+            Interlocked.Increment(ref _rtxPacketsSent);
+            _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("sent"));
+        }
+        else
+        {
+            Interlocked.Increment(ref _mediaPacketsSent);
+            _metrics.PacketsSent.Add(1);
+        }
+
+        return agent.SendAsync(packet.Buffer.AsMemory(0, protectedLength), cancellationToken);
+    }
+
+    /// <summary>
+    /// The bytes the connection has sent in a traffic class, with per-packet overhead; two samples give
+    /// the class's rate.
+    /// </summary>
+    /// <param name="trafficClass">The class.</param>
+    /// <returns>The bytes.</returns>
+    public long SentBytes(TrafficClass trafficClass) => _pacer.SentBytes(trafficClass);
 
     private void StartIce(IceRole role)
     {
@@ -860,7 +931,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         var lost = new List<ushort>();
         if (RtcpFeedback.TryParseNack(rtcp, out uint nackSsrc, lost) && lost.Count > 0)
         {
-            _ = RetransmitAsync(nackSsrc, lost);
+            Retransmit(nackSsrc, lost);
         }
 
         // RFC 8888 congestion-control feedback (PT 205, FMT 11) - drives the send-side controller, if any.
@@ -870,12 +941,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         OnReports(rtcp);
     }
 
-    private async Task RetransmitAsync(uint mediaSsrc, List<ushort> lostSequences)
+    // Repairs go through the pacer ahead of new video and inside the same budget (RFC 4588 section 7).
+    private void Retransmit(uint mediaSsrc, List<ushort> lostSequences)
     {
         if (
-            _srtp is not { } srtp
-            || _iceAgent is not { } agent
-            || !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
+            !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
             || !_sendHistory.TryGetValue(mediaSsrc, out RtpSendHistory? history)
         )
         {
@@ -900,35 +970,20 @@ public sealed partial class PeerConnection : IAsyncDisposable
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
                 original.Length + 2 + SrtpSession.MaxProtectionOverhead
             );
-            try
-            {
-                if (
-                    !RtxStream.TryWrap(
-                        original.Span,
-                        buffer,
-                        rtxPayloadType,
-                        rtx.Ssrc,
-                        rtx.NextSequence(),
-                        out int rtxLength
-                    )
-                )
-                {
-                    continue;
-                }
-
-                int protectedLength = srtp.ProtectRtp(buffer, rtxLength);
-                RecordSentForReports(
-                    rtx.Ssrc,
+            if (
+                RtxStream.TryWrap(
+                    original.Span,
+                    buffer,
                     rtxPayloadType,
-                    System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(original.Span[4..]),
-                    rtxLength - RtpPacket.FixedHeaderLength,
-                    NowMicros()
-                );
-                Interlocked.Increment(ref _rtxPacketsSent);
-                _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("sent"));
-                await agent.SendAsync(buffer.AsMemory(0, protectedLength)).ConfigureAwait(false);
+                    rtx.Ssrc,
+                    rtx.NextSequence(),
+                    out int rtxLength
+                )
+            )
+            {
+                _pacer.Enqueue(new PacedPacket(buffer, rtxLength, TrafficClass.Retransmission));
             }
-            finally
+            else
             {
                 ArrayPool<byte>.Shared.Return(buffer);
             }
@@ -955,6 +1010,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             return;
         }
+
+        // Congestion feedback and reception reports cover what crossed the wire, so a retransmission
+        // counts under the RTX stream's SSRC and sequence.
+        long arrivalMicros = NowMicros();
+        RecordArrival(header.Ssrc, header.SequenceNumber, arrivalMicros, ecn);
+        RecordReceivedForReports(header, arrivalMicros);
 
         // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered
         // packet reaches the depacketizer (and the loss tracker) as if it had never been lost. Done into a
@@ -992,8 +1053,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                         rtxHeader,
                         recovered.AsMemory(0, recoveredLength),
                         recoveredLength,
-                        rtxPayload,
-                        ecn
+                        rtxPayload
                     );
                 }
             }
@@ -1005,7 +1065,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        DeliverMedia(header, data, plaintextLength, payload, ecn);
+        DeliverMedia(header, data, plaintextLength, payload);
     }
 
     // Common delivery for an original or RTX-recovered media packet: record its arrival for congestion feedback
@@ -1014,14 +1074,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         RtpHeader header,
         Memory<byte> packet,
         int plaintextLength,
-        ReadOnlySpan<byte> payload,
-        byte ecn
+        ReadOnlySpan<byte> payload
     )
     {
-        long arrivalMicros = NowMicros();
-        RecordArrival(header.Ssrc, header.SequenceNumber, arrivalMicros, ecn);
-        RecordReceivedForReports(header, arrivalMicros);
-
         // Loss recovery (NACK): only for media the peer said it retransmits.
         if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
         {
@@ -1068,7 +1123,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Setup = setup,
             Ssrc = ssrc == 0 ? null : ssrc,
             RtxSsrc = ssrc == 0 ? null : rtxSsrc,
-            Cname = "streamtransport",
+            Cname = _cname,
         };
 
     // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its
@@ -1212,6 +1267,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         DisposeCongestion();
+        await _pacer.DisposeAsync().ConfigureAwait(false);
         await StopReportsAsync().ConfigureAwait(false);
         SetState(PeerConnectionState.Closed);
         if (_dtls is { } dtls)

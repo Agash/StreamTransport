@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
@@ -7,8 +6,24 @@ using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 
 namespace Agash.StreamTransport.Rtp;
 
+/// <summary>Takes one RTP payload with its header fields; the payload is valid only during the call.</summary>
+/// <param name="payloadType">The RTP payload type.</param>
+/// <param name="ssrc">The stream's SSRC.</param>
+/// <param name="rtpTimestamp">The RTP timestamp.</param>
+/// <param name="marker">The marker bit.</param>
+/// <param name="payload">The payload.</param>
+/// <param name="captureNtp">The abs-capture-time, or zero for none.</param>
+internal delegate void RtpPayloadSink(
+    byte payloadType,
+    uint ssrc,
+    uint rtpTimestamp,
+    bool marker,
+    ReadOnlySpan<byte> payload,
+    ulong captureNtp
+);
+
 /// <summary>
-/// Turns one stream's encoded frames into paced RTP packets: the payload format splits them, the RTP
+/// Turns one stream's encoded frames into RTP payloads: the payload format splits them, the RTP
 /// timestamp is the frame's origin on the stream's clock from a random start (RFC 3550), and the first
 /// packet of each frame carries its abs-capture-time.
 /// </summary>
@@ -36,8 +51,8 @@ internal sealed class RtpStreamWriter(
     /// <summary>Packetizes an encoded frame and hands its packets on in order.</summary>
     /// <param name="frame">The encoded frame.</param>
     /// <param name="timestamp">When it was made.</param>
-    /// <param name="send">Takes each packet, and with it the packet's rented buffer.</param>
-    public void Write(ReadOnlySpan<byte> frame, MediaTimestamp timestamp, Action<PacedPacket> send)
+    /// <param name="send">Takes each payload in order.</param>
+    public void Write(ReadOnlySpan<byte> frame, MediaTimestamp timestamp, RtpPayloadSink send)
     {
         packetizer.Packetize(frame, _payloads);
         MediaTime origin = timestamp.Origin;
@@ -46,19 +61,13 @@ internal sealed class RtpStreamWriter(
         ulong captureNtp = captureClock.ToNtp(origin).Value;
         for (int i = 0; i < _payloads.Count; i++)
         {
-            ReadOnlySpan<byte> payload = _payloads[i].Span;
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(payload.Length);
-            payload.CopyTo(buffer);
             send(
-                new PacedPacket(
-                    payloadType,
-                    ssrc,
-                    rtpTimestamp,
-                    Marker: i == _payloads.Count - 1,
-                    buffer,
-                    payload.Length,
-                    i == 0 ? captureNtp : 0
-                )
+                payloadType,
+                ssrc,
+                rtpTimestamp,
+                i == _payloads.Count - 1,
+                _payloads[i].Span,
+                i == 0 ? captureNtp : 0
             );
         }
     }

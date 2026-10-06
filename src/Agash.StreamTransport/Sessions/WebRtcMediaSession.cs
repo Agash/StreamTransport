@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Rtp;
 using Agash.StreamTransport.Streams;
@@ -40,7 +41,7 @@ internal sealed record SessionServices(
 /// <summary>
 /// A media session over one WebRTC peer connection. It offers the registered codecs the endpoints need,
 /// and once connected builds a send stream for each source and a receive stream for each sink from what
-/// was negotiated. Congestion estimates retune the encoder and the pacer; keyframe requests reach the
+/// was negotiated. Congestion estimates retune the encoder through the rate allocator; keyframe requests reach the
 /// encoder; received RTP goes to the stream of its payload type.
 /// </summary>
 internal sealed partial class WebRtcMediaSession : IMediaSession
@@ -65,7 +66,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
     private readonly Playout _playout;
     private readonly CaptureClock _captureClock;
     private PeerConnection? _connection;
-    private RtpPacer? _pacer;
+    private MediaRateAllocator? _allocator;
     private Activity? _connecting;
     private int _disposed;
     private IDisposable? _mobility;
@@ -181,12 +182,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             _connection = connection;
         }
 
-        _pacer = new RtpPacer(
-            SendAsync,
-            connection.CurrentBitrateEstimate.PacingRateBps,
-            _services.Clock.TimeProvider,
-            _logger
-        );
+        _allocator = new MediaRateAllocator(connection.SentBytes, _services.Clock.TimeProvider);
         connection.LocalIceCandidate += OnLocalCandidate;
         connection.StateChanged += OnStateChanged;
         connection.RtpReceived += OnRtp;
@@ -236,11 +232,6 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         }
 
         await _playout.DisposeAsync().ConfigureAwait(false);
-        if (_pacer is not null)
-        {
-            await _pacer.DisposeAsync().ConfigureAwait(false);
-        }
-
         if (_connection is not null)
         {
             await _connection.DisposeAsync().ConfigureAwait(false);
@@ -476,7 +467,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 ),
                 _services.Codecs,
                 _options,
-                _pacer!,
+                Send,
                 _services.Clock,
                 _services.Metrics,
                 _logger
@@ -521,7 +512,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
                 Writer(payloadFormat, local, media.LocalSsrc),
                 _services.Codecs,
                 _options,
-                _pacer!,
+                Send,
                 _services.Metrics
             );
         }
@@ -613,22 +604,28 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
     private void OnBitrateEstimate(BitrateEstimate estimate)
     {
         long audio = _audioSend is null ? 0 : _options.AudioBitsPerSecond;
-        _videoSend?.SetBitrate(
-            Math.Max(estimate.TargetBitrateBps - audio, MinimumVideoBitsPerSecond)
-        );
-        _pacer?.SetRate(estimate.PacingRateBps);
+        if (_allocator is { } allocator)
+        {
+            _videoSend?.SetBitrate(
+                allocator.VideoBitsPerSecond(
+                    estimate.TargetBitrateBps,
+                    audio,
+                    MinimumVideoBitsPerSecond
+                )
+            );
+        }
     }
 
-    private ValueTask SendAsync(PacedPacket packet, CancellationToken cancellationToken) =>
-        _connection!.SendRtp(
-            packet.PayloadType,
-            packet.Ssrc,
-            packet.Timestamp,
-            packet.Marker,
-            packet.Buffer.AsMemory(0, packet.Length),
-            packet.CaptureNtp,
-            cancellationToken
-        );
+    // Payloads go to the connection's pacer; before DTLS-SRTP is up they are dropped, and the receiver
+    // asks for a keyframe once media flows.
+    private void Send(
+        byte payloadType,
+        uint ssrc,
+        uint rtpTimestamp,
+        bool marker,
+        ReadOnlySpan<byte> payload,
+        ulong captureNtp
+    ) => _ = _connection?.TrySendRtp(payloadType, ssrc, rtpTimestamp, marker, payload, captureNtp);
 
     // Records how the connect ended and closes its span.
     private void OnConnectSettled(Task connected, MediaTime started)

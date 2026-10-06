@@ -89,13 +89,15 @@ public sealed class PeerConnectionTests
         // Send an encrypted RTP packet offerer -> answerer with abs-capture-time.
         const ulong captureNtp = 0xE5_00_00_00_80_00_00_00;
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE, 0x10, 0x20];
-        await offerer.SendRtp(
-            payloadType: 111,
-            ssrc: 0x1111_1111,
-            rtpTimestamp: 160,
-            marker: true,
-            payload,
-            captureNtp
+        Assert.IsTrue(
+            offerer.TrySendRtp(
+                payloadType: 111,
+                ssrc: 0x1111_1111,
+                rtpTimestamp: 160,
+                marker: true,
+                payload,
+                captureNtp
+            )
         );
 
         (RtpHeader header, byte[] got) = await received.Task.WaitAsync(TimeSpan.FromSeconds(30));
@@ -167,7 +169,9 @@ public sealed class PeerConnectionTests
             .WaitAsync(TimeSpan.FromSeconds(60));
 
         byte[] payload = [0xCA, 0xFE, 0xBA, 0xBE];
-        await offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 1000, marker: true, payload);
+        Assert.IsTrue(
+            offerer.TrySendRtp(111, 0x1111_1111, rtpTimestamp: 1000, marker: true, payload)
+        );
         await received.Of(1000).WaitAsync(TimeSpan.FromSeconds(5));
 
         // Force the path recovery. The PeerConnection stays Connected (DTLS/SRTP never drop - the whole point);
@@ -175,7 +179,7 @@ public sealed class PeerConnectionTests
         // (sends during the brief no-pair window are dropped). It decrypts only if keys + ROC survived.
         offerer.TriggerNetworkRecovery();
         await Cadence.SendUntilAsync(
-            () => offerer.SendRtp(111, 0x1111_1111, rtpTimestamp: 2000, marker: true, payload),
+            () => offerer.TrySendRtp(111, 0x1111_1111, rtpTimestamp: 2000, marker: true, payload),
             received.Of(2000),
             TimeSpan.FromMilliseconds(100),
             TimeSpan.FromSeconds(10)
@@ -241,7 +245,9 @@ public sealed class PeerConnectionTests
 
         string ufragBefore = offer.Media[0].IceUfrag;
         byte[] payload = [0xDE, 0xAD, 0xBE, 0xEF];
-        await offerer.SendRtp(111, 0x3333_3333, rtpTimestamp: 1000, marker: true, payload);
+        Assert.IsTrue(
+            offerer.TrySendRtp(111, 0x3333_3333, rtpTimestamp: 1000, marker: true, payload)
+        );
         await received.Of(1000).WaitAsync(TimeSpan.FromSeconds(5));
 
         // Full ICE restart: fresh credentials + re-gather, re-offered; the answerer restarts on the new ufrag.
@@ -256,7 +262,7 @@ public sealed class PeerConnectionTests
 
         // A packet sent after the restart must still decrypt - the DTLS-SRTP keys + ROC survived the rollover.
         await Cadence.SendUntilAsync(
-            () => offerer.SendRtp(111, 0x3333_3333, rtpTimestamp: 2000, marker: true, payload),
+            () => offerer.TrySendRtp(111, 0x3333_3333, rtpTimestamp: 2000, marker: true, payload),
             received.Of(2000),
             TimeSpan.FromMilliseconds(100),
             TimeSpan.FromSeconds(20)
@@ -329,7 +335,7 @@ public sealed class PeerConnectionTests
         byte[] payload = new byte[800];
         uint rtp = 0;
         await Cadence.SendUntilAsync(
-            () => sender.SendRtp(96, 0xCCCC_0001, rtp += 3000, marker: true, payload),
+            () => sender.TrySendRtp(96, 0xCCCC_0001, rtp += 3000, marker: true, payload),
             estimate.Task,
             TimeSpan.FromMilliseconds(10),
             TimeSpan.FromSeconds(30)

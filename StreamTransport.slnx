@@ -18,6 +18,7 @@
     <Project Path="src/Agash.StreamTransport.Linux/Agash.StreamTransport.Linux.csproj" />
     <Project Path="src/Agash.StreamTransport.Abstractions/Agash.StreamTransport.Abstractions.csproj" />
     <Project Path="src/Agash.StreamTransport/Agash.StreamTransport.csproj" />
+    <Project Path="src/Agash.StreamTransport.Adaptation/Agash.StreamTransport.Adaptation.csproj" />
     <Project Path="src/Agash.StreamTransport.AspNetCore/Agash.StreamTransport.AspNetCore.csproj" />
     <Project Path="src/Agash.StreamTransport.Signaling/Agash.StreamTransport.Signaling.csproj" />
     <Project Path="src/Agash.StreamTransport.Stun/Agash.StreamTransport.Stun.csproj" />
@@ -31,6 +32,7 @@
     <Project Path="samples/StreamTransport.Relay/StreamTransport.Relay.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Agash.StreamTransport.Adaptation.Tests/Agash.StreamTransport.Adaptation.Tests.csproj" />
     <Project Path="tests/Agash.StreamTransport.Media.Tests/Agash.StreamTransport.Media.Tests.csproj" />
     <Project Path="tests/Agash.StreamTransport.Codecs.FFmpeg.Tests/Agash.StreamTransport.Codecs.FFmpeg.Tests.csproj" />
     <Project Path="tests/Agash.StreamTransport.Codecs.Opus.Tests/Agash.StreamTransport.Codecs.Opus.Tests.csproj" />

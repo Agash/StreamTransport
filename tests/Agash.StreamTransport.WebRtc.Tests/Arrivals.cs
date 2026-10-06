@@ -22,7 +22,7 @@ internal sealed class Arrivals
 internal static class Cadence
 {
     public static async Task SendUntilAsync(
-        Func<ValueTask> send,
+        Action send,
         Task done,
         TimeSpan period,
         TimeSpan timeout
@@ -34,7 +34,7 @@ internal static class Cadence
         {
             do
             {
-                await send();
+                send();
             } while (!done.IsCompleted && await timer.WaitForNextTickAsync(expiry.Token));
         }
         catch (OperationCanceledException)

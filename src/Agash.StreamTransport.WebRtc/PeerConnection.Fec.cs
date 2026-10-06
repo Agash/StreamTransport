@@ -91,6 +91,11 @@ public sealed partial class PeerConnection
 
         if (RtpPacket.TryParse(rtp, out RtpHeader header, out ReadOnlySpan<byte> payload))
         {
+            if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
+            {
+                OnMediaSequence(header.Ssrc, header.SequenceNumber);
+            }
+
             CacheProtectedPacket(rtp);
             int payloadOffset = rtp.Length - payload.Length;
             RtpReceived?.Invoke(header, rtp.AsMemory(payloadOffset, payload.Length));
