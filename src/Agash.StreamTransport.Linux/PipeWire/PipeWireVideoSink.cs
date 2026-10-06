@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PipeWire.NET;
 using PipeWire.NET.Media;
 using Vortice.Vulkan;
-using PipeWireFormat = PipeWire.NET.Media.PixelFormat;
 using PipeWirePlane = PipeWire.NET.Media.VideoPlane;
 using PixelFormat = Agash.StreamTransport.Media.PixelFormat;
 using VideoFrame = Agash.StreamTransport.Media.VideoFrame;
@@ -30,13 +29,14 @@ public sealed record PipeWireVideoSinkOptions
 
 /// <summary>
 /// Publishes frames as a PipeWire video node, which OBS and every other PipeWire consumer sees as a
-/// camera. GPU frames stay on the GPU: DMA-BUF frames (BGRA, RGBA or NV12) are published on buffers
-/// shared with the consumer, each filled with one copy on the GPU from the latest frame; a consumer
-/// that cannot import a shared buffer is given the frames read back into memory. Frames in
-/// memory (BGRA, RGBA, NV12 or I420) are copied once into a staging buffer the daemon's next buffer is
-/// filled from. The node asks for a cycle per frame, so frames go out as they arrive; it takes the
-/// size, format, colour and storage of the first frame, declares the colour so consumers convert it
-/// correctly, and is made again when any of them change.
+/// camera. Frames are pushed as they arrive into a free buffer of the node, with at most one waiting
+/// for the consumer: a frame offered while the last has not been taken is skipped. GPU frames stay on
+/// the GPU: DMA-BUF frames (BGRA, RGBA or NV12) go into buffers shared with the consumer, drawn there by
+/// a processor (<see cref="Render{TState}"/>) or copied there once on the GPU; a consumer that cannot
+/// import a shared buffer gets them read back into memory. Frames in memory (BGRA, RGBA, NV12 or I420)
+/// are written once into the daemon's buffer. The node takes the size, format, colour and storage of the
+/// first frame, declares the colour so consumers convert it correctly, and is made again when any of
+/// them change.
 /// </summary>
 public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
 {
@@ -51,10 +51,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     private VideoColor _color;
     private bool _gpu;
     private VulkanEngine? _engine;
-    private VideoFrameLease? _latest;
     private VulkanImage[]? _lent;
-    private byte[] _staging = [];
-    private bool _staged;
     private bool _disposed;
 
     /// <summary>A PipeWire video node.</summary>
@@ -116,6 +113,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
 
         PipeWireVideoOutput output;
         VideoFormat format;
+        VulkanEngine? engine;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -125,43 +123,48 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 Restart(format, frame.Color, gpu, frame.Storage.Device);
             }
 
-            if (!gpu)
-            {
-                Stage(in frame);
-            }
-
             output = _output!;
+            engine = _engine;
         }
 
-        if (gpu)
+        if (
+            gpu
+            && Render(
+                format,
+                new Copying(this, frame),
+                static (in VideoTarget _, scoped in Copying copying) =>
+                    copying.Sink.CopyInto(in copying.Frame)
+            ) != VideoRenderResult.Unavailable
+        )
         {
-            if (
-                Render(
-                    format,
-                    new Copying(this, frame),
-                    static (in VideoTarget _, scoped in Copying copying) =>
-                        copying.Sink.CopyInto(in copying.Frame)
-                ) != VideoRenderResult.Unavailable
-            )
+            return;
+        }
+
+        // A consumer reading memory, or a node of memory frames: written once into the daemon's buffer.
+        // Before a consumer settles there is nothing to write into, and the frame is skipped.
+        if (!output.TryBeginFrame(out PipeWireOutputFrame written))
+        {
+            return;
+        }
+
+        using (written)
+        {
+            if (written.Pixels.IsEmpty)
             {
                 return;
             }
 
-            // No shared buffer to push into: a consumer reading memory is filled from the latest frame,
-            // kept until a newer one arrives.
-            lock (_gate)
+            if (gpu)
             {
-                if (output != _output)
-                {
-                    return;
-                }
-
-                _latest?.Dispose();
-                _latest = frame.Retain();
+                ReadBack(engine!, in frame, format, written.Pixels, written.Stride);
             }
-        }
+            else
+            {
+                Write(in frame, format, written.Pixels, written.Stride);
+            }
 
-        output.TriggerProcess();
+            written.Publish();
+        }
     }
 
     /// <inheritdoc/>
@@ -170,6 +173,11 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     /// format; unavailable before then and while it reads memory. One frame waits for the consumer at
     /// most, so a frame offered while the last one has not been taken is skipped. The renderer finishes
     /// drawing before it returns.
+    /// <para>
+    /// Lock order: the PipeWire loop thread takes this sink's lock under the loop lock (to back and
+    /// release buffers), so the loop lock, which dequeuing and publishing take, is taken here only while
+    /// this sink's lock is not held.
+    /// </para>
     /// </remarks>
     public VideoRenderResult Render<TState>(
         VideoFormat format,
@@ -196,8 +204,6 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             output = _output;
         }
 
-        // The loop thread takes this sink's lock under the loop lock, so the loop lock is taken (to
-        // dequeue and to publish) only while this lock is not held.
         if (!output.TryBeginFrame(out PipeWireOutputFrame frame))
         {
             return output.SharesBuffers ? VideoRenderResult.Skipped : VideoRenderResult.Unavailable;
@@ -255,8 +261,6 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         output?.Dispose();
         lock (_gate)
         {
-            _latest?.Dispose();
-            _latest = null;
             DropShared();
         }
     }
@@ -266,13 +270,10 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     {
         _output?.Dispose();
         _output = null;
-        _latest?.Dispose();
-        _latest = null;
         DropShared();
         _format = format;
         _color = color;
         _gpu = gpu;
-        _staged = false;
         PipeWireVideoOutput output = new(
             _context,
             _name,
@@ -281,21 +282,20 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
             _options.FrameRate,
             PipeWireMapping.ToPipeWire(color)
-        );
+        )
+        {
+            PushFrames = true,
+        };
         try
         {
             if (gpu)
             {
                 _engine = VulkanEngine.For(device);
                 output.AllocateDmaBuf += Allocate;
-                output.FillDmaBuf += FillShared;
                 output.ReleaseDmaBuf += ReleaseShared;
 
-                // Frames are pushed into shared buffers as they arrive. A consumer that cannot import
-                // a shared buffer gets them read back into memory.
-                output.PushFrames = true;
+                // A consumer that cannot import a shared buffer gets frames read back into memory.
                 output.HostMemoryFallback = true;
-                output.FillFrame += FillFromGpu;
                 output.ConnectDmaBuf([
                     new DmaBufDeviceOffer(
                         Drm(_engine.Identity),
@@ -306,8 +306,6 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             }
             else
             {
-                _staging = new byte[PlaneLayout.PackedSize(format.PixelFormat, Size(format))];
-                output.FillFrame += Fill;
                 output.Connect(
                     _options.TargetNodeId ?? PipeWireVideoOutput.AnyNode,
                     autoConnect: _options.AutoConnect,
@@ -432,83 +430,6 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         );
     }
 
-    // Runs on the PipeWire loop thread: the latest frame into the buffer the consumer takes next.
-    private bool FillShared(PipeWireVideoOutput sender, int bufferIndex)
-    {
-        lock (_gate)
-        {
-            if (
-                sender != _output
-                || _latest is null
-                || !_shared.TryGetValue(bufferIndex, out VulkanImage[]? images)
-            )
-            {
-                return false;
-            }
-
-            VideoFrame latest = _latest.Frame;
-            _ = latest.Storage.TryGetValue(out DmaBufImage image);
-            VulkanTransfer.Copy(
-                _engine!,
-                in image,
-                _format.PixelFormat,
-                latest.Format.CodedSize.Width,
-                latest.Format.CodedSize.Height,
-                images
-            );
-            return true;
-        }
-    }
-
-    // Runs on the PipeWire loop thread when the consumer took memory: the latest GPU frame, read back
-    // into the daemon's buffer, planes one after another at its stride.
-    private bool FillFromGpu(
-        PipeWireVideoOutput sender,
-        Span<byte> pixels,
-        int stride,
-        int width,
-        int height,
-        PipeWireFormat format
-    )
-    {
-        lock (_gate)
-        {
-            if (sender != _output || _latest is null)
-            {
-                return false;
-            }
-
-            VideoFrame latest = _latest.Frame;
-            _ = latest.Storage.TryGetValue(out DmaBufImage image);
-            VideoSize size = Size(_format);
-            byte[][] planes = VulkanTransfer.Read(
-                _engine!,
-                in image,
-                _format.PixelFormat,
-                size.Width,
-                size.Height
-            );
-            var packed = PlaneLayout.Packed(_format.PixelFormat, size);
-            int offset = 0;
-            for (int plane = 0; plane < planes.Length; plane++)
-            {
-                int planeStride = stride * packed[plane].Stride / packed[0].Stride;
-                int rowBytes = packed[plane].Stride;
-                int rows = PlaneLayout.PlaneRows(_format.PixelFormat, plane, size.Height);
-                for (int row = 0; row < rows; row++)
-                {
-                    planes[plane]
-                        .AsSpan(row * rowBytes, rowBytes)
-                        .CopyTo(pixels[(offset + (row * planeStride))..]);
-                }
-
-                offset += rows * planeStride;
-            }
-
-            return true;
-        }
-    }
-
     private void ReleaseShared(PipeWireVideoOutput sender, int bufferIndex)
     {
         lock (_gate)
@@ -531,69 +452,72 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         _shared.Clear();
     }
 
-    // The visible picture, rows packed tightly, into the staging buffer; called holding the lock.
-    private void Stage(in VideoFrame frame)
+    // The visible picture of a frame in memory into the daemon's buffer: planes one after another, each
+    // at the first plane's stride scaled as the plane's rows are to the first's.
+    private static void Write(
+        in VideoFrame frame,
+        VideoFormat format,
+        Span<byte> pixels,
+        int stride
+    )
     {
-        VideoSize size = Size(_format);
-        var packed = PlaneLayout.Packed(_format.PixelFormat, size);
+        VideoSize size = Size(format);
+        var packed = PlaneLayout.Packed(format.PixelFormat, size);
         _ = frame.Storage.TryGetValue(out CpuImage image);
         VideoRect visible = frame.Format.VisibleRect;
+        int offset = 0;
         for (int plane = 0; plane < packed.Count; plane++)
         {
-            (int x, int y) = PlaneOrigin(_format.PixelFormat, plane, visible);
+            (int x, int y) = PlaneOrigin(format.PixelFormat, plane, visible);
             int sourceStride = image.Planes[plane].Stride;
             ReadOnlySpan<byte> source = frame.GetPlane(plane);
+            int planeStride = stride * packed[plane].Stride / packed[0].Stride;
             int rowBytes = packed[plane].Stride;
-            int rows = PlaneLayout.PlaneRows(_format.PixelFormat, plane, size.Height);
+            int rows = PlaneLayout.PlaneRows(format.PixelFormat, plane, size.Height);
             for (int row = 0; row < rows; row++)
             {
                 source
                     .Slice(((y + row) * sourceStride) + x, rowBytes)
-                    .CopyTo(_staging.AsSpan(packed[plane].Offset + (row * rowBytes)));
+                    .CopyTo(pixels[(offset + (row * planeStride))..]);
             }
-        }
 
-        _staged = true;
+            offset += rows * planeStride;
+        }
     }
 
-    // Runs on the PipeWire loop thread: the staged frame into the daemon's buffer, at its stride.
-    private bool Fill(
-        PipeWireVideoOutput sender,
+    // A GPU frame read back for a consumer reading memory, into the daemon's buffer as Write lays it.
+    private static void ReadBack(
+        VulkanEngine engine,
+        in VideoFrame frame,
+        VideoFormat format,
         Span<byte> pixels,
-        int stride,
-        int width,
-        int height,
-        PipeWireFormat format
+        int stride
     )
     {
-        lock (_gate)
+        _ = frame.Storage.TryGetValue(out DmaBufImage image);
+        VideoSize size = Size(format);
+        byte[][] planes = VulkanTransfer.Read(
+            engine,
+            in image,
+            format.PixelFormat,
+            size.Width,
+            size.Height
+        );
+        var packed = PlaneLayout.Packed(format.PixelFormat, size);
+        int offset = 0;
+        for (int plane = 0; plane < planes.Length; plane++)
         {
-            if (!_staged || sender != _output)
+            int planeStride = stride * packed[plane].Stride / packed[0].Stride;
+            int rowBytes = packed[plane].Stride;
+            int rows = PlaneLayout.PlaneRows(format.PixelFormat, plane, size.Height);
+            for (int row = 0; row < rows; row++)
             {
-                return false;
+                planes[plane]
+                    .AsSpan(row * rowBytes, rowBytes)
+                    .CopyTo(pixels[(offset + (row * planeStride))..]);
             }
 
-            VideoSize size = Size(_format);
-            var packed = PlaneLayout.Packed(_format.PixelFormat, size);
-            int offset = 0;
-            for (int plane = 0; plane < packed.Count; plane++)
-            {
-                // The daemon's planes follow each other, each at the first plane's stride scaled as
-                // the plane's rows are to the first's.
-                int planeStride = stride * packed[plane].Stride / packed[0].Stride;
-                int rowBytes = packed[plane].Stride;
-                int rows = PlaneLayout.PlaneRows(_format.PixelFormat, plane, size.Height);
-                for (int row = 0; row < rows; row++)
-                {
-                    _staging
-                        .AsSpan(packed[plane].Offset + (row * rowBytes), rowBytes)
-                        .CopyTo(pixels[(offset + (row * planeStride))..]);
-                }
-
-                offset += rows * planeStride;
-            }
-
-            return true;
+            offset += rows * planeStride;
         }
     }
 
