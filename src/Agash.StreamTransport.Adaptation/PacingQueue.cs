@@ -19,6 +19,9 @@ internal sealed class PacingQueue
 
     private static readonly TimeSpan MaxBurst = TimeSpan.FromMilliseconds(5);
 
+    // While the send window is closed the queue looks again this often, besides being woken by feedback.
+    private static readonly TimeSpan GateRecheck = TimeSpan.FromMilliseconds(10);
+
     private readonly Queue<PacedPacket> _audio = new();
 
     // Retransmission, video and repair, in the order they go.
@@ -37,6 +40,29 @@ internal sealed class PacingQueue
 
     /// <summary>Bytes each packet costs beyond its own length on the wire (headers, authentication tags).</summary>
     public int PacketOverhead { get; init; }
+
+    /// <summary>Whether a packet other than audio may go now (the congestion controller's send window).</summary>
+    public Func<int, bool>? Gate { get; set; }
+
+    /// <summary>How long the oldest packet waiting behind the rate or the window has waited.</summary>
+    /// <param name="now">The time on the pacer's clock.</param>
+    /// <returns>The wait, or zero when none waits.</returns>
+    public TimeSpan QueueDelay(TimeSpan now)
+    {
+        TimeSpan oldest = now;
+        foreach (Queue<(PacedPacket Packet, TimeSpan Enqueued)> queue in _paced)
+        {
+            if (
+                queue.TryPeek(out (PacedPacket Packet, TimeSpan Enqueued) head)
+                && head.Enqueued < oldest
+            )
+            {
+                oldest = head.Enqueued;
+            }
+        }
+
+        return now - oldest;
+    }
 
     public void Enqueue(PacedPacket packet, TimeSpan now)
     {
@@ -69,6 +95,11 @@ internal sealed class PacingQueue
             }
 
             int cost = Cost(next.Packet);
+            if (Gate is { } gate && !gate(cost))
+            {
+                return new PacingStep(null, GateRecheck);
+            }
+
             TimeSpan wait = WaitFor(cost, next.Enqueued, now);
             if (wait > TimeSpan.Zero)
             {

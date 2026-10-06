@@ -76,6 +76,31 @@ public sealed partial class Pacer : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Whether a packet other than audio may go now, given its cost in bytes: the congestion controller's
+    /// send window. Packets wait while it says no; <see cref="Wake"/> when it may have opened.
+    /// </summary>
+    public Func<int, bool>? Gate
+    {
+        get => _queue.Gate;
+        init => _queue.Gate = value;
+    }
+
+    /// <summary>How long the oldest packet waiting behind the rate or the window has waited.</summary>
+    public TimeSpan QueueDelay
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _queue.QueueDelay(Now);
+            }
+        }
+    }
+
+    /// <summary>Looks at the queue again now, after something that may let a waiting packet go.</summary>
+    public void Wake() => _wake.Signal();
+
     /// <summary>Queues a packet; the pacer owns its buffer from here.</summary>
     /// <param name="packet">The packet.</param>
     public void Enqueue(PacedPacket packet)

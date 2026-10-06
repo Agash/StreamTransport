@@ -39,10 +39,11 @@ public sealed partial class PeerConnection
 
     private static readonly TimeSpan ProcessInterval = TimeSpan.FromMilliseconds(25); // how often the sender's controller self-adapts
 
-    // Feedback timing, as libwebrtc's: a report goes once a frame's last packet (the marker) has arrived, or
-    // 25 ms after the first unreported arrival when no marker comes; reports are at least 25 ms apart and
-    // at most 250 ms, and together stay under 500 kbit/s.
-    private const long MinFeedbackSpacingMicros = 25_000;
+    // Feedback timing (SCReAMv2 section 5, after libwebrtc's): a report goes once a frame's last packet (the
+    // marker) has arrived, once 16 packets are unreported, or 25 ms after the first unreported arrival;
+    // reports are at least 10 ms apart and at most 250 ms, and together stay under 500 kbit/s.
+    private const long MinFeedbackSpacingMicros = 10_000;
+    private const int PacketsPerReport = 16;
     private const long MaxFeedbackSpacingMicros = 250_000;
     private const long MarkerWaitMicros = 25_000;
     private const double MaxFeedbackBytesPerMicro = 500_000 / 8.0 / 1_000_000;
@@ -58,6 +59,7 @@ public sealed partial class PeerConnection
     private const int MaxReportRun = 512;
 
     private long _firstUnreportedArrivalMicros = -1;
+    private int _unreportedPackets;
     private bool _markerSinceFeedback;
     private long _nextFeedbackMicros;
     private long _lastFeedbackMicros = -1;
@@ -120,10 +122,41 @@ public sealed partial class PeerConnection
     {
         estimate = ApplyBreakerCap(estimate);
         _pacer.BitsPerSecond = Math.Max(0, estimate.PacingBitsPerSecond);
+
+        // Feedback may have opened the send window.
+        _pacer.Wake();
         CapacityChanged?.Invoke(estimate);
     }
 
     private TimeSpan Now => _time.GetElapsedTime(_origin);
+
+    // The pacer's gate: the controller's send window.
+    private bool MayTransmit(int bytes)
+    {
+        lock (_feedbackGate)
+        {
+            return _controller!.CanTransmit(bytes, Now);
+        }
+    }
+
+    /// <summary>
+    /// Notes an encoded video frame as the media layer hands it over, so the congestion controller can keep
+    /// the sender queue short and leave room for frames larger than nominal.
+    /// </summary>
+    /// <param name="bytes">The frame's size.</param>
+    public void NoteMediaFrame(int bytes)
+    {
+        if (_controller is not { } controller)
+        {
+            return;
+        }
+
+        TimeSpan queueDelay = _pacer.QueueDelay;
+        lock (_feedbackGate)
+        {
+            controller.OnMediaFrame(bytes, queueDelay, Now);
+        }
+    }
 
     private long NowMicros() => _time.GetElapsedTime(_origin).Ticks / TimeSpan.TicksPerMicrosecond;
 
@@ -182,6 +215,7 @@ public sealed partial class PeerConnection
             }
 
             _markerSinceFeedback |= marker;
+            _unreportedPackets++;
             due = FeedbackDue(nowMicros);
         }
 
@@ -196,7 +230,11 @@ public sealed partial class PeerConnection
         _ccfbNegotiated
         && _firstUnreportedArrivalMicros >= 0
         && nowMicros >= _nextFeedbackMicros
-        && (_markerSinceFeedback || nowMicros - _firstUnreportedArrivalMicros >= MarkerWaitMicros);
+        && (
+            _markerSinceFeedback
+            || _unreportedPackets >= PacketsPerReport
+            || nowMicros - _firstUnreportedArrivalMicros >= MarkerWaitMicros
+        );
 
     private void StartCongestionTimers()
     {
@@ -298,6 +336,7 @@ public sealed partial class PeerConnection
 
             _firstUnreportedArrivalMicros = -1;
             _markerSinceFeedback = false;
+            _unreportedPackets = 0;
             int bytes = 0;
             foreach (CcfbStreamReport report in _reportScratch)
             {

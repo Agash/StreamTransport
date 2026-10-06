@@ -120,6 +120,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         )
         {
             BitsPerSecond = Math.Max(0, controller?.Current.PacingBitsPerSecond ?? 0),
+            Gate = controller is null ? null : MayTransmit,
         };
 
         // A receive-only endpoint still reports, under an SSRC of its own.
