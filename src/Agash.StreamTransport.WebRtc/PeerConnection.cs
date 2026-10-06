@@ -292,7 +292,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     SdpSetup.Active,
                     Answer(remote.Direction, LocalDirectionFor(remote.Kind)),
                     repairs ? rtxSsrc : null
-                )
+                ) with
+                {
+                    // An answer carries these only when the offer did (RFC 5506, RFC 8888 section 6).
+                    RtcpReducedSize = remote.RtcpReducedSize,
+                    CongestionControlFeedback = remote.CongestionControlFeedback,
+                }
             );
             negotiated.Add(
                 new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs, remoteCodecs)
@@ -407,7 +412,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             && prevUfrag != first.IceUfrag;
 
         _remoteDescription = description;
-        NoteReducedSize(description);
+        NoteRtcpCapabilities(description);
         _expectedRemoteFingerprint = first.Fingerprint;
 
         if (isRestartOffer)
@@ -1014,7 +1019,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // Congestion feedback and reception reports cover what crossed the wire, so a retransmission
         // counts under the RTX stream's SSRC and sequence.
         long arrivalMicros = NowMicros();
-        RecordArrival(header.Ssrc, header.SequenceNumber, arrivalMicros, ecn);
+        RecordArrival(header.Ssrc, header.SequenceNumber, arrivalMicros, ecn, header.Marker);
         RecordReceivedForReports(header, arrivalMicros);
 
         // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered

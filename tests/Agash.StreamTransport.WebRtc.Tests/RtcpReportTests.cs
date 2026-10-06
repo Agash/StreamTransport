@@ -18,7 +18,7 @@ public sealed class RtcpReportTests
         90000,
         null,
         "packetization-mode=1;profile-level-id=42e01f",
-        ["nack", "nack pli", "ack ccfb"]
+        ["nack", "nack pli"]
     );
 
     public TestContext TestContext { get; set; } = null!;
@@ -114,6 +114,68 @@ public sealed class RtcpReportTests
         Assert.IsTrue(read.Media[0].RtcpReducedSize);
         Assert.IsTrue(SdpReader.TryParse(text.Replace("a=rtcp-rsize\r\n", ""), out read));
         Assert.IsFalse(read.Media[0].RtcpReducedSize);
+    }
+
+    // RFC 8888 section 6: the wildcard form, which covers FEC and retransmission payload types too.
+    [TestMethod]
+    public void CongestionControlFeedback_IsOfferedAsTheWildcardAndRead()
+    {
+        string text = SdpWriter.Write(Offer());
+        StringAssert.Contains(text, "a=rtcp-fb:* ack ccfb");
+        Assert.IsTrue(SdpReader.TryParse(text, out SdpDescription read));
+        Assert.IsTrue(read.Media[0].CongestionControlFeedback);
+
+        string perCodec = text.Replace("a=rtcp-fb:* ack ccfb", "a=rtcp-fb:96 ack ccfb");
+        Assert.IsTrue(SdpReader.TryParse(perCodec, out read));
+        Assert.IsTrue(
+            read.Media[0].CongestionControlFeedback,
+            "a per-codec listing means the same"
+        );
+
+        Assert.IsTrue(SdpReader.TryParse(text.Replace("a=rtcp-fb:* ack ccfb\r\n", ""), out read));
+        Assert.IsFalse(read.Media[0].CongestionControlFeedback);
+    }
+
+    [TestMethod]
+    public void WildcardFeedback_AppliesToEveryCodec()
+    {
+        string text = SdpWriter.Write(Offer()) + "a=rtcp-fb:* goog-remb\r\n";
+        Assert.IsTrue(SdpReader.TryParse(text, out SdpDescription read));
+        Assert.Contains("goog-remb", read.Media[0].Codecs[0].RtcpFeedback);
+    }
+
+    // An answer lists rtcp-rsize and ccfb only when the offer did.
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Answer_EchoesTheOfferedRtcpCapabilities(bool offered)
+    {
+        await using PeerConnection offerer = new(
+            new PeerConnectionOptions
+            {
+                Media = [new MediaLine("0", SdpMediaKind.Video, 0xAAAA_0001, [H264])],
+            },
+            Certificate
+        );
+        await using PeerConnection answerer = new(
+            new PeerConnectionOptions
+            {
+                Media = [new MediaLine("0", SdpMediaKind.Video, 0xBBBB_0001, [H264])],
+            },
+            Certificate
+        );
+        string text = SdpWriter.Write(offerer.CreateOffer());
+        if (!offered)
+        {
+            text = text.Replace("a=rtcp-rsize\r\n", "").Replace("a=rtcp-fb:* ack ccfb\r\n", "");
+        }
+
+        Assert.IsTrue(SdpReader.TryParse(text, out SdpDescription offer));
+        answerer.SetRemoteDescription(offer, SdpType.Offer);
+        SdpMediaDescription answered = answerer.CreateAnswer().Media[0];
+
+        Assert.AreEqual(offered, answered.RtcpReducedSize);
+        Assert.AreEqual(offered, answered.CongestionControlFeedback);
     }
 
     // The receiver's reception report echoes the sender's report, which gives the sender the round trip.

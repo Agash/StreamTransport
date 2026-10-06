@@ -25,8 +25,28 @@ public static class Ccfb
 {
     private const int Fmt = 11;
 
-    /// <summary>The "received but arrival time unavailable / out of range" ATO sentinel (RFC 8888 §3.1).</summary>
+    /// <summary>
+    /// The ATO for a packet received but whose arrival time is unavailable or after the report time
+    /// (RFC 8888 section 3.1).
+    /// </summary>
     public const ushort ArrivalTimeUnknown = 0x1FFF;
+
+    /// <summary>The ATO for a packet that arrived more than 8189/1024 s before the report (section 3.1).</summary>
+    public const ushort ArrivalTimeOverRange = 0x1FFE;
+
+    /// <summary>Encodes how long before the report a packet arrived, in 1/1024 s, with the sentinels.</summary>
+    /// <param name="ageMicros">The report time less the arrival time, in microseconds.</param>
+    /// <returns>The 13-bit ATO.</returns>
+    public static ushort ArrivalTimeOffset(long ageMicros)
+    {
+        if (ageMicros < 0)
+        {
+            return ArrivalTimeUnknown;
+        }
+
+        long units = ageMicros * 1024 / 1_000_000;
+        return units >= ArrivalTimeOverRange ? ArrivalTimeOverRange : (ushort)units;
+    }
 
     /// <summary>Builds a CCFB packet. Returns the bytes written.</summary>
     public static int Build(

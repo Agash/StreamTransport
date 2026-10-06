@@ -30,6 +30,7 @@ public sealed partial class PeerConnection
     private ulong _ntpOrigin;
     private ITimer? _reportTimer;
     private volatile bool _rtcpReducedSize;
+    private volatile bool _ccfbNegotiated;
     private long _rtcpRoundTripMicros;
 
     /// <summary>
@@ -317,17 +318,20 @@ public sealed partial class PeerConnection
         return offset;
     }
 
-    // Both sides listed rtcp-rsize: every section of the remote description says so (this endpoint always
-    // offers and answers it).
-    private void NoteReducedSize(SdpDescription remote)
+    // What both sides agreed for RTCP: reduced-size packets and congestion-control feedback, each when every
+    // section of the remote description lists it (this endpoint offers both, and answers what was offered).
+    private void NoteRtcpCapabilities(SdpDescription remote)
     {
-        bool all = remote.Media.Count > 0;
+        bool reducedSize = remote.Media.Count > 0;
+        bool feedback = remote.Media.Count > 0;
         foreach (SdpMediaDescription media in remote.Media)
         {
-            all &= media.RtcpReducedSize;
+            reducedSize &= media.RtcpReducedSize;
+            feedback &= media.CongestionControlFeedback;
         }
 
-        _rtcpReducedSize = all;
+        _rtcpReducedSize = reducedSize;
+        _ccfbNegotiated = feedback;
     }
 
     private async ValueTask StopReportsAsync()

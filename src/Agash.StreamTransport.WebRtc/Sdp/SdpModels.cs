@@ -115,6 +115,12 @@ public sealed record SdpMediaDescription
     /// </summary>
     public bool RtcpReducedSize { get; init; } = true;
 
+    /// <summary>
+    /// Whether RFC 8888 congestion-control feedback is used: <c>a=rtcp-fb:* ack ccfb</c>, which covers every
+    /// payload type in the section, FEC and retransmission included (RFC 8888 section 6). Offered always.
+    /// </summary>
+    public bool CongestionControlFeedback { get; init; } = true;
+
     /// <summary>The media SSRC of this section, if announced (<c>a=ssrc</c>).</summary>
     public uint? Ssrc { get; init; }
 

@@ -110,6 +110,11 @@ public static class SdpWriter
             }
         }
 
+        if (media.CongestionControlFeedback)
+        {
+            sb.Append("a=rtcp-fb:* ack ccfb\r\n");
+        }
+
         foreach (Ice.IceCandidate candidate in media.Candidates)
         {
             sb.Append(CultureInfo.InvariantCulture, $"a={candidate.ToSdp()}\r\n");

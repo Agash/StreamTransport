@@ -108,6 +108,7 @@ public static class SdpReader
                     Setup = m.Setup ?? sessionSetup,
                     RtcpMux = m.RtcpMux,
                     RtcpReducedSize = m.RtcpReducedSize,
+                    CongestionControlFeedback = m.CongestionControlFeedback,
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
                     Cname = m.Cname,
@@ -186,6 +187,10 @@ public static class SdpReader
         public bool RtcpMux { get; private set; }
 
         public bool RtcpReducedSize { get; private set; }
+
+        public bool CongestionControlFeedback { get; private set; }
+
+        private readonly List<string> _wildcardFeedback = [];
         public uint? Ssrc { get; private set; }
         public string? Cname { get; private set; }
         public uint? RtxSsrc { get; private set; }
@@ -322,7 +327,10 @@ public static class SdpReader
                         map.Clock,
                         map.Channels,
                         _fmtp.GetValueOrDefault(pt),
-                        _feedback.TryGetValue(pt, out List<string>? fb) ? fb : []
+                        [
+                            .. _feedback.TryGetValue(pt, out List<string>? fb) ? fb : [],
+                            .. _wildcardFeedback,
+                        ]
                     )
                 );
             }
@@ -358,10 +366,20 @@ public static class SdpReader
             }
         }
 
+        // "a=rtcp-fb:<pt> <feedback>"; "*" applies to every payload type (RFC 4585 section 4.2).
         private void ParseFeedback(string value)
         {
             int space = value.IndexOf(' ', StringComparison.Ordinal);
-            if (space > 0 && int.TryParse(value[..space], out int pt))
+            if (space > 0 && value[(space + 1)..] == "ack ccfb")
+            {
+                // RFC 8888 asks for the wildcard; a peer that lists it per payload type means the same.
+                CongestionControlFeedback = true;
+            }
+            else if (space == 1 && value[0] == '*')
+            {
+                _wildcardFeedback.Add(value[(space + 1)..]);
+            }
+            else if (space > 0 && int.TryParse(value[..space], out int pt))
             {
                 (_feedback.TryGetValue(pt, out List<string>? list) ? list : _feedback[pt] = []).Add(
                     value[(space + 1)..]
