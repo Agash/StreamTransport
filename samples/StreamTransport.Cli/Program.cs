@@ -32,10 +32,29 @@ catch (FormatException error)
 
 #if MACOS
 // Syphon finds servers through the main run loop, which a console host hands over while it works.
-return SyphonMainLoop.Run(() => RunAsync(command));
+return SyphonMainLoop.Run(() => GuardedAsync(command));
 #else
-return await RunAsync(command);
+return await GuardedAsync(command);
 #endif
+
+// A command that fails says why and exits with an error, rather than the runtime aborting the process.
+static async Task<int> GuardedAsync(CommandLine command)
+{
+    try
+    {
+        return await RunAsync(command);
+    }
+    catch (Exception error) when (error is not OutOfMemoryException)
+    {
+        Exception cause = error.GetBaseException();
+        Console.Error.WriteLine(
+            ReferenceEquals(cause, error)
+                ? $"streamtransport: {error.Message}"
+                : $"streamtransport: {error.Message} {cause.Message}"
+        );
+        return 1;
+    }
+}
 
 static async Task<int> RunAsync(CommandLine command)
 {
