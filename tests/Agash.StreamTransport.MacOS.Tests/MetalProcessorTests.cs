@@ -470,7 +470,10 @@ public sealed class MetalProcessorTests
         {
             for (int i = 0; i < frames; i++)
             {
-                Assert.IsTrue(_handed.Wait(TimeSpan.FromSeconds(10)), "a frame was never handed on");
+                Assert.IsTrue(
+                    _handed.Wait(TimeSpan.FromSeconds(10)),
+                    "a frame was never handed on"
+                );
             }
         }
     }

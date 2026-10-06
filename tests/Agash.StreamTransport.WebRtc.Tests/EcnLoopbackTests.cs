@@ -8,13 +8,14 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 /// Verifies the native ECN socket path on the current OS for both address families and every ECN codepoint
 /// (RFC 3168 §5): the sender stamps the codepoint into the outgoing TOS / Traffic-Class field and the receiver
 /// must read exactly that value back from the ancillary cmsg returned by recvmsg. This catches platform-specific
-/// struct-layout, option-number, cmsg-type and source-address parsing mistakes per family. Skips on platforms
-/// without a native ECN receive path (Windows), matching libwebrtc's POSIX-only ECN support.
+/// struct-layout, option-number, cmsg-type and source-address parsing mistakes per family, on the platforms
+/// with a native ECN receive path.
 /// </summary>
 [TestClass]
 public sealed class EcnLoopbackTests
 {
     [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
     [DataRow(false, (byte)0x01, DisplayName = "IPv4 ECT(1)")]
     [DataRow(false, (byte)0x02, DisplayName = "IPv4 ECT(0)")]
     [DataRow(false, (byte)0x03, DisplayName = "IPv4 CE")]
@@ -24,13 +25,6 @@ public sealed class EcnLoopbackTests
     [Timeout(10_000)]
     public async Task NativeSocket_ReadsBackEcnCodepoint(bool ipv6, byte codepoint)
     {
-        if (!EcnInterop.NativeReceiveSupported)
-        {
-            Assert.Inconclusive(
-                "The OS/socket stack did not expose a native ECN receive API (expected on Windows)."
-            );
-        }
-
         IPAddress loopback = ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;
         if (ipv6 && !Socket.OSSupportsIPv6)
         {

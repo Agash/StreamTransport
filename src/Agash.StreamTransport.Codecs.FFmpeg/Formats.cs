@@ -6,6 +6,17 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 // Translations between the Media model and FFmpeg's names for the same things.
 internal static class Formats
 {
+    // Whether a storage exists on this operating system: DMA-BUFs on Linux, Direct3D on Windows,
+    // IOSurfaces on macOS, memory everywhere.
+    public static bool OnThisPlatform(VideoStorageKind storage) =>
+        storage switch
+        {
+            VideoStorageKind.DmaBuf => OperatingSystem.IsLinux(),
+            VideoStorageKind.D3D11 or VideoStorageKind.D3D12 => OperatingSystem.IsWindows(),
+            VideoStorageKind.IOSurface => OperatingSystem.IsMacOS(),
+            _ => true,
+        };
+
     // FFmpeg's id for a codec this package implements.
     public static FF.CodecId ToCodecId(VideoCodecId codec) =>
         codec == VideoCodecId.H264 ? FF.CodecId.H264

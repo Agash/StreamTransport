@@ -11,9 +11,8 @@ public sealed class EncoderTests
     private const int FrameCount = 30;
 
     public static IEnumerable<object[]> Cases =>
-        from backend in Enum.GetValues<EncoderBackend>()
-        from codec in VideoCodecId.BuiltIn
-        select new object[] { backend, codec };
+        from row in Backends.EncoderCodecs
+        select new object[] { row.Backend, row.Codec };
 
     [TestMethod]
     [DynamicData(nameof(Cases))]
@@ -229,18 +228,31 @@ public sealed class EncoderTests
             factories.Select(static f => f.Rank).ToList()
         );
         Assert.AreEqual(EncoderBackend.Software, factories[^1].Backend);
-        if (OperatingSystem.IsWindows())
-        {
-            Assert.AreEqual(EncoderBackend.D3D12, factories[0].Backend);
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            Assert.AreEqual(EncoderBackend.Vulkan, factories[0].Backend);
-        }
     }
 
+    // Each platform's native GPU API leads.
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void CreateAll_OnWindows_PutsD3D12First() =>
+        Assert.AreEqual(EncoderBackend.D3D12, FFmpegVideoEncoderFactory.CreateAll()[0].Backend);
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux)]
+    public void CreateAll_OnLinux_PutsVulkanFirst() =>
+        Assert.AreEqual(EncoderBackend.Vulkan, FFmpegVideoEncoderFactory.CreateAll()[0].Backend);
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.OSX)]
+    public void CreateAll_OnMacOS_PutsVideoToolboxFirst() =>
+        Assert.AreEqual(
+            EncoderBackend.VideoToolbox,
+            FFmpegVideoEncoderFactory.CreateAll()[0].Backend
+        );
+
     public static IEnumerable<object[]> ProfileCases =>
-        from backend in Enum.GetValues<EncoderBackend>()
+        from row in Backends.EncoderCodecs
+        where row.Codec == VideoCodecId.H264
+        let backend = row.Backend
         from profile in new[] { "42e01f", "640c1f" }
         select new object[] { backend, profile };
 

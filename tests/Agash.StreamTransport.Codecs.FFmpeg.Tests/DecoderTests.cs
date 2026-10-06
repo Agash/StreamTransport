@@ -8,9 +8,28 @@ public sealed class DecoderTests
     private const int FrameCount = 20;
 
     public static IEnumerable<object[]> Cases =>
-        from backend in Enum.GetValues<DecoderBackend>()
-        from codec in VideoCodecId.BuiltIn
-        select new object[] { backend, codec };
+        from row in Backends.DecoderCodecs
+        select new object[] { row.Backend, row.Codec };
+
+    // GPU transcodes: a decoder and an encoder of one platform API on the same storage.
+    public static IEnumerable<object[]> GpuTranscodes =>
+        from transcode in new (
+            DecoderBackend Decoder,
+            VideoStorageKind Storage,
+            EncoderBackend Encoder
+        )[]
+        {
+            (DecoderBackend.D3D12, VideoStorageKind.D3D12, EncoderBackend.D3D12),
+            (DecoderBackend.D3D11, VideoStorageKind.D3D11, EncoderBackend.Nvenc),
+            (DecoderBackend.D3D11, VideoStorageKind.D3D11, EncoderBackend.Amf),
+            (DecoderBackend.Vaapi, VideoStorageKind.DmaBuf, EncoderBackend.Vaapi),
+            (DecoderBackend.Vulkan, VideoStorageKind.DmaBuf, EncoderBackend.Vulkan),
+            (DecoderBackend.VideoToolbox, VideoStorageKind.IOSurface, EncoderBackend.VideoToolbox),
+        }
+        where
+            Backends.Decodes(transcode.Decoder, transcode.Storage)
+            && Backends.Encodes(transcode.Encoder, transcode.Storage)
+        select new object[] { transcode.Decoder, transcode.Storage, transcode.Encoder };
 
     [TestMethod]
     [DynamicData(nameof(Cases))]
@@ -83,12 +102,7 @@ public sealed class DecoderTests
     // GPU frames from the decoder straight into an encoder on the same GPU, and the result decoded in
     // software: a transcode that never leaves the GPU.
     [TestMethod]
-    [DataRow(DecoderBackend.D3D12, VideoStorageKind.D3D12, EncoderBackend.D3D12)]
-    [DataRow(DecoderBackend.D3D11, VideoStorageKind.D3D11, EncoderBackend.Nvenc)]
-    [DataRow(DecoderBackend.D3D11, VideoStorageKind.D3D11, EncoderBackend.Amf)]
-    [DataRow(DecoderBackend.Vaapi, VideoStorageKind.DmaBuf, EncoderBackend.Vaapi)]
-    [DataRow(DecoderBackend.Vulkan, VideoStorageKind.DmaBuf, EncoderBackend.Vulkan)]
-    [DataRow(DecoderBackend.VideoToolbox, VideoStorageKind.IOSurface, EncoderBackend.VideoToolbox)]
+    [DynamicData(nameof(GpuTranscodes))]
     public void Transcode_OnTheGpu_KeepsThePictures(
         DecoderBackend decoderBackend,
         VideoStorageKind storage,

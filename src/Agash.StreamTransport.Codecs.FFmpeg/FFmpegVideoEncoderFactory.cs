@@ -59,6 +59,13 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
     /// <summary>Whether the backend runs on a GPU or media engine.</summary>
     public bool IsHardwareAccelerated => _spec.IsHardware;
 
+    /// <summary>
+    /// The GPU surfaces the backend encodes from without a copy through memory, where its hardware is
+    /// present; empty for a backend that takes frames in memory only.
+    /// </summary>
+    public ImmutableArray<VideoStorageKind> GpuStorages =>
+        [.. _spec.GpuStorages.Where(Formats.OnThisPlatform)];
+
     /// <inheritdoc/>
     /// <remarks>The codecs whose encoder is in the loaded FFmpeg; whether the hardware can run them is
     /// <see cref="QueryCapabilities"/>'s question.</remarks>

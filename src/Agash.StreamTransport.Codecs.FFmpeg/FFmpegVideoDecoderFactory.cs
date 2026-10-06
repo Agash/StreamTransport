@@ -57,6 +57,13 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     /// <inheritdoc/>
     public int Rank => _spec.Rank;
 
+    /// <summary>
+    /// The GPU surfaces the backend decodes into without a copy through memory, where its hardware is
+    /// present; empty for a backend that decodes into memory only.
+    /// </summary>
+    public ImmutableArray<VideoStorageKind> GpuStorages =>
+        [.. _spec.GpuStorages.Where(Formats.OnThisPlatform)];
+
     /// <inheritdoc/>
     public ImmutableArray<VideoCodecFormat> SupportedFormats =>
         Rank == 0

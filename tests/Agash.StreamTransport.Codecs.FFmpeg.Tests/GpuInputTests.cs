@@ -15,10 +15,10 @@ public sealed class GpuInputTests
     private const int FrameCount = 20;
 
     public static IEnumerable<object[]> Cases =>
-        from backend in Enum.GetValues<EncoderBackend>()
-        from codec in VideoCodecId.BuiltIn
+        from row in Backends.EncoderCodecs
         from storage in new[] { VideoStorageKind.D3D12, VideoStorageKind.D3D11 }
-        select new object[] { backend, codec, storage };
+        where Backends.Encodes(row.Backend, storage)
+        select new object[] { row.Backend, row.Codec, storage };
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
