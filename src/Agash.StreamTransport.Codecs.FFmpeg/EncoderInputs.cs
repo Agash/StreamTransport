@@ -88,8 +88,8 @@ internal sealed class UploadInput : EncoderInput
     }
 }
 
-// A Direct3D 11 texture copied on the GPU into the encoder's own surfaces, on the texture's device:
-// NVENC, AMF and QSV take only surfaces from their pool.
+// A Direct3D 11 texture handed to NVENC or AMF on the texture's device: read in place when it is
+// exactly the picture, copied on the GPU into the encoder's surfaces when it is larger.
 [SupportedOSPlatform("windows6.1")]
 internal sealed unsafe class D3D11Input : EncoderInput
 {
@@ -99,9 +99,11 @@ internal sealed unsafe class D3D11Input : EncoderInput
 
     private readonly FF.HardwareDevice _device;
     private readonly FF.HardwareFramePool _pool;
+    private readonly VideoSize _size;
 
     public D3D11Input(D3D11Image image, PixelFormat format, VideoSize size)
     {
+        _size = size;
         _device = FF.HardwareDevice.FromD3D11Texture(image.Texture);
         // A fixed texture array, which NVENC and AMF register once. Direct3D 11 needs a bind flag for
         // one: YUV surfaces are bound as decoder targets, RGB as render targets the encoder samples.
@@ -139,7 +141,16 @@ internal sealed unsafe class D3D11Input : EncoderInput
             );
         }
 
-        _pool.CopyFromD3D11Texture(image.Texture, image.Subresource, destination);
+        // NVENC and AMF read any texture on their device, so a texture of exactly the picture is read in
+        // place; a larger one (a decoder pads its surfaces) is copied, since the encoder reads it whole.
+        if (frame.Format.CodedSize == _size)
+        {
+            _pool.WrapD3D11Texture(image.Texture, image.Subresource, destination);
+        }
+        else
+        {
+            _pool.CopyFromD3D11Texture(image.Texture, image.Subresource, destination);
+        }
     }
 
     public override void Dispose()
