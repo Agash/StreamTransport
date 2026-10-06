@@ -113,6 +113,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
                 resolved.Storage,
                 resolved.CpuFormat,
                 DrmModifiers(resolved.Storage, output),
+                output.HeldFrames,
                 resolved.Info,
                 _loggerFactory.CreateLogger<FFmpegVideoDecoder>()
             );

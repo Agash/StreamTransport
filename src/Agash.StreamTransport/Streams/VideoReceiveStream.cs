@@ -56,12 +56,10 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     )> _frames = Channel.CreateUnbounded<(EncodedFrameBuffer, bool, MediaTimestamp)>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = true }
     );
-    private readonly SinkConsumer _processed;
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _worker;
+    private readonly Presenter _presenter;
     private IVideoDecoder? _decoder;
-    private IVideoProcessor? _processor;
-    private VideoStreamDescription? _described;
     private long _lastKeyframeRequest;
     private long? _gapSince;
     private int _framesDecoded;
@@ -98,7 +96,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         _logger = logger;
         _buffer = new RtpFrameBuffer(setup.PayloadFormat);
         _stamps = new ArrivalStamps(clock);
-        _processed = new SinkConsumer(this);
+        _presenter = new Presenter(this);
         _lastKeyframeRequest =
             _time.GetTimestamp()
             - (long)(KeyframeRequestInterval.TotalSeconds * _time.TimestampFrequency);
@@ -162,31 +160,13 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         }
     }
 
-    /// <inheritdoc/>
-    public void OnFrame(in VideoFrame frame)
-    {
-        VideoStreamDescription description = new(
-            frame.Storage.Kind,
-            frame.Format.PixelFormat,
-            new VideoSize(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height),
-            frame.Storage.Device
-        );
-        if (description != _described)
-        {
-            _processor?.Dispose();
-            _processor = NeedsProcessing(description) ? CreateProcessor(description) : null;
-            _described = description;
-        }
-
-        if (_processor is not null)
-        {
-            _processor.Process(in frame, _processed);
-        }
-        else
-        {
-            Play(in frame);
-        }
-    }
+    /// <summary>
+    /// A decoded frame goes to playout as decoded; it is converted for the sink when it is shown, straight
+    /// into the sink's own surface where the sink lends one, so nothing is converted that is not shown.
+    /// </summary>
+    /// <param name="frame">The decoded frame.</param>
+    public void OnFrame(in VideoFrame frame) =>
+        _playout.Video(in frame, _stamps.TakeCapture(frame.Timestamp), _presenter);
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
@@ -199,7 +179,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             left.Frame.Dispose();
         }
 
-        _processor?.Dispose();
+        _presenter.Dispose();
         _decoder?.Dispose();
         _buffer.Dispose();
         _stop.Dispose();
@@ -300,8 +280,12 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         }
     }
 
-    private void Play(in VideoFrame frame) =>
-        _playout.Video(in frame, _stamps.TakeCapture(frame.Timestamp), _sink);
+    // Senders cap at 60 frames a second by default; playout's frame count is reckoned at that rate.
+    private const double MaxFrameRate = 60;
+
+    // The frames playout keeps while they wait for their slots, at most: its longest wait at the highest
+    // frame rate sent, and the one being shown.
+    private int HeldFrames => (int)Math.Ceiling(_playout.MaxDelay.TotalSeconds * MaxFrameRate) + 1;
 
     private bool NeedsProcessing(VideoStreamDescription description) =>
         _setup.Alpha == AlphaLayout.PackSideBySide
@@ -346,7 +330,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                 );
         }
 
-        VideoConstraints sink = _sink.Constraints;
+        VideoConstraints sink = _sink.Constraints with { HeldFrames = HeldFrames };
         ImmutableArray<PixelFormat> any = [.. Enum.GetValues<PixelFormat>()];
 
         // A side-by-side frame is unpacked from the decoder's own 4:2:0: converted to the sink's RGB first,
@@ -359,9 +343,23 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                     {
                         PixelFormats = [PixelFormat.Nv12, PixelFormat.I420],
                     },
-                    VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420),
+                    VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420) with
+                    {
+                        HeldFrames = HeldFrames,
+                    },
                 ]
-                : [sink, sink with { PixelFormats = any }, VideoConstraints.Cpu(any)];
+                :
+                [
+                    sink,
+                    sink with
+                    {
+                        PixelFormats = any,
+                    },
+                    VideoConstraints.Cpu(any) with
+                    {
+                        HeldFrames = HeldFrames,
+                    },
+                ];
         foreach (VideoConstraints output in outputs)
         {
             if (_registry.TryCreateVideoDecoder(_setup.Format, output, out IVideoDecoder? decoder))
@@ -429,9 +427,79 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     [LoggerMessage(2052, LogLevel.Warning, "Asking the sender for a keyframe failed.")]
     private partial void LogKeyframeRequestFailed(Exception exception);
 
-    // Takes processed frames to playout.
-    private sealed class SinkConsumer(VideoReceiveStream stream) : IVideoFrameConsumer
+    // Shows frames as playout releases them: as they are when the sink takes them, otherwise converted,
+    // drawn straight into the surface the sink lends when it lends one, else through the processor's own
+    // surfaces. Playout releases from its scheduler or, for a frame without a capture time, from the
+    // decode worker, so showing is serialised.
+    private sealed class Presenter(VideoReceiveStream stream) : IVideoFrameConsumer, IDisposable
     {
-        public void OnFrame(in VideoFrame frame) => stream.Play(in frame);
+        private readonly Lock _gate = new();
+        private IVideoProcessor? _processor;
+        private VideoStreamDescription? _described;
+        private bool _disposed;
+
+        public void OnFrame(in VideoFrame frame)
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                VideoStreamDescription description = new(
+                    frame.Storage.Kind,
+                    frame.Format.PixelFormat,
+                    new VideoSize(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height),
+                    frame.Storage.Device
+                );
+                if (description != _described)
+                {
+                    _processor?.Dispose();
+                    _processor = stream.NeedsProcessing(description)
+                        ? stream.CreateProcessor(description)
+                        : null;
+                    _described = description;
+                }
+
+                if (_processor is not { } processor)
+                {
+                    stream._sink.OnFrame(in frame);
+                    return;
+                }
+
+                VideoStreamDescription output = processor.Info.Output;
+                VideoFormat drawn = new(output.PixelFormat, output.Size.Width, output.Size.Height);
+                if (
+                    !stream._sink.TryRender(
+                        drawn,
+                        new Drawing(processor, frame),
+                        static (in VideoTarget target, scoped in Drawing drawing) =>
+                            drawing.Processor.TryProcess(in drawing.Frame, in target)
+                    )
+                )
+                {
+                    processor.Process(in frame, stream._sink);
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                _disposed = true;
+                _processor?.Dispose();
+                _processor = null;
+            }
+        }
+    }
+
+    // A frame and the processor that draws it, for a sink that lends its surface.
+    private readonly ref struct Drawing(IVideoProcessor processor, VideoFrame frame)
+    {
+        public readonly IVideoProcessor Processor = processor;
+
+        public readonly VideoFrame Frame = frame;
     }
 }

@@ -43,6 +43,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         VideoStorageKind output,
         PixelFormat cpuFormat,
         ImmutableArray<ulong> drmModifiers,
+        int heldFrames,
         VideoDecoderInfo info,
         ILogger logger
     )
@@ -62,6 +63,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
                 LowDelay = true,
                 PacketTimeBase = TimeBase,
                 DrmModifiers = drmModifiers,
+                ExtraHardwareFrames = heldFrames,
             }
         );
     }

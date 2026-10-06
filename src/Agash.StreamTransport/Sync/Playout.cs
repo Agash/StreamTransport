@@ -29,6 +29,7 @@ internal sealed class Playout : IAsyncDisposable
         _metrics = metrics;
         if (options.Playout == PlayoutMode.Synced)
         {
+            MaxDelay = options.MaxPlayoutDelay;
             _scheduler = new PlayoutScheduler(
                 new PlayoutTimeline(
                     options.MinPlayoutDelay,
@@ -50,6 +51,9 @@ internal sealed class Playout : IAsyncDisposable
         get => TimeSpan.FromTicks(Interlocked.Read(ref _audioOffsetTicks));
         set => Interlocked.Exchange(ref _audioOffsetTicks, value.Ticks);
     }
+
+    /// <summary>The longest a frame waits for its slot, or zero when frames play on arrival.</summary>
+    public TimeSpan MaxDelay { get; }
 
     /// <summary>The playout buffer depth, or zero when frames play on arrival.</summary>
     public TimeSpan CurrentDelay => _scheduler?.CurrentDelay ?? TimeSpan.Zero;
