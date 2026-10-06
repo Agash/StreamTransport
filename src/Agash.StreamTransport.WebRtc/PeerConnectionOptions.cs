@@ -52,6 +52,9 @@ public sealed record NegotiatedMediaInfo(
 /// <summary>Configuration for a <see cref="PeerConnection"/>.</summary>
 public sealed class PeerConnectionOptions
 {
+    /// <summary>The RFC 8083 circuit breakers' tunables; the RFC's defaults when null.</summary>
+    public Adaptation.CircuitBreakerOptions? CircuitBreaker { get; init; }
+
     /// <summary>The media lines to negotiate (offerer side); the answerer mirrors the remote offer.</summary>
     public IReadOnlyList<MediaLine> Media { get; init; } = [];
 

@@ -161,22 +161,32 @@ public sealed partial class PeerConnection
             )
             {
                 var block = RtcpReportBlock.Read(body[(blocksAt + (i * RtcpReportBlock.Length))..]);
-                if (block.LastSenderReport == 0 || !IsOwnSource(block.Ssrc))
+                if (!IsOwnSource(block.Ssrc))
                 {
                     continue;
                 }
 
                 // RTT = arrival - LSR - DLSR, all in the middle 32 bits of NTP time (1/65536 s).
-                uint arrival = (uint)(NtpAt(now) >> 16);
-                uint roundTrip =
-                    arrival - block.LastSenderReport - block.DelaySinceLastSenderReport;
-                if (roundTrip < 0x8000_0000)
+                if (block.LastSenderReport != 0)
                 {
-                    Interlocked.Exchange(
-                        ref _rtcpRoundTripMicros,
-                        (long)roundTrip * 1_000_000 / 65536
-                    );
+                    uint arrival = (uint)(NtpAt(now) >> 16);
+                    uint roundTrip =
+                        arrival - block.LastSenderReport - block.DelaySinceLastSenderReport;
+                    if (roundTrip < 0x8000_0000)
+                    {
+                        Interlocked.Exchange(
+                            ref _rtcpRoundTripMicros,
+                            (long)roundTrip * 1_000_000 / 65536
+                        );
+                    }
                 }
+
+                BreakerOnReport(
+                    block.Ssrc,
+                    block.ExtendedHighestSequence,
+                    block.FractionLost,
+                    ReportedRoundTripTime
+                );
             }
         }
     }

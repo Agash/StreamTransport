@@ -118,6 +118,7 @@ public sealed partial class PeerConnection
     // A new estimate retunes the pacer here, so media and repairs follow it, then the media layer.
     private void OnEstimate(CapacityEstimate estimate)
     {
+        estimate = ApplyBreakerCap(estimate);
         _pacer.BitsPerSecond = Math.Max(0, estimate.PacingBitsPerSecond);
         CapacityChanged?.Invoke(estimate);
     }
@@ -208,6 +209,7 @@ public sealed partial class PeerConnection
                 var pc = (PeerConnection)s!;
                 pc.SendCongestionFeedbackIfDue();
                 pc.ProcessNackResends();
+                pc.BreakerOnTick();
             },
             this,
             TimeSpan.FromMicroseconds(MinFeedbackSpacingMicros),

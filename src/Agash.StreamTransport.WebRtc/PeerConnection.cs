@@ -533,7 +533,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         ulong captureNtp = 0
     )
     {
-        if (_srtp is null)
+        if (_srtp is null || TransmissionCeased)
         {
             return false;
         }
@@ -652,6 +652,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         if (
             _srtp is not { } srtp
             || _iceAgent is not { } agent
+            || TransmissionCeased
             || !RtpPacket.TryParse(
                 packet.Buffer.AsSpan(0, packet.Length),
                 out RtpHeader header,
@@ -666,6 +667,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
         long now = NowMicros();
         RecordSent(header.Ssrc, header.SequenceNumber, protectedLength, packet.Class);
+        BreakerOnSent(header.Ssrc, protectedLength);
         RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
         if (packet.Class == TrafficClass.Retransmission)
         {
@@ -927,6 +929,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         ReadOnlySpan<byte> rtcp = span[..length];
+        BreakerOnFeedback();
 
         if (RtcpFeedback.ContainsPli(rtcp, out uint pliSsrc))
         {
