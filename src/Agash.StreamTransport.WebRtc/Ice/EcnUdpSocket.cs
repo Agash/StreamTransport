@@ -71,7 +71,7 @@ internal sealed class EcnUdpSocket : IIceSocket
         // break the blocking native receive). UDP sendto does not block in practice for datagrams this size.
         try
         {
-            _socket.SendTo(data.Span, SocketFlags.None, destination);
+            EcnInterop.Send(_socket, data.Span, destination, EcnInterop.Ect1);
         }
         catch (SocketException)
         {

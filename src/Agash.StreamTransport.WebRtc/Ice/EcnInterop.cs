@@ -6,28 +6,22 @@ using System.Runtime.InteropServices;
 namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>
-/// Native helpers for reading the per-packet ECN mark off a UDP socket and stamping ECT(1) on sends. The
-/// managed <see cref="Socket"/> receive APIs drop the kernel's ancillary control data (<c>IPPacketInformation</c>
-/// exposes only the destination address and interface - never the TOS/ECN byte), so the ECN bits in the IPv4
-/// TOS / IPv6 Traffic-Class byte are only reachable through <c>recvmsg</c> with manual cmsg parsing.
+/// Native helpers for reading the per-packet ECN mark off a UDP socket and marking ECT(1) on sends. The managed
+/// <see cref="Socket"/> API drops the ancillary control data the mark arrives in (<c>IPPacketInformation</c>
+/// carries only the destination address and interface) and cannot attach any on send, so each platform's
+/// native call is used: <c>recvmsg</c> with the TOS / Traffic-Class byte and a socket-wide TOS on Linux and
+/// macOS; <c>WSARecvMsg</c> and <c>WSASendMsg</c> with <c>IP_ECN</c> / <c>IPV6_ECN</c> control messages on
+/// Windows 10 build 20348 and later.
 ///
-/// <para><b>POSIX only, by design.</b> This mirrors libwebrtc's <c>PhysicalSocketServer</c>, which implements
-/// ECN read/write exclusively under <c>WEBRTC_POSIX</c> and returns "not supported" for <c>OPT_RECV_ECN</c> /
-/// <c>OPT_SEND_ECN</c> on Windows. Windows offers no reliable per-datagram ECN path: <c>WSASendMsg</c> with an
-/// <c>IP_ECN</c> control message is rejected (WSAEINVAL) and the loopback/host stack does not surface the mark,
-/// so attempting it only adds a redundant receive thread for an always-zero result. On Windows the ICE layer
-/// uses the managed socket instead (Ecn=0); ECN-driven L4S congestion response is a Linux/macOS capability.</para>
+/// <para>Per-platform struct layouts (msghdr/WSAMSG, cmsghdr/WSACMSGHDR, sockaddr), option numbers and
+/// control-message alignment differ; the branches encode each. <c>EcnLoopbackTests</c> marks a loopback
+/// datagram and asserts the mark is read back, so a wrong layout or option number fails on the affected OS.</para>
 ///
-/// <para>Per-platform struct layouts (msghdr/cmsghdr/sockaddr), option numbers and cmsg alignment differ
-/// between Linux and macOS; the branches below encode each. <c>EcnLoopbackTests</c> marks a loopback datagram
-/// and asserts the value is read back - a wrong layout or option number fails that test on the affected OS
-/// rather than shipping. The real-socket ICE handshake tests additionally exercise source-address parsing.</para>
-///
-/// <para>64-bit only (all supported targets are): pointer-sized fields assume an LP64 layout.</para>
+/// <para>64-bit only (all supported targets are): pointer-sized fields assume an LP64 / LLP64 layout.</para>
 /// </summary>
-internal static unsafe class EcnInterop
+internal static unsafe partial class EcnInterop
 {
-    // Protocol levels (identical across both POSIX targets and matching Windows too, though unused there).
+    // Protocol levels, the same on every target.
     private const int IPPROTO_IP = 0;
     private const int IPPROTO_IPV6 = 41;
 
@@ -49,11 +43,41 @@ internal static unsafe class EcnInterop
     private static bool IsWindows { get; } = OperatingSystem.IsWindows();
     private static bool IsMacOS { get; } = OperatingSystem.IsMacOS();
 
-    /// <summary>Whether the native ECN-aware receive path is usable on this OS (else callers use a managed socket).</summary>
-    public static bool NativeReceiveSupported => !IsWindows;
+    /// <summary>Whether the native ECN-aware path is usable on this OS (else callers use a managed socket).</summary>
+    public static bool NativeReceiveSupported => !IsWindows || WindowsEcn;
 
-    /// <summary>Set the outgoing ECN bits in the IPv4 TOS / IPv6 Traffic-Class field. Production uses ECT(1); tests use CE.</summary>
-    internal static void SetOutgoingEcn(Socket socket, bool ipv6, byte ecn)
+    /// <summary>
+    /// Readies a socket to send datagrams marked <paramref name="ecn"/>: on Linux and macOS the mark is the
+    /// socket's TOS / Traffic Class; Windows marks each datagram as <see cref="Send"/> sends it.
+    /// </summary>
+    internal static void PrepareSend(Socket socket, bool ipv6, byte ecn)
+    {
+        if (!IsWindows)
+        {
+            SetOutgoingEcn(socket, ipv6, ecn);
+        }
+    }
+
+    /// <summary>Sends one datagram marked <paramref name="ecn"/> on a socket <see cref="PrepareSend"/> readied.</summary>
+    /// <exception cref="SocketException">The send failed.</exception>
+    internal static void Send(
+        Socket socket,
+        ReadOnlySpan<byte> payload,
+        IPEndPoint destination,
+        byte ecn
+    )
+    {
+        if (IsWindows && WindowsEcn)
+        {
+            WindowsSend(socket, payload, destination, ecn);
+        }
+        else
+        {
+            _ = socket.SendTo(payload, SocketFlags.None, destination);
+        }
+    }
+
+    private static void SetOutgoingEcn(Socket socket, bool ipv6, byte ecn)
     {
         int value = ecn & 0x03;
         (int level, int option) = (ipv6, IsMacOS) switch
@@ -66,13 +90,15 @@ internal static unsafe class EcnInterop
         NativeSetSocketOption(socket.Handle, level, option, value);
     }
 
-    /// <summary>Best-effort: stamp ECT(1) on every outgoing datagram so a bottleneck marks CE instead of dropping.</summary>
+    /// <summary>ECT(1), the L4S mark: a bottleneck marks CE instead of dropping.</summary>
+    public const byte Ect1 = 0x01;
+
+    /// <summary>Best-effort: ready the socket to mark ECT(1) on every datagram it sends.</summary>
     public static void EnableEct1OnSend(Socket socket, bool ipv6)
     {
-        const byte ect1 = 0x01;
         try
         {
-            SetOutgoingEcn(socket, ipv6, ect1);
+            PrepareSend(socket, ipv6, Ect1);
         }
         catch (SocketException)
         {
@@ -92,7 +118,14 @@ internal static unsafe class EcnInterop
                 (true, true) => (IPPROTO_IPV6, OSX_IPV6_RECVTCLASS),
                 (true, false) => (IPPROTO_IPV6, LINUX_IPV6_RECVTCLASS),
             };
-            NativeSetSocketOption(socket.Handle, level, option, 1);
+            if (IsWindows)
+            {
+                WindowsEnableReceive(socket, ipv6);
+            }
+            else
+            {
+                NativeSetSocketOption(socket.Handle, level, option, 1);
+            }
         }
         catch (SocketException)
         {
@@ -132,7 +165,10 @@ internal static unsafe class EcnInterop
         bool ipv6,
         out byte ecn,
         out IPEndPoint? remote
-    ) => UnixReceive((int)handle, buffer, ipv6, out ecn, out remote);
+    ) =>
+        IsWindows
+            ? WindowsReceive(handle, buffer, ipv6, out ecn, out remote)
+            : UnixReceive((int)handle, buffer, ipv6, out ecn, out remote);
 
     // ---- Unix (Linux + macOS): recvmsg ----
 
