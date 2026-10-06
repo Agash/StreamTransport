@@ -203,6 +203,37 @@ public sealed class RtcpReportTests
         Assert.Contains(RtcpPacketType.SenderReport, pair.FirstTypesFrom("10.0.0.1"));
     }
 
+    // The receiver gets the sender's NTP/RTP mapping (RFC 3550 section 6.4.1), which aligns a stream's RTP
+    // clock to the sender's wall clock when packets carry no abs-capture-time.
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task SenderReport_ReachesTheReceiverWithItsClockMapping()
+    {
+        await using Pair pair = await Pair.ConnectAsync(reducedSize: true);
+        TaskCompletionSource<(uint Ssrc, ulong Ntp)> report = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        pair.Receiver.SenderReportReceived += (ssrc, ntp, _) => report.TrySetResult((ssrc, ntp));
+        using PeriodicTimer frames = new(TimeSpan.FromMilliseconds(20));
+        uint timestamp = 0;
+        while (
+            !report.Task.IsCompleted
+            && await frames.WaitForNextTickAsync(TestContext.CancellationToken)
+        )
+        {
+            Assert.IsTrue(
+                pair.Sender.TrySendRtp(96, 0xAAAA_0001, timestamp += 1800, true, [0x65, 1])
+            );
+        }
+
+        (uint ssrc, ulong ntp) = await report.Task;
+        Assert.AreEqual(0xAAAA_0001u, ssrc);
+        DateTimeOffset reported = new DateTimeOffset(1900, 1, 1, 0, 0, 0, TimeSpan.Zero).AddSeconds(
+            (ntp >> 32) + ((ntp & 0xFFFF_FFFF) / 4294967296.0)
+        );
+        Assert.IsLessThan(TimeSpan.FromSeconds(5), (DateTimeOffset.UtcNow - reported).Duration());
+    }
+
     // Without rtcp-rsize on both sides, every RTCP packet starts with a report: feedback goes out compound.
     [TestMethod]
     [Timeout(60_000)]
