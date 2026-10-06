@@ -1,3 +1,4 @@
+using System.Numerics;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Windows.Spout;
 using Windows.Win32.Graphics.Dxgi.Common;
@@ -53,6 +54,70 @@ public sealed class SpoutTests
         CollectionAssert.AreEqual(pixels, gpu.Download(image, 1)[0]);
     }
 
+    // A received frame is lent for GPU reads ordered before Spout's release, so the processor converts
+    // the sender's texture in place, without a copy, and the picture comes out as published.
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task SourceToProcessor_ReadsTheSendersTextureInPlace()
+    {
+        using var gpu = TestGpu.Open();
+        string name = $"StreamTransport test {Guid.NewGuid():N}";
+        // One colour, so every luma and chroma sample is that colour's.
+        byte[] pixels = new byte[Width * Height * 4];
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) = (40, 120, 200, 255);
+        }
+
+        nint texture = gpu.Upload(DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM, Width, Height, pixels);
+        using SpoutVideoSink sink = new(name, gpu.Adapter);
+        using SpoutVideoSource source = new(
+            new SpoutVideoSourceOptions { SenderName = name, Adapter = gpu.Adapter }
+        );
+        using IVideoProcessor processor = new Direct3D12.D3D12VideoProcessorFactory().Create(
+            new VideoStreamDescription(
+                VideoStorageKind.D3D12,
+                PixelFormat.Bgra,
+                new(Width, Height),
+                gpu.Adapter
+            ),
+            new VideoProcessing(
+                new VideoConstraints([VideoStorageKind.D3D12], [PixelFormat.Nv12], gpu.Adapter)
+            )
+        );
+        Keeper keeper = new();
+        Converter converter = new(processor, keeper);
+        using IDisposable connection = source.Connect(
+            converter,
+            new VideoConstraints([VideoStorageKind.D3D12], [PixelFormat.Bgra], gpu.Adapter)
+        );
+
+        using (PeriodicTimer frames = new(TimeSpan.FromMilliseconds(10)))
+        using (CancellationTokenSource expiry = new(TimeSpan.FromSeconds(10)))
+        {
+            do
+            {
+                Publish(sink, texture, gpu.Adapter);
+            } while (!keeper.Kept.IsCompleted && await frames.WaitForNextTickAsync(expiry.Token));
+        }
+
+        using VideoFrameLease kept = await keeper.Kept.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(converter.Lent, "the frame did not name a release queue to read it in place");
+        Assert.IsTrue(kept.Frame.Storage.TryGetValue(out D3D12Image output));
+        byte[][] planes = gpu.Download(output, 2);
+        (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(VideoColor.Bt709);
+        Vector3 rgb = new(200 / 255f, 120 / 255f, 40 / 255f);
+        Assert.IsTrue(
+            planes[0].All(l => Math.Abs(l - (Vector4.Dot(y, new(rgb, 1)) * 255)) <= 1),
+            "luma"
+        );
+        for (int c = 0; c < planes[1].Length; c += 2)
+        {
+            Assert.AreEqual(Vector4.Dot(cb, new(rgb, 1)) * 255, planes[1][c], 1.0, "Cb");
+            Assert.AreEqual(Vector4.Dot(cr, new(rgb, 1)) * 255, planes[1][c + 1], 1.0, "Cr");
+        }
+    }
+
     [TestMethod]
     public void Sink_RefusesFramesOffItsGpu()
     {
@@ -81,6 +146,19 @@ public sealed class SpoutTests
                 MediaTimestamp.Captured(new MediaTime(1))
             )
         );
+
+    // Hands each frame to a processor, noting whether the source lent it for reads in place.
+    private sealed class Converter(IVideoProcessor processor, IVideoFrameConsumer next)
+        : IVideoFrameConsumer
+    {
+        public bool Lent { get; private set; }
+
+        public void OnFrame(in VideoFrame frame)
+        {
+            Lent = frame.Storage.TryGetValue(out D3D12Image image) && image.Sync.ReleaseQueue != 0;
+            processor.Process(in frame, next);
+        }
+    }
 
     // Keeps the first frame it is handed.
     private sealed class Keeper : IVideoFrameConsumer

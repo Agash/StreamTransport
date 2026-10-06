@@ -36,7 +36,17 @@ public readonly record struct CpuImage(PlaneLayout Planes);
 /// <param name="ProducerQueue">The ID3D12CommandQueue the resource was written on, or zero.</param>
 /// <param name="Fence">An ID3D12Fence to wait on, or zero.</param>
 /// <param name="Value">The value <paramref name="Fence"/> reaches when the resource is ready.</param>
-public readonly record struct D3D12Sync(nint ProducerQueue = 0, nint Fence = 0, ulong Value = 0);
+/// <param name="ReleaseQueue">
+/// An ID3D12CommandQueue the producer finishes before it writes the resource again, or zero. A consumer
+/// whose GPU reads run after the call returns makes this queue wait for them (on a fence of its own)
+/// before returning, and reads the resource in place instead of keeping the frame.
+/// </param>
+public readonly record struct D3D12Sync(
+    nint ProducerQueue = 0,
+    nint Fence = 0,
+    ulong Value = 0,
+    nint ReleaseQueue = 0
+);
 
 /// <summary>A Direct3D 12 texture (Windows): a 2D resource with one mip level.</summary>
 /// <param name="Resource">The ID3D12Resource, borrowed, in D3D12_RESOURCE_STATE_COMMON.</param>

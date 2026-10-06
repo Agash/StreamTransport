@@ -519,6 +519,15 @@ internal sealed unsafe class D3D12Engine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Orders another queue's later work after this engine's work up to a fence value, on the GPU: what
+    /// a reader does for a producer that finishes its release queue before writing the resource again.
+    /// </summary>
+    /// <param name="queue">The other ID3D12CommandQueue.</param>
+    /// <param name="value">The value of this engine's fence to wait for.</param>
+    public void Release(nint queue, ulong value) =>
+        ((ID3D12CommandQueue*)queue)->Wait(_fence, value);
+
     /// <summary>Closes and submits the open command list; the fence reaches the returned value when it is done.</summary>
     /// <returns>The fence value of the submission.</returns>
     public ulong Submit()

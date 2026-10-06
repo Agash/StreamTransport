@@ -186,16 +186,19 @@ internal sealed unsafe class D3D12VideoProcessor(
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
-            // The GPU reads the frame after this call returns, so it reads a retained frame: a producer
-            // may reuse what it lent once the call is over.
-            VideoFrameLease input = frame.Retain();
+            // The GPU reads the frame after this call returns. A producer that finishes a release queue
+            // before reusing the texture lends it for as long as that queue waits for the read; any other
+            // producer's frame is retained, since it may reuse what it lent once the call is over.
+            _ = frame.Storage.TryGetValue(out D3D12Image lent);
+            nint releaseQueue = lent.Sync.ReleaseQueue;
+            VideoFrameLease? input = releaseQueue == 0 ? frame.Retain() : null;
             PooledTexture? output = null;
             D3D12Engine engine;
             ulong done;
             VideoColor colour;
             try
             {
-                VideoFrame kept = input.Frame;
+                VideoFrame kept = input is null ? frame : input.Frame;
                 _ = kept.Storage.TryGetValue(out D3D12Image image);
                 engine = Engine(image.Resource);
                 ReleaseFinishedInputs(engine);
@@ -205,15 +208,23 @@ internal sealed unsafe class D3D12VideoProcessor(
                     Info.Output.PixelFormat == PixelFormat.Nv12
                         ? ToYuv(engine, image, in kept, output)
                         : ToRgb(engine, image, in kept, output);
+                if (releaseQueue != 0)
+                {
+                    engine.Release(releaseQueue, done);
+                }
             }
             catch
             {
-                input.Dispose();
+                input?.Dispose();
                 output?.Release();
                 throw;
             }
 
-            _reading.Enqueue((input, done));
+            if (input is not null)
+            {
+                _reading.Enqueue((input, done));
+            }
+
             VideoStreamDescription described = Info.Output;
             if (described.Storage == VideoStorageKind.Cpu)
             {

@@ -278,8 +278,17 @@ public sealed partial class SpoutVideoSource : IVideoSource, IDisposable
                 return;
             }
 
+            // Spout finishes its queue before the sender may write the texture again, so a reader that
+            // makes that queue wait for its reads reads the texture in place.
             VideoFrame video = new(
-                new VideoStorage(new D3D12Image(frame.D3D12Texture.Resource, 0, _engine.Adapter)),
+                new VideoStorage(
+                    new D3D12Image(
+                        frame.D3D12Texture.Resource,
+                        0,
+                        _engine.Adapter,
+                        new D3D12Sync(ReleaseQueue: _engine.Queue)
+                    )
+                ),
                 new VideoFormat(pixelFormat, frame.Width, frame.Height),
                 MediaTimestamp.Observed(new MediaTime(frame.ObservedAtNanoseconds)),
                 color: VideoColor.Srgb,
