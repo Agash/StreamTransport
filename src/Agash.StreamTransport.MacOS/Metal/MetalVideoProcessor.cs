@@ -230,6 +230,50 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         }
     }
 
+    // BGRA output is written by one compute pass, so it goes straight into a sink's surface (Syphon's)
+    // on this GPU; the drawing completes before this returns, as an IOSurface target names no event.
+    public bool TryProcess(in VideoFrame frame, in VideoTarget target)
+    {
+        VideoStreamDescription output = Info.Output;
+        if (
+            output.PixelFormat != PixelFormat.Bgra
+            || !frame.Storage.TryGetValue(out IOSurfaceImage image)
+            || !target.Storage.TryGetValue(out IOSurfaceImage into)
+            || into.Device != _engine.Identity
+            || target.Format.PixelFormat != PixelFormat.Bgra
+            || target.Format.CodedSize != output.Size
+        )
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            using NSAutoreleasePool autoreleased = new();
+            IOSurface.IOSurface input = Runtime.GetINativeObject<IOSurface.IOSurface>(
+                image.Surface,
+                false
+            )!;
+            IOSurface.IOSurface surface = Runtime.GetINativeObject<IOSurface.IOSurface>(
+                into.Surface,
+                false
+            )!;
+            using IMTLCommandBuffer commands = _engine.Begin(image.SharedEvent, image.SignalValue);
+            if (into.SharedEvent != 0)
+            {
+                commands.EncodeWait(
+                    Runtime.GetINativeObject<IMTLSharedEvent>(into.SharedEvent, false)!,
+                    into.SignalValue
+                );
+            }
+
+            ToRgb(commands, input, frame.Color, surface);
+            MetalEngine.Complete(commands);
+            return true;
+        }
+    }
+
     // Copies a frame in memory into a surface of the staging pool, plane by plane.
     private unsafe PooledSurface Stage(in VideoFrame frame)
     {
@@ -339,7 +383,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
                 }
                 else
                 {
-                    ToRgb(commands, input, frame.Color, output);
+                    ToRgb(commands, input, frame.Color, output.Surface);
                 }
 
                 // The GPU is done with the input before this returns, so the producer may reuse it.
@@ -510,7 +554,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         IMTLCommandBuffer commands,
         IOSurface.IOSurface input,
         VideoColor inputColour,
-        PooledSurface output
+        IOSurface.IOSurface output
     )
     {
         VideoColor source =
@@ -554,7 +598,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
             MTLTextureUsage.ShaderRead
         );
         using IMTLTexture rgb = _engine.Texture(
-            output.Surface,
+            output,
             0,
             MTLPixelFormat.BGRA8Unorm,
             size.Width,
