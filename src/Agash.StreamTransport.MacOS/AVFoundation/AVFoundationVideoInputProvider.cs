@@ -8,6 +8,7 @@ using CoreVideo;
 using Foundation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using ObjCRuntime;
 
 namespace Agash.StreamTransport.MacOS.AVFoundation;
 
@@ -316,6 +317,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
     }
 
     // Runs on the capture queue; the buffer is the camera's while the call lasts.
+    private readonly PixelBufferRetainer _retainer = new();
+
     private void Deliver(CMSampleBuffer sample)
     {
         using var buffer = sample.GetImageBuffer() as CVPixelBuffer;
@@ -326,6 +329,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
 
         MediaTimestamp timestamp = Timestamp(sample.PresentationTimeStamp);
         VideoFormat format = new(mode.PixelFormat, (int)buffer.Width, (int)buffer.Height);
+        _retainer.Delivering = buffer;
         VideoColor color = Color(buffer, mode.PixelFormat);
         nint surface = buffer.GetIOSurface()?.Handle ?? 0;
         bool locked = false;
@@ -345,7 +349,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
                             new VideoStorage(new IOSurfaceImage(surface, device)),
                             format,
                             timestamp,
-                            color: color
+                            color: color,
+                            retainer: _retainer
                         );
                         consumer.OnFrame(in shared);
                         continue;
@@ -357,7 +362,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
                         locked = true;
                     }
 
-                    VideoFrame mapped = Mapped(buffer, format, timestamp, color);
+                    VideoFrame mapped = Mapped(buffer, format, timestamp, color, _retainer);
                     consumer.OnFrame(in mapped);
                 }
                 catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -369,6 +374,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         }
         finally
         {
+            _retainer.Delivering = null;
             if (locked)
             {
                 _ = buffer.Unlock(CVPixelBufferLock.ReadOnly);
@@ -380,7 +386,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         CVPixelBuffer buffer,
         VideoFormat format,
         MediaTimestamp timestamp,
-        VideoColor color
+        VideoColor color,
+        IVideoFrameRetainer retainer
     )
     {
         int height = format.CodedSize.Height;
@@ -398,7 +405,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
                     chromaStride * ((height + 1) / 2)
                 ),
                 chromaStride,
-                color: color
+                color: color,
+                retainer: retainer
             );
         }
 
@@ -408,7 +416,8 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
             timestamp,
             new ReadOnlySpan<byte>((void*)buffer.BaseAddress, stride * height),
             stride,
-            color: color
+            color: color,
+            retainer: retainer
         );
     }
 
@@ -478,6 +487,82 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
             {
                 input.Disconnect(consumer);
             }
+        }
+    }
+
+    // Keeps a camera frame by holding its pixel buffer, as VideoToolbox holds what it encodes: the
+    // capture pool does not reuse a buffer while it is held, so the frame stays the camera's memory and
+    // is read in place.
+    private sealed class PixelBufferRetainer : IVideoFrameRetainer
+    {
+        // The buffer being delivered; set and read on the capture queue.
+        public CVPixelBuffer? Delivering { get; set; }
+
+        public VideoFrameLease Retain(in VideoFrame frame)
+        {
+            CVPixelBuffer delivering =
+                Delivering
+                ?? throw new InvalidOperationException(
+                    "A camera frame can be kept only during the call that delivered it."
+                );
+            CVPixelBuffer held =
+                Runtime.GetINativeObject<CVPixelBuffer>(delivering.Handle, owns: false)
+                ?? throw new InvalidOperationException("The pixel buffer could not be held.");
+            return new PixelBufferLease(in frame, held);
+        }
+    }
+
+    // A held pixel buffer; a CPU frame's buffer stays locked for reading while it is held.
+    private sealed class PixelBufferLease : VideoFrameLease
+    {
+        private readonly CVPixelBuffer _buffer;
+        private readonly bool _mapped;
+
+        public PixelBufferLease(in VideoFrame frame, CVPixelBuffer buffer)
+            : base(
+                frame.Storage,
+                frame.Format,
+                frame.Timestamp,
+                frame.Color,
+                frame.Orientation,
+                frame.Duration
+            )
+        {
+            _buffer = buffer;
+            _mapped = frame.Storage.Kind == VideoStorageKind.Cpu;
+            if (_mapped)
+            {
+                _ = buffer.Lock(CVPixelBufferLock.ReadOnly);
+            }
+        }
+
+        protected override unsafe ReadOnlySpan<byte> GetPlane(int index)
+        {
+            if (!_mapped)
+            {
+                return base.GetPlane(index);
+            }
+
+            int height = Format.CodedSize.Height;
+            return _buffer.IsPlanar
+                ? new ReadOnlySpan<byte>(
+                    (void*)_buffer.GetBaseAddress(index),
+                    (int)_buffer.GetBytesPerRowOfPlane(index) * (int)_buffer.GetHeightOfPlane(index)
+                )
+                : new ReadOnlySpan<byte>(
+                    (void*)_buffer.BaseAddress,
+                    (int)_buffer.BytesPerRow * height
+                );
+        }
+
+        protected override void Release()
+        {
+            if (_mapped)
+            {
+                _ = _buffer.Unlock(CVPixelBufferLock.ReadOnly);
+            }
+
+            _buffer.Dispose();
         }
     }
 }
