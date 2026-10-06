@@ -70,6 +70,18 @@ public interface IVideoProcessor : IDisposable
     /// <param name="frame">The frame, as described when the processor was made.</param>
     /// <param name="consumer">Where the result goes.</param>
     void Process(in VideoFrame frame, IVideoFrameConsumer consumer);
+
+    /// <summary>
+    /// Processes a frame straight into a surface a sink lent, instead of a surface of its own. Its work
+    /// is ordered before the sink publishes the surface as the target's storage asks.
+    /// </summary>
+    /// <param name="frame">The frame, as described when the processor was made.</param>
+    /// <param name="target">The lent surface, in the format this processor produces.</param>
+    /// <returns>
+    /// Whether it rendered the frame; false, leaving the target untouched, when it cannot write that
+    /// surface (another GPU, storage, format or size). By default a processor renders only into its own.
+    /// </returns>
+    bool TryProcess(in VideoFrame frame, in VideoTarget target) => false;
 }
 
 /// <summary>Makes video processors of one family.</summary>
@@ -99,4 +111,43 @@ public interface IVideoSink : IVideoFrameConsumer
 {
     /// <summary>The storages, formats and GPU it accepts.</summary>
     VideoConstraints Constraints { get; }
+
+    /// <summary>
+    /// Lends the surface the sink publishes its next frame from, for the length of the call: the renderer
+    /// draws the frame into it, and the sink publishes it when the renderer returns true, so the picture
+    /// is never copied into the sink. A sink with no surface of its own returns false at once, as by
+    /// default; so does one whose surface is busy. The caller then hands the frame to
+    /// <see cref="IVideoFrameConsumer.OnFrame"/>.
+    /// </summary>
+    /// <typeparam name="TState">What the renderer needs, a borrowed frame included.</typeparam>
+    /// <param name="format">The frame to be drawn, in a format and size the sink accepts.</param>
+    /// <param name="state">Passed to the renderer.</param>
+    /// <param name="render">Draws the frame into the target and returns whether it did.</param>
+    /// <returns>Whether the sink lent its surface and the frame was drawn and published.</returns>
+    bool TryRender<TState>(
+        VideoFormat format,
+        scoped in TState state,
+        VideoTargetRenderer<TState> render
+    )
+        where TState : allows ref struct => false;
 }
+
+/// <summary>
+/// A surface a sink lends for one frame: the one it publishes from, for what produces the frame to draw
+/// into directly.
+/// </summary>
+/// <param name="Storage">
+/// The surface. Its synchronisation says how drawing is ordered before the sink publishes: a Direct3D 12
+/// target names the queue (<see cref="D3D12Sync.ReleaseQueue"/>) to make wait for the drawing; a target
+/// that names nothing is published as soon as the renderer returns, so the drawing has finished by then.
+/// </param>
+/// <param name="Format">The frame the surface holds.</param>
+public readonly record struct VideoTarget(VideoStorage Storage, VideoFormat Format);
+
+/// <summary>Draws a frame into a surface a sink lent (<see cref="IVideoSink.TryRender"/>).</summary>
+/// <typeparam name="TState">What it needs, a borrowed frame included.</typeparam>
+/// <param name="target">The lent surface.</param>
+/// <param name="state">What the caller passed.</param>
+/// <returns>Whether it drew the frame; false leaves the surface unpublished.</returns>
+public delegate bool VideoTargetRenderer<TState>(in VideoTarget target, scoped in TState state)
+    where TState : allows ref struct;

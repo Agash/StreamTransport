@@ -488,11 +488,16 @@ public interface IVideoFrameConsumer
 /// <param name="PixelFormats">Pixel formats accepted, most preferred first.</param>
 /// <param name="Device">The GPU a GPU frame must be on; null for any.</param>
 /// <param name="DrmModifiers">DRM format modifiers accepted for DMA-BUF storage; empty for linear only.</param>
+/// <param name="HeldFrames">
+/// How many frames the consumer keeps past the call at most (a playout queue), which a producer with a
+/// fixed pool of surfaces (a hardware decoder) allocates beyond its own needs.
+/// </param>
 public sealed record VideoConstraints(
     ImmutableArray<VideoStorageKind> Storages,
     ImmutableArray<PixelFormat> PixelFormats,
     GpuIdentity? Device = null,
-    ImmutableArray<ulong> DrmModifiers = default
+    ImmutableArray<ulong> DrmModifiers = default,
+    int HeldFrames = 0
 )
 {
     /// <summary>CPU frames in the given formats.</summary>
