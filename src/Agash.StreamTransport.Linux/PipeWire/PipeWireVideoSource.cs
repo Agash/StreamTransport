@@ -53,7 +53,7 @@ public sealed record PipeWireVideoSourceOptions
 /// connected consumer and runs while any is connected.
 /// </summary>
 /// <remarks>The application owns the <see cref="PipeWireContext"/>, one connection to the daemon.</remarks>
-public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetainer, IDisposable
+public sealed partial class PipeWireVideoSource : IVideoSource, IDisposable
 {
     private static readonly PixelFormat[] Readable =
     [
@@ -67,12 +67,11 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
     private readonly PipeWireVideoSourceOptions _options;
     private readonly ILogger _logger;
     private readonly Lock _gate = new();
-    private readonly Lock _copies = new();
     private ImmutableArray<IVideoFrameConsumer> _consumers = [];
     private PipeWireVideoCapture? _capture;
     private VulkanEngine? _engine;
-    private DmaBufPool? _pool;
     private PipeWireFormat? _refused;
+    private BufferRetainer? _retainer;
 
     /// <summary>A source of a PipeWire node's frames.</summary>
     /// <param name="context">A started connection to the daemon.</param>
@@ -123,58 +122,6 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
         }
 
         capture?.Dispose();
-        lock (_copies)
-        {
-            _pool?.Dispose();
-            _pool = null;
-        }
-    }
-
-    // A kept shared-buffer frame is copied on the GPU into a picture of the source's: the producer
-    // reuses its buffer as soon as the frame is handed back.
-    VideoFrameLease IVideoFrameRetainer.Retain(in VideoFrame frame)
-    {
-        _ = frame.Storage.TryGetValue(out DmaBufImage image);
-        VulkanEngine engine = _engine!;
-        VideoSize size = new(frame.Format.CodedSize.Width, frame.Format.CodedSize.Height);
-        PooledDmaBuf copy;
-        lock (_copies)
-        {
-            if (_pool is not { } pool || !pool.Makes(frame.Format.PixelFormat, size))
-            {
-                _pool?.Dispose();
-                _pool = pool = new DmaBufPool(engine, frame.Format.PixelFormat, size);
-            }
-
-            copy = pool.Rent();
-        }
-
-        try
-        {
-            VulkanTransfer.Copy(
-                engine,
-                in image,
-                frame.Format.PixelFormat,
-                size.Width,
-                size.Height,
-                copy.Planes
-            );
-        }
-        catch
-        {
-            copy.Release();
-            throw;
-        }
-
-        VideoFrame kept = new(
-            new VideoStorage(copy.Describe(engine.Identity)),
-            frame.Format,
-            frame.Timestamp,
-            color: frame.Color,
-            orientation: frame.Orientation,
-            duration: frame.Duration
-        );
-        return new DmaBufFrameLease(in kept, copy);
     }
 
     private PipeWireVideoCapture Start(VideoConstraints constraints)
@@ -198,6 +145,7 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
 
         PipeWireVideoCapture capture = new(_context, _options.NodeName);
         capture.FrameReady += Deliver;
+        _retainer = new BufferRetainer(capture);
         try
         {
             capture.Connect(
@@ -335,7 +283,7 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
             new VideoFormat(format, frame.Width, frame.Height),
             Timestamp(in frame),
             color: PipeWireMapping.ToMedia(frame.Color, format),
-            retainer: this
+            retainer: _retainer
         );
         Hand(in video);
     }
@@ -416,5 +364,27 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IVideoFrameRetai
                 source.Disconnect(consumer);
             }
         }
+    }
+
+    // A kept shared-buffer frame holds the producer's buffer, so the frame stays the producer's memory,
+    // read in place, until its lease is released. Retaining works from the consumer's call, inside the
+    // capture's handler, as frames are meant to be kept.
+    private sealed class BufferRetainer(PipeWireVideoCapture capture) : IVideoFrameRetainer
+    {
+        public VideoFrameLease Retain(in VideoFrame frame) =>
+            new HeldFrameLease(in frame, capture.HoldCurrentFrame());
+    }
+
+    private sealed class HeldFrameLease(in VideoFrame frame, PipeWireFrameHold hold)
+        : VideoFrameLease(
+            frame.Storage,
+            frame.Format,
+            frame.Timestamp,
+            frame.Color,
+            frame.Orientation,
+            frame.Duration
+        )
+    {
+        protected override void Release() => hold.Dispose();
     }
 }
