@@ -4,16 +4,6 @@ using Agash.StreamTransport.WebRtc;
 
 namespace Agash.StreamTransport;
 
-/// <summary>Which side of the offer/answer exchange a session takes.</summary>
-public enum MediaSessionRole
-{
-    /// <summary>Sends the offer; ICE controlling.</summary>
-    Offerer,
-
-    /// <summary>Waits for an offer and answers it.</summary>
-    Answerer,
-}
-
 /// <summary>
 /// What a session sends and where what it receives goes. A session sends what has a source and receives
 /// what has a sink; at least one of the four is needed.
@@ -62,12 +52,6 @@ public readonly record struct MediaSessionStatistics(
     int AudioRecovered,
     TimeSpan PlayoutDelay
 );
-
-/// <summary>The two ends of the path a session's media takes.</summary>
-/// <param name="Local">This side's endpoint.</param>
-/// <param name="Remote">The peer's endpoint.</param>
-/// <param name="Relayed">Whether media goes through a relay (TURN) rather than directly between the peers.</param>
-public readonly record struct MediaRoute(EndPoint Local, EndPoint Remote, bool Relayed = false);
 
 /// <summary>A media session with one peer.</summary>
 public interface IMediaSession : IAsyncDisposable

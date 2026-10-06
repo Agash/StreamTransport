@@ -5,13 +5,18 @@
     <AssemblyName>Agash.StreamTransport.Abstractions</AssemblyName>
     <RootNamespace>Agash.StreamTransport</RootNamespace>
     <PackageId>Agash.StreamTransport.Abstractions</PackageId>
-    <Description>Transport-agnostic abstractions for Agash.StreamTransport: the signaling channel, media sender/receiver, and codec/interop enums. Zero dependencies beyond the BCL.</Description>
+    <Description>Transport-agnostic contracts for Agash.StreamTransport: the media transport a session runs over, the signaling channel, and rooms. Depends on the media model and the adaptation layer only.</Description>
     <PackageTags>webrtc;streaming;transport;signaling;abstractions;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Adaptation\Agash.StreamTransport.Adaptation.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
