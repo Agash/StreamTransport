@@ -353,6 +353,7 @@ public sealed partial class PeerConnection
 
         _rtcpReducedSize = reducedSize;
         _ccfbNegotiated = feedback;
+        NoteEcn(remote);
     }
 
     private async ValueTask StopReportsAsync()

@@ -1,13 +1,16 @@
 namespace Agash.StreamTransport.Adaptation.Tests;
 
 // How the bottleneck treats packets.
-internal enum Bottleneck
+public enum Bottleneck
 {
     // A FIFO that drops what does not fit (tail drop).
     TailDrop,
 
     // A FIFO that marks CE once its queue passes a shallow threshold (an L4S step marker).
     L4sMarking,
+
+    // A FIFO that marks CE once a standing queue builds (a classic ECN AQM such as PIE).
+    ClassicMarking,
 
     // No queue: whatever exceeds the rate is dropped (a token-bucket policer).
     Policer,
@@ -149,7 +152,9 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
             return;
         }
 
-        bool ce = Kind == Bottleneck.L4sMarking && queued > TimeSpan.FromMilliseconds(2);
+        bool ce =
+            (Kind == Bottleneck.L4sMarking && queued > TimeSpan.FromMilliseconds(2))
+            || (Kind == Bottleneck.ClassicMarking && queued > TimeSpan.FromMilliseconds(15));
         _linkFree = start + serialization;
         _link.Enqueue((id, _linkFree + BaseDelay, ce));
     }

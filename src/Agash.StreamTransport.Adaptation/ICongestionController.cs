@@ -10,6 +10,21 @@ public interface ICongestionController
     /// <summary>The latest estimate.</summary>
     CapacityEstimate Current { get; }
 
+    /// <summary>
+    /// The ECT codepoint the controller's congestion response suits: ECT(1) for a scalable (L4S) response,
+    /// ECT(0) for a classic one (RFC 9331 section 4.3: a classic response must not tag ECT(1)), not-ECT
+    /// when it does not use ECN. The transport marks with it once the path is validated.
+    /// </summary>
+    EcnCodepoint Ecn { get; }
+
+    /// <summary>
+    /// Tells the controller which codepoint the path's packets carry: not-ECT before ECN is agreed and
+    /// validated or after it fails, ECT(0) when the peer did not ask for ECT(1). It answers CE marks to
+    /// suit: classic for ECT(0), scalable for ECT(1).
+    /// </summary>
+    /// <param name="codepoint">The codepoint.</param>
+    void UseEcn(EcnCodepoint codepoint);
+
     /// <summary>Notes a packet as it goes on the wire.</summary>
     /// <param name="packet">The packet.</param>
     void OnPacketSent(in SentPacket packet);

@@ -6,12 +6,14 @@ using System.Runtime.InteropServices;
 namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>
-/// Native helpers for reading the per-packet ECN mark off a UDP socket and marking ECT(1) on sends. The managed
-/// <see cref="Socket"/> API drops the ancillary control data the mark arrives in (<c>IPPacketInformation</c>
-/// carries only the destination address and interface) and cannot attach any on send, so each platform's
-/// native call is used: <c>recvmsg</c> with the TOS / Traffic-Class byte and a socket-wide TOS on Linux and
-/// macOS; <c>WSARecvMsg</c> and <c>WSASendMsg</c> with <c>IP_ECN</c> / <c>IPV6_ECN</c> control messages on
-/// Windows 10 build 20348 and later.
+/// Native helpers for reading the per-packet ECN mark off a UDP socket and marking each sent datagram. The
+/// managed <see cref="Socket"/> API drops the ancillary control data the mark arrives in
+/// (<c>IPPacketInformation</c> carries only the destination address and interface) and cannot attach any on
+/// send, so each platform's native call is used: <c>recvmsg</c> and <c>sendmsg</c> with an <c>IP_TOS</c> /
+/// <c>IPV6_TCLASS</c> control message on Linux and macOS; <c>WSARecvMsg</c> and <c>WSASendMsg</c> with
+/// <c>IP_ECN</c> / <c>IPV6_ECN</c> on Windows 10 build 20348 and later (draft-ietf-tsvwg-udp-ecn-08
+/// sections 3 and 4.2). Marking per datagram lets media carry ECT while STUN, DTLS and RTCP do not
+/// (RFC 6679 section 7.3.1).
 ///
 /// <para>Per-platform struct layouts (msghdr/WSAMSG, cmsghdr/WSACMSGHDR, sockaddr), option numbers and
 /// control-message alignment differ; the branches encode each. <c>EcnLoopbackTests</c> marks a loopback
@@ -46,19 +48,14 @@ internal static unsafe partial class EcnInterop
     /// <summary>Whether the native ECN-aware path is usable on this OS (else callers use a managed socket).</summary>
     public static bool NativeReceiveSupported => !IsWindows || WindowsEcn;
 
-    /// <summary>
-    /// Readies a socket to send datagrams marked <paramref name="ecn"/>: on Linux and macOS the mark is the
-    /// socket's TOS / Traffic Class; Windows marks each datagram as <see cref="Send"/> sends it.
-    /// </summary>
-    internal static void PrepareSend(Socket socket, bool ipv6, byte ecn)
-    {
-        if (!IsWindows)
-        {
-            SetOutgoingEcn(socket, ipv6, ecn);
-        }
-    }
+    /// <summary>Whether datagrams can be marked one by one on this OS.</summary>
+    public static bool NativeSendSupported => !IsWindows || WindowsEcn;
 
-    /// <summary>Sends one datagram marked <paramref name="ecn"/> on a socket <see cref="PrepareSend"/> readied.</summary>
+    /// <summary>Sends one datagram carrying an ECN codepoint; a not-ECT one is a plain send.</summary>
+    /// <param name="socket">The socket, in blocking mode.</param>
+    /// <param name="payload">The datagram.</param>
+    /// <param name="destination">Where it goes.</param>
+    /// <param name="ecn">The two ECN bits.</param>
     /// <exception cref="SocketException">The send failed.</exception>
     internal static void Send(
         Socket socket,
@@ -67,42 +64,23 @@ internal static unsafe partial class EcnInterop
         byte ecn
     )
     {
-        if (IsWindows && WindowsEcn)
+        if ((ecn & 0x03) == 0 || !NativeSendSupported)
+        {
+            _ = socket.SendTo(payload, SocketFlags.None, destination);
+        }
+        else if (IsWindows)
         {
             WindowsSend(socket, payload, destination, ecn);
         }
         else
         {
-            _ = socket.SendTo(payload, SocketFlags.None, destination);
-        }
-    }
-
-    private static void SetOutgoingEcn(Socket socket, bool ipv6, byte ecn)
-    {
-        int value = ecn & 0x03;
-        (int level, int option) = (ipv6, IsMacOS) switch
-        {
-            (false, true) => (IPPROTO_IP, OSX_IP_TOS),
-            (false, false) => (IPPROTO_IP, LINUX_IP_TOS),
-            (true, true) => (IPPROTO_IPV6, OSX_IPV6_TCLASS),
-            (true, false) => (IPPROTO_IPV6, LINUX_IPV6_TCLASS),
-        };
-        NativeSetSocketOption(socket.Handle, level, option, value);
-    }
-
-    /// <summary>ECT(1), the L4S mark: a bottleneck marks CE instead of dropping.</summary>
-    public const byte Ect1 = 0x01;
-
-    /// <summary>Best-effort: ready the socket to mark ECT(1) on every datagram it sends.</summary>
-    public static void EnableEct1OnSend(Socket socket, bool ipv6)
-    {
-        try
-        {
-            PrepareSend(socket, ipv6, Ect1);
-        }
-        catch (SocketException)
-        {
-            // OS refused the mark (policy/privilege/platform). The loop still runs, just without outbound ECT.
+            UnixSend(
+                (int)socket.Handle,
+                payload,
+                destination,
+                socket.AddressFamily == AddressFamily.InterNetworkV6,
+                ecn
+            );
         }
     }
 
@@ -170,10 +148,126 @@ internal static unsafe partial class EcnInterop
             ? WindowsReceive(handle, buffer, ipv6, out ecn, out remote)
             : UnixReceive((int)handle, buffer, ipv6, out ecn, out remote);
 
-    // ---- Unix (Linux + macOS): recvmsg ----
+    // ---- Unix (Linux + macOS): recvmsg, sendmsg ----
 
     [DllImport("libc", SetLastError = true)]
     private static extern nint recvmsg(int sockfd, byte* msg, int flags);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern nint sendmsg(int sockfd, byte* msg, int flags);
+
+    // One datagram with the codepoint in an IP_TOS (IPv4) or IPV6_TCLASS (IPv6) control message, an int on
+    // both Linux and macOS (draft-ietf-tsvwg-udp-ecn-08 section 4.2.1).
+    private static void UnixSend(
+        int fd,
+        ReadOnlySpan<byte> payload,
+        IPEndPoint destination,
+        bool ipv6Socket,
+        byte ecn
+    )
+    {
+        Span<byte> name = stackalloc byte[28];
+        int nameLength = WriteSockAddr(name, destination, ipv6Socket);
+        int headerSize = IsMacOS ? 12 : 16;
+        int controlLength = Align(headerSize + sizeof(int), IsMacOS ? 4 : 8);
+        Span<byte> control = stackalloc byte[controlLength];
+        control.Clear();
+        Span<byte> hdr = stackalloc byte[64];
+        hdr.Clear();
+        Span<byte> iov = stackalloc byte[16];
+        (int level, int type) = (ipv6Socket, IsMacOS) switch
+        {
+            (false, true) => (IPPROTO_IP, OSX_IP_TOS),
+            (false, false) => (IPPROTO_IP, LINUX_IP_TOS),
+            (true, true) => (IPPROTO_IPV6, OSX_IPV6_TCLASS),
+            (true, false) => (IPPROTO_IPV6, LINUX_IPV6_TCLASS),
+        };
+
+        fixed (byte* pPayload = payload)
+        fixed (byte* pName = name)
+        fixed (byte* pControl = control)
+        fixed (byte* pIov = iov)
+        fixed (byte* pHdr = hdr)
+        {
+            *(nint*)(pIov + 0) = (nint)pPayload;
+            *(nuint*)(pIov + 8) = (nuint)payload.Length;
+
+            // cmsghdr: Linux { size_t len; int level; int type } then data at 16; macOS { uint len; ... } at 12.
+            if (IsMacOS)
+            {
+                *(uint*)pControl = (uint)(headerSize + sizeof(int));
+                *(int*)(pControl + 4) = level;
+                *(int*)(pControl + 8) = type;
+            }
+            else
+            {
+                *(nuint*)pControl = (nuint)(headerSize + sizeof(int));
+                *(int*)(pControl + 8) = level;
+                *(int*)(pControl + 12) = type;
+            }
+
+            *(int*)(pControl + headerSize) = ecn & 0x03;
+
+            // msghdr: name@0, namelen@8, iov@16, iovlen@24, control@32, controllen@40, flags@48.
+            *(nint*)(pHdr + 0) = (nint)pName;
+            *(uint*)(pHdr + 8) = (uint)nameLength;
+            *(nint*)(pHdr + 16) = (nint)pIov;
+            *(nint*)(pHdr + 32) = (nint)pControl;
+            if (IsMacOS)
+            {
+                *(int*)(pHdr + 24) = 1;
+                *(uint*)(pHdr + 40) = (uint)controlLength;
+            }
+            else
+            {
+                *(nuint*)(pHdr + 24) = 1;
+                *(nuint*)(pHdr + 40) = (nuint)controlLength;
+            }
+
+            if (sendmsg(fd, pHdr, 0) < 0)
+            {
+                throw new SocketException(Marshal.GetLastPInvokeError());
+            }
+        }
+    }
+
+    // A native sockaddr_in or sockaddr_in6; an IPv4 destination on an IPv6 socket is IPv4-mapped. macOS has a
+    // length byte before a one-byte family; Linux a two-byte family.
+    private static int WriteSockAddr(Span<byte> sa, IPEndPoint destination, bool ipv6Socket)
+    {
+        sa.Clear();
+        IPAddress address = ipv6Socket ? destination.Address.MapToIPv6() : destination.Address;
+        int length = ipv6Socket ? 28 : 16;
+        int family = ipv6Socket ? (IsMacOS ? 30 : 10) : 2;
+        if (IsMacOS)
+        {
+            sa[0] = (byte)length;
+            sa[1] = (byte)family;
+        }
+        else
+        {
+            sa[0] = (byte)family;
+            sa[1] = (byte)(family >> 8);
+        }
+
+        sa[2] = (byte)(destination.Port >> 8);
+        sa[3] = (byte)destination.Port;
+        if (ipv6Socket)
+        {
+            _ = address.TryWriteBytes(sa.Slice(8, 16), out _);
+            uint scope = (uint)address.ScopeId;
+            sa[24] = (byte)scope;
+            sa[25] = (byte)(scope >> 8);
+            sa[26] = (byte)(scope >> 16);
+            sa[27] = (byte)(scope >> 24);
+        }
+        else
+        {
+            _ = address.TryWriteBytes(sa.Slice(4, 4), out _);
+        }
+
+        return length;
+    }
 
     private static int UnixReceive(
         int fd,

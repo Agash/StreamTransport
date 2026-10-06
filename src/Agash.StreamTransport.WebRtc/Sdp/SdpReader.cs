@@ -109,6 +109,7 @@ public static class SdpReader
                     RtcpMux = m.RtcpMux,
                     RtcpReducedSize = m.RtcpReducedSize,
                     CongestionControlFeedback = m.CongestionControlFeedback,
+                    Ecn = m.Ecn,
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
                     Cname = m.Cname,
@@ -189,6 +190,48 @@ public static class SdpReader
         public bool RtcpReducedSize { get; private set; }
 
         public bool CongestionControlFeedback { get; private set; }
+
+        public SdpEcnCapability? Ecn { get; private set; }
+
+        // "rtp,ice mode=setread; ect=1": the initiation methods, then parameters (RFC 6679 section 6.1);
+        // unknown methods and parameters are ignored.
+        private static SdpEcnCapability? ParseEcn(string value)
+        {
+            string trimmed = value.Trim();
+            int space = trimmed.IndexOf(' ', StringComparison.Ordinal);
+            string methods = space < 0 ? trimmed : trimmed[..space];
+            string? mode = null;
+            string? ect = null;
+            if (space > 0)
+            {
+                foreach (
+                    string parameter in trimmed[(space + 1)..]
+                        .Split(
+                            ';',
+                            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+                        )
+                )
+                {
+                    if (parameter.StartsWith("mode=", StringComparison.Ordinal))
+                    {
+                        mode = parameter[5..];
+                    }
+                    else if (parameter.StartsWith("ect=", StringComparison.Ordinal))
+                    {
+                        ect = parameter[4..];
+                    }
+                }
+            }
+
+            System.Collections.Immutable.ImmutableArray<string> list =
+            [
+                .. methods.Split(
+                    ',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+                ),
+            ];
+            return list.IsEmpty ? null : new SdpEcnCapability(list, mode, ect);
+        }
 
         private readonly List<string> _wildcardFeedback = [];
         public uint? Ssrc { get; private set; }
@@ -299,6 +342,10 @@ public static class SdpReader
             else if (TryValue(line, "a=rtcp-fb:", out string fb))
             {
                 ParseFeedback(fb);
+            }
+            else if (TryValue(line, "a=ecn-capable-rtp:", out string ecn))
+            {
+                Ecn = ParseEcn(ecn);
             }
             else if (TryValue(line, "a=ssrc-group:FID ", out string fid))
             {

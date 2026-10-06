@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.Threading;
 using Agash.StreamTransport.WebRtc.Stun;
 using Agash.StreamTransport.WebRtc.Turn;
@@ -15,7 +16,7 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 /// (RFC 8656, reached over UDP, TCP or TLS), runs STUN connectivity checks against trickled remote
 /// candidates, nominates, and keeps consent (RFC 7675) on the selected pair and warm alternates.
 /// Non-STUN datagrams on its sockets (DTLS, SRTP) are surfaced through <see cref="DataReceived"/>;
-/// outbound media goes through <see cref="SendAsync"/>.
+/// outbound media goes through <see cref="SendAsync(ReadOnlyMemory{byte}, CancellationToken)"/>.
 /// </summary>
 /// <remarks>
 /// The protocol is an <see cref="IceStateMachine"/>; this drives it: it owns the sockets and their
@@ -109,6 +110,12 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// packet at a time across all of the agent's sockets.
     /// </summary>
     public event Action<Memory<byte>, IPEndPoint, byte>? DataReceived;
+
+    /// <summary>
+    /// Raised when the selected pair changes to another local socket or remote endpoint: what the path
+    /// carries (its ECN support, its capacity) may differ on the new one.
+    /// </summary>
+    public event Action<IcePath?>? SelectedPathChanged;
 
     /// <summary>The current connection state.</summary>
     public IceConnectionState State => (IceConnectionState)Volatile.Read(ref _state);
@@ -242,8 +249,22 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// <param name="data">The datagram.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns>A task that completes when the datagram is handed to the socket.</returns>
+    public ValueTask SendAsync(
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default
+    ) => SendAsync(data, EcnCodepoint.NotEct, cancellationToken);
+
+    /// <summary>
+    /// Sends a media datagram over the selected pair carrying an ECN codepoint; dropped while no pair is
+    /// selected, as <see cref="SendAsync(ReadOnlyMemory{byte}, CancellationToken)"/> is.
+    /// </summary>
+    /// <param name="data">The datagram.</param>
+    /// <param name="ecn">The ECN codepoint.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed to the socket.</returns>
     public async ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
+        EcnCodepoint ecn,
         CancellationToken cancellationToken = default
     )
     {
@@ -253,7 +274,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         await selection
-            .Socket.Socket.SendAsync(data, selection.Remote, cancellationToken)
+            .Socket.Socket.SendAsync(data, selection.Remote, ecn, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -628,6 +649,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     private void Report()
     {
         List<IceEvent> events = [];
+        bool pathChanged;
         lock (_gate)
         {
             while (_machine.TryPollEvent(out IceEvent iceEvent))
@@ -635,13 +657,28 @@ public sealed partial class IceAgent : IAsyncDisposable
                 events.Add(iceEvent);
             }
 
-            Volatile.Write(
-                ref _selection,
+            Selection? previous = _selection;
+            Selection? next =
                 _machine.Selected is { } pair
                 && _sockets.TryGetValue(pair.Local, out LocalSocket? chosen)
                     ? new Selection(chosen, pair.Remote, pair.LocalKind, pair.RemoteKind)
-                    : null
-            );
+                    : null;
+            pathChanged =
+                !ReferenceEquals(previous?.Socket, next?.Socket)
+                || !Equals(previous?.Remote, next?.Remote);
+            Volatile.Write(ref _selection, next);
+        }
+
+        if (pathChanged)
+        {
+            try
+            {
+                SelectedPathChanged?.Invoke(SelectedPath);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                LogEventHandlerFailed(exception);
+            }
         }
 
         foreach (IceEvent iceEvent in events)
@@ -687,7 +724,12 @@ public sealed partial class IceAgent : IAsyncDisposable
             try
             {
                 await socket
-                    .SendAsync(transmit.Data, transmit.Destination, cancellationToken)
+                    .SendAsync(
+                        transmit.Data,
+                        transmit.Destination,
+                        EcnCodepoint.NotEct,
+                        cancellationToken
+                    )
                     .ConfigureAwait(false);
             }
             catch (SocketException exception)

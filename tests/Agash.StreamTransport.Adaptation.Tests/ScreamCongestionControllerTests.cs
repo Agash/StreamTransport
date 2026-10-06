@@ -68,6 +68,26 @@ public sealed class ScreamCongestionControllerTests
         Assert.IsLessThan(5, path.MeanQueueDelayMs);
     }
 
+    // RFC 9331 section 4.3: CE marks with a standing queue behind them come from a classic AQM, which the
+    // controller answers classically, marking ECT(0); an L4S AQM keeps the scalable response.
+    [TestMethod]
+    [DataRow(Bottleneck.ClassicMarking, EcnMode.Classic, EcnCodepoint.Ect0)]
+    [DataRow(Bottleneck.L4sMarking, EcnMode.L4s, EcnCodepoint.Ect1)]
+    public void EcnBottleneck_IsAnsweredAsItMarks(
+        Bottleneck kind,
+        EcnMode expected,
+        EcnCodepoint codepoint
+    )
+    {
+        ScreamCongestionController controller = new(Options);
+        PathSimulator path = new(controller) { CapacityBps = 5_000_000, Kind = kind };
+        path.Run(TimeSpan.FromSeconds(20));
+
+        Assert.IsGreaterThan(0, path.Marked);
+        Assert.AreEqual(expected, controller.EcnMode);
+        Assert.AreEqual(codepoint, controller.Ecn);
+    }
+
     // Section 4.5.2: random link-layer loss below the threshold, with no queue, does not collapse the rate.
     [TestMethod]
     public void LinkLayerLossBelowTheThreshold_KeepsTheRate()

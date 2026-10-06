@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Threading.Channels;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
@@ -26,10 +27,17 @@ internal sealed class InMemoryIceNetwork
     /// <summary>Decides which datagrams the network loses: true drops one.</summary>
     public Func<IPEndPoint, IPEndPoint, byte[], bool>? Drop { get; set; }
 
-    /// <summary>Puts a datagram on a socket as if it arrived from <paramref name="from"/>.</summary>
-    public void Inject(IPEndPoint from, IPEndPoint to, byte[] data) => Deliver(from, to, data);
+    /// <summary>
+    /// What the network does to a datagram's ECN codepoint on the way, given the datagram: a middlebox that
+    /// clears or rewrites it, or a test that records it. The codepoint arrives as sent when null.
+    /// </summary>
+    public Func<byte[], EcnCodepoint, EcnCodepoint>? Remark { get; set; }
 
-    private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data)
+    /// <summary>Puts a datagram on a socket as if it arrived from <paramref name="from"/>.</summary>
+    public void Inject(IPEndPoint from, IPEndPoint to, byte[] data) =>
+        Deliver(from, to, data, EcnCodepoint.NotEct);
+
+    private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data, EcnCodepoint ecn)
     {
         if (Drop?.Invoke(from, to, data) == true)
         {
@@ -38,7 +46,7 @@ internal sealed class InMemoryIceNetwork
 
         if (_sockets.TryGetValue(to, out FakeSocket? destination))
         {
-            destination.Enqueue(from, data);
+            destination.Enqueue(from, data, Remark?.Invoke(data, ecn) ?? ecn);
         }
     }
 
@@ -58,6 +66,8 @@ internal sealed class InMemoryIceNetwork
     private sealed class FakeFactory(InMemoryIceNetwork network, IPAddress[] addresses)
         : IIceSocketFactory
     {
+        public EcnSupport Ecn => EcnSupport.SetRead;
+
         public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback) => addresses;
 
         public bool TryBind(IPAddress address, out IIceSocket socket)
@@ -70,10 +80,10 @@ internal sealed class InMemoryIceNetwork
     private sealed class FakeSocket : IIceSocket
     {
         private readonly InMemoryIceNetwork _network;
-        private readonly Channel<(IPEndPoint From, byte[] Data)> _rx = Channel.CreateUnbounded<(
-            IPEndPoint,
-            byte[]
-        )>(new UnboundedChannelOptions { SingleReader = true });
+        private readonly Channel<(IPEndPoint From, byte[] Data, EcnCodepoint Ecn)> _rx =
+            Channel.CreateUnbounded<(IPEndPoint, byte[], EcnCodepoint)>(
+                new UnboundedChannelOptions { SingleReader = true }
+            );
 
         public FakeSocket(InMemoryIceNetwork network, IPAddress address)
         {
@@ -86,10 +96,11 @@ internal sealed class InMemoryIceNetwork
         public ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
             IPEndPoint destination,
+            EcnCodepoint ecn,
             CancellationToken cancellationToken = default
         )
         {
-            _network.Deliver(LocalEndPoint, destination, data.ToArray());
+            _network.Deliver(LocalEndPoint, destination, data.ToArray(), ecn);
             return ValueTask.CompletedTask;
         }
 
@@ -98,14 +109,15 @@ internal sealed class InMemoryIceNetwork
             CancellationToken cancellationToken
         )
         {
-            (IPEndPoint from, byte[] data) = await _rx
+            (IPEndPoint from, byte[] data, EcnCodepoint ecn) = await _rx
                 .Reader.ReadAsync(cancellationToken)
                 .ConfigureAwait(false);
             data.CopyTo(buffer.Span);
-            return new IceReceiveResult(data.Length, from);
+            return new IceReceiveResult(data.Length, from, (byte)ecn);
         }
 
-        public void Enqueue(IPEndPoint from, byte[] data) => _rx.Writer.TryWrite((from, data));
+        public void Enqueue(IPEndPoint from, byte[] data, EcnCodepoint ecn) =>
+            _rx.Writer.TryWrite((from, data, ecn));
 
         public void Dispose() => _rx.Writer.TryComplete();
     }

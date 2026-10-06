@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using Agash.StreamTransport.Adaptation;
 
 namespace Agash.StreamTransport.WebRtc.Ice;
 
@@ -43,10 +44,19 @@ public interface IIceSocket : IDisposable
     /// <summary>The local address/port this socket is bound to.</summary>
     IPEndPoint LocalEndPoint { get; }
 
-    /// <summary>Send a datagram to <paramref name="destination"/>.</summary>
+    /// <summary>Sends a datagram to <paramref name="destination"/>, carrying an ECN codepoint.</summary>
+    /// <param name="data">The datagram.</param>
+    /// <param name="destination">Where it goes.</param>
+    /// <param name="ecn">
+    /// The ECN codepoint: ECT only for media on a validated path, never for STUN, DTLS or RTCP
+    /// (RFC 6679 section 7.3.1). A socket that cannot mark sends it unmarked.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed to the network.</returns>
     ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
+        EcnCodepoint ecn,
         CancellationToken cancellationToken = default
     );
 
@@ -57,9 +67,28 @@ public interface IIceSocket : IDisposable
     );
 }
 
+/// <summary>What a socket can do with the ECN field (RFC 6679 section 6.1's <c>mode</c>).</summary>
+public enum EcnSupport
+{
+    /// <summary>Neither set nor read.</summary>
+    None,
+
+    /// <summary>Can mark sent datagrams but not read received marks.</summary>
+    SetOnly,
+
+    /// <summary>Can read received marks but not mark sent datagrams.</summary>
+    ReadOnly,
+
+    /// <summary>Both.</summary>
+    SetRead,
+}
+
 /// <summary>Enumerates local addresses and binds <see cref="IIceSocket"/>s for ICE host-candidate gathering.</summary>
 public interface IIceSocketFactory
 {
+    /// <summary>What the sockets it binds can do with the ECN field.</summary>
+    EcnSupport Ecn => EcnSupport.None;
+
     /// <summary>The local addresses to gather host candidates on (loopback included only when asked).</summary>
     IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback);
 
@@ -80,6 +109,16 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
     /// <see cref="LocalAddressFilter"/>). An empty list gathers everything.</summary>
     public UdpIceSocketFactory(IReadOnlyList<string> localAddressPreferences) =>
         _preferences = localAddressPreferences ?? [];
+
+    /// <inheritdoc/>
+    public EcnSupport Ecn =>
+        (EcnInterop.NativeSendSupported, EcnInterop.NativeReceiveSupported) switch
+        {
+            (true, true) => EcnSupport.SetRead,
+            (true, false) => EcnSupport.SetOnly,
+            (false, true) => EcnSupport.ReadOnly,
+            _ => EcnSupport.None,
+        };
 
     /// <inheritdoc/>
     public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback)
@@ -166,6 +205,7 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         public async ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
             IPEndPoint destination,
+            EcnCodepoint ecn,
             CancellationToken cancellationToken = default
         ) =>
             await _socket

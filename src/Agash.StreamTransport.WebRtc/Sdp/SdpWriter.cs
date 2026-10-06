@@ -115,6 +115,28 @@ public static class SdpWriter
             sb.Append("a=rtcp-fb:* ack ccfb\r\n");
         }
 
+        if (media.Ecn is { } ecn && !ecn.Methods.IsEmpty)
+        {
+            sb.Append("a=ecn-capable-rtp: ").Append(string.Join(',', ecn.Methods));
+            List<string> parameters = [];
+            if (ecn.Mode is { } mode)
+            {
+                parameters.Add($"mode={mode}");
+            }
+
+            if (ecn.Ect is { } ect)
+            {
+                parameters.Add($"ect={ect}");
+            }
+
+            if (parameters.Count > 0)
+            {
+                sb.Append(' ').Append(string.Join("; ", parameters));
+            }
+
+            sb.Append("\r\n");
+        }
+
         foreach (Ice.IceCandidate candidate in media.Candidates)
         {
             sb.Append(CultureInfo.InvariantCulture, $"a={candidate.ToSdp()}\r\n");

@@ -121,6 +121,12 @@ public sealed record SdpMediaDescription
     /// </summary>
     public bool CongestionControlFeedback { get; init; } = true;
 
+    /// <summary>
+    /// ECN for this media (<c>a=ecn-capable-rtp:</c>, RFC 6679 section 6.1): the initiation methods in
+    /// order of preference, and the optional <c>mode</c> and <c>ect</c> parameters; null when not offered.
+    /// </summary>
+    public SdpEcnCapability? Ecn { get; init; }
+
     /// <summary>The media SSRC of this section, if announced (<c>a=ssrc</c>).</summary>
     public uint? Ssrc { get; init; }
 
@@ -154,4 +160,24 @@ public sealed record SdpDescription
 
     /// <summary>Whether the peer runs ICE-lite (<c>a=ice-lite</c>), answering checks without making its own.</summary>
     public bool IceLite { get; init; }
+}
+
+/// <summary>An <c>a=ecn-capable-rtp:</c> attribute (RFC 6679 section 6.1).</summary>
+/// <param name="Methods">The ECN initiation methods (<c>rtp</c>, <c>ice</c>, <c>leap</c>), most preferred first.</param>
+/// <param name="Mode">
+/// <c>setread</c>, <c>setonly</c> or <c>readonly</c>: what the endpoint can do with the ECN field;
+/// <c>setread</c> when absent.
+/// </param>
+/// <param name="Ect">The ECT codepoint the endpoint prefers to receive: <c>0</c>, <c>1</c> or <c>random</c>; 0 when absent.</param>
+public sealed record SdpEcnCapability(
+    System.Collections.Immutable.ImmutableArray<string> Methods,
+    string? Mode,
+    string? Ect
+)
+{
+    /// <summary>Whether the endpoint can mark the datagrams it sends.</summary>
+    public bool CanSet => Mode is null or "setread" or "setonly";
+
+    /// <summary>Whether the endpoint can read the marks of the datagrams it receives.</summary>
+    public bool CanRead => Mode is null or "setread" or "readonly";
 }

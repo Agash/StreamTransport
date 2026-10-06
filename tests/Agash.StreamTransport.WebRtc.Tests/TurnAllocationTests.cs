@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Turn;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,7 +36,7 @@ public sealed class TurnAllocationTests
         SocketReceiveFromResult arrived = default;
         for (int attempt = 0; attempt < 50 && arrived.ReceivedBytes == 0; attempt++)
         {
-            await allocation.SendAsync("ping"u8.ToArray(), peerEndPoint);
+            await allocation.SendAsync("ping"u8.ToArray(), peerEndPoint, EcnCodepoint.NotEct);
             using var wait = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
             try
             {
@@ -64,7 +65,7 @@ public sealed class TurnAllocationTests
         // before the client has the response; Send indications carry traffic until it does.
         for (int attempt = 0; attempt < 50 && server.ChannelDataFrames == 0; attempt++)
         {
-            await allocation.SendAsync("again"u8.ToArray(), peerEndPoint);
+            await allocation.SendAsync("again"u8.ToArray(), peerEndPoint, EcnCodepoint.NotEct);
             CollectionAssert.AreEqual("again"u8.ToArray(), await ReceiveSkippingPingsAsync(peer));
         }
 
@@ -133,7 +134,7 @@ public sealed class TurnAllocationTests
 
         for (int attempt = 0; attempt < 50 && server.ChannelBinds == 0; attempt++)
         {
-            await allocation.SendAsync("x"u8.ToArray(), peer);
+            await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
             await Task.Delay(20);
         }
 
@@ -151,7 +152,7 @@ public sealed class TurnAllocationTests
         var peer = new IPEndPoint(IPAddress.Loopback, 9);
         for (int attempt = 0; attempt < 50 && server.ChannelBinds == 0; attempt++)
         {
-            await allocation.SendAsync("x"u8.ToArray(), peer);
+            await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
             await Task.Delay(20);
         }
 

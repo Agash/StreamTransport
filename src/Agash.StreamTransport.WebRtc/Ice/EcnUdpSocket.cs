@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using Agash.StreamTransport.Adaptation;
 
 namespace Agash.StreamTransport.WebRtc.Ice;
 
@@ -13,9 +14,9 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 /// <c>WSARecvMsg</c> (Windows) path and manual cmsg parsing. That is done on a dedicated blocking receive
 /// thread per socket; sends stay synchronous so the socket remains in blocking mode for the thread.
 ///
-/// <para>Outgoing packets are best-effort marked <c>ECT(1)</c> (L4S-capable transport) so a conformant
-/// bottleneck will flip them to CE under load rather than dropping them. Marking and ECN reception are
-/// best-effort: where the OS refuses an option the socket still works, just without ECN feedback (Ecn=0).</para>
+/// <para>Each datagram carries the codepoint its sender asks for, set per packet through the native send, so
+/// media can be ECN-capable while STUN, DTLS and RTCP are not. Marking and ECN reception are best-effort:
+/// where the OS refuses an option the socket still works, just without ECN (Ecn=0).</para>
 ///
 /// <para>Per-platform struct layouts (msghdr/cmsghdr/sockaddr) and option numbers are verified by
 /// <c>EcnLoopbackTests</c>, which marks a loopback datagram and asserts the value is read back - a wrong
@@ -39,7 +40,6 @@ internal sealed class EcnUdpSocket : IIceSocket
         _ipv6 = LocalEndPoint.AddressFamily == AddressFamily.InterNetworkV6;
         _socket.Blocking = true; // the receive thread blocks in native recvmsg/WSARecvMsg.
 
-        EcnInterop.EnableEct1OnSend(_socket, _ipv6);
         EcnInterop.EnableEcnReceive(_socket, _ipv6);
 
         _channel = Channel.CreateBounded<Received>(
@@ -64,6 +64,7 @@ internal sealed class EcnUdpSocket : IIceSocket
     public ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
+        EcnCodepoint ecn,
         CancellationToken cancellationToken = default
     )
     {
@@ -71,7 +72,7 @@ internal sealed class EcnUdpSocket : IIceSocket
         // break the blocking native receive). UDP sendto does not block in practice for datagrams this size.
         try
         {
-            EcnInterop.Send(_socket, data.Span, destination, EcnInterop.Ect1);
+            EcnInterop.Send(_socket, data.Span, destination, (byte)ecn);
         }
         catch (SocketException)
         {

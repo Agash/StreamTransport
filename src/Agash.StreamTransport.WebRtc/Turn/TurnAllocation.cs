@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Stun;
 using Microsoft.Extensions.Logging;
@@ -125,6 +126,7 @@ internal sealed partial class TurnAllocation : IIceSocket
     public async ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
+        EcnCodepoint ecn,
         CancellationToken cancellationToken = default
     )
     {

@@ -162,8 +162,9 @@ public sealed partial class PeerConnection
 
     private static long Key(uint ssrc, ushort seq) => ((long)ssrc << 16) | seq;
 
-    // Send side: number each packet on the wire, remember it for feedback, and tell the controller.
-    private void RecordSent(uint ssrc, ushort seq, int sizeBytes, TrafficClass trafficClass)
+    // Send side: number each packet on the wire, remember it for feedback, tell the controller, and decide
+    // its ECN codepoint.
+    private EcnCodepoint RecordSent(uint ssrc, ushort seq, int sizeBytes, TrafficClass trafficClass)
     {
         SentPacket packet;
         lock (_ccGate)
@@ -186,12 +187,15 @@ public sealed partial class PeerConnection
             }
         }
 
-        if (_controller is { } controller)
+        if (_controller is not { } controller)
         {
-            lock (_feedbackGate)
-            {
-                controller.OnPacketSent(packet);
-            }
+            return EcnCodepoint.NotEct;
+        }
+
+        lock (_feedbackGate)
+        {
+            controller.OnPacketSent(packet);
+            return MarkForEcn(packet.Id);
         }
     }
 
@@ -283,6 +287,7 @@ public sealed partial class PeerConnection
 
             if (_observations.Count > 0)
             {
+                CheckEcn(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations));
                 _ = _controller.OnFeedback(
                     System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
                     null,
@@ -522,6 +527,8 @@ public sealed partial class PeerConnection
         {
             return null;
         }
+
+        CheckEcn(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations));
 
         // Rolling loss rate over the resolved packets (EWMA), for the health model.
         if (_observations.Count > 0)

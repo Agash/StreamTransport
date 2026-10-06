@@ -123,6 +123,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Gate = controller is null ? null : MayTransmit,
         };
 
+        _ecnValidator.StateChanged += OnEcnState;
+
         // A receive-only endpoint still reports, under an SSRC of its own.
         while (_rtcpSenderSsrc == 0)
         {
@@ -298,6 +300,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     // An answer carries these only when the offer did (RFC 5506, RFC 8888 section 6).
                     RtcpReducedSize = remote.RtcpReducedSize,
                     CongestionControlFeedback = remote.CongestionControlFeedback,
+                    Ecn = AnswerEcn(remote.Ecn),
                 }
             );
             negotiated.Add(
@@ -667,7 +670,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
         int payloadLength = payload.Length;
         int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
         long now = NowMicros();
-        RecordSent(header.Ssrc, header.SequenceNumber, protectedLength, packet.Class);
+        EcnCodepoint ecn = RecordSent(
+            header.Ssrc,
+            header.SequenceNumber,
+            protectedLength,
+            packet.Class
+        );
         BreakerOnSent(header.Ssrc, protectedLength);
         RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
         if (packet.Class == TrafficClass.Retransmission)
@@ -681,7 +689,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _metrics.PacketsSent.Add(1);
         }
 
-        return agent.SendAsync(packet.Buffer.AsMemory(0, protectedLength), cancellationToken);
+        return agent.SendAsync(packet.Buffer.AsMemory(0, protectedLength), ecn, cancellationToken);
     }
 
     /// <summary>
@@ -727,6 +735,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         _dtlsTransport = new IceDatagramTransport(agent);
         agent.DataReceived += OnTransportData;
         agent.StateChanged += OnIceStateChanged;
+        agent.SelectedPathChanged += OnPathChanged;
 
         if (_remoteDescription is { } remote)
         {
@@ -1133,6 +1142,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Ssrc = ssrc == 0 ? null : ssrc,
             RtxSsrc = ssrc == 0 ? null : rtxSsrc,
             Cname = _cname,
+            Ecn = LocalEcnCapability,
         };
 
     // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its

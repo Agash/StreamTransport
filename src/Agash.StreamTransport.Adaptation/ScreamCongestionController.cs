@@ -50,6 +50,12 @@ public sealed class ScreamCongestionController : ICongestionController
     private const int BaseHistory = 10;
     private const double BaseInterval = 60;
 
+    // RFC 9331 section 4.3 item 3: CE marks arriving with a standing queue of at least this much come from a
+    // classic ECN AQM (PIE, CoDel and RED mark at 5 to 20 ms); an L4S AQM marks at about a millisecond.
+    private const double ClassicMarkingQueueDelay = 0.005;
+    private const double ScalableMarkingQueueDelay = 0.002;
+    private const int ClassicVerdicts = 3;
+
     // From the reference implementation.
     private const double SlowUpdateInterval = 0.05;
     private const double DeadlockInterval = 0.5;
@@ -99,6 +105,9 @@ public sealed class ScreamCongestionController : ICongestionController
     private double _lastReaction;
     private double _maxPolicedRefWnd = double.PositiveInfinity;
 
+    // ECN response.
+    private int _classicScore;
+
     // Round trip.
     private double _sRtt;
     private double _minRtt = double.PositiveInfinity;
@@ -134,6 +143,7 @@ public sealed class ScreamCongestionController : ICongestionController
         _qdelayTargetHi = Math.Max(_qdelayTargetLo, _options.QueueDelayTargetMaxMs / 1000.0);
         _qdelayTarget = _qdelayTargetLo;
         _qdelayMaxAvg = _qdelayTargetLo;
+        EcnMode = _options.Ecn;
         Array.Fill(_baseDelays, double.PositiveInfinity);
 
         // The window the start rate needs over a nominal round trip.
@@ -151,6 +161,34 @@ public sealed class ScreamCongestionController : ICongestionController
 
     /// <inheritdoc/>
     public CapacityEstimate Current { get; private set; }
+
+    /// <inheritdoc/>
+    public EcnCodepoint Ecn =>
+        EcnMode switch
+        {
+            EcnMode.L4s => EcnCodepoint.Ect1,
+            EcnMode.Classic => EcnCodepoint.Ect0,
+            _ => EcnCodepoint.NotEct,
+        };
+
+    /// <summary>
+    /// How CE marks are answered now: as configured, or classic once a classic ECN AQM was detected on a
+    /// path configured for L4S.
+    /// </summary>
+    public EcnMode EcnMode { get; private set; }
+
+    /// <inheritdoc/>
+    public void UseEcn(EcnCodepoint codepoint)
+    {
+        EcnMode = codepoint switch
+        {
+            EcnCodepoint.Ect1 when _options.Ecn == EcnMode.L4s => EcnMode.L4s,
+            EcnCodepoint.Ect1 or EcnCodepoint.Ect0 when _options.Ecn != EcnMode.None =>
+                EcnMode.Classic,
+            _ => _options.Ecn == EcnMode.None ? EcnMode.None : EcnMode,
+        };
+        _classicScore = 0;
+    }
 
     /// <summary>The reference window, bytes.</summary>
     public double ReferenceWindow { get; private set; }
@@ -434,9 +472,10 @@ public sealed class ScreamCongestionController : ICongestionController
             _lossEventRate *= 0.95;
         }
 
-        if (!isLoss && _unitsMarked && _options.Ecn != EcnMode.None)
+        if (!isLoss && _unitsMarked && EcnMode != EcnMode.None)
         {
             isCe = true;
+            ClassifyBottleneck();
         }
         else if (!isLoss && !isCe && _qdelayAvg > _qdelayTarget / 2)
         {
@@ -462,7 +501,7 @@ public sealed class ScreamCongestionController : ICongestionController
 
         if (isCe)
         {
-            if (_options.Ecn == EcnMode.L4s)
+            if (EcnMode == EcnMode.L4s)
             {
                 double backoff = _l4sAlpha / 2 / Math.Max(1, SmoothedRtt / _virtualRtt);
                 if (_qdelay < _qdelayTarget * 0.25)
@@ -506,6 +545,35 @@ public sealed class ScreamCongestionController : ICongestionController
         Increase(t, scl);
         _bytesNewlyAcked = 0;
         _bytesNewlyAckedCe = 0;
+    }
+
+    // RFC 9331 section 4.3 item 3: monitor for a classic ECN AQM and answer it classically, which also means
+    // marking ECT(0), so the scalable response never meets a classic queue. Switches back only on a path
+    // configured for L4S, when marks come at a near-empty queue again.
+    private void ClassifyBottleneck()
+    {
+        if (_options.Ecn != EcnMode.L4s)
+        {
+            return;
+        }
+
+        if (_qdelayAvg >= ClassicMarkingQueueDelay)
+        {
+            _classicScore = Math.Min(ClassicVerdicts, _classicScore + 1);
+        }
+        else if (_qdelayAvg <= ScalableMarkingQueueDelay)
+        {
+            _classicScore = Math.Max(-ClassicVerdicts, _classicScore - 1);
+        }
+
+        if (_classicScore >= ClassicVerdicts)
+        {
+            EcnMode = EcnMode.Classic;
+        }
+        else if (_classicScore <= -ClassicVerdicts)
+        {
+            EcnMode = EcnMode.L4s;
+        }
     }
 
     // Section 4.2.2.2.
