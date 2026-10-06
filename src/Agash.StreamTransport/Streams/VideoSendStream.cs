@@ -1,18 +1,15 @@
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.Rtp;
 using Agash.StreamTransport.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Streams;
 
-/// <summary>What a send stream sends: the negotiated format, where its RTP goes, how fast it starts.</summary>
+/// <summary>What a send stream sends: the negotiated format and how fast it starts.</summary>
 /// <param name="Format">The negotiated codec format.</param>
-/// <param name="Writer">Where the encoded frames' RTP goes.</param>
 /// <param name="StartBitsPerSecond">The rate to start at.</param>
 /// <param name="Alpha">How the frames' transparency travels, as negotiated.</param>
 internal sealed record VideoSendSetup(
     VideoCodecFormat Format,
-    RtpStreamWriter Writer,
     long StartBitsPerSecond,
     AlphaLayout Alpha = AlphaLayout.None
 );
@@ -20,8 +17,8 @@ internal sealed record VideoSendSetup(
 /// <summary>
 /// Sends one video source to a peer. The source pushes frames; the stream keeps only the latest one not
 /// yet encoded, so a slow encoder drops frames instead of building latency. A worker converts each frame
-/// when the encoder cannot take it as it is (and packs alpha when asked), encodes it, and queues its RTP
-/// packets on the pacer. The encoder is made when the first frame fixes the picture size, and remade when
+/// when the encoder cannot take it as it is (and packs alpha when asked), encodes it, and hands it to the
+/// transport. The encoder is made when the first frame fixes the picture size, and remade when
 /// the size changes. An encoder that fails before it has encoded a frame is passed over for the rest of
 /// the stream and the next best one takes its place: a driver can refuse at the real size and format what
 /// it accepted when probed.
@@ -31,7 +28,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private readonly VideoSendSetup _setup;
     private readonly MediaCodecRegistry _registry;
     private readonly MediaSessionOptions _options;
-    private readonly RtpPayloadSink _send;
+    private readonly EncodedVideoSink _send;
     private readonly MediaClock _clock;
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
@@ -58,10 +55,10 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
 
     /// <summary>Connects a source and starts the encode worker.</summary>
     /// <param name="source">The video source.</param>
-    /// <param name="setup">The negotiated format and RTP writer.</param>
+    /// <param name="setup">The negotiated format and start rate.</param>
     /// <param name="registry">Where encoders and processors come from.</param>
     /// <param name="options">The session options.</param>
-    /// <param name="send">Where the RTP payloads go.</param>
+    /// <param name="send">Where encoded frames go.</param>
     /// <param name="clock">The media clock, for encode timing.</param>
     /// <param name="metrics">The library's instruments.</param>
     /// <param name="logger">The logger.</param>
@@ -70,7 +67,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         VideoSendSetup setup,
         MediaCodecRegistry registry,
         MediaSessionOptions options,
-        RtpPayloadSink send,
+        EncodedVideoSink send,
         MediaClock clock,
         StreamTransportMetrics metrics,
         ILogger logger
@@ -458,11 +455,11 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     )]
     private partial void LogNoEncoderLeft(string encoder, VideoCodecId codec);
 
-    // An encoded frame into RTP, paced onto the link.
+    // An encoded frame to the transport.
     private void Transmit(in EncodedVideoFrame frame)
     {
         _encoderDelivered = true;
-        _setup.Writer.Write(frame.Data, frame.Timestamp, _send);
+        _send(in frame);
         Interlocked.Increment(ref _framesSent);
         _metrics.VideoFramesSent.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
     }
@@ -474,7 +471,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         public void OnEncoded(in EncodedVideoFrame frame) { }
     }
 
-    // Takes processed frames into the encoder and encoded frames into RTP.
+    // Takes processed frames into the encoder and encoded frames to the transport.
     private sealed class EncodedConsumer(VideoSendStream stream)
         : IVideoFrameConsumer,
             IEncodedVideoConsumer

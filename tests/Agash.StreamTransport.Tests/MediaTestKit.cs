@@ -5,6 +5,8 @@ using System.Runtime.InteropServices;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
 using Agash.StreamTransport.Media;
+using Agash.StreamTransport.WebRtc.DependencyInjection;
+using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using FF = FFmpeg.Interop;
@@ -58,7 +60,7 @@ internal static class MediaServices
             services.AddSingleton(meters);
         }
 
-        services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();
+        services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddOpusCodecs();
         return services.BuildServiceProvider();
     }
 
@@ -66,7 +68,7 @@ internal static class MediaServices
     public static MediaSessionOptions Loopback(MediaSessionOptions options) =>
         options with
         {
-            IncludeLoopbackCandidates = true,
+            Transport = new WebRtcTransportOptions { IncludeLoopbackCandidates = true },
         };
 }
 

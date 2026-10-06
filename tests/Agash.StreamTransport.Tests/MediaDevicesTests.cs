@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.TestSignal;
+using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Agash.StreamTransport.Tests;
@@ -12,7 +13,7 @@ public sealed class MediaDevicesTests
     public async Task HostProvider_RegisteredInDi_IsListedAndOpenedBySpec()
     {
         ServiceCollection services = new();
-        services.AddStreamTransport();
+        services.AddStreamTransport().AddStreamTransportWebRtc();
         services.AddSingleton<IVideoInputProvider>(
             new FakeVideoProvider("ndi", 10, [("Studio A", MediaInputKind.Network, null)])
         );

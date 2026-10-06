@@ -1,6 +1,6 @@
 using Agash.StreamTransport.Media;
 
-namespace Agash.StreamTransport.Sync;
+namespace Agash.StreamTransport.WebRtc.Transport;
 
 /// <summary>
 /// Maps a received stream's RTP timestamps to the sender's capture instants, from the abs-capture-time

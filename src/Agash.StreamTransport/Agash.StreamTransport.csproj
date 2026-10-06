@@ -23,8 +23,6 @@
     <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.Signaling\Agash.StreamTransport.Signaling.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.Adaptation\Agash.StreamTransport.Adaptation.csproj" />
-    <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
-    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.DependencyInjection\Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
   </ItemGroup>
 
   <ItemGroup>

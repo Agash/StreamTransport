@@ -1,6 +1,8 @@
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Tests;
+using Agash.StreamTransport.WebRtc.DependencyInjection;
+using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Windows.Win32.Graphics.Dxgi.Common;
 
@@ -39,7 +41,7 @@ public sealed class GpuAlphaSessionTests
         services.AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(
             new ConsoleLogs(Microsoft.Extensions.Logging.LogLevel.Warning)
         );
-        services.AddStreamTransport().AddFFmpegCodecs();
+        services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs();
         services.AddWindowsMedia();
         await using ServiceProvider provider = services.BuildServiceProvider();
         IMediaSessionFactory factory = provider.GetRequiredService<IMediaSessionFactory>();
@@ -47,7 +49,7 @@ public sealed class GpuAlphaSessionTests
         {
             VideoCodecs = [VideoCodecId.AV1],
             Alpha = AlphaLayout.PackSideBySide,
-            IncludeLoopbackCandidates = true,
+            Transport = new WebRtcTransportOptions { IncludeLoopbackCandidates = true },
         };
         TextureSink sink = new(gpu.Adapter, target: 10);
         (LoopbackSignaling offer, LoopbackSignaling answer) = LoopbackSignaling.Pair();

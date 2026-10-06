@@ -87,8 +87,8 @@ public sealed class AlphaSessionTests
                 .WaitAsync(TimeSpan.FromSeconds(20));
             await sink.Reached.WaitAsync(TimeSpan.FromSeconds(30));
 
-            AlphaLayout negotiated = ((WebRtcMediaSession)receiver).VideoAlpha;
-            Assert.AreEqual(negotiated, ((WebRtcMediaSession)sender).VideoAlpha);
+            AlphaLayout negotiated = ((MediaSession)receiver).VideoAlpha;
+            Assert.AreEqual(negotiated, ((MediaSession)sender).VideoAlpha);
             return (negotiated, sink);
         }
     }

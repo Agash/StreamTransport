@@ -44,10 +44,10 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
         _room = room;
         _sessions = sessions;
         _sinks = new MediaEndpoints { VideoSink = sinks.VideoSink, AudioSink = sinks.AudioSink };
-        _options = options.IceServers.IsEmpty
+        _options = options.Transport.IceServers.IsEmpty
             ? options with
             {
-                IceServers = [.. room.IceServers],
+                Transport = options.Transport with { IceServers = [.. room.IceServers] },
             }
             : options;
         _logger = logger ?? NullLogger<MediaSubscriber>.Instance;

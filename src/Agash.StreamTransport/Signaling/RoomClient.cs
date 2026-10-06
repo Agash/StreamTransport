@@ -189,7 +189,7 @@ public sealed class RoomClient : IMediaRoom
             case IceMessage { From: { } from } ice:
                 await ((PeerSignalingChannel)ChannelFor(from))
                     .DispatchIceAsync(
-                        new IceCandidate(ice.Candidate, ice.SdpMid, ice.SdpMLineIndex)
+                        new IceCandidateInit(ice.Candidate, ice.SdpMid, ice.SdpMLineIndex)
                     )
                     .ConfigureAwait(false);
                 break;
@@ -243,9 +243,9 @@ public sealed class RoomClient : IMediaRoom
 internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISignalingChannel
 {
     private readonly Lock _gate = new();
-    private readonly Queue<IceCandidate> _pendingIce = new();
+    private readonly Queue<IceCandidateInit> _pendingIce = new();
     private Func<SessionDescription, Task>? _descriptionReceived;
-    private Func<IceCandidate, Task>? _iceReceived;
+    private Func<IceCandidateInit, Task>? _iceReceived;
     private SessionDescription? _pendingDescription;
 
     // The remote offer (or its ICE) can arrive before the media session attaches its handlers - the
@@ -277,11 +277,11 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         }
     }
 
-    public event Func<IceCandidate, Task>? IceCandidateReceived
+    public event Func<IceCandidateInit, Task>? IceCandidateReceived
     {
         add
         {
-            IceCandidate[] flush;
+            IceCandidateInit[] flush;
             lock (_gate)
             {
                 _iceReceived += value;
@@ -291,7 +291,7 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
 
             if (value is not null)
             {
-                foreach (IceCandidate candidate in flush)
+                foreach (IceCandidateInit candidate in flush)
                 {
                     _ = value(candidate);
                 }
@@ -317,7 +317,10 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
             )
             .AsTask();
 
-    public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
+    public Task SendAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    ) =>
         room.SendToAsync(
                 peer,
                 new IceMessage(
@@ -345,9 +348,9 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         return handler is null ? Task.CompletedTask : handler(description);
     }
 
-    internal Task DispatchIceAsync(IceCandidate candidate)
+    internal Task DispatchIceAsync(IceCandidateInit candidate)
     {
-        Func<IceCandidate, Task>? handler;
+        Func<IceCandidateInit, Task>? handler;
         lock (_gate)
         {
             handler = _iceReceived;

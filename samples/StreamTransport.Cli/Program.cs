@@ -6,6 +6,7 @@ using Agash.StreamTransport.Linux;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Signaling;
 using Agash.StreamTransport.TestSignal;
+using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -199,7 +200,7 @@ static async Task<int> RunAsync(CommandLine command)
 // The media every command uses: sessions, codecs and the platform's inputs and outputs.
 static void AddMedia(IServiceCollection services)
 {
-    services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();
+    services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddOpusCodecs();
     if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
     {
         services.AddWindowsMedia();
@@ -237,7 +238,7 @@ static async Task ReportAsync(
                     counters.AudioFramesSent,
                     counters.VideoFramesDecoded,
                     counters.AudioFramesDecoded,
-                    session.Health.TargetBitrateBps / 1000
+                    session.Transport.Capacity.TargetBitsPerSecond / 1000
                 );
             }
 

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.WebRtc.Ice;
 
 namespace Agash.StreamTransport;
 
@@ -60,25 +59,10 @@ public sealed record MediaSessionOptions
     public ImmutableArray<AudioCodecId> AudioCodecs { get; init; } = [AudioCodecId.Opus];
 
     /// <summary>
-    /// The ICE servers: <c>stun:</c> URLs, and <c>turn:</c>/<c>turns:</c> URLs with their credentials.
-    /// A room's servers are used when this is empty.
+    /// The transport's settings: the connectivity servers, and a transport's own record for what only it
+    /// knows (the WebRTC transport's <c>WebRtcTransportOptions</c>).
     /// </summary>
-    public ImmutableArray<IceServer> IceServers { get; init; } = [];
-
-    /// <summary>
-    /// Which candidates ICE gathers. <see cref="IceTransportPolicy.Relay"/> sends only through the TURN
-    /// servers, which keeps this side's addresses from the peer.
-    /// </summary>
-    public IceTransportPolicy IceTransportPolicy { get; init; } = IceTransportPolicy.All;
-
-    /// <summary>
-    /// Restricts ICE to local addresses matching one of these: a NIC name, a literal address, or
-    /// <c>ipv4</c>/<c>ipv6</c>. Empty gathers every usable address.
-    /// </summary>
-    public ImmutableArray<string> LocalAddressPreferences { get; init; } = [];
-
-    /// <summary>Whether loopback candidates are gathered, for peers on one host.</summary>
-    public bool IncludeLoopbackCandidates { get; init; }
+    public MediaTransportOptions Transport { get; init; } = new();
 
     /// <summary>What the video encoder's rate control is tuned for.</summary>
     public EncodeTuning VideoTuning { get; init; } = EncodeTuning.Interactive;
@@ -111,9 +95,6 @@ public sealed record MediaSessionOptions
 
     /// <summary>The packet loss audio plans redundancy for, in percent.</summary>
     public int AudioExpectedLossPercent { get; init; } = 10;
-
-    /// <summary>Whether video is protected with forward error correction.</summary>
-    public bool EnableFec { get; init; }
 
     /// <summary>How the receiver releases frames.</summary>
     public PlayoutMode Playout { get; init; } = PlayoutMode.OnArrival;
@@ -148,7 +129,7 @@ public sealed record MediaSessionOptions
                 AudioExpectedLossPercent = 20,
                 // Forward error correction repairs loss without a retransmission round trip, which a
                 // high-RTT cellular uplink cannot afford; interactive profiles repair with RTX in time.
-                EnableFec = true,
+                Transport = new MediaTransportOptions { ForwardErrorCorrection = true },
                 Playout = PlayoutMode.Synced,
                 MaxPlayoutDelay = TimeSpan.FromMilliseconds(800),
                 PlayoutMargin = TimeSpan.FromMilliseconds(40),

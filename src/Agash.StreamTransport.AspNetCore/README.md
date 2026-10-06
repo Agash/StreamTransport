@@ -5,7 +5,7 @@ mapped onto an existing ASP.NET Core application's routing. The host keeps its o
 authentication and CORS; these are endpoints like any other.
 
 ```csharp
-builder.Services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs().AddHttpMediaEndpoints();
+builder.Services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddOpusCodecs().AddHttpMediaEndpoints();
 
 app.MapWhip("/whip/{room}", (context, ct) =>
         ValueTask.FromResult<HttpMediaSetup?>(new(new MediaEndpoints { VideoSink = sink, AudioSink = speaker },

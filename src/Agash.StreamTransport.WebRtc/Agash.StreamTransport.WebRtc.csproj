@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc.Abstractions\Agash.StreamTransport.WebRtc.Abstractions.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.Adaptation\Agash.StreamTransport.Adaptation.csproj" />
     <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
     <ProjectReference Include="$(DtlsCoreProject)" Condition="'$(UseLocalDtlsCore)' == 'true'" />
     <PackageReference Include="Dtls.Core" Condition="'$(UseLocalDtlsCore)' != 'true'" />
   </ItemGroup>

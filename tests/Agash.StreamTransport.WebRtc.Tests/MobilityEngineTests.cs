@@ -1,7 +1,7 @@
-using Agash.StreamTransport.WebRtc;
+using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Agash.StreamTransport.Tests;
+namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
 /// The mobility coordinator, tested deterministically against a fake <see cref="INetworkMonitor"/>: a network

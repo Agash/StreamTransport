@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Agash.StreamTransport.WebRtc.Turn;
 
-namespace Agash.StreamTransport.Sessions;
+namespace Agash.StreamTransport.WebRtc.Transport;
 
 /// <summary>
 /// Reads ICE server URLs: <c>stun:</c> URLs (RFC 7064) resolve to endpoints here, and <c>turn:</c> and

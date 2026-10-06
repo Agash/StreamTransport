@@ -54,6 +54,6 @@ to reach the speaker, for a session's audio output offset.
 Media Foundation, Spout and WASAPI providers, reached through `MediaDevices`:
 
 ```csharp
-services.AddStreamTransport().AddFFmpegCodecs().AddWindowsMedia();
+services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddWindowsMedia();
 ```
 

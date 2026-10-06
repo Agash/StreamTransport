@@ -1,5 +1,4 @@
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.Rtp;
 
 namespace Agash.StreamTransport.Streams;
 
@@ -10,9 +9,8 @@ namespace Agash.StreamTransport.Streams;
 internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsumer, IDisposable
 {
     private readonly IAudioEncoder _encoder;
-    private readonly RtpStreamWriter _writer;
     private int _framesSent;
-    private readonly RtpPayloadSink _send;
+    private readonly EncodedAudioSink _send;
     private readonly StreamTransportMetrics _metrics;
     private readonly AudioCodecId _codec;
     private readonly Lock _gate = new();
@@ -22,22 +20,19 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     /// <summary>Opens an encoder for the source's format and connects the source.</summary>
     /// <param name="source">The audio source.</param>
     /// <param name="format">The negotiated codec and its parameters.</param>
-    /// <param name="writer">Turns packets into RTP.</param>
     /// <param name="registry">Where the encoder comes from.</param>
     /// <param name="options">The session options.</param>
-    /// <param name="send">Where the RTP payloads go.</param>
+    /// <param name="send">Where encoded packets go.</param>
     /// <param name="metrics">The library's instruments.</param>
     public AudioSendStream(
         IAudioSource source,
         AudioCodecFormat format,
-        RtpStreamWriter writer,
         MediaCodecRegistry registry,
         MediaSessionOptions options,
-        RtpPayloadSink send,
+        EncodedAudioSink send,
         StreamTransportMetrics metrics
     )
     {
-        _writer = writer;
         _send = send;
         _metrics = metrics;
         _codec = format.Codec;
@@ -84,7 +79,7 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     /// <inheritdoc/>
     public void OnEncoded(in EncodedAudioFrame frame)
     {
-        _writer.Write(frame.Data, frame.Timestamp, _send);
+        _send(in frame);
         Interlocked.Increment(ref _framesSent);
         _metrics.AudioFramesSent.Add(1, StreamTransportMetrics.Codec(_codec));
     }

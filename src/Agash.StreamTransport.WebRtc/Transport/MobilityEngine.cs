@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
-using Agash.StreamTransport.WebRtc;
 
-namespace Agash.StreamTransport;
+namespace Agash.StreamTransport.WebRtc.Transport;
 
 /// <summary>
 /// The mobility coordinator: it watches the host's network interfaces (via

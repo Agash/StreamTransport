@@ -23,7 +23,7 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
     public event Func<SessionDescription, Task>? DescriptionReceived;
 
     /// <inheritdoc/>
-    public event Func<IceCandidate, Task>? IceCandidateReceived;
+    public event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
     /// <inheritdoc/>
     public Task SendAsync(
@@ -40,7 +40,10 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
         );
 
     /// <inheritdoc/>
-    public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
+    public Task SendAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    ) =>
         SendEnvelopeAsync(
             new SignalEnvelope
             {
@@ -93,7 +96,7 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
                 break;
             case "ice" when IceCandidateReceived is { } handler:
                 await handler(
-                        new IceCandidate(
+                        new IceCandidateInit(
                             envelope.Candidate ?? string.Empty,
                             envelope.SdpMid,
                             envelope.SdpMLineIndex

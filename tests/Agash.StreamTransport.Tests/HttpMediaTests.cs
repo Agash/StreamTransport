@@ -6,6 +6,7 @@ using Agash.StreamTransport.Codecs.Opus;
 using Agash.StreamTransport.Http;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.TestSignal;
+using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -244,6 +245,7 @@ public sealed class HttpMediaTests
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder
             .Services.AddStreamTransport()
+            .AddStreamTransportWebRtc()
             .AddFFmpegCodecs()
             .AddOpusCodecs()
             .AddHttpMediaEndpoints();

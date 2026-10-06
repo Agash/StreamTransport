@@ -1,6 +1,5 @@
-using System.Net;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.WebRtc;
 
 namespace Agash.StreamTransport;
 
@@ -59,17 +58,20 @@ public interface IMediaSession : IAsyncDisposable
     /// <summary>Completes when media can flow; faults when the session fails to connect.</summary>
     Task Connected { get; }
 
-    /// <summary>The connection's state.</summary>
-    PeerConnectionState State { get; }
+    /// <summary>Where the transport's connection stands.</summary>
+    TransportState State { get; }
 
     /// <summary>Raised when <see cref="State"/> changes.</summary>
-    event Action<PeerConnectionState>? StateChanged;
+    event Action<TransportState>? StateChanged;
 
-    /// <summary>The link's health: loss, round trip, the congestion controller's rates.</summary>
-    TransportHealthMetrics Health { get; }
+    /// <summary>
+    /// Raised when the transport's circuit breaker opens, reduces or closes. Once open, media stays stopped
+    /// until <see cref="TryResumeTransmission"/>.
+    /// </summary>
+    event Action<CircuitBreakerState>? CircuitBreakerChanged;
 
-    /// <summary>Loss recovery counters of the link.</summary>
-    TransportLossStats LossStats { get; }
+    /// <summary>The transport's counters and estimates: capacity, loss, recovery, the circuit breaker.</summary>
+    TransportStatistics Transport { get; }
 
     /// <summary>Counters of the session's media.</summary>
     MediaSessionStatistics Statistics { get; }
@@ -87,11 +89,18 @@ public interface IMediaSession : IAsyncDisposable
     /// <param name="cancellationToken">Cancels starting.</param>
     /// <returns>A task that completes once negotiation has started.</returns>
     Task StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resumes media after the circuit breaker stopped it, when the application has reason to think the
+    /// problem passed; refused until as long as it took to trip has passed again.
+    /// </summary>
+    /// <returns>Whether media flows again.</returns>
+    bool TryResumeTransmission();
 }
 
 /// <summary>
-/// Makes media sessions. The WebRTC implementation is registered by default; another transport plugs in
-/// by registering its own, and rooms, publishers and subscribers run over it unchanged.
+/// Makes media sessions. A session runs over the registered <see cref="IMediaTransportFactory"/>'s
+/// transport, so rooms, publishers and subscribers work over any transport unchanged.
 /// </summary>
 public interface IMediaSessionFactory
 {

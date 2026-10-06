@@ -17,8 +17,8 @@ public sealed class AbstractionsTests
     [TestMethod]
     public void IceCandidate_Equality_IsByValue()
     {
-        var a = new IceCandidate("candidate:1", "0", 0);
-        var b = new IceCandidate("candidate:1", "0", 0);
+        var a = new IceCandidateInit("candidate:1", "0", 0);
+        var b = new IceCandidateInit("candidate:1", "0", 0);
         Assert.AreEqual(a, b);
     }
 }

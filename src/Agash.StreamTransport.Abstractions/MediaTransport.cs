@@ -140,6 +140,12 @@ public record MediaTransportOptions
     /// credentials. A room's servers are used when this is empty.
     /// </summary>
     public ImmutableArray<IceServer> IceServers { get; init; } = [];
+
+    /// <summary>
+    /// Whether sent video is protected with forward error correction, which repairs loss without a
+    /// retransmission round trip at the cost of repair traffic inside the same budget.
+    /// </summary>
+    public bool ForwardErrorCorrection { get; init; }
 }
 
 /// <summary>

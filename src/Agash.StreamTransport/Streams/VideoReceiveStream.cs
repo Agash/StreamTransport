@@ -2,41 +2,30 @@ using System.Collections.Immutable;
 using System.Threading.Channels;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
-using Agash.StreamTransport.WebRtc.Rtp;
-using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Streams;
 
 /// <summary>What a video receive stream is built from.</summary>
 /// <param name="Format">The negotiated codec and its parameters.</param>
-/// <param name="PayloadFormat">The RTP payload format of the codec.</param>
 /// <param name="Alpha">How the sender laid out transparency.</param>
-/// <param name="RequestKeyframe">Asks the sender for a keyframe (PLI).</param>
+/// <param name="RequestKeyframe">Asks the sender for a keyframe; the transport combines requests.</param>
 internal sealed record VideoReceiveSetup(
     VideoCodecFormat Format,
-    RtpPayloadFormat PayloadFormat,
     AlphaLayout Alpha,
-    Func<ValueTask> RequestKeyframe
+    Action RequestKeyframe
 );
 
 /// <summary>
-/// Receives one video stream from a peer. RTP goes into a frame buffer that reorders it and hands over
-/// only complete frames, asking the sender for a keyframe when a frame cannot be completed. A worker
+/// Receives one video stream from a peer: the transport hands over complete frames, and a worker
 /// decodes, converts what the sink cannot take (and unpacks alpha), and plays each frame on arrival or
 /// at its synced slot.
 /// </summary>
 internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDisposable
 {
-    // At most one keyframe request per interval, so a burst of loss is not a burst of requests.
-    private static readonly TimeSpan KeyframeRequestInterval = TimeSpan.FromMilliseconds(250);
-
     // Complete frames waiting for the decoder beyond which it is behind: a decoder or output that cannot
     // keep up drops what waits and resumes at a keyframe, so latency stays bounded instead of growing.
     private const int MaxBacklog = 8;
-
-    // How long a sequence gap may wait for NACK and RTX to fill it before a keyframe is requested.
-    private static readonly TimeSpan GapPatience = TimeSpan.FromMilliseconds(100);
 
     private readonly VideoReceiveSetup _setup;
     private readonly IVideoSink _sink;
@@ -46,8 +35,6 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private readonly MediaClock _clock;
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
-    private readonly RtpFrameBuffer _buffer;
-    private readonly RtpClockAligner _aligner = new(new ClockRate(90_000));
     private readonly ArrivalStamps _stamps;
     private readonly Channel<(
         EncodedFrameBuffer Frame,
@@ -60,8 +47,6 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private readonly Task _worker;
     private readonly Presenter _presenter;
     private IVideoDecoder? _decoder;
-    private long _lastKeyframeRequest;
-    private long? _gapSince;
     private int _framesDecoded;
     private int _framesFailed;
     private int _framesSkipped;
@@ -94,12 +79,8 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         _time = clock.TimeProvider;
         _clock = clock;
         _logger = logger;
-        _buffer = new RtpFrameBuffer(setup.PayloadFormat);
         _stamps = new ArrivalStamps(clock);
         _presenter = new Presenter(this);
-        _lastKeyframeRequest =
-            _time.GetTimestamp()
-            - (long)(KeyframeRequestInterval.TotalSeconds * _time.TimestampFrequency);
         _worker = Task.Run(() => RunAsync(_stop.Token));
     }
 
@@ -112,51 +93,19 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <summary>Frames dropped undecoded because the decoder or the output fell behind.</summary>
     public int FramesSkipped => Volatile.Read(ref _framesSkipped);
 
-    /// <summary>Takes one RTP packet of the stream, on the transport's receive thread.</summary>
-    /// <param name="header">The packet's header.</param>
-    /// <param name="payload">Its payload, borrowed for the call.</param>
-    public void OnPacket(in RtpHeader header, ReadOnlySpan<byte> payload)
+    /// <summary>Takes a complete frame from the transport, on its receive thread; the stream owns it.</summary>
+    /// <param name="frame">The access unit.</param>
+    /// <param name="keyframe">Whether it can be decoded on its own.</param>
+    /// <param name="capture">When the sender captured it, when known.</param>
+    public void OnEncodedFrame(EncodedFrameBuffer frame, bool keyframe, NtpTime? capture)
     {
-        if (header.AbsoluteCaptureTimeNtp is { } ntp and not 0)
+        if (_frames.Writer.TryWrite((frame, keyframe, _stamps.Stamp(capture))))
         {
-            _aligner.Record(new NtpTime(ntp), header.Timestamp);
-        }
-
-        RtpFrameBuffer.InsertResult result = _buffer.Insert(
-            header.SequenceNumber,
-            header.Timestamp,
-            header.Marker,
-            payload
-        );
-        foreach (RtpFrameBuffer.AssembledFrame frame in result.Frames)
-        {
-            NtpTime? capture = _aligner.TryGetCapture(frame.Timestamp, out NtpTime at) ? at : null;
-            if (_frames.Writer.TryWrite((frame.Frame, frame.IsKeyframe, _stamps.Stamp(capture))))
-            {
-                Interlocked.Increment(ref _waiting);
-            }
-            else
-            {
-                frame.Frame.Dispose();
-            }
-        }
-
-        // Gap tracking lives on this thread; the decode worker shares only the throttle.
-        long now = _time.GetTimestamp();
-        bool required = result.KeyframeRequired;
-        if (_buffer.HasUnresolvedGap)
-        {
-            _gapSince ??= now;
-            required |= _time.GetElapsedTime(_gapSince.Value, now) >= GapPatience;
+            Interlocked.Increment(ref _waiting);
         }
         else
         {
-            _gapSince = null;
-        }
-
-        if (required && TryRequestKeyframe())
-        {
-            _gapSince = null;
+            frame.Dispose();
         }
     }
 
@@ -181,7 +130,6 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
 
         _presenter.Dispose();
         _decoder?.Dispose();
-        _buffer.Dispose();
         _stop.Dispose();
     }
 
@@ -242,7 +190,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
 
         _awaitingKeyframe = true;
         LogBehind(backlog + 1);
-        _ = TryRequestKeyframe();
+        RequestKeyframe();
     }
 
     private void Skip(MediaTimestamp stamp)
@@ -276,7 +224,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             _metrics.VideoFramesFailed.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
             LogDecodeFailed(exception);
             _ = _stamps.TakeCapture(stamp);
-            _ = TryRequestKeyframe();
+            RequestKeyframe();
         }
     }
 
@@ -374,34 +322,10 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     }
 
     // Asks for a keyframe unless one was asked for within the interval; true when it asked.
-    private bool TryRequestKeyframe()
+    private void RequestKeyframe()
     {
-        long now = _time.GetTimestamp();
-        long last = Interlocked.Read(ref _lastKeyframeRequest);
-        if (
-            _time.GetElapsedTime(last, now) < KeyframeRequestInterval
-            || Interlocked.CompareExchange(ref _lastKeyframeRequest, now, last) != last
-        )
-        {
-            return false;
-        }
-
-        _ = RequestKeyframeAsync();
-        return true;
-    }
-
-    private async Task RequestKeyframeAsync()
-    {
-        try
-        {
-            await _setup.RequestKeyframe().ConfigureAwait(false);
-            LogKeyframeRequested();
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            // The request is repeated at the next loss that needs it.
-            LogKeyframeRequestFailed(exception);
-        }
+        _setup.RequestKeyframe();
+        LogKeyframeRequested();
     }
 
     [LoggerMessage(
@@ -423,9 +347,6 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
 
     [LoggerMessage(2051, LogLevel.Debug, "Asked the sender for a keyframe.")]
     private partial void LogKeyframeRequested();
-
-    [LoggerMessage(2052, LogLevel.Warning, "Asking the sender for a keyframe failed.")]
-    private partial void LogKeyframeRequestFailed(Exception exception);
 
     // Shows frames as playout releases them: as they are when the sink takes them, otherwise converted,
     // drawn straight into the surface the sink lends when it lends one, else through the processor's own

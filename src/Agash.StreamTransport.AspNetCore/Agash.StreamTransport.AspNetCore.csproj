@@ -17,6 +17,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Agash.StreamTransport\Agash.StreamTransport.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
     <InternalsVisibleTo Include="Agash.StreamTransport.Tests" />
   </ItemGroup>
 

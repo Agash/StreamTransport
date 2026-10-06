@@ -57,10 +57,10 @@ public sealed partial class MediaPublisher : IAsyncDisposable
             VideoSource = sources.VideoSource,
             AudioSource = sources.AudioSource,
         };
-        _options = options.IceServers.IsEmpty
+        _options = options.Transport.IceServers.IsEmpty
             ? options with
             {
-                IceServers = [.. room.IceServers],
+                Transport = options.Transport with { IceServers = [.. room.IceServers] },
             }
             : options;
         _logger = logger ?? NullLogger<MediaPublisher>.Instance;

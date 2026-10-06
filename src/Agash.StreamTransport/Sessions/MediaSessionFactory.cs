@@ -1,40 +1,29 @@
 using System.Diagnostics.Metrics;
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
-using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agash.StreamTransport.Sessions;
 
-/// <summary>Makes media sessions over WebRTC peer connections.</summary>
+/// <summary>Makes media sessions over the registered transport.</summary>
 /// <param name="codecs">The registered codecs and processors.</param>
-/// <param name="payloadFormats">The registered RTP payload formats.</param>
-/// <param name="connections">Makes peer connections.</param>
-/// <param name="timeProvider">The clock every session runs on.</param>
-/// <param name="loggerFactory">The logging.</param>
-/// <param name="mobility">Re-probes connections when the host's networks change; null for none.</param>
-/// <param name="meterFactory">
-/// Where the metrics' meter comes from (<see cref="StreamTransportDiagnostics.MeterName"/>); a meter of
-/// the factory's own when null.
-/// </param>
-public sealed class WebRtcMediaSessionFactory(
+/// <param name="transports">Makes each session's transport.</param>
+/// <param name="timeProvider">The clock.</param>
+/// <param name="loggerFactory">Logging; none when null.</param>
+/// <param name="meterFactory">Where the metrics' meter comes from; one shared meter when null.</param>
+public sealed class MediaSessionFactory(
     MediaCodecRegistry codecs,
-    RtpPayloadFormatRegistry payloadFormats,
-    PeerConnectionFactory connections,
+    IMediaTransportFactory transports,
     TimeProvider timeProvider,
     ILoggerFactory? loggerFactory = null,
-    MobilityEngine? mobility = null,
     IMeterFactory? meterFactory = null
 ) : IMediaSessionFactory, IDisposable
 {
     private readonly SessionServices _services = new(
         codecs,
-        payloadFormats,
-        connections,
+        transports,
         new MediaClock(timeProvider),
         loggerFactory ?? NullLoggerFactory.Instance,
-        mobility,
         new StreamTransportMetrics(meterFactory)
     );
 
@@ -52,6 +41,6 @@ public sealed class WebRtcMediaSessionFactory(
         ArgumentNullException.ThrowIfNull(signaling);
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
-        return new WebRtcMediaSession(signaling, role, endpoints, options, _services);
+        return new MediaSession(signaling, role, endpoints, options, _services);
     }
 }

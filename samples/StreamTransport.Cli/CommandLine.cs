@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.WebRtc.Ice;
+using Agash.StreamTransport.WebRtc.Transport;
 
 namespace StreamTransport.Cli;
 
@@ -149,6 +150,10 @@ internal sealed record CommandLine(
             string other => throw new FormatException($"No profile '{other}'."),
         };
         var session = MediaSessionOptions.For(profile);
+        WebRtcTransportOptions transport = new()
+        {
+            ForwardErrorCorrection = session.Transport.ForwardErrorCorrection,
+        };
         if (Choice(named, "codec") is { } codec)
         {
             session = session with
@@ -168,7 +173,7 @@ internal sealed record CommandLine(
 
         if (Value(named, "turn") is { } turn)
         {
-            session = session with
+            transport = transport with
             {
                 IceServers =
                 [
@@ -183,7 +188,7 @@ internal sealed record CommandLine(
             };
         }
 
-        session = session with
+        transport = transport with
         {
             IceTransportPolicy = Choice(named, "ice-policy") switch
             {
@@ -192,6 +197,8 @@ internal sealed record CommandLine(
                 string other => throw new FormatException($"No ICE policy '{other}'."),
             },
         };
+
+        session = session with { Transport = transport };
 
         VideoInputRequest capture = new()
         {

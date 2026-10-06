@@ -262,7 +262,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             _resources[id] = resource;
             session.StateChanged += state =>
             {
-                if (state is WebRtc.PeerConnectionState.Failed or WebRtc.PeerConnectionState.Closed)
+                if (state is TransportState.Failed or TransportState.Closed)
                 {
                     _ = EndAsync(id);
                 }
@@ -340,7 +340,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
 
         public event Func<SessionDescription, Task>? DescriptionReceived;
 
-        public event Func<IceCandidate, Task>? IceCandidateReceived;
+        public event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
         public bool SupportsTrickle => false;
 
@@ -373,7 +373,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         }
 
         public Task SendAsync(
-            IceCandidate candidate,
+            IceCandidateInit candidate,
             CancellationToken cancellationToken = default
         ) => Task.CompletedTask;
 

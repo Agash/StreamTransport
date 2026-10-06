@@ -63,17 +63,20 @@ public sealed class HttpMediaSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
         HttpSdpChannel channel = new(endpoint, signaling ?? new HttpSignalingOptions(), logger);
-        if (options.IceServers.IsEmpty)
+        if (options.Transport.IceServers.IsEmpty)
         {
             // The server's own STUN and TURN servers, when it advertises them.
             options = options with
             {
-                IceServers =
-                [
-                    .. await channel
-                        .DiscoverIceServersAsync(cancellationToken)
-                        .ConfigureAwait(false),
-                ],
+                Transport = options.Transport with
+                {
+                    IceServers =
+                    [
+                        .. await channel
+                            .DiscoverIceServersAsync(cancellationToken)
+                            .ConfigureAwait(false),
+                    ],
+                },
             };
         }
 
@@ -181,7 +184,7 @@ internal sealed partial class HttpSdpChannel(
 
     public event Func<SessionDescription, Task>? DescriptionReceived;
 
-    public event Func<IceCandidate, Task>? IceCandidateReceived;
+    public event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
     public bool SupportsTrickle => false;
 
@@ -274,8 +277,10 @@ internal sealed partial class HttpSdpChannel(
     }
 
     // Candidates ride in the offer.
-    public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
+    public Task SendAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    ) => Task.CompletedTask;
 
     public async ValueTask DisposeAsync()
     {

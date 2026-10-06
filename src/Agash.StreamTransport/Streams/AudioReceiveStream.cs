@@ -1,9 +1,6 @@
-using System.Buffers;
 using System.Threading.Channels;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
-using Agash.StreamTransport.WebRtc.Rtp;
-using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Streams;
@@ -25,25 +22,22 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     private readonly Playout _playout;
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
-    private readonly ClockRate _rtpRate;
-    private readonly RtpClockAligner _aligner;
     private readonly ArrivalStamps _stamps;
     private readonly Channel<Packet> _packets = Channel.CreateUnbounded<Packet>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = true }
     );
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _worker;
-    private ushort? _nextSequence;
-    private uint _nextTimestamp;
+    private long? _nextSequence;
+    private TimeSpan _nextPosition;
     private NtpTime? _playing;
-    private long _decodedTicks;
+    private TimeSpan _decoded;
     private int _framesDecoded;
     private int _concealed;
     private int _recovered;
 
     /// <summary>Opens a decoder and starts the worker.</summary>
     /// <param name="format">The negotiated codec and its parameters.</param>
-    /// <param name="payloadFormat">The RTP payload format, for its clock rate.</param>
     /// <param name="sink">Where audio goes.</param>
     /// <param name="registry">Where the decoder comes from.</param>
     /// <param name="playout">The session's playout.</param>
@@ -52,7 +46,6 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     /// <param name="logger">The logger.</param>
     public AudioReceiveStream(
         AudioCodecFormat format,
-        RtpPayloadFormat payloadFormat,
         IAudioSink sink,
         MediaCodecRegistry registry,
         Playout playout,
@@ -66,8 +59,6 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
         _sink = sink;
         _playout = playout;
         _logger = logger;
-        _rtpRate = new ClockRate(payloadFormat.ClockRate);
-        _aligner = new RtpClockAligner(_rtpRate);
         _stamps = new ArrivalStamps(clock);
         _decoder = registry.TryCreateAudioDecoder(format, out IAudioDecoder? decoder)
             ? decoder
@@ -92,39 +83,30 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     /// <summary>Received frames decoded.</summary>
     public int FramesDecoded => Volatile.Read(ref _framesDecoded);
 
-    /// <summary>Takes one RTP packet of the stream, on the transport's receive thread.</summary>
-    /// <param name="header">The packet's header.</param>
-    /// <param name="payload">Its payload, borrowed for the call.</param>
-    public void OnPacket(in RtpHeader header, ReadOnlySpan<byte> payload)
+    /// <summary>Takes a packet from the transport, on its receive thread; the stream owns it.</summary>
+    /// <param name="packet">The packet.</param>
+    /// <param name="sequence">Its number in the stream.</param>
+    /// <param name="position">Where it starts on the stream's timeline.</param>
+    /// <param name="capture">When the sender captured its first sample, when known.</param>
+    public void OnPacket(
+        EncodedFrameBuffer packet,
+        long sequence,
+        TimeSpan position,
+        NtpTime? capture
+    )
     {
-        if (header.AbsoluteCaptureTimeNtp is { } ntp and not 0)
+        Packet queued = new(packet, sequence, position, _stamps.Stamp(capture), capture);
+        if (!_packets.Writer.TryWrite(queued))
         {
-            _aligner.Record(new NtpTime(ntp), header.Timestamp);
-        }
-
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(Math.Max(payload.Length, 1));
-        payload.CopyTo(buffer);
-        NtpTime? capture = _aligner.TryGetCapture(header.Timestamp, out NtpTime at) ? at : null;
-        Packet packet = new(
-            new EncodedFrameBuffer(buffer, payload.Length),
-            header.SequenceNumber,
-            header.Timestamp,
-            _stamps.Stamp(capture),
-            capture
-        );
-        if (!_packets.Writer.TryWrite(packet))
-        {
-            packet.Data.Dispose();
+            packet.Dispose();
         }
     }
 
     /// <inheritdoc/>
     public void OnFrame(in AudioFrame frame)
     {
-        _decodedTicks += _rtpRate.ToTicks(
-            TimeSpan.FromTicks(
-                frame.SampleCount * TimeSpan.TicksPerSecond / frame.Format.SampleRate
-            )
+        _decoded += TimeSpan.FromTicks(
+            frame.SampleCount * TimeSpan.TicksPerSecond / frame.Format.SampleRate
         );
         Interlocked.Increment(ref _framesDecoded);
         _metrics.AudioFramesDecoded.Add(1, StreamTransportMetrics.Codec(_format.Codec));
@@ -180,7 +162,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     {
         if (_nextSequence is { } expected)
         {
-            short ahead = unchecked((short)(packet.Sequence - expected));
+            long ahead = packet.Sequence - expected;
             if (ahead < 0)
             {
                 return;
@@ -188,28 +170,29 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
 
             if (ahead > 0)
             {
-                FillGap(packet, lost: ahead);
+                FillGap(packet, lost: (int)Math.Min(ahead, int.MaxValue));
             }
         }
 
         EncodedAudioFrame frame = new(packet.Data.Span, _format.Codec, packet.Stamp, TimeSpan.Zero);
         _playing = packet.Capture;
-        _decodedTicks = 0;
+        _decoded = TimeSpan.Zero;
         _decoder.Decode(in frame, this);
-        _nextSequence = unchecked((ushort)(packet.Sequence + 1));
-        _nextTimestamp = unchecked(packet.Timestamp + (uint)_decodedTicks);
+        _nextSequence = packet.Sequence + 1;
+        _nextPosition = packet.Position + _decoded;
     }
 
     // Fills the audio of lost packets that ended where the next packet begins.
     private void FillGap(in Packet next, int lost)
     {
-        var gap = _rtpRate.ToTimeSpan(unchecked((int)(next.Timestamp - _nextTimestamp)));
+        TimeSpan gap = next.Position - _nextPosition;
         if (gap <= TimeSpan.Zero || gap > MaxConcealment)
         {
             return;
         }
 
-        _playing = _aligner.TryGetCapture(_nextTimestamp, out NtpTime at) ? at : null;
+        // The filled audio was captured just before the packet that ends the gap.
+        _playing = next.Capture is { } capture ? capture + -gap : null;
         MediaTimestamp stamp = new(next.Stamp.Time - gap, TimestampKind.Observation);
         if (lost == 1 && _decoder is IAudioLossRecovery recovery)
         {
@@ -239,12 +222,12 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
         LogLevel.Debug,
         "Audio packet {Sequence} failed to decode; it is concealed."
     )]
-    private partial void LogDecodeFailed(Exception exception, ushort sequence);
+    private partial void LogDecodeFailed(Exception exception, long sequence);
 
     private readonly record struct Packet(
         EncodedFrameBuffer Data,
-        ushort Sequence,
-        uint Timestamp,
+        long Sequence,
+        TimeSpan Position,
         MediaTimestamp Stamp,
         NtpTime? Capture
     );

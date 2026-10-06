@@ -1,7 +1,10 @@
+using System.Diagnostics.Metrics;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
+using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Agash.StreamTransport.WebRtc.DependencyInjection;
@@ -10,9 +13,10 @@ namespace Agash.StreamTransport.WebRtc.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the WebRTC stack: the system <see cref="TimeProvider"/> unless one is registered, the DTLS
+    /// Registers the WebRTC transport: the system <see cref="TimeProvider"/> unless one is registered, the DTLS
     /// certificate (singleton, so the fingerprint is stable), a
-    /// <see cref="PeerConnectionFactory"/>, a per-connection SCReAM <see cref="ICongestionController"/>, and
+    /// <see cref="PeerConnectionFactory"/>, a per-connection SCReAM <see cref="ICongestionController"/>,
+    /// network-change recovery, the <see cref="IMediaTransportFactory"/> media sessions run over, and
     /// the RTP payload formats this library implements with the <see cref="RtpPayloadFormatRegistry"/>
     /// built from every registered <see cref="RtpPayloadFormat"/>.
     /// </summary>
@@ -25,7 +29,23 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(static _ => RtcCertificate.Generate());
-        services.TryAddSingleton<PeerConnectionFactory>();
+        services.TryAddSingleton(static sp => new PeerConnectionFactory(
+            sp.GetRequiredService<RtcCertificate>(),
+            sp.GetService<ICongestionController>,
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetService<ILoggerFactory>(),
+            sp.GetService<IMeterFactory>()
+        ));
+        services.TryAddSingleton<INetworkMonitor, NetworkChangeMonitor>();
+        services.TryAddSingleton<MobilityEngine>();
+        services.TryAddSingleton<IMediaTransportFactory>(
+            static sp => new WebRtcMediaTransportFactory(
+                sp.GetRequiredService<PeerConnectionFactory>(),
+                sp.GetRequiredService<RtpPayloadFormatRegistry>(),
+                sp.GetService<ILoggerFactory>(),
+                sp.GetService<MobilityEngine>()
+            )
+        );
 
         // The controller is stateful per connection, so it is transient; options are bound from IOptions.
         services.TryAddTransient<ICongestionController>(static sp => new ScreamCongestionController(

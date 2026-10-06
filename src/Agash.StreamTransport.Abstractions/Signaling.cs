@@ -21,7 +21,11 @@ public readonly record struct SessionDescription(SdpKind Kind, string Sdp);
 /// <param name="Candidate">The candidate string.</param>
 /// <param name="SdpMid">The media stream identification, if any.</param>
 /// <param name="SdpMLineIndex">The media line index, if any.</param>
-public readonly record struct IceCandidate(string Candidate, string? SdpMid, int? SdpMLineIndex);
+public readonly record struct IceCandidateInit(
+    string Candidate,
+    string? SdpMid,
+    int? SdpMLineIndex
+);
 
 /// <summary>
 /// The out-of-band channel that carries the WebRTC handshake (SDP offer/answer and ICE candidates)
@@ -36,13 +40,13 @@ public interface ISignalingChannel : IAsyncDisposable
     Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default);
 
     /// <summary>Send a local ICE candidate to the remote peer.</summary>
-    Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default);
+    Task SendAsync(IceCandidateInit candidate, CancellationToken cancellationToken = default);
 
     /// <summary>Raised when a session description arrives from the remote peer.</summary>
     event Func<SessionDescription, Task>? DescriptionReceived;
 
     /// <summary>Raised when an ICE candidate arrives from the remote peer.</summary>
-    event Func<IceCandidate, Task>? IceCandidateReceived;
+    event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
     /// <summary>
     /// Whether candidates travel on their own as they are gathered (trickle ICE). A channel that carries

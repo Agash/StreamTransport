@@ -72,5 +72,5 @@ V4L2 provider also lists appears once.
 PipeWire providers, reached through `MediaDevices`:
 
 ```csharp
-services.AddStreamTransport().AddFFmpegCodecs().AddLinuxMedia();
+services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddLinuxMedia();
 ```

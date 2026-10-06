@@ -72,6 +72,6 @@ it; an application states why in `NSMicrophoneUsageDescription`.
 AVFoundation, Syphon and Core Audio providers, reached through `MediaDevices`:
 
 ```csharp
-services.AddStreamTransport().AddFFmpegCodecs().AddMacOSMedia();
+services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddMacOSMedia();
 ```
 

@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
 
-namespace Agash.StreamTransport.Sessions;
+namespace Agash.StreamTransport.WebRtc.Transport;
 
 /// <summary>The <c>a=fmtp</c> parameter list: <c>name=value</c> pairs separated by semicolons.</summary>
 internal static class FormatParameters

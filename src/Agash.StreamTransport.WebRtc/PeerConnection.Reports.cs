@@ -34,6 +34,13 @@ public sealed partial class PeerConnection
     private long _rtcpRoundTripMicros;
 
     /// <summary>
+    /// Raised for each sender report from the peer, with the source, its NTP timestamp and the RTP
+    /// timestamp that corresponds to it (RFC 3550 section 6.4.1): the mapping a receiver aligns a stream's
+    /// RTP clock to the sender's wall clock with, when packets carry no capture time.
+    /// </summary>
+    public event Action<uint, ulong, uint>? SenderReportReceived;
+
+    /// <summary>
     /// The round trip the peer's reception reports measured against this endpoint's sender reports
     /// (RFC 3550 section 6.4.1), or zero before one arrived.
     /// </summary>
@@ -134,6 +141,10 @@ public sealed partial class PeerConnection
             {
                 uint ssrc = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(body);
                 ulong ntp = System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(body[4..]);
+                uint rtpTimestamp = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                    body[12..]
+                );
+                SenderReportReceived?.Invoke(ssrc, ntp, rtpTimestamp);
                 lock (_reportGate)
                 {
                     if (_receiveStatistics.TryGetValue(ssrc, out RtpReceiveStatistics? statistics))

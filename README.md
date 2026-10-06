@@ -51,7 +51,7 @@ source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder
 ## Use it
 
 ```csharp
-services.AddStreamTransport().AddFFmpegCodecs().AddOpusCodecs();
+services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddOpusCodecs();
 
 IMediaSessionFactory sessions = provider.GetRequiredService<IMediaSessionFactory>();
 await using IMediaSession session = sessions.Create(
@@ -121,7 +121,7 @@ with the role and the outcome.
 
 | Package | What it is |
 |---|---|
-| `Agash.StreamTransport` | Sessions, streams, sync, rooms, codec registry, `MediaDevices`, the test signal, DI. |
+| `Agash.StreamTransport` | Transport-agnostic sessions, streams, playout and sync, rooms, codec registry, `MediaDevices`, the test signal, DI. |
 | `Agash.StreamTransport.Adaptation` | Transport-independent adaptation: the congestion-controller contract and the SCReAM controller, delivery tracking with a reordering window, pacing by traffic class, and the media-rate allocator that leaves room for retransmission and FEC. |
 | `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, input, output, source and sink contracts. |
 | `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, FFmpeg capture devices, with natives. |
@@ -129,10 +129,10 @@ with the role and the outcome.
 | `Agash.StreamTransport.Windows` | Direct3D 12 processors, Media Foundation cameras, Spout, WASAPI. |
 | `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, AVFoundation cameras, Syphon, Core Audio. |
 | `Agash.StreamTransport.Linux` | Vulkan processors on DMA-BUFs, V4L2 cameras and v4l2loopback output, PipeWire video and audio. |
-| `Agash.StreamTransport.Abstractions` | Rooms and signaling contracts. |
-| `Agash.StreamTransport.WebRtc` | ICE, STUN, TURN, SRTP, RTP/RTCP with sender and receiver reports, SDP, RTP payload formats, `PeerConnection` (paces media, RTX and FEC through one budget). |
+| `Agash.StreamTransport.Abstractions` | The frame-level media transport contract (`IMediaTransport`), rooms and signaling. |
+| `Agash.StreamTransport.WebRtc` | ICE, STUN, TURN, SRTP, RTP/RTCP with sender and receiver reports, SDP, RTP payload formats, `PeerConnection` (paces media, RTX and FEC through one budget), and the WebRTC media transport. |
 | `Agash.StreamTransport.WebRtc.Abstractions` | ICE and DTLS roles, network change monitoring, transport health and loss statistics. |
-| `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()`. |
+| `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()`: registers the WebRTC transport sessions run over. |
 | `Agash.StreamTransport.Signaling` | Room router and a WebSocket signaling transport. |
 | `Agash.StreamTransport.Stun` | STUN binding server and ICE server providers. |
 

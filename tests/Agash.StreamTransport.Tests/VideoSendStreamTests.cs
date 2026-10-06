@@ -1,9 +1,6 @@
 using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.Rtp;
 using Agash.StreamTransport.Streams;
-using Agash.StreamTransport.Sync;
-using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agash.StreamTransport.Tests;
@@ -22,20 +19,10 @@ public sealed class VideoSendStreamTests
         TaskCompletionSource sent = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using VideoSendStream stream = new(
             new GradientSource(TimeSpan.FromMilliseconds(10)),
-            new VideoSendSetup(
-                H264,
-                new RtpStreamWriter(
-                    H264PayloadFormat.Instance.CreatePacketizer(1200),
-                    96,
-                    1,
-                    new ClockRate(90_000),
-                    new CaptureClock(MediaClock.System)
-                ),
-                1_000_000
-            ),
+            new VideoSendSetup(H264, 1_000_000),
             registry,
             new MediaSessionOptions(),
-            (_, _, _, _, _, _) => sent.TrySetResult(),
+            (in EncodedVideoFrame _) => sent.TrySetResult(),
             MediaClock.System,
             new StreamTransportMetrics(meterFactory: null),
             NullLogger.Instance

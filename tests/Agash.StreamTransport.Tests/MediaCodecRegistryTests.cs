@@ -113,7 +113,7 @@ public sealed class MediaCodecRegistryTests
     public void Options_Profiles_ExpandToTheirSettings()
     {
         var irl = MediaSessionOptions.For(MediaProfile.IrlContribution);
-        Assert.IsTrue(irl.EnableFec);
+        Assert.IsTrue(irl.Transport.ForwardErrorCorrection);
         Assert.AreEqual(PlayoutMode.Synced, irl.Playout);
         Assert.AreEqual(EncodeTuning.LossResilient, irl.VideoTuning);
         Assert.AreEqual(VideoCodecId.H265, irl.VideoCodecs[0]);
