@@ -199,7 +199,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 }
                 else
                 {
-                    ToRgb(image, format, frame.Color, output);
+                    ToRgb(image, format, frame.Color, output.Planes[0]);
                 }
             }
             catch
@@ -265,6 +265,49 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             duration: frame.Duration
         );
         consumer.OnFrame(in result);
+    }
+
+    // RGB output is written by one compute pass, so it goes straight into a sink's DMA-BUF (a PipeWire
+    // buffer) on this GPU, finished before this returns; NV12 output is assembled in surfaces of its own.
+    public bool TryProcess(in VideoFrame frame, in VideoTarget target)
+    {
+        VideoStreamDescription output = Info.Output;
+        if (
+            output.PixelFormat == PixelFormat.Nv12
+            || !frame.Storage.TryGetValue(out DmaBufImage image)
+            || image.Sync is not null
+            || !target.Storage.TryGetValue(out DmaBufImage into)
+            || into.Sync is not null
+            || into.Device != _engine.Identity
+            || into.PlaneCount != 1
+            || into.Modifier != VulkanEngine.LinearModifier
+            || target.Format.PixelFormat != output.PixelFormat
+            || target.Format.CodedSize != output.Size
+        )
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!Recording.WaitForWriters(in image, WriterTimeout))
+            {
+                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
+            }
+
+            // Written through an RGBA view whatever the memory order, as into a surface of its own.
+            using ImportCache.Lease lease = _engine.Imports.Import(
+                into[0],
+                into.Modifier,
+                VkFormat.R8G8B8A8Unorm,
+                output.Size.Width,
+                output.Size.Height,
+                VkImageUsageFlags.Storage
+            );
+            ToRgb(image, frame.Format, frame.Color, lease.Image);
+            return true;
+        }
     }
 
     // Called by a consumer inside OnFrame, on the processing thread that holds the lock.
@@ -377,7 +420,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         DmaBufImage image,
         VideoFormat format,
         VideoColor inputColour,
-        PooledDmaBuf output
+        VulkanImage rgb
     )
     {
         int width = format.CodedSize.Width;
@@ -429,7 +472,6 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             RowB = b,
         };
 
-        VulkanImage rgb = output.Planes[0];
         VkImageView lumaView = luma.View(VkFormat.R8Unorm);
         VkImageView chromaView = chroma.View(VkFormat.R8G8Unorm);
         // Written through an RGBA view whatever the memory order; the kernel swaps for BGRA.

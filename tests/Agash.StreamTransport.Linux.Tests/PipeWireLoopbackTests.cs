@@ -132,6 +132,93 @@ public sealed class PipeWireLoopbackTests
         }
     }
 
+    // The sink lends the shared buffer the consumer takes next and the processor draws the frame
+    // straight into it: what the consumer gets was never copied into the sink.
+    [TestMethod]
+    [TestCategory("Integration")]
+    [Timeout(30_000)]
+    public async Task ProcessorToGpuVideoSink_DrawsIntoTheSharedBuffer()
+    {
+        await using PipeWireContext context = await StartAsync();
+        byte[] luma = [.. Enumerable.Repeat((byte)128, Width * Height)];
+        byte[] chroma = [.. Enumerable.Repeat((byte)128, Width * Height / 2)];
+        PooledDmaBuf picture = TestDmaBufs.Upload(PixelFormat.Nv12, Width, Height, [luma, chroma]);
+        try
+        {
+            using PipeWireVideoSink sink = new(
+                context,
+                $"streamtransport-draw-test-{Guid.NewGuid():N}"
+            );
+            using IVideoProcessor processor = new VulkanVideoProcessorFactory().Create(
+                new VideoStreamDescription(
+                    VideoStorageKind.DmaBuf,
+                    PixelFormat.Nv12,
+                    new VideoSize(Width, Height),
+                    TestDmaBufs.Engine.Identity
+                ),
+                new VideoProcessing(sink.Constraints with { PixelFormats = [PixelFormat.Bgra] })
+            );
+            Assert.AreEqual(PixelFormat.Bgra, processor.Info.Output.PixelFormat);
+            VideoFormat drawn = new(PixelFormat.Bgra, Width, Height);
+
+            // The first frame makes the node; until a consumer settles on shared buffers there is
+            // nothing to draw into.
+            processor.Process(
+                TestDmaBufs.Frame(picture, PixelFormat.Nv12, Width, Height, VideoColor.Bt709),
+                sink
+            );
+            uint node = await sink.WaitForNodeIdAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            using PipeWireVideoSource source = new(
+                context,
+                new PipeWireVideoSourceOptions
+                {
+                    TargetNodeId = node,
+                    PreferredSize = new VideoSize(Width, Height),
+                }
+            );
+            Keeper keeper = new(afterDrawing: true);
+            using IDisposable connection = source.Connect(
+                keeper,
+                new VideoConstraints([VideoStorageKind.DmaBuf], [PixelFormat.Bgra])
+            );
+            using (PeriodicTimer frames = new(TimeSpan.FromMilliseconds(20)))
+            using (CancellationTokenSource expiry = new(TimeSpan.FromSeconds(15)))
+            {
+                while (!keeper.Kept.IsCompleted && await frames.WaitForNextTickAsync(expiry.Token))
+                {
+                    keeper.Drawn |=
+                        VideoRenderResult.Rendered
+                        == sink.Render(
+                            drawn,
+                            new Drawing(
+                                processor,
+                                TestDmaBufs.Frame(
+                                    picture,
+                                    PixelFormat.Nv12,
+                                    Width,
+                                    Height,
+                                    VideoColor.Bt709
+                                )
+                            ),
+                            static (in VideoTarget target, scoped in Drawing drawing) =>
+                                drawing.Processor.TryProcess(in drawing.Frame, in target)
+                        );
+                }
+            }
+
+            using VideoFrameLease kept = await keeper.Kept;
+            Assert.IsTrue(kept.Frame.Storage.TryGetValue(out DmaBufImage image));
+            CollectionAssert.AreEqual(
+                new byte[] { 130, 130, 130, 255 },
+                TestDmaBufs.Download(image, PixelFormat.Bgra, Width, Height)[0][..4]
+            );
+        }
+        finally
+        {
+            picture.Release();
+        }
+    }
+
     [TestMethod]
     [TestCategory("Integration")]
     [Timeout(30_000)]
@@ -310,9 +397,25 @@ public sealed class PipeWireLoopbackTests
         );
     }
 
-    // Keeps the first frame it is handed.
-    private sealed class Keeper : IVideoFrameConsumer
+    // A frame and the processor that draws it into the sink's buffer.
+    private readonly ref struct Drawing(IVideoProcessor processor, VideoFrame frame)
     {
+        public readonly IVideoProcessor Processor = processor;
+
+        public readonly VideoFrame Frame = frame;
+    }
+
+    // Keeps the first frame it is handed, or the first once a frame has been drawn into the sink.
+    private sealed class Keeper(bool afterDrawing = false) : IVideoFrameConsumer
+    {
+        private volatile bool _drawn;
+
+        public bool Drawn
+        {
+            get => _drawn;
+            set => _drawn = value;
+        }
+
         private readonly TaskCompletionSource<VideoFrameLease> _kept = new(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
@@ -321,7 +424,7 @@ public sealed class PipeWireLoopbackTests
 
         public void OnFrame(in VideoFrame frame)
         {
-            if (!_kept.Task.IsCompleted)
+            if (!_kept.Task.IsCompleted && (!afterDrawing || _drawn))
             {
                 VideoFrameLease lease = frame.Retain();
                 if (!_kept.TrySetResult(lease))

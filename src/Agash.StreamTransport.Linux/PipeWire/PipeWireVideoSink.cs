@@ -52,6 +52,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     private bool _gpu;
     private VulkanEngine? _engine;
     private VideoFrameLease? _latest;
+    private VulkanImage[]? _lent;
     private byte[] _staging = [];
     private bool _staged;
     private bool _disposed;
@@ -114,26 +115,17 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         }
 
         PipeWireVideoOutput output;
+        VideoFormat format;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            VideoFormat format = new(
-                pixels,
-                frame.Format.VisibleRect.Width,
-                frame.Format.VisibleRect.Height
-            );
+            format = new(pixels, frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
             if (_output is null || format != _format || frame.Color != _color || gpu != _gpu)
             {
                 Restart(format, frame.Color, gpu, frame.Storage.Device);
             }
 
-            if (gpu)
-            {
-                // Kept until a newer frame arrives: the consumer's buffers are filled from it.
-                _latest?.Dispose();
-                _latest = frame.Retain();
-            }
-            else
+            if (!gpu)
             {
                 Stage(in frame);
             }
@@ -141,7 +133,107 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             output = _output!;
         }
 
+        if (gpu)
+        {
+            if (
+                Render(
+                    format,
+                    new Copying(this, frame),
+                    static (in VideoTarget _, scoped in Copying copying) =>
+                        copying.Sink.CopyInto(in copying.Frame)
+                ) != VideoRenderResult.Unavailable
+            )
+            {
+                return;
+            }
+
+            // No shared buffer to push into: a consumer reading memory is filled from the latest frame,
+            // kept until a newer one arrives.
+            lock (_gate)
+            {
+                if (output != _output)
+                {
+                    return;
+                }
+
+                _latest?.Dispose();
+                _latest = frame.Retain();
+            }
+        }
+
         output.TriggerProcess();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Lends a free shared buffer once a consumer has settled on shared buffers for frames of this
+    /// format; unavailable before then and while it reads memory. One frame waits for the consumer at
+    /// most, so a frame offered while the last one has not been taken is skipped. The renderer finishes
+    /// drawing before it returns.
+    /// </remarks>
+    public VideoRenderResult Render<TState>(
+        VideoFormat format,
+        scoped in TState state,
+        VideoTargetRenderer<TState> render
+    )
+        where TState : allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(render);
+        PipeWireVideoOutput output;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (
+                _output is null
+                || !_gpu
+                || format.PixelFormat != _format.PixelFormat
+                || format.CodedSize != _format.CodedSize
+            )
+            {
+                return VideoRenderResult.Unavailable;
+            }
+
+            output = _output;
+        }
+
+        // The loop thread takes this sink's lock under the loop lock, so the loop lock is taken (to
+        // dequeue and to publish) only while this lock is not held.
+        if (!output.TryBeginFrame(out PipeWireOutputFrame frame))
+        {
+            return output.SharesBuffers ? VideoRenderResult.Skipped : VideoRenderResult.Unavailable;
+        }
+
+        using (frame)
+        {
+            lock (_gate)
+            {
+                if (
+                    output != _output
+                    || !_shared.TryGetValue(frame.BufferIndex, out VulkanImage[]? images)
+                )
+                {
+                    return VideoRenderResult.Unavailable;
+                }
+
+                // Drawn holding the lock, so the buffer's images cannot be released meanwhile.
+                VideoTarget target = new(new VideoStorage(Describe(images)), format);
+                _lent = images;
+                try
+                {
+                    if (!render(in target, in state))
+                    {
+                        return VideoRenderResult.Unavailable;
+                    }
+                }
+                finally
+                {
+                    _lent = null;
+                }
+            }
+
+            frame.Publish();
+            return VideoRenderResult.Rendered;
+        }
     }
 
     /// <summary>Stops publishing and removes the node.</summary>
@@ -199,7 +291,9 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 output.FillDmaBuf += FillShared;
                 output.ReleaseDmaBuf += ReleaseShared;
 
-                // A consumer that cannot import a shared buffer gets frames read back into memory.
+                // Frames are pushed into shared buffers as they arrive. A consumer that cannot import
+                // a shared buffer gets them read back into memory.
+                output.PushFrames = true;
                 output.HostMemoryFallback = true;
                 output.FillFrame += FillFromGpu;
                 output.ConnectDmaBuf([
@@ -295,6 +389,47 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
 
             return images.Length;
         }
+    }
+
+    // A GPU frame copied into the buffer being lent, for a frame no processor drew there; called holding
+    // the lock.
+    private bool CopyInto(in VideoFrame frame)
+    {
+        _ = frame.Storage.TryGetValue(out DmaBufImage image);
+        VulkanTransfer.Copy(
+            _engine!,
+            in image,
+            _format.PixelFormat,
+            frame.Format.CodedSize.Width,
+            frame.Format.CodedSize.Height,
+            _lent!
+        );
+        return true;
+    }
+
+    // A GPU frame handed to the sink, copied into a lent buffer.
+    private readonly ref struct Copying(PipeWireVideoSink sink, VideoFrame frame)
+    {
+        public readonly PipeWireVideoSink Sink = sink;
+
+        public readonly VideoFrame Frame = frame;
+    }
+
+    // A buffer's images as DMA-BUF storage on the sink's GPU.
+    private DmaBufImage Describe(VulkanImage[] images)
+    {
+        Span<DmaBufPlane> planes = stackalloc DmaBufPlane[images.Length];
+        for (int i = 0; i < images.Length; i++)
+        {
+            planes[i] = images[i].Plane;
+        }
+
+        return new DmaBufImage(
+            planes,
+            DrmFourcc.Of(_format.PixelFormat),
+            VulkanEngine.LinearModifier,
+            _engine!.Identity
+        );
     }
 
     // Runs on the PipeWire loop thread: the latest frame into the buffer the consumer takes next.
