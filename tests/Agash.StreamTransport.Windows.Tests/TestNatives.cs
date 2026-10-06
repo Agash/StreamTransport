@@ -1,16 +1,16 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using FF = FFmpeg.Interop;
 
 namespace Agash.StreamTransport.Windows.Tests;
 
-[TestClass]
-public static class TestNatives
+internal static class TestNatives
 {
-    // The FFmpeg 9 shared libraries eng/fetch-ffmpeg.ps1 puts under native/ffmpeg/<rid>.
-    [AssemblyInitialize]
-    public static void Load(TestContext context)
+    // The FFmpeg 9 shared libraries eng/fetch-ffmpeg.ps1 puts under native/ffmpeg/<rid>, set when the
+    // assembly loads: before anything, discovery included, can load FFmpeg from elsewhere.
+    [ModuleInitializer]
+    public static void Load()
     {
-        _ = context;
         for (
             DirectoryInfo? directory = new(AppContext.BaseDirectory);
             directory is not null;
