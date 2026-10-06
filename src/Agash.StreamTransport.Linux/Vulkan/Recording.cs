@@ -83,30 +83,14 @@ internal static unsafe partial class Recording
         };
 
     /// <summary>
-    /// Waits until everything that wrote a DMA-BUF has finished, for producers that rely on the kernel's
-    /// implicit fences: a DMA-BUF polls readable once its writers are done.
+    /// Waits on the CPU until everything that wrote a DMA-BUF has finished, where the kernel cannot hand
+    /// over its implicit fences: a DMA-BUF polls readable once its writers are done.
     /// </summary>
     /// <returns>False when the writers did not finish in time.</returns>
-    public static bool WaitForWriters(in DmaBufImage image, TimeSpan timeout)
+    public static bool WaitForWriters(int dmabuf, TimeSpan timeout)
     {
-        int previous = -1;
-        for (int i = 0; i < image.PlaneCount; i++)
-        {
-            int fd = image[i].Fd;
-            if (fd == previous)
-            {
-                continue;
-            }
-
-            previous = fd;
-            PollFd poll = new() { Fd = fd, Events = PollIn };
-            if (Poll(&poll, 1, (int)timeout.TotalMilliseconds) <= 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        PollFd poll = new() { Fd = dmabuf, Events = PollIn };
+        return Poll(&poll, 1, (int)timeout.TotalMilliseconds) > 0;
     }
 
     private static void Barrier(

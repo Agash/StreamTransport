@@ -160,6 +160,11 @@ public sealed class VulkanProcessorTests
             );
 
             Assert.AreEqual(PixelFormat.Bgra, info.Output.PixelFormat);
+
+            // Handed on without waiting for the GPU: the frame carries the point it is written at.
+            Assert.IsTrue(output.Frame.Storage.TryGetValue(out DmaBufImage image));
+            Assert.IsNotNull(image.Sync);
+            Assert.AreEqual(-1, image.Sync.Value.ReleaseSyncobj);
             CollectionAssert.AreEqual(
                 new byte[] { 130, 130, 130, 255 },
                 Download(output, PixelFormat.Bgra, Width)[0][..4]

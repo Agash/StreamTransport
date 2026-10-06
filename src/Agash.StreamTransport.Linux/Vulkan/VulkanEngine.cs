@@ -10,8 +10,8 @@ namespace Agash.StreamTransport.Linux.Vulkan;
 /// <summary>
 /// A Vulkan device with the compute queue and pipelines the package's processors, sources and sinks
 /// run on, and DMA-BUF import and export. There is one per GPU for the life of the process, like the
-/// GPU itself; work on it is serialised, and every submission is waited for, so frames leave finished:
-/// VAAPI, PipeWire consumers and compositors read DMA-BUFs directly.
+/// GPU itself. Recording is serialised and nothing waits for the GPU: batches signal a timeline, and the
+/// frames they write carry its point (<see cref="Ready"/>) for readers to wait on where they run.
 /// </summary>
 internal sealed unsafe partial class VulkanEngine
 {
@@ -30,6 +30,7 @@ internal sealed unsafe partial class VulkanEngine
         "VK_EXT_image_drm_format_modifier",
         "VK_EXT_queue_family_foreign",
         "VK_EXT_physical_device_drm",
+        "VK_KHR_external_semaphore_fd",
     ];
 
     private readonly VkInstanceApi _instanceApi;
@@ -37,13 +38,11 @@ internal sealed unsafe partial class VulkanEngine
     private readonly VkPhysicalDeviceMemoryProperties _memory;
     private readonly VkQueue _queue;
     private readonly VkCommandPool _commandPool;
-    private readonly VkCommandBuffer _commands;
-    private readonly VkFence _fence;
     private readonly VkDescriptorPool _descriptors;
     private readonly Lock _gate = new();
 
-    // Whether a batch is being recorded; read and written only by the thread holding the gate.
-    private bool _recording;
+    // The batch being recorded; read and written only by the thread holding the gate.
+    private Slot? _recording;
 
     private VulkanEngine(VkPhysicalDevice physical, uint queueFamily, GpuIdentity identity)
     {
@@ -63,8 +62,10 @@ internal sealed unsafe partial class VulkanEngine
             pQueuePriorities = &priority,
         };
         using VkStringArray extensions = new(DeviceExtensions);
+        VkPhysicalDeviceVulkan12Features features = new() { timelineSemaphore = true };
         VkDeviceCreateInfo deviceInfo = new()
         {
+            pNext = &features,
             queueCreateInfoCount = 1,
             pQueueCreateInfos = &queueInfo,
             enabledExtensionCount = extensions.Length,
@@ -86,35 +87,25 @@ internal sealed unsafe partial class VulkanEngine
         VkCommandPool pool;
         Api.vkCreateCommandPool(&poolInfo, null, &pool).CheckResult();
         _commandPool = pool;
-        VkCommandBufferAllocateInfo allocate = new()
-        {
-            commandPool = pool,
-            level = VkCommandBufferLevel.Primary,
-            commandBufferCount = 1,
-        };
-        VkCommandBuffer commands;
-        Api.vkAllocateCommandBuffers(&allocate, &commands).CheckResult();
-        _commands = commands;
-        VkFenceCreateInfo fenceInfo = new();
-        VkFence fence;
-        Api.vkCreateFence(&fenceInfo, null, &fence).CheckResult();
-        _fence = fence;
+        CreateTimeline();
 
         VkDescriptorPoolSize* sizes = stackalloc VkDescriptorPoolSize[2];
         sizes[0] = new VkDescriptorPoolSize
         {
             type = VkDescriptorType.StorageImage,
-            descriptorCount = 64,
+            descriptorCount = 256,
         };
         sizes[1] = new VkDescriptorPoolSize
         {
             type = VkDescriptorType.CombinedImageSampler,
-            descriptorCount = 16,
+            descriptorCount = 64,
         };
+
+        // Sets live until their batch has run, so as many batches as are in flight hold theirs.
         VkDescriptorPoolCreateInfo descriptorInfo = new()
         {
             flags = VkDescriptorPoolCreateFlags.FreeDescriptorSet,
-            maxSets = 16,
+            maxSets = 64,
             poolSizeCount = 2,
             pPoolSizes = sizes,
         };
@@ -191,86 +182,6 @@ internal sealed unsafe partial class VulkanEngine
                 _ => new Lazy<VulkanEngine>(() => new VulkanEngine(physical, family, identity))
             )
             .Value;
-    }
-
-    /// <summary>
-    /// Starts one batch of GPU work on the engine's command buffer. Work on the engine is serialised:
-    /// the batch holds the engine until it is submitted or disposed.
-    /// </summary>
-    /// <returns>The batch; record into <see cref="Batch.Commands"/>, then <see cref="Batch.Submit"/>.</returns>
-    public Batch Begin()
-    {
-        _gate.Enter();
-        try
-        {
-            Api.vkResetCommandBuffer(_commands, 0).CheckResult();
-            VkCommandBufferBeginInfo begin = new()
-            {
-                flags = VkCommandBufferUsageFlags.OneTimeSubmit,
-            };
-            Api.vkBeginCommandBuffer(_commands, &begin).CheckResult();
-            _recording = true;
-            return new Batch(this);
-        }
-        catch
-        {
-            _gate.Exit();
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// One batch of recorded GPU work, holding the engine until it ends. The batch in progress is the
-    /// engine's, so a copy of this view (a <c>using</c> variable is read-only) ends the same batch.
-    /// </summary>
-    public readonly ref struct Batch
-    {
-        private readonly VulkanEngine _engine;
-
-        internal Batch(VulkanEngine engine) => _engine = engine;
-
-        public VkCommandBuffer Commands => _engine._commands;
-
-        /// <summary>Runs what was recorded and waits until the GPU has finished it.</summary>
-        public void Submit()
-        {
-            if (!_engine._recording)
-            {
-                throw new InvalidOperationException("The batch has already ended.");
-            }
-
-            _engine._recording = false;
-            try
-            {
-                _engine.Execute();
-            }
-            finally
-            {
-                _engine._gate.Exit();
-            }
-        }
-
-        /// <summary>Ends a batch that was not submitted, discarding what was recorded.</summary>
-        public void Dispose()
-        {
-            if (_engine._recording)
-            {
-                _engine._recording = false;
-                _ = _engine.Api.vkEndCommandBuffer(_engine._commands);
-                _engine._gate.Exit();
-            }
-        }
-    }
-
-    private void Execute()
-    {
-        Api.vkEndCommandBuffer(_commands).CheckResult();
-        VkCommandBuffer commands = _commands;
-        VkSubmitInfo submit = new() { commandBufferCount = 1, pCommandBuffers = &commands };
-        VkFence fence = _fence;
-        Api.vkResetFences(1, &fence).CheckResult();
-        Api.vkQueueSubmit(_queue, 1, &submit, fence).CheckResult();
-        Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
     }
 
     /// <summary>A descriptor set for a kernel, freed after the batch that uses it has run.</summary>

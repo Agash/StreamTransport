@@ -137,14 +137,13 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
 internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrameRetainer
 {
     // How long a producer's GPU may still be writing a frame when it hands it over.
-    private static readonly TimeSpan WriterTimeout = TimeSpan.FromSeconds(1);
-
     private readonly VideoProcessing _processing;
     private readonly VulkanEngine _engine;
     private readonly DmaBufPool _pool;
     private readonly VideoColor _outputColour;
     private readonly Lock _gate = new();
     private PooledDmaBuf? _delivering;
+    private ulong _submitted;
     private bool _disposed;
 
     public VulkanVideoProcessor(
@@ -173,34 +172,14 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             throw new ArgumentException("The frame is not a DMA-BUF.", nameof(frame));
         }
 
-        if (image.Sync is not null)
-        {
-            throw new ArgumentException(
-                "The frame carries an explicit-sync timeline; its producer waits on the acquire point before handing it over.",
-                nameof(frame)
-            );
-        }
-
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!Recording.WaitForWriters(in image, WriterTimeout))
-            {
-                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
-            }
-
             PooledDmaBuf output = _pool.Rent();
+            ulong ready;
             try
             {
-                VideoFormat format = frame.Format;
-                if (Info.Output.PixelFormat == PixelFormat.Nv12)
-                {
-                    ToYuv(image, format, output);
-                }
-                else
-                {
-                    ToRgb(image, format, frame.Color, output.Planes[0]);
-                }
+                ready = Convert(in frame, image, output);
             }
             catch
             {
@@ -213,6 +192,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             {
                 try
                 {
+                    _engine.Wait(ready);
                     ReadBack(output, in frame, consumer);
                 }
                 finally
@@ -223,8 +203,9 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 return;
             }
 
+            // Handed on at once: the frame carries the point the GPU signals once it is written.
             VideoFrame result = new(
-                new VideoStorage(output.Describe(_engine.Identity)),
+                new VideoStorage(output.Describe(_engine.Identity, _engine.Ready(ready))),
                 new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
                 frame.Timestamp,
                 color: _outputColour,
@@ -242,6 +223,45 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 _delivering = null;
                 output.Release();
             }
+        }
+    }
+
+    // Records the conversion of a frame into a pooled picture and runs it without waiting: the batch
+    // waits on the GPU for the frame's producer, and the frame is kept until the batch has run.
+    private ulong Convert(in VideoFrame frame, DmaBufImage image, PooledDmaBuf output)
+    {
+        VideoFrameLease input = frame.Retain();
+        VulkanEngine.Batch batch;
+        try
+        {
+            batch = _engine.Begin();
+        }
+        catch
+        {
+            input.Dispose();
+            throw;
+        }
+
+        // A batch that ends unsubmitted lets go of the frame with its other holds.
+        using (batch)
+        {
+            batch.Then(input.Dispose);
+            if (!batch.WaitFor(in image))
+            {
+                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
+            }
+
+            if (Info.Output.PixelFormat == PixelFormat.Nv12)
+            {
+                ToYuv(in batch, image, frame.Format, output);
+            }
+            else
+            {
+                ToRgb(in batch, image, frame.Format, frame.Color, output.Planes[0]);
+            }
+
+            _submitted = batch.Submit();
+            return _submitted;
         }
     }
 
@@ -291,13 +311,10 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!Recording.WaitForWriters(in image, WriterTimeout))
-            {
-                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
-            }
 
             // Written through an RGBA view whatever the memory order, as into a surface of its own.
-            using ImportCache.Lease lease = _engine.Imports.Import(
+            // The target names no sync point, so the drawing has finished when this returns.
+            ImportCache.Lease lease = _engine.Imports.Import(
                 into[0],
                 into.Modifier,
                 VkFormat.R8G8B8A8Unorm,
@@ -305,7 +322,16 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 output.Size.Height,
                 VkImageUsageFlags.Storage
             );
-            ToRgb(image, frame.Format, frame.Color, lease.Image);
+            using VulkanEngine.Batch batch = _engine.Begin();
+            batch.Then(lease.Dispose);
+            if (!batch.WaitFor(in image) || !batch.WaitFor(in into, write: true))
+            {
+                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
+            }
+
+            ToRgb(in batch, image, frame.Format, frame.Color, lease.Image);
+            _submitted = batch.Submit();
+            _engine.Wait(_submitted);
             return true;
         }
     }
@@ -326,20 +352,27 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         {
             if (!_disposed)
             {
+                // The pool's pictures may still be written by the last batch.
                 _disposed = true;
+                _engine.Wait(_submitted);
                 _pool.Dispose();
             }
         }
     }
 
     // BGRA or RGBA to NV12, packing alpha to the right when the output is twice the colour width.
-    private void ToYuv(DmaBufImage image, VideoFormat format, PooledDmaBuf output)
+    private void ToYuv(
+        in VulkanEngine.Batch batch,
+        DmaBufImage image,
+        VideoFormat format,
+        PooledDmaBuf output
+    )
     {
         VkFormat sourceFormat =
             format.PixelFormat == PixelFormat.Rgba
                 ? VkFormat.R8G8B8A8Unorm
                 : VkFormat.B8G8R8A8Unorm;
-        using ImportCache.Lease sourceLease = _engine.Imports.Import(
+        ImportCache.Lease sourceLease = _engine.Imports.Import(
             image[0],
             image.Modifier,
             sourceFormat,
@@ -347,6 +380,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             format.CodedSize.Height,
             VkImageUsageFlags.Sampled
         );
+        batch.Then(sourceLease.Dispose);
         VulkanImage source = sourceLease.Image;
         (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(_outputColour);
         VideoSize size = Info.Output.Size;
@@ -369,7 +403,11 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         VkImageView chromaView = chroma.View(VkFormat.R8G8Unorm);
         ComputeKernel kernel = _engine.RgbToYuv;
         VkDescriptorSet set = _engine.AllocateSet(kernel.SetLayout);
-        try
+        batch.Then(() =>
+        {
+            _engine.FreeSet(set);
+            Destroy(sourceView, lumaView, chromaView);
+        });
         {
             VkDescriptorImageInfo* images = stackalloc VkDescriptorImageInfo[3];
             images[0] = new VkDescriptorImageInfo
@@ -394,7 +432,6 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             writes[2] = Recording.Storage(set, 2, &images[2]);
             _engine.Api.vkUpdateDescriptorSets(3, writes, 0, null);
 
-            using VulkanEngine.Batch batch = _engine.Begin();
             Recording.Acquire(_engine, batch.Commands, [source, luma, chroma]);
             Dispatch(
                 batch.Commands,
@@ -406,17 +443,12 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 size.Height / 2
             );
             Recording.Release(_engine, batch.Commands, [luma, chroma]);
-            batch.Submit();
-        }
-        finally
-        {
-            _engine.FreeSet(set);
-            Destroy(sourceView, lumaView, chromaView);
         }
     }
 
     // NV12 to BGRA or RGBA, taking alpha from the right half when the input carries it side by side.
     private void ToRgb(
+        in VulkanEngine.Batch batch,
         DmaBufImage image,
         VideoFormat format,
         VideoColor inputColour,
@@ -425,7 +457,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
     {
         int width = format.CodedSize.Width;
         int height = format.CodedSize.Height;
-        using ImportCache.Lease lumaLease = _engine.Imports.Import(
+        ImportCache.Lease lumaLease = _engine.Imports.Import(
             image[0],
             image.Modifier,
             VkFormat.R8Unorm,
@@ -433,8 +465,9 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             height,
             VkImageUsageFlags.Storage
         );
+        batch.Then(lumaLease.Dispose);
         VulkanImage luma = lumaLease.Image;
-        using ImportCache.Lease chromaLease = _engine.Imports.Import(
+        ImportCache.Lease chromaLease = _engine.Imports.Import(
             image.PlaneCount > 1
                 ? image[1]
                 : image[0] with
@@ -447,6 +480,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             (height + 1) / 2,
             VkImageUsageFlags.Storage
         );
+        batch.Then(chromaLease.Dispose);
         VulkanImage chroma = chromaLease.Image;
 
         VideoColor source =
@@ -478,7 +512,11 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         VkImageView rgbView = rgb.View(VkFormat.R8G8B8A8Unorm);
         ComputeKernel kernel = _engine.YuvToRgb;
         VkDescriptorSet set = _engine.AllocateSet(kernel.SetLayout);
-        try
+        batch.Then(() =>
+        {
+            _engine.FreeSet(set);
+            Destroy(lumaView, chromaView, rgbView);
+        });
         {
             VkDescriptorImageInfo* images = stackalloc VkDescriptorImageInfo[3];
             images[0] = new VkDescriptorImageInfo
@@ -502,7 +540,6 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             writes[2] = Recording.Storage(set, 2, &images[2]);
             _engine.Api.vkUpdateDescriptorSets(3, writes, 0, null);
 
-            using VulkanEngine.Batch batch = _engine.Begin();
             Recording.Acquire(_engine, batch.Commands, [luma, chroma, rgb]);
             Dispatch(
                 batch.Commands,
@@ -514,12 +551,6 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 size.Height
             );
             Recording.Release(_engine, batch.Commands, [rgb]);
-            batch.Submit();
-        }
-        finally
-        {
-            _engine.FreeSet(set);
-            Destroy(lumaView, chromaView, rgbView);
         }
     }
 

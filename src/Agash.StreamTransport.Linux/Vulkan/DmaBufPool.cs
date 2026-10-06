@@ -163,8 +163,8 @@ internal sealed class PooledDmaBuf(DmaBufPool pool, VulkanImage[] planes)
         }
     }
 
-    /// <summary>The picture as DMA-BUF storage on its GPU.</summary>
-    public DmaBufImage Describe(GpuIdentity device)
+    /// <summary>The picture as DMA-BUF storage on its GPU, ready at a sync point when one is given.</summary>
+    public DmaBufImage Describe(GpuIdentity device, DrmSyncTimeline? ready = null)
     {
         Span<DmaBufPlane> planes = stackalloc DmaBufPlane[Planes.Length];
         for (int i = 0; i < planes.Length; i++)
@@ -176,7 +176,8 @@ internal sealed class PooledDmaBuf(DmaBufPool pool, VulkanImage[] planes)
             planes,
             DrmFourcc.Of(pool.Format),
             VulkanEngine.LinearModifier,
-            device
+            device,
+            ready
         );
     }
 

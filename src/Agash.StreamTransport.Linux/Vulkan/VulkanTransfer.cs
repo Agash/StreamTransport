@@ -6,7 +6,9 @@ namespace Agash.StreamTransport.Linux.Vulkan;
 /// <summary>
 /// Copies between memory and DMA-BUF images through host-visible staging buffers: how a picture from
 /// memory reaches a GPU consumer, and how a GPU picture is read back. DMA-BUFs in device memory need not
-/// be mappable, so a copy on the GPU is the one way in and out that works on every device.
+/// be mappable, so a copy on the GPU is the one way in and out that works on every device. Each waits on
+/// the GPU for the picture's producer and returns once its copy has run, for its caller reads or
+/// publishes the result straight away.
 /// </summary>
 internal static unsafe class VulkanTransfer
 {
@@ -44,7 +46,7 @@ internal static unsafe class VulkanTransfer
             &region
         );
         Recording.Release(engine, batch.Commands, [image]);
-        batch.Submit();
+        batch.SubmitAndWait();
     }
 
     /// <summary>Reads an image's rows, packed tightly.</summary>
@@ -69,7 +71,7 @@ internal static unsafe class VulkanTransfer
                 &region
             );
             Recording.Release(engine, batch.Commands, [image]);
-            batch.Submit();
+            batch.SubmitAndWait();
         }
 
         return staging.Bytes.ToArray();
@@ -77,8 +79,7 @@ internal static unsafe class VulkanTransfer
 
     /// <summary>
     /// Copies a DMA-BUF picture, plane by plane, into images of the same format and size on the GPU,
-    /// and waits until the copy has finished: what keeps a frame a producer is about to reuse, and
-    /// what fills a consumer's buffer.
+    /// and waits until the copy has finished: what fills a consumer's buffer.
     /// </summary>
     /// <param name="engine">The GPU.</param>
     /// <param name="source">The picture.</param>
@@ -122,6 +123,11 @@ internal static unsafe class VulkanTransfer
 
             VulkanImage[] imported = [.. leases.Select(lease => lease.Image)];
             using VulkanEngine.Batch batch = engine.Begin();
+            if (!batch.WaitFor(in source))
+            {
+                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
+            }
+
             Recording.Acquire(engine, batch.Commands, imported);
             Recording.Acquire(engine, batch.Commands, destination);
             for (int plane = 0; plane < planes; plane++)
@@ -149,7 +155,7 @@ internal static unsafe class VulkanTransfer
             }
 
             Recording.Release(engine, batch.Commands, destination);
-            batch.Submit();
+            batch.SubmitAndWait();
         }
         finally
         {
@@ -180,6 +186,17 @@ internal static unsafe class VulkanTransfer
     {
         int planes = format == PixelFormat.Nv12 ? 2 : 1;
         byte[][] bytes = new byte[planes][];
+        using (VulkanEngine.Batch wait = engine.Begin())
+        {
+            if (!wait.WaitFor(in source))
+            {
+                throw new TimeoutException("The producer's GPU did not finish writing the frame.");
+            }
+
+            // An empty batch ordered after the producer: the downloads queue behind it.
+            _ = wait.Submit();
+        }
+
         for (int plane = 0; plane < planes; plane++)
         {
             (VkFormat vk, int w, int h, int texel) = (format, plane) switch
