@@ -13,13 +13,16 @@ namespace Agash.StreamTransport.MacOS.Syphon;
 /// Publishes frames as a Syphon server. It takes 8-bit BGRA frames: IOSurfaces on its GPU, which a
 /// processor makes from what a decoder produces, or frames in memory. It lends the server's surface for
 /// a processor to draw a frame straight into (<see cref="Render{TState}"/>); a frame handed to
-/// <see cref="OnFrame"/> is copied into it before the call returns.
+/// <see cref="OnFrame"/> is copied into it on the GPU. Either is published when its GPU work completes,
+/// without waiting for it.
 /// </summary>
 public sealed class SyphonVideoSink : IVideoSink, IDisposable
 {
     private readonly MetalEngine _engine;
     private readonly SyphonServer _server;
+    private readonly IMTLSharedEvent _rendered;
     private readonly Lock _gate = new();
+    private ulong _renderedValue;
     private bool _disposed;
 
     /// <summary>A Syphon server on a GPU.</summary>
@@ -36,6 +39,9 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
         ILoggerFactory loggers = loggerFactory ?? NullLoggerFactory.Instance;
         _engine = MetalEngine.For(device);
         _server = new SyphonServer(name, new SyphonServerOptions { LoggerFactory = loggers });
+        _rendered =
+            _engine.Device.CreateSharedEvent()
+            ?? throw new InvalidOperationException("The Metal device gave no shared event.");
         Constraints = new VideoConstraints(
             [VideoStorageKind.IOSurface, VideoStorageKind.Cpu],
             [PixelFormat.Bgra],
@@ -75,7 +81,7 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
             VideoRect visible = frame.Format.VisibleRect;
             if (frame.Storage.TryGetValue(out IOSurfaceImage image))
             {
-                Publish(image, visible);
+                Publish(in frame, image, visible);
             }
             else
             {
@@ -109,14 +115,22 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
-            // Syphon has no lock on its surface: the renderer finishes drawing before it returns, and
-            // the frame is published after.
+            // Syphon has no lock on its surface, so clients are told of the frame once the renderer's
+            // GPU work signals the sink's event; nothing waits for it.
             using SyphonServerFrame frame = _server.BeginFrame(
                 format.CodedSize.Width,
                 format.CodedSize.Height
             );
+            ulong value = _renderedValue + 1;
             VideoTarget target = new(
-                new VideoStorage(new IOSurfaceImage(frame.Surface.Handle, _engine.Identity)),
+                new VideoStorage(
+                    new IOSurfaceImage(
+                        frame.Surface.Handle,
+                        _engine.Identity,
+                        _rendered.Handle,
+                        value
+                    )
+                ),
                 format
             );
             if (!render(in target, in state))
@@ -124,7 +138,8 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
                 return VideoRenderResult.Unavailable;
             }
 
-            frame.Publish();
+            _renderedValue = value;
+            frame.Publish(_rendered, value);
             return VideoRenderResult.Rendered;
         }
     }
@@ -138,13 +153,15 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
             {
                 _disposed = true;
                 _server.Dispose();
+                _rendered.Dispose();
             }
         }
     }
 
-    // A GPU copy into the server's surface, finished before the frame goes back to its producer.
-    private void Publish(IOSurfaceImage image, VideoRect visible)
+    // A GPU copy into the server's surface, published when it completes; the frame is kept until then.
+    private void Publish(in VideoFrame frame, IOSurfaceImage image, VideoRect visible)
     {
+        VideoFrameLease kept = frame.Retain();
         using NSAutoreleasePool autoreleased = new();
         IOSurface.IOSurface surface = Runtime.GetINativeObject<IOSurface.IOSurface>(
             image.Surface,
@@ -167,6 +184,7 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
                 new MTLSize(visible.Width, visible.Height, 1)
             )
         );
-        MetalEngine.Complete(commands);
+        commands.AddCompletedHandler(_ => kept.Dispose());
+        commands.Commit();
     }
 }

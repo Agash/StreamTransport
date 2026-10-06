@@ -11,9 +11,11 @@ using Syphon.NET;
 namespace Agash.StreamTransport.MacOS.Syphon;
 
 /// <summary>
-/// Frames of a Syphon server as IOSurfaces, zero-copy while a consumer's call lasts; a consumer that
-/// keeps a frame gets a copy made on the GPU. Syphon carries no capture time, so frames are stamped with
-/// when they were observed. One client serves every connected consumer and runs while any is connected.
+/// Frames of a Syphon server as IOSurfaces. Syphon has no lock and the server renders every frame into
+/// one surface, so each new frame is copied once on the GPU into a surface of the source's and handed on
+/// when the copy completes: a whole frame, kept by holding it, with no thread waiting for the GPU.
+/// Syphon carries no capture time, so frames are stamped with when they were observed. One client serves
+/// every connected consumer and runs while any is connected.
 /// </summary>
 /// <remarks>
 /// Find servers with Syphon.NET's <see cref="SyphonServerDirectory"/>, which needs the main run loop: an
@@ -105,6 +107,13 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
     [LoggerMessage(2403, LogLevel.Warning, "A consumer failed to take a Syphon frame.")]
     private partial void LogConsumerFailed(Exception exception);
 
+    [LoggerMessage(
+        2404,
+        LogLevel.Error,
+        "Copying a frame of Syphon server {Server} failed on the GPU: {Failure}"
+    )]
+    private partial void LogCopyFailed(string server, string failure);
+
     private sealed class Connection(SyphonVideoSource source, IVideoFrameConsumer consumer)
         : IDisposable
     {
@@ -127,7 +136,9 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
         private readonly SyphonClient _client;
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _loop;
+        private readonly CommandCompletions _completions = new();
         private IOSurfacePool? _copies;
+        private PooledSurface? _delivering;
 
         public Receiving(SyphonVideoSource source)
         {
@@ -158,27 +169,32 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
             _stop.Dispose();
         }
 
-        // A kept frame is copied on the GPU into a surface of the source's: Syphon has no lock, and the
-        // server renders its next frame into the same surface.
+        // Called by a consumer inside OnFrame, on the delivering thread: the copy it was handed is held.
         public VideoFrameLease Retain(in VideoFrame frame)
         {
-            _ = frame.Storage.TryGetValue(out IOSurfaceImage image);
-            VideoSize size = new(frame.Format.CodedSize.Width, frame.Format.CodedSize.Height);
+            PooledSurface copy =
+                _delivering
+                ?? throw new InvalidOperationException("Frames are retained only while delivered.");
+            copy.Hold();
+            return new IOSurfaceFrameLease(in frame, copy);
+        }
+
+        // A new frame is copied on the GPU into a surface of the source's at once: Syphon has no lock,
+        // and the server renders its next frame into the same surface. The copy is handed on when it
+        // completes, so consumers get a whole frame they may keep and nothing waits for the GPU.
+        private void Copy(in SyphonFrame frame)
+        {
+            VideoSize size = new(frame.Width, frame.Height);
             if (_copies is not { } pool || !pool.Makes(PixelFormat.Bgra, size))
             {
                 _copies?.Dispose();
                 _copies = pool = new IOSurfacePool(PixelFormat.Bgra, size);
             }
 
-            using NSAutoreleasePool autoreleased = new();
             PooledSurface copy = pool.Rent();
             try
             {
-                IOSurface.IOSurface served = Runtime.GetINativeObject<IOSurface.IOSurface>(
-                    image.Surface,
-                    false
-                )!;
-                using IMTLTexture from = Bgra(served, size);
+                using IMTLTexture from = Bgra(frame.Surface, size);
                 using IMTLTexture to = Bgra(copy.Surface, size);
                 using IMTLCommandBuffer commands = _engine.Begin();
                 using IMTLBlitCommandEncoder blit =
@@ -198,23 +214,54 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
                     new MTLOrigin(0, 0, 0)
                 );
                 blit.EndEncoding();
-                MetalEngine.Complete(commands);
+                long observedAt = frame.ObservedAtNanoseconds;
+                _completions.Commit(commands, failure => HandOn(copy, size, observedAt, failure));
             }
             catch
             {
                 copy.Release();
                 throw;
             }
+        }
 
-            VideoFrame kept = new(
-                new VideoStorage(new IOSurfaceImage(copy.Handle, _engine.Identity)),
-                frame.Format,
-                frame.Timestamp,
-                color: frame.Color,
-                orientation: frame.Orientation,
-                duration: frame.Duration
-            );
-            return new IOSurfaceFrameLease(in kept, copy);
+        // Runs once a copy completed, in order: the copy goes to every consumer.
+        private void HandOn(PooledSurface copy, VideoSize size, long observedAt, string? failure)
+        {
+            try
+            {
+                if (failure is not null)
+                {
+                    _source.LogCopyFailed(_source._server.Name, failure);
+                    return;
+                }
+
+                using NSAutoreleasePool autoreleased = new();
+                VideoFrame video = new(
+                    new VideoStorage(new IOSurfaceImage(copy.Handle, _engine.Identity)),
+                    new VideoFormat(PixelFormat.Bgra, size.Width, size.Height),
+                    MediaTimestamp.Observed(new MediaTime(observedAt)),
+                    color: VideoColor.Srgb,
+                    retainer: this
+                );
+                _delivering = copy;
+                foreach (IVideoFrameConsumer consumer in _source._consumers)
+                {
+                    try
+                    {
+                        consumer.OnFrame(in video);
+                    }
+                    catch (Exception exception) when (exception is not OutOfMemoryException)
+                    {
+                        // One consumer's failure does not stop the others or the client.
+                        _source.LogConsumerFailed(exception);
+                    }
+                }
+            }
+            finally
+            {
+                _delivering = null;
+                copy.Release();
+            }
         }
 
         private IMTLTexture Bgra(IOSurface.IOSurface surface, VideoSize size) =>
@@ -252,30 +299,10 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
 
         private void Deliver(in SyphonFrame frame)
         {
-            if (!frame.IsNew)
+            if (frame.IsNew)
             {
-                return;
-            }
-
-            using NSAutoreleasePool autoreleased = new();
-            VideoFrame video = new(
-                new VideoStorage(new IOSurfaceImage(frame.Surface.Handle, _engine.Identity)),
-                new VideoFormat(PixelFormat.Bgra, frame.Width, frame.Height),
-                MediaTimestamp.Observed(new MediaTime(frame.ObservedAtNanoseconds)),
-                color: VideoColor.Srgb,
-                retainer: this
-            );
-            foreach (IVideoFrameConsumer consumer in _source._consumers)
-            {
-                try
-                {
-                    consumer.OnFrame(in video);
-                }
-                catch (Exception exception) when (exception is not OutOfMemoryException)
-                {
-                    // One consumer's failure does not stop the others or the client.
-                    _source.LogConsumerFailed(exception);
-                }
+                using NSAutoreleasePool autoreleased = new();
+                Copy(in frame);
             }
         }
     }

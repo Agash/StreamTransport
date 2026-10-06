@@ -4,6 +4,8 @@ using Agash.StreamTransport.Media;
 using Foundation;
 using IOSurface;
 using Metal;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ObjCRuntime;
 
 namespace Agash.StreamTransport.MacOS.Metal;
@@ -11,11 +13,16 @@ namespace Agash.StreamTransport.MacOS.Metal;
 /// <summary>
 /// Makes Metal compute processors on IOSurfaces: BGRA to NV12 at any size, packing alpha
 /// side by side when asked, and NV12 to BGRA, unpacking side-by-side alpha when asked. Frames stay on
-/// the GPU they arrive on, and leave finished: VideoToolbox and Syphon read IOSurfaces directly.
+/// the GPU they arrive on. A processor hands each result on when its GPU work completes, finished, so
+/// nothing waits for the GPU: VideoToolbox and Syphon read IOSurfaces directly.
 /// </summary>
-public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
+/// <param name="loggerFactory">Where processors log work the GPU failed.</param>
+public sealed class MetalVideoProcessorFactory(ILoggerFactory? loggerFactory = null)
+    : IVideoProcessorFactory
 {
     private const string Name = "Metal compute";
+
+    private readonly ILoggerFactory _loggers = loggerFactory ?? NullLoggerFactory.Instance;
 
     /// <inheritdoc/>
     public int Rank => 100;
@@ -144,7 +151,8 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
             info,
             processing,
             input.PixelFormat,
-            MetalEngine.For(input.Device ?? processing.Output.Device)
+            MetalEngine.For(input.Device ?? processing.Output.Device),
+            _loggers.CreateLogger<MetalVideoProcessor>()
         );
     }
 
@@ -166,15 +174,21 @@ public sealed class MetalVideoProcessorFactory : IVideoProcessorFactory
         );
 }
 
-/// <summary>One stream's conversions on the GPU of its frames.</summary>
-internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameRetainer
+/// <summary>
+/// One stream's conversions on the GPU of its frames. Each input is kept until the GPU has read it and
+/// each result is handed on from its command buffer's completion, in order.
+/// </summary>
+internal sealed unsafe partial class MetalVideoProcessor : IVideoProcessor, IVideoFrameRetainer
 {
     private readonly VideoProcessing _processing;
     private readonly MetalEngine _engine;
     private readonly IOSurfacePool _pool;
     private readonly IOSurfacePool _staging;
     private readonly VideoColor _outputColour;
+    private readonly ILogger _logger;
+    private readonly CommandCompletions _completions = new();
     private readonly Lock _gate = new();
+    private readonly Lock _delivery = new();
     private PooledSurface? _delivering;
     private bool _disposed;
 
@@ -182,9 +196,11 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         VideoProcessorInfo info,
         VideoProcessing processing,
         PixelFormat inputFormat,
-        MetalEngine engine
+        MetalEngine engine,
+        ILogger logger
     )
     {
+        _logger = logger;
         Info = info with { Output = info.Output with { Device = engine.Identity } };
         _processing = processing;
         _engine = engine;
@@ -201,37 +217,38 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
     public void Process(in VideoFrame frame, IVideoFrameConsumer consumer)
     {
         ArgumentNullException.ThrowIfNull(consumer);
-        PooledSurface? staged = null;
-        IOSurfaceImage image;
         if (frame.Storage.Kind == VideoStorageKind.Cpu)
         {
-            staged = Stage(in frame);
-            image = new IOSurfaceImage(staged.Handle, _engine.Identity);
+            PooledSurface staged = Stage(in frame);
+            if (frame.Format.PixelFormat == Info.Output.PixelFormat)
+            {
+                // An upload alone: the staged surface, written on the CPU, is the result.
+                Deliver(staged, in frame, frame.Color, consumer);
+                return;
+            }
+
+            Convert(
+                in frame,
+                new IOSurfaceImage(staged.Handle, _engine.Identity),
+                staged.Release,
+                consumer
+            );
+            return;
         }
-        else if (!frame.Storage.TryGetValue(out image))
+
+        if (!frame.Storage.TryGetValue(out IOSurfaceImage image))
         {
             throw new ArgumentException("The frame is not an IOSurface.", nameof(frame));
         }
 
-        if (staged is not null && frame.Format.PixelFormat == Info.Output.PixelFormat)
-        {
-            // An upload alone: the staged surface is the result.
-            Deliver(staged, in frame, frame.Color, consumer);
-            return;
-        }
-
-        try
-        {
-            ProcessSurface(in frame, image, consumer);
-        }
-        finally
-        {
-            staged?.Release();
-        }
+        // The GPU reads the frame after this returns, so it is kept until then.
+        VideoFrameLease input = frame.Retain();
+        Convert(in frame, image, input.Dispose, consumer);
     }
 
     // BGRA output is written by one compute pass, so it goes straight into a sink's surface (Syphon's)
-    // on this GPU; the drawing completes before this returns, as an IOSurface target names no event.
+    // on this GPU. A target that names an event is published when the work signals it; one that names
+    // none is published as soon as this returns, so the work finishes first.
     public bool TryProcess(in VideoFrame frame, in VideoTarget target)
     {
         VideoStreamDescription output = Info.Output;
@@ -247,30 +264,55 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
             return false;
         }
 
-        lock (_gate)
+        VideoFrameLease input = frame.Retain();
+        try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            using NSAutoreleasePool autoreleased = new();
-            IOSurface.IOSurface input = Runtime.GetINativeObject<IOSurface.IOSurface>(
-                image.Surface,
-                false
-            )!;
-            IOSurface.IOSurface surface = Runtime.GetINativeObject<IOSurface.IOSurface>(
-                into.Surface,
-                false
-            )!;
-            using IMTLCommandBuffer commands = _engine.Begin(image.SharedEvent, image.SignalValue);
-            if (into.SharedEvent != 0)
+            lock (_gate)
             {
-                commands.EncodeWait(
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                using NSAutoreleasePool autoreleased = new();
+                IOSurface.IOSurface source = Runtime.GetINativeObject<IOSurface.IOSurface>(
+                    image.Surface,
+                    false
+                )!;
+                IOSurface.IOSurface surface = Runtime.GetINativeObject<IOSurface.IOSurface>(
+                    into.Surface,
+                    false
+                )!;
+                using IMTLCommandBuffer commands = _engine.Begin(
+                    image.SharedEvent,
+                    image.SignalValue
+                );
+                ToRgb(commands, source, frame.Color, surface);
+                if (into.SharedEvent == 0)
+                {
+                    MetalEngine.Complete(commands);
+                    input.Dispose();
+                    return true;
+                }
+
+                commands.EncodeSignal(
                     Runtime.GetINativeObject<IMTLSharedEvent>(into.SharedEvent, false)!,
                     into.SignalValue
                 );
+                _completions.Commit(
+                    commands,
+                    failure =>
+                    {
+                        input.Dispose();
+                        if (failure is not null)
+                        {
+                            LogGpuFailed(failure);
+                        }
+                    }
+                );
+                return true;
             }
-
-            ToRgb(commands, input, frame.Color, surface);
-            MetalEngine.Complete(commands);
-            return true;
+        }
+        catch
+        {
+            input.Dispose();
+            throw;
         }
     }
 
@@ -339,7 +381,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
             duration: frame.Duration,
             retainer: this
         );
-        lock (_gate)
+        lock (_delivery)
         {
             _delivering = surface;
             try
@@ -354,91 +396,151 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         }
     }
 
-    private void ProcessSurface(
+    // Converts on the GPU into a pooled surface and hands the result on once the work completes;
+    // release lets go of the input then.
+    private void Convert(
         in VideoFrame frame,
         IOSurfaceImage image,
+        Action release,
         IVideoFrameConsumer consumer
     )
     {
-        lock (_gate)
+        PooledSurface output;
+        try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            // Metal hands back autoreleased objects; frames arrive on threads AppKit does not drain.
-            using NSAutoreleasePool autoreleased = new();
-            PooledSurface output = _pool.Rent();
-            try
+            lock (_gate)
             {
-                IOSurface.IOSurface input = Runtime.GetINativeObject<IOSurface.IOSurface>(
-                    image.Surface,
-                    false
-                )!;
-                using IMTLCommandBuffer commands = _engine.Begin(
-                    image.SharedEvent,
-                    image.SignalValue
-                );
-                if (Info.Output.PixelFormat == PixelFormat.Nv12)
-                {
-                    ToYuv(commands, input, output);
-                }
-                else
-                {
-                    ToRgb(commands, input, frame.Color, output.Surface);
-                }
+                ObjectDisposedException.ThrowIf(_disposed, this);
 
-                // The GPU is done with the input before this returns, so the producer may reuse it.
-                MetalEngine.Complete(commands);
-            }
-            catch
-            {
-                output.Release();
-                throw;
-            }
-
-            VideoStreamDescription described = Info.Output;
-            if (described.Storage == VideoStorageKind.Cpu)
-            {
+                // Metal hands back autoreleased objects; frames arrive on threads AppKit does not drain.
+                using NSAutoreleasePool autoreleased = new();
+                output = _pool.Rent();
                 try
                 {
-                    ReadBack(output, in frame, consumer);
+                    IOSurface.IOSurface input = Runtime.GetINativeObject<IOSurface.IOSurface>(
+                        image.Surface,
+                        false
+                    )!;
+                    using IMTLCommandBuffer commands = _engine.Begin(
+                        image.SharedEvent,
+                        image.SignalValue
+                    );
+                    if (Info.Output.PixelFormat == PixelFormat.Nv12)
+                    {
+                        ToYuv(commands, input, output);
+                    }
+                    else
+                    {
+                        ToRgb(commands, input, frame.Color, output.Surface);
+                    }
+
+                    Finished described = new(
+                        frame.Timestamp,
+                        frame.Orientation,
+                        frame.Duration,
+                        frame.Color
+                    );
+                    _completions.Commit(
+                        commands,
+                        failure =>
+                        {
+                            release();
+                            HandOn(output, described, failure, consumer);
+                        }
+                    );
                 }
-                finally
+                catch
                 {
                     output.Release();
+                    throw;
                 }
-
-                return;
             }
-
-            VideoFrame result = new(
-                new VideoStorage(new IOSurfaceImage(output.Handle, _engine.Identity)),
-                new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
-                frame.Timestamp,
-                color: _outputColour,
-                orientation: frame.Orientation,
-                duration: frame.Duration,
-                retainer: this
-            );
-            _delivering = output;
-            try
-            {
-                consumer.OnFrame(in result);
-            }
-            finally
-            {
-                _delivering = null;
-                output.Release();
-            }
+        }
+        catch
+        {
+            release();
+            throw;
         }
     }
 
-    // The finished surface read in place under a read-only lock and handed on from memory; a consumer
-    // that keeps it copies it.
-    private unsafe void ReadBack(
+    // Runs once the conversion completed, in submission order: the finished surface goes to the
+    // consumer, read back first for one in memory.
+    private void HandOn(
         PooledSurface output,
-        in VideoFrame frame,
+        Finished frame,
+        string? failure,
         IVideoFrameConsumer consumer
     )
+    {
+        if (failure is not null)
+        {
+            LogGpuFailed(failure);
+            output.Release();
+            return;
+        }
+
+        try
+        {
+            lock (_delivery)
+            {
+                if (Volatile.Read(ref _disposed))
+                {
+                    return;
+                }
+
+                VideoStreamDescription described = Info.Output;
+                if (described.Storage == VideoStorageKind.Cpu)
+                {
+                    ReadBack(output, frame, consumer);
+                    return;
+                }
+
+                VideoFrame result = new(
+                    new VideoStorage(new IOSurfaceImage(output.Handle, _engine.Identity)),
+                    new VideoFormat(
+                        described.PixelFormat,
+                        described.Size.Width,
+                        described.Size.Height
+                    ),
+                    frame.Timestamp,
+                    color: _outputColour,
+                    orientation: frame.Orientation,
+                    duration: frame.Duration,
+                    retainer: this
+                );
+                _delivering = output;
+                try
+                {
+                    consumer.OnFrame(in result);
+                }
+                finally
+                {
+                    _delivering = null;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // On Metal's completion thread nothing above can catch it: the frame is dropped.
+            LogConsumerFailed(exception);
+        }
+        finally
+        {
+            output.Release();
+        }
+    }
+
+    // What a result carries over from its input once the input is gone.
+    private readonly record struct Finished(
+        MediaTimestamp Timestamp,
+        VideoOrientation Orientation,
+        TimeSpan Duration,
+        VideoColor Color
+    );
+
+    // The finished surface read in place under a read-only lock and handed on from memory; a consumer
+    // that keeps it copies it.
+    private unsafe void ReadBack(PooledSurface output, Finished frame, IVideoFrameConsumer consumer)
     {
         VideoStreamDescription described = Info.Output;
         IOSurface.IOSurface surface = output.Surface;
@@ -472,7 +574,7 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         }
     }
 
-    // Called by a consumer inside OnFrame, on the processing thread that holds the lock.
+    // Called by a consumer inside OnFrame, on the delivering thread, which holds the delivery lock.
     public VideoFrameLease Retain(in VideoFrame frame)
     {
         PooledSurface surface =
@@ -482,18 +584,30 @@ internal sealed unsafe class MetalVideoProcessor : IVideoProcessor, IVideoFrameR
         return new IOSurfaceFrameLease(in frame, surface);
     }
 
+    // Work in flight completes on its own: its surfaces outlive the pools they came from, and its
+    // results are dropped.
     public void Dispose()
     {
         lock (_gate)
         {
             if (!_disposed)
             {
-                _disposed = true;
+                Volatile.Write(ref _disposed, true);
                 _pool.Dispose();
                 _staging.Dispose();
             }
         }
     }
+
+    [LoggerMessage(2440, LogLevel.Error, "A Metal conversion failed on the GPU: {Failure}")]
+    private partial void LogGpuFailed(string failure);
+
+    [LoggerMessage(
+        2441,
+        LogLevel.Error,
+        "The consumer of a converted frame failed; the frame is dropped."
+    )]
+    private partial void LogConsumerFailed(Exception exception);
 
     // BGRA to NV12, packing alpha to the right when the output is twice the colour width.
     private void ToYuv(IMTLCommandBuffer commands, IOSurface.IOSurface input, PooledSurface output)

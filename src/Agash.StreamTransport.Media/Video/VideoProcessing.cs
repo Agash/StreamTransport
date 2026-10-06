@@ -158,8 +158,10 @@ public enum VideoRenderResult
 /// </summary>
 /// <param name="Storage">
 /// The surface. Its synchronisation says how drawing is ordered before the sink publishes: a Direct3D 12
-/// target names the queue (<see cref="D3D12Sync.ReleaseQueue"/>) to make wait for the drawing; a target
-/// that names nothing is published as soon as the renderer returns, so the drawing has finished by then.
+/// target names the queue (<see cref="D3D12Sync.ReleaseQueue"/>) to make wait for the drawing; an
+/// IOSurface target names a Metal shared event (<see cref="IOSurfaceImage.SharedEvent"/>) for the drawing
+/// to signal to <see cref="IOSurfaceImage.SignalValue"/> when it completes; a target that names nothing
+/// is published as soon as the renderer returns, so the drawing has finished by then.
 /// </param>
 /// <param name="Format">The frame the surface holds.</param>
 public readonly record struct VideoTarget(VideoStorage Storage, VideoFormat Format);

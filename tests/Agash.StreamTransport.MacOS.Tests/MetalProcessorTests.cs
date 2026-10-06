@@ -130,7 +130,7 @@ public sealed class MetalProcessorTests
         );
         Keeper keeper = new();
         unpack.Process(packed.Frame, keeper);
-        using VideoFrameLease unpacked = keeper.Kept!;
+        using VideoFrameLease unpacked = keeper.Take();
 
         Assert.AreEqual(new VideoSize(Width, Height), unpack.Info.Output.Size);
         byte[] back = Download(unpacked, PixelFormat.Bgra, Width)[0];
@@ -238,13 +238,16 @@ public sealed class MetalProcessorTests
         );
         Keeper keeper = new();
         Process(processor, first, keeper);
-        using VideoFrameLease kept = keeper.Kept!;
+        using VideoFrameLease kept = keeper.Take();
         byte[][] before = Download(kept, PixelFormat.Nv12, Width);
 
+        Discarder discarder = new();
         for (int i = 0; i < 4; i++)
         {
-            Process(processor, second, new Discarder());
+            Process(processor, second, discarder);
         }
+
+        discarder.WaitFor(4);
 
         CollectionAssert.AreEqual(before[0], Download(kept, PixelFormat.Nv12, Width)[0]);
     }
@@ -390,7 +393,7 @@ public sealed class MetalProcessorTests
         info = processor.Info;
         Keeper keeper = new();
         processor.Process(in input, keeper);
-        return keeper.Kept!;
+        return keeper.Take();
     }
 
     private static void Process(
@@ -443,15 +446,32 @@ public sealed class MetalProcessorTests
     private static float Apply(Vector4 row, Vector3 rgb) =>
         Vector3.Dot(new Vector3(row.X, row.Y, row.Z), rgb) + row.W;
 
+    // Keeps the frame it is handed; the processor hands it on when the GPU work completes.
     private sealed class Keeper : IVideoFrameConsumer
     {
-        public VideoFrameLease? Kept { get; private set; }
+        private readonly TaskCompletionSource<VideoFrameLease> _kept = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
 
-        public void OnFrame(in VideoFrame frame) => Kept = frame.Retain();
+        public void OnFrame(in VideoFrame frame) => _kept.SetResult(frame.Retain());
+
+        public VideoFrameLease Take() =>
+            _kept.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
     }
 
+    // Counts the frames it is handed.
     private sealed class Discarder : IVideoFrameConsumer
     {
-        public void OnFrame(in VideoFrame frame) { }
+        private readonly SemaphoreSlim _handed = new(0);
+
+        public void OnFrame(in VideoFrame frame) => _handed.Release();
+
+        public void WaitFor(int frames)
+        {
+            for (int i = 0; i < frames; i++)
+            {
+                Assert.IsTrue(_handed.Wait(TimeSpan.FromSeconds(10)), "a frame was never handed on");
+            }
+        }
     }
 }
