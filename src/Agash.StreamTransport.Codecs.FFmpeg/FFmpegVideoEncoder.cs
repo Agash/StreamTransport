@@ -121,14 +121,33 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 pts = _lastPts + 1;
             }
 
+            // A GPU frame is read after this call returns, so the encoder reads the frame it keeps: the
+            // producer's own buffer where the producer can lend it, a copy only where the producer must
+            // overwrite it in place.
             session.Frame.Reset();
-            session.Input.Prepare(in frame, pts, session.Frame);
+            if (frame.Storage.Kind == VideoStorageKind.Cpu)
+            {
+                session.Input.Prepare(in frame, pts, session.Frame);
+            }
+            else
+            {
+                VideoFrameLease kept = frame.Retain();
+                try
+                {
+                    VideoFrame read = kept.Frame;
+                    session.Input.Prepare(in read, pts, session.Frame);
+                }
+                catch
+                {
+                    kept.Dispose();
+                    throw;
+                }
+
+                _reading.Enqueue((pts, kept));
+            }
+
             _lastPts = pts;
             _timestamps.Add(pts, frame.Timestamp);
-            if (frame.Storage.Kind != VideoStorageKind.Cpu)
-            {
-                _reading.Enqueue((pts, frame.Retain()));
-            }
             session.Frame.PresentationTimestamp = pts;
             session.Frame.TimeBase = TimeBase;
             session.Frame.PictureType =
