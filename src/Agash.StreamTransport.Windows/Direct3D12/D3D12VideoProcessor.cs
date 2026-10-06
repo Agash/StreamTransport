@@ -207,7 +207,7 @@ internal sealed unsafe class D3D12VideoProcessor(
                 (done, colour) =
                     Info.Output.PixelFormat == PixelFormat.Nv12
                         ? ToYuv(engine, image, in kept, output)
-                        : ToRgb(engine, image, in kept, output);
+                        : ToRgb(engine, image, in kept, output.Texture);
                 if (releaseQueue != 0)
                 {
                     engine.Release(releaseQueue, done);
@@ -266,6 +266,76 @@ internal sealed unsafe class D3D12VideoProcessor(
                 _delivering = null;
                 output.Release();
             }
+        }
+    }
+
+    // RGB output is written by one compute pass, so it goes straight into a sink's texture (Spout's
+    // shared texture) on this device; NV12 output is assembled from planes in surfaces of its own.
+    public bool TryProcess(in VideoFrame frame, in VideoTarget target)
+    {
+        VideoStreamDescription output = Info.Output;
+        if (
+            output.PixelFormat == PixelFormat.Nv12
+            || frame.Storage.Kind != VideoStorageKind.D3D12
+            || !target.Storage.TryGetValue(out D3D12Image into)
+            || into.Subresource != 0
+            || target.Format.PixelFormat != output.PixelFormat
+            || target.Format.CodedSize != output.Size
+        )
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _ = frame.Storage.TryGetValue(out D3D12Image lent);
+            D3D12Engine engine = Engine(lent.Resource);
+            if (!engine.Owns(into.Resource))
+            {
+                return false;
+            }
+
+            // The input is read in place or kept, as Process does.
+            nint releaseQueue = lent.Sync.ReleaseQueue;
+            VideoFrameLease? input = releaseQueue == 0 ? frame.Retain() : null;
+            ulong done;
+            try
+            {
+                VideoFrame kept = input is null ? frame : input.Frame;
+                _ = kept.Storage.TryGetValue(out D3D12Image image);
+                ReleaseFinishedInputs(engine);
+                engine.WaitForProducer(image.Sync);
+                engine.WaitForProducer(into.Sync);
+                (done, _) = ToRgb(engine, image, in kept, into.Resource);
+                if (releaseQueue != 0)
+                {
+                    engine.Release(releaseQueue, done);
+                }
+            }
+            catch
+            {
+                input?.Dispose();
+                throw;
+            }
+
+            if (input is not null)
+            {
+                _reading.Enqueue((input, done));
+            }
+
+            // The sink publishes after its queue has waited for the drawing; a target that names no queue
+            // is published as soon as this returns, so the drawing finishes first.
+            if (into.Sync.ReleaseQueue != 0)
+            {
+                engine.Release(into.Sync.ReleaseQueue, done);
+            }
+            else
+            {
+                engine.WaitFor(done);
+            }
+
+            return true;
         }
     }
 
@@ -622,7 +692,7 @@ internal sealed unsafe class D3D12VideoProcessor(
         D3D12Engine engine,
         D3D12Image image,
         in VideoFrame frame,
-        PooledTexture output
+        nint output
     )
     {
         VideoColor source =
@@ -651,19 +721,19 @@ internal sealed unsafe class D3D12VideoProcessor(
         (nint planes, uint slice) = Readable(engine, list, image);
         engine.ShaderResource(0, planes, DXGI_FORMAT.DXGI_FORMAT_R8_UNORM, slice, 0);
         engine.ShaderResource(1, planes, DXGI_FORMAT.DXGI_FORMAT_R8G8_UNORM, slice, 1);
-        engine.UnorderedAccess(0, output.Texture, Format(Info.Output.PixelFormat));
+        engine.UnorderedAccess(0, output, Format(Info.Output.PixelFormat));
         engine.UnorderedAccess(1, 0, DXGI_FORMAT.DXGI_FORMAT_R8_UNORM);
         list->SetComputeRoot32BitConstants(0, (uint)(sizeof(YuvToRgbConstants) / 4), &constants, 0);
         D3D12Engine.Transition(
             list,
-            output.Texture,
+            output,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS
         );
         list->Dispatch(Groups(size.Width), Groups(size.Height), 1);
         D3D12Engine.Transition(
             list,
-            output.Texture,
+            output,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON
         );

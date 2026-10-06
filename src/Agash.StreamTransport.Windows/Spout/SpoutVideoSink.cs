@@ -7,9 +7,10 @@ using Spout2.NET;
 namespace Agash.StreamTransport.Windows.Spout;
 
 /// <summary>
-/// Publishes frames as a Spout sender. It takes 8-bit BGRA or RGBA Direct3D 12 textures on its GPU; a
-/// processor makes those from what a decoder produces. Each frame is copied on the GPU into Spout's
-/// shared texture before the call returns.
+/// Publishes frames as a Spout sender. It takes 8-bit BGRA or RGBA Direct3D 12 textures on its GPU, and
+/// lends Spout's shared texture for a processor to draw a frame straight into
+/// (<see cref="TryRender{TState}"/>); a frame handed to <see cref="OnFrame"/> is copied into it on the GPU
+/// before the call returns.
 /// </summary>
 public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
 {
@@ -44,7 +45,7 @@ public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
         }
 
         _device = SpoutDevice.FromD3D12Device(_engine.Device, _engine.Queue, loggers);
-        _sender = new SpoutSender(name, _device);
+        _sender = new SpoutSender(name, _device, new SpoutSenderOptions { ShaderWritable = true });
         Constraints = new VideoConstraints(
             [VideoStorageKind.D3D12],
             [PixelFormat.Bgra, PixelFormat.Rgba],
@@ -78,6 +79,68 @@ public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
             if (!_sender.Send(new D3D12Texture(image.Resource)))
             {
                 LogDropped(_sender.Name);
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public bool TryRender<TState>(
+        VideoFormat format,
+        scoped in TState state,
+        VideoTargetRenderer<TState> render
+    )
+        where TState : allows ref struct
+    {
+        ArgumentNullException.ThrowIfNull(render);
+        SpoutFormat shared = format.PixelFormat switch
+        {
+            PixelFormat.Bgra => SpoutFormat.Bgra8Unorm,
+            PixelFormat.Rgba => SpoutFormat.Rgba8Unorm,
+            _ => SpoutFormat.Unknown,
+        };
+        if (shared == SpoutFormat.Unknown)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (
+                !_sender.TryBeginFrame(
+                    format.CodedSize.Width,
+                    format.CodedSize.Height,
+                    shared,
+                    out SpoutSenderFrame frame
+                )
+            )
+            {
+                LogDropped(_sender.Name);
+                return false;
+            }
+
+            using (frame)
+            {
+                // Spout's queue finishes before the texture is published, so drawing on another queue
+                // makes it wait.
+                VideoTarget target = new(
+                    new VideoStorage(
+                        new D3D12Image(
+                            frame.D3D12Texture.Resource,
+                            0,
+                            _engine.Adapter,
+                            new D3D12Sync(ReleaseQueue: _engine.Queue)
+                        )
+                    ),
+                    format
+                );
+                if (!render(in target, in state))
+                {
+                    return false;
+                }
+
+                frame.Publish();
+                return true;
             }
         }
     }

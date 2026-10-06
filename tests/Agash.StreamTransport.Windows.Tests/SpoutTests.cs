@@ -118,6 +118,66 @@ public sealed class SpoutTests
         }
     }
 
+    // The sink lends Spout's shared texture and the processor draws the frame straight into it: what a
+    // receiver gets was never copied into the sink.
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task ProcessorToSink_DrawsIntoTheSharedTexture()
+    {
+        using var gpu = TestGpu.Open();
+        string name = $"StreamTransport test {Guid.NewGuid():N}";
+        byte[] luma = [.. Enumerable.Repeat((byte)128, Width * Height)];
+        byte[] chroma = [.. Enumerable.Repeat((byte)128, Width * Height / 2)];
+        nint texture = gpu.Upload(DXGI_FORMAT.DXGI_FORMAT_NV12, Width, Height, luma, chroma);
+        using SpoutVideoSink sink = new(name, gpu.Adapter);
+        using IVideoProcessor processor = new Direct3D12.D3D12VideoProcessorFactory().Create(
+            new VideoStreamDescription(
+                VideoStorageKind.D3D12,
+                PixelFormat.Nv12,
+                new(Width, Height),
+                gpu.Adapter
+            ),
+            new VideoProcessing(sink.Constraints)
+        );
+        VideoStreamDescription drawn = processor.Info.Output;
+        using SpoutVideoSource source = new(
+            new SpoutVideoSourceOptions { SenderName = name, Adapter = gpu.Adapter }
+        );
+        Keeper keeper = new();
+        using IDisposable connection = source.Connect(keeper, sink.Constraints);
+
+        using (PeriodicTimer frames = new(TimeSpan.FromMilliseconds(10)))
+        using (CancellationTokenSource expiry = new(TimeSpan.FromSeconds(10)))
+        {
+            do
+            {
+                VideoFrame frame = new(
+                    new VideoStorage(new D3D12Image(texture, 0, gpu.Adapter)),
+                    new VideoFormat(PixelFormat.Nv12, Width, Height),
+                    MediaTimestamp.Captured(new MediaTime(1)),
+                    color: VideoColor.Bt709,
+                    retainer: Owned.Retainer
+                );
+                Assert.IsTrue(
+                    sink.TryRender(
+                        new VideoFormat(drawn.PixelFormat, Width, Height),
+                        new Drawing(processor, frame),
+                        static (in VideoTarget target, scoped in Drawing drawing) =>
+                            drawing.Processor.TryProcess(in drawing.Frame, in target)
+                    ),
+                    "the processor did not draw into the sink's texture"
+                );
+            } while (!keeper.Kept.IsCompleted && await frames.WaitForNextTickAsync(expiry.Token));
+        }
+
+        using VideoFrameLease kept = await keeper.Kept.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(kept.Frame.Storage.TryGetValue(out D3D12Image image));
+        CollectionAssert.AreEqual(
+            new byte[] { 130, 130, 130, 255 },
+            gpu.Download(image, 1)[0][..4]
+        );
+    }
+
     [TestMethod]
     public void Sink_RefusesFramesOffItsGpu()
     {
@@ -146,6 +206,35 @@ public sealed class SpoutTests
                 MediaTimestamp.Captured(new MediaTime(1))
             )
         );
+
+    // Keeps a frame whose texture the test owns for the whole test: nothing to hold or release.
+    private sealed class Owned(in VideoFrame frame)
+        : VideoFrameLease(
+            frame.Storage,
+            frame.Format,
+            frame.Timestamp,
+            frame.Color,
+            frame.Orientation,
+            frame.Duration
+        )
+    {
+        public static IVideoFrameRetainer Retainer { get; } = new Keeping();
+
+        protected override void Release() { }
+
+        private sealed class Keeping : IVideoFrameRetainer
+        {
+            public VideoFrameLease Retain(in VideoFrame frame) => new Owned(in frame);
+        }
+    }
+
+    // A frame and the processor that draws it into the sink's surface.
+    private readonly ref struct Drawing(IVideoProcessor processor, VideoFrame frame)
+    {
+        public readonly IVideoProcessor Processor = processor;
+
+        public readonly VideoFrame Frame = frame;
+    }
 
     // Hands each frame to a processor, noting whether the source lent it for reads in place.
     private sealed class Converter(IVideoProcessor processor, IVideoFrameConsumer next)

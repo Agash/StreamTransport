@@ -135,6 +135,16 @@ internal sealed unsafe class D3D12Engine : IDisposable
         return (nint)device;
     }
 
+    /// <summary>Whether a resource was made on this engine's device.</summary>
+    /// <param name="resource">The ID3D12Resource.</param>
+    /// <returns>Whether it was.</returns>
+    public bool Owns(nint resource)
+    {
+        nint device = DeviceOf(resource);
+        Release(device);
+        return device == (nint)_device;
+    }
+
     /// <summary>Releases a COM reference.</summary>
     /// <param name="unknown">The object.</param>
     public static void Release(nint unknown)
