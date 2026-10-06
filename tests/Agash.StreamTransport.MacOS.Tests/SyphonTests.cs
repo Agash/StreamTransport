@@ -106,8 +106,9 @@ public sealed class SyphonTests
             using CancellationTokenSource expiry = new(TimeSpan.FromSeconds(10));
             do
             {
-                Assert.IsTrue(
-                    sink.TryRender(
+                Assert.AreEqual(
+                    VideoRenderResult.Rendered,
+                    sink.Render(
                         new VideoFormat(PixelFormat.Bgra, Width, Height),
                         new Drawing(
                             processor,

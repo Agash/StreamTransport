@@ -12,7 +12,7 @@ namespace Agash.StreamTransport.MacOS.Syphon;
 /// <summary>
 /// Publishes frames as a Syphon server. It takes 8-bit BGRA frames: IOSurfaces on its GPU, which a
 /// processor makes from what a decoder produces, or frames in memory. It lends the server's surface for
-/// a processor to draw a frame straight into (<see cref="TryRender{TState}"/>); a frame handed to
+/// a processor to draw a frame straight into (<see cref="Render{TState}"/>); a frame handed to
 /// <see cref="OnFrame"/> is copied into it before the call returns.
 /// </summary>
 public sealed class SyphonVideoSink : IVideoSink, IDisposable
@@ -92,7 +92,7 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
     }
 
     /// <inheritdoc/>
-    public bool TryRender<TState>(
+    public VideoRenderResult Render<TState>(
         VideoFormat format,
         scoped in TState state,
         VideoTargetRenderer<TState> render
@@ -102,7 +102,7 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
         ArgumentNullException.ThrowIfNull(render);
         if (format.PixelFormat != PixelFormat.Bgra)
         {
-            return false;
+            return VideoRenderResult.Unavailable;
         }
 
         lock (_gate)
@@ -121,11 +121,11 @@ public sealed class SyphonVideoSink : IVideoSink, IDisposable
             );
             if (!render(in target, in state))
             {
-                return false;
+                return VideoRenderResult.Unavailable;
             }
 
             frame.Publish();
-            return true;
+            return VideoRenderResult.Rendered;
         }
     }
 

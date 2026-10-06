@@ -429,7 +429,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
 
     // Shows frames as playout releases them: as they are when the sink takes them, otherwise converted,
     // drawn straight into the surface the sink lends when it lends one, else through the processor's own
-    // surfaces. Playout releases from its scheduler or, for a frame without a capture time, from the
+    // surfaces. A frame the sink skips, its surfaces all in use, is not converted. Playout releases from its scheduler or, for a frame without a capture time, from the
     // decode worker, so showing is serialised.
     private sealed class Presenter(VideoReceiveStream stream) : IVideoFrameConsumer, IDisposable
     {
@@ -470,14 +470,13 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
 
                 VideoStreamDescription output = processor.Info.Output;
                 VideoFormat drawn = new(output.PixelFormat, output.Size.Width, output.Size.Height);
-                if (
-                    !stream._sink.TryRender(
-                        drawn,
-                        new Drawing(processor, frame),
-                        static (in VideoTarget target, scoped in Drawing drawing) =>
-                            drawing.Processor.TryProcess(in drawing.Frame, in target)
-                    )
-                )
+                VideoRenderResult result = stream._sink.Render(
+                    drawn,
+                    new Drawing(processor, frame),
+                    static (in VideoTarget target, scoped in Drawing drawing) =>
+                        drawing.Processor.TryProcess(in drawing.Frame, in target)
+                );
+                if (result == VideoRenderResult.Unavailable)
                 {
                     processor.Process(in frame, stream._sink);
                 }

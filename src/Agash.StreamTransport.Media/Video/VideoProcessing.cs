@@ -115,21 +115,41 @@ public interface IVideoSink : IVideoFrameConsumer
     /// <summary>
     /// Lends the surface the sink publishes its next frame from, for the length of the call: the renderer
     /// draws the frame into it, and the sink publishes it when the renderer returns true, so the picture
-    /// is never copied into the sink. A sink with no surface of its own returns false at once, as by
-    /// default; so does one whose surface is busy. The caller then hands the frame to
-    /// <see cref="IVideoFrameConsumer.OnFrame"/>.
+    /// is never copied into the sink.
     /// </summary>
     /// <typeparam name="TState">What the renderer needs, a borrowed frame included.</typeparam>
     /// <param name="format">The frame to be drawn, in a format and size the sink accepts.</param>
     /// <param name="state">Passed to the renderer.</param>
     /// <param name="render">Draws the frame into the target and returns whether it did.</param>
-    /// <returns>Whether the sink lent its surface and the frame was drawn and published.</returns>
-    bool TryRender<TState>(
+    /// <returns>
+    /// Whether the frame was drawn and published, skipped, or left to
+    /// <see cref="IVideoFrameConsumer.OnFrame"/>. By default a sink has no surface to lend.
+    /// </returns>
+    VideoRenderResult Render<TState>(
         VideoFormat format,
         scoped in TState state,
         VideoTargetRenderer<TState> render
     )
-        where TState : allows ref struct => false;
+        where TState : allows ref struct => VideoRenderResult.Unavailable;
+}
+
+/// <summary>What became of a frame offered to a sink to draw into (<see cref="IVideoSink.Render"/>).</summary>
+public enum VideoRenderResult
+{
+    /// <summary>
+    /// The sink lent no surface for it, having none of its own or none for this format yet, or the
+    /// renderer could not draw into the one lent: hand the frame to <see cref="IVideoFrameConsumer.OnFrame"/>.
+    /// </summary>
+    Unavailable,
+
+    /// <summary>Drawn into the sink's surface and published.</summary>
+    Rendered,
+
+    /// <summary>
+    /// Skipped: the sink's surfaces are all in use and a newer frame takes the next one, so the frame is
+    /// not converted at all.
+    /// </summary>
+    Skipped,
 }
 
 /// <summary>
@@ -144,7 +164,7 @@ public interface IVideoSink : IVideoFrameConsumer
 /// <param name="Format">The frame the surface holds.</param>
 public readonly record struct VideoTarget(VideoStorage Storage, VideoFormat Format);
 
-/// <summary>Draws a frame into a surface a sink lent (<see cref="IVideoSink.TryRender"/>).</summary>
+/// <summary>Draws a frame into a surface a sink lent (<see cref="IVideoSink.Render"/>).</summary>
 /// <typeparam name="TState">What it needs, a borrowed frame included.</typeparam>
 /// <param name="target">The lent surface.</param>
 /// <param name="state">What the caller passed.</param>

@@ -9,7 +9,7 @@ namespace Agash.StreamTransport.Windows.Spout;
 /// <summary>
 /// Publishes frames as a Spout sender. It takes 8-bit BGRA or RGBA Direct3D 12 textures on its GPU, and
 /// lends Spout's shared texture for a processor to draw a frame straight into
-/// (<see cref="TryRender{TState}"/>); a frame handed to <see cref="OnFrame"/> is copied into it on the GPU
+/// (<see cref="Render{TState}"/>); a frame handed to <see cref="OnFrame"/> is copied into it on the GPU
 /// before the call returns.
 /// </summary>
 public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
@@ -84,7 +84,7 @@ public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
     }
 
     /// <inheritdoc/>
-    public bool TryRender<TState>(
+    public VideoRenderResult Render<TState>(
         VideoFormat format,
         scoped in TState state,
         VideoTargetRenderer<TState> render
@@ -100,7 +100,7 @@ public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
         };
         if (shared == SpoutFormat.Unknown)
         {
-            return false;
+            return VideoRenderResult.Unavailable;
         }
 
         lock (_gate)
@@ -116,7 +116,7 @@ public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
             )
             {
                 LogDropped(_sender.Name);
-                return false;
+                return VideoRenderResult.Skipped;
             }
 
             using (frame)
@@ -136,11 +136,11 @@ public sealed partial class SpoutVideoSink : IVideoSink, IDisposable
                 );
                 if (!render(in target, in state))
                 {
-                    return false;
+                    return VideoRenderResult.Unavailable;
                 }
 
                 frame.Publish();
-                return true;
+                return VideoRenderResult.Rendered;
             }
         }
     }

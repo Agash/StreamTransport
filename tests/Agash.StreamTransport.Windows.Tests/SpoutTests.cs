@@ -158,8 +158,9 @@ public sealed class SpoutTests
                     color: VideoColor.Bt709,
                     retainer: Owned.Retainer
                 );
-                Assert.IsTrue(
-                    sink.TryRender(
+                Assert.AreEqual(
+                    VideoRenderResult.Rendered,
+                    sink.Render(
                         new VideoFormat(drawn.PixelFormat, Width, Height),
                         new Drawing(processor, frame),
                         static (in VideoTarget target, scoped in Drawing drawing) =>
