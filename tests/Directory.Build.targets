@@ -7,5 +7,7 @@
     <IsTestProject>false</IsTestProject>
     <EnableMSTestRunner>false</EnableMSTestRunner>
     <OutputType>Library</OutputType>
+    <!-- Built only so the solution builds here; its module initializer belongs to the test host it is on its OS. -->
+    <NoWarn>$(NoWarn);CA2255</NoWarn>
   </PropertyGroup>
 </Project>

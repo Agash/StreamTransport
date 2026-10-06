@@ -5,25 +5,32 @@ using Agash.StreamTransport.WebRtc.Ice;
 namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
-/// Verifies the native ECN socket path on the current OS for both address families and every ECN codepoint
-/// (RFC 3168 §5): the sender stamps the codepoint into the outgoing TOS / Traffic-Class field and the receiver
-/// must read exactly that value back from the ancillary cmsg returned by recvmsg. This catches platform-specific
-/// struct-layout, option-number, cmsg-type and source-address parsing mistakes per family, on the platforms
-/// with a native ECN receive path.
+/// Verifies the native ECN socket path on the current OS for both address families (RFC 3168 section 5): the
+/// sender marks the datagram and the receiver must read exactly that mark back from the control message. This
+/// catches platform-specific struct-layout, option-number, control-message and source-address parsing mistakes
+/// per family.
 /// </summary>
 [TestClass]
 public sealed class EcnLoopbackTests
 {
     [TestMethod]
-    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
     [DataRow(false, (byte)0x01, DisplayName = "IPv4 ECT(1)")]
     [DataRow(false, (byte)0x02, DisplayName = "IPv4 ECT(0)")]
-    [DataRow(false, (byte)0x03, DisplayName = "IPv4 CE")]
     [DataRow(true, (byte)0x01, DisplayName = "IPv6 ECT(1)")]
     [DataRow(true, (byte)0x02, DisplayName = "IPv6 ECT(0)")]
-    [DataRow(true, (byte)0x03, DisplayName = "IPv6 CE")]
     [Timeout(10_000)]
-    public async Task NativeSocket_ReadsBackEcnCodepoint(bool ipv6, byte codepoint)
+    public Task NativeSocket_ReadsBackEctCodepoint(bool ipv6, byte codepoint) =>
+        SendAndReadBackAsync(ipv6, codepoint);
+
+    // Only the network marks CE; Windows refuses to send it, so a host can make it only on Linux and macOS.
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [DataRow(false, DisplayName = "IPv4 CE")]
+    [DataRow(true, DisplayName = "IPv6 CE")]
+    [Timeout(10_000)]
+    public Task NativeSocket_ReadsBackCe(bool ipv6) => SendAndReadBackAsync(ipv6, 0x03);
+
+    private static async Task SendAndReadBackAsync(bool ipv6, byte codepoint)
     {
         IPAddress loopback = ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;
         if (ipv6 && !Socket.OSSupportsIPv6)
@@ -37,10 +44,10 @@ public sealed class EcnLoopbackTests
 
         using var tx = new Socket(loopback.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         tx.Bind(new IPEndPoint(loopback, 0));
-        EcnInterop.SetOutgoingEcn(tx, ipv6, codepoint);
+        EcnInterop.PrepareSend(tx, ipv6, codepoint);
 
         byte[] payload = [0x10, 0x20, 0x30, 0x40];
-        tx.SendTo(payload, rx.LocalEndPoint);
+        EcnInterop.Send(tx, payload, rx.LocalEndPoint, codepoint);
 
         byte[] buffer = new byte[2048];
         IceReceiveResult result = await rx.ReceiveAsync(buffer, CancellationToken.None)
@@ -57,7 +64,7 @@ public sealed class EcnLoopbackTests
         Assert.AreEqual(
             codepoint,
             result.Ecn,
-            $"expected ECN codepoint 0b{Convert.ToString(codepoint, 2).PadLeft(2, '0')} read back from the cmsg"
+            $"expected ECN codepoint 0b{Convert.ToString(codepoint, 2).PadLeft(2, '0')} read back from the control message"
         );
     }
 }
