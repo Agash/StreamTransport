@@ -73,7 +73,7 @@ public sealed class DmaBufEncodeTests
                 }
 
                 encoder.Flush(recorder);
-                Assert.IsGreaterThan(0, recorder.Frames);
+                Assert.AreEqual(5, recorder.Frames, "every frame sent comes out encoded");
                 Assert.IsTrue(recorder.FirstWasKeyframe);
             }
             finally
