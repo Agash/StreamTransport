@@ -1,11 +1,12 @@
-namespace Agash.StreamTransport.Sync;
+namespace Agash.StreamTransport.Media;
 
 /// <summary>
-/// A wall-clock instant as NTP writes it (RFC 5905): a UQ32.32 count of seconds since 1900. It is what
-/// abs-capture-time carries, so a sender's capture instants reach the receiver in this form.
+/// A wall-clock instant as NTP writes it (RFC 5905): a UQ32.32 count of seconds since 1900. A sender's
+/// capture instants reach the receiver in this form, whatever carries them (RTP's abs-capture-time, a
+/// sender report).
 /// </summary>
 /// <param name="Value">The UQ32.32 timestamp.</param>
-internal readonly record struct NtpTime(ulong Value)
+public readonly record struct NtpTime(ulong Value)
 {
     private const long NanosecondsPerSecond = 1_000_000_000;
     private static readonly DateTimeOffset Epoch = new(1900, 1, 1, 0, 0, 0, TimeSpan.Zero);
