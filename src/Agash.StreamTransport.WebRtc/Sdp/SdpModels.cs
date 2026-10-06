@@ -109,6 +109,12 @@ public sealed record SdpMediaDescription
     /// <summary>Whether RTP and RTCP are multiplexed on one port (<c>a=rtcp-mux</c>); always true here.</summary>
     public bool RtcpMux { get; init; } = true;
 
+    /// <summary>
+    /// Whether RTCP may be sent as single feedback packets instead of compound reports (<c>a=rtcp-rsize</c>,
+    /// RFC 5506); offered always, in effect when both sides list it.
+    /// </summary>
+    public bool RtcpReducedSize { get; init; } = true;
+
     /// <summary>The media SSRC of this section, if announced (<c>a=ssrc</c>).</summary>
     public uint? Ssrc { get; init; }
 

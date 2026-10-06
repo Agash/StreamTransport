@@ -101,6 +101,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 _rtcpSenderSsrc = line.LocalSsrc;
             }
         }
+
+        // A receive-only endpoint still reports, under an SSRC of its own.
+        while (_rtcpSenderSsrc == 0)
+        {
+            _rtcpSenderSsrc = (uint)Random.Shared.NextInt64(1, uint.MaxValue);
+        }
     }
 
     /// <summary>Raised for each gathered local ICE candidate (trickle it to the peer via signaling).</summary>
@@ -381,6 +387,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             && prevUfrag != first.IceUfrag;
 
         _remoteDescription = description;
+        NoteReducedSize(description);
         _expectedRemoteFingerprint = first.Fingerprint;
 
         if (isRestartOffer)
@@ -541,7 +548,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             int protectedLength = srtp.ProtectRtp(buffer, rtpLength);
-            RecordSent(ssrc, sequence, protectedLength, NowMicros());
+            long sentMicros = NowMicros();
+            RecordSent(ssrc, sequence, protectedLength, sentMicros);
+            RecordSentForReports(ssrc, payloadType, rtpTimestamp, payload.Length, sentMicros);
             Interlocked.Increment(ref _mediaPacketsSent);
             _metrics.PacketsSent.Add(1);
             await agent
@@ -584,10 +593,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(32 + SrtpSession.MaxRtcpProtectionOverhead);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            FeedbackPrefixCapacity + 32 + SrtpSession.MaxRtcpProtectionOverhead
+        );
         try
         {
-            int length = RtcpFeedback.BuildPli(buffer, _rtcpSenderSsrc, mediaSsrc);
+            int prefix = WriteFeedbackPrefix(buffer);
+            int length =
+                prefix + RtcpFeedback.BuildPli(buffer.AsSpan(prefix), _rtcpSenderSsrc, mediaSsrc);
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             Interlocked.Increment(ref _keyframeRequestsSent);
             await agent
@@ -852,6 +865,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         // RFC 8888 congestion-control feedback (PT 205, FMT 11) - drives the send-side controller, if any.
         OnCongestionFeedback(rtcp);
+
+        // Sender and receiver reports: the round trip and the peer's sender-report timing.
+        OnReports(rtcp);
     }
 
     private async Task RetransmitAsync(uint mediaSsrc, List<ushort> lostSequences)
@@ -901,6 +917,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 }
 
                 int protectedLength = srtp.ProtectRtp(buffer, rtxLength);
+                RecordSentForReports(
+                    rtx.Ssrc,
+                    rtxPayloadType,
+                    System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(original.Span[4..]),
+                    rtxLength - RtpPacket.FixedHeaderLength,
+                    NowMicros()
+                );
                 Interlocked.Increment(ref _rtxPacketsSent);
                 _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("sent"));
                 await agent.SendAsync(buffer.AsMemory(0, protectedLength)).ConfigureAwait(false);
@@ -995,7 +1018,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         byte ecn
     )
     {
-        RecordArrival(header.Ssrc, header.SequenceNumber, NowMicros(), ecn);
+        long arrivalMicros = NowMicros();
+        RecordArrival(header.Ssrc, header.SequenceNumber, arrivalMicros, ecn);
+        RecordReceivedForReports(header, arrivalMicros);
 
         // Loss recovery (NACK): only for media the peer said it retransmits.
         if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
@@ -1187,6 +1212,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         DisposeCongestion();
+        await StopReportsAsync().ConfigureAwait(false);
         SetState(PeerConnectionState.Closed);
         if (_dtls is { } dtls)
         {

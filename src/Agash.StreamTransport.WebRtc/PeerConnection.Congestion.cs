@@ -140,6 +140,7 @@ public sealed partial class PeerConnection
 
     private void StartCongestionTimers()
     {
+        StartReports();
         // The feedback timer runs on both peers (whoever receives media sends CCFB). The process timer only
         // matters where a controller consumes feedback, but starting it unconditionally is harmless.
         _ccfbTimer ??= _time.CreateTimer(
@@ -233,11 +234,22 @@ public sealed partial class PeerConnection
             return;
         }
 
-        uint reportTimestamp = (uint)(now * 65536 / 1_000_000);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(1300 + SrtpSession.MaxRtcpProtectionOverhead);
+        // The middle 32 bits of the NTP time the sender reports carry (RFC 8888 section 3.1).
+        uint reportTimestamp = (uint)(NtpAt(now) >> 16);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            FeedbackPrefixCapacity + 1300 + SrtpSession.MaxRtcpProtectionOverhead
+        );
         try
         {
-            int length = Ccfb.Build(buffer, _rtcpSenderSsrc, _reportScratch, reportTimestamp);
+            int prefix = WriteFeedbackPrefix(buffer);
+            int length =
+                prefix
+                + Ccfb.Build(
+                    buffer.AsSpan(prefix),
+                    _rtcpSenderSsrc,
+                    _reportScratch,
+                    reportTimestamp
+                );
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
         }

@@ -107,6 +107,7 @@ public static class SdpReader
                     Fingerprint = fingerprint.Value,
                     Setup = m.Setup ?? sessionSetup,
                     RtcpMux = m.RtcpMux,
+                    RtcpReducedSize = m.RtcpReducedSize,
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
                     Cname = m.Cname,
@@ -183,6 +184,8 @@ public static class SdpReader
         public DtlsFingerprint? Fingerprint { get; private set; }
         public SdpSetup? Setup { get; private set; }
         public bool RtcpMux { get; private set; }
+
+        public bool RtcpReducedSize { get; private set; }
         public uint? Ssrc { get; private set; }
         public string? Cname { get; private set; }
         public uint? RtxSsrc { get; private set; }
@@ -255,6 +258,10 @@ public static class SdpReader
             else if (line == "a=rtcp-mux")
             {
                 RtcpMux = true;
+            }
+            else if (line == "a=rtcp-rsize")
+            {
+                RtcpReducedSize = true;
             }
             else if (line == "a=end-of-candidates")
             {

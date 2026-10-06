@@ -121,16 +121,22 @@ public sealed partial class PeerConnection
         }
 
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            12 + (sequences.Count * 4) + SrtpSession.MaxRtcpProtectionOverhead
+            FeedbackPrefixCapacity
+                + 12
+                + (sequences.Count * 4)
+                + SrtpSession.MaxRtcpProtectionOverhead
         );
         try
         {
-            int length = RtcpFeedback.BuildNack(
-                buffer,
-                _rtcpSenderSsrc,
-                mediaSsrc,
-                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences)
-            );
+            int prefix = WriteFeedbackPrefix(buffer);
+            int length =
+                prefix
+                + RtcpFeedback.BuildNack(
+                    buffer.AsSpan(prefix),
+                    _rtcpSenderSsrc,
+                    mediaSsrc,
+                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences)
+                );
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             Interlocked.Add(ref _nackSequencesRequested, sequences.Count);
             _metrics.NackedSequences.Add(sequences.Count);

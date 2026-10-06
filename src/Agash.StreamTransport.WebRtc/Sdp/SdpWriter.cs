@@ -68,6 +68,11 @@ public static class SdpWriter
             sb.Append("a=rtcp-mux\r\n");
         }
 
+        if (media.RtcpReducedSize)
+        {
+            sb.Append("a=rtcp-rsize\r\n");
+        }
+
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-ufrag:{media.IceUfrag}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-pwd:{media.IcePwd}\r\n");
         sb.Append("a=ice-options:trickle\r\n");

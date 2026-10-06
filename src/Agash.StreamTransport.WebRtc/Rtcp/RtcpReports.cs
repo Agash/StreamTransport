@@ -57,7 +57,8 @@ public readonly record struct RtcpReportBlock(
         new(
             BinaryPrimitives.ReadUInt32BigEndian(source),
             source[4],
-            (source[5] << 16) | (source[6] << 8) | source[7],
+            // A signed 24-bit count: duplicates can make it negative.
+            ((source[5] << 24) | (source[6] << 16) | (source[7] << 8)) >> 8,
             BinaryPrimitives.ReadUInt32BigEndian(source[8..]),
             BinaryPrimitives.ReadUInt32BigEndian(source[12..]),
             BinaryPrimitives.ReadUInt32BigEndian(source[16..]),
