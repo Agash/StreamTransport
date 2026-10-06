@@ -4,19 +4,67 @@ using FF = FFmpeg.Interop;
 
 namespace Agash.StreamTransport.Codecs.FFmpeg;
 
-// What each encoder family is in FFmpeg terms: its encoder per codec, the device it runs on, the
-// surfaces it takes without a CPU copy, and how strongly it is preferred on each platform.
+// How a backend takes frames of a GPU storage without a copy through memory: each is an encoder input
+// of its own, so a backend that takes surfaces another way (DRM PRIME pass-through, V4L2 DMA-BUF queues)
+// adds a way here and declares it in its catalogue entry.
+internal enum GpuInput
+{
+    // Direct3D 12 textures, wrapped as the encoder's surfaces.
+    D3D12Texture,
+
+    // Direct3D 11 textures on the encoder's device, wrapped as its surfaces.
+    D3D11Texture,
+
+    // DMA-BUFs imported as Vulkan images made for the encoder's input.
+    VulkanImport,
+
+    // DMA-BUFs mapped into VA-API surfaces.
+    VaapiMap,
+
+    // IOSurfaces, wrapped as VideoToolbox pixel buffers.
+    IOSurface,
+}
+
+// What each encoder family is in FFmpeg terms: its encoder per codec, the device it runs on, how it
+// takes each GPU storage without a CPU copy, and how strongly it is preferred on each platform.
 internal sealed record BackendSpec(
     EncoderBackend Backend,
     ImmutableArray<(VideoCodecId Codec, string Encoder)> Encoders,
     FF.HardwareDeviceType? DeviceType,
-    ImmutableArray<VideoStorageKind> GpuStorages,
+    ImmutableArray<GpuInput> GpuInputs,
     int WindowsRank,
     int LinuxRank,
     int MacRank
 )
 {
     public bool IsHardware => DeviceType is not null || Backend == EncoderBackend.MediaFoundation;
+
+    // The GPU storages the backend takes.
+    public ImmutableArray<VideoStorageKind> GpuStorages => [.. GpuInputs.Select(StorageOf)];
+
+    // How the backend takes a storage, or null when it takes it only through memory.
+    public GpuInput? InputFor(VideoStorageKind storage)
+    {
+        foreach (GpuInput input in GpuInputs)
+        {
+            if (StorageOf(input) == storage)
+            {
+                return input;
+            }
+        }
+
+        return null;
+    }
+
+    private static VideoStorageKind StorageOf(GpuInput input) =>
+        input switch
+        {
+            GpuInput.D3D12Texture => VideoStorageKind.D3D12,
+            GpuInput.D3D11Texture => VideoStorageKind.D3D11,
+            GpuInput.VulkanImport or GpuInput.VaapiMap => VideoStorageKind.DmaBuf,
+            GpuInput.IOSurface => VideoStorageKind.IOSurface,
+            _ => throw new ArgumentOutOfRangeException(nameof(input), input, null),
+        };
 
     // Zero when the family does not exist on this platform.
     public int Rank =>
@@ -54,7 +102,7 @@ internal static class BackendCatalog
                 (VideoCodecId.AV1, "av1_d3d12va"),
             ],
             FF.HardwareDeviceType.D3D12VA,
-            [VideoStorageKind.D3D12],
+            [GpuInput.D3D12Texture],
             WindowsRank: 100,
             LinuxRank: 0,
             MacRank: 0
@@ -69,7 +117,7 @@ internal static class BackendCatalog
             OperatingSystem.IsWindows()
                 ? FF.HardwareDeviceType.D3D11VA
                 : FF.HardwareDeviceType.Cuda,
-            [VideoStorageKind.D3D11],
+            [GpuInput.D3D11Texture],
             WindowsRank: 90,
             LinuxRank: 85,
             MacRank: 0
@@ -82,7 +130,7 @@ internal static class BackendCatalog
                 (VideoCodecId.AV1, "av1_amf"),
             ],
             FF.HardwareDeviceType.D3D11VA,
-            [VideoStorageKind.D3D11],
+            [GpuInput.D3D11Texture],
             WindowsRank: 85,
             LinuxRank: 0,
             MacRank: 0
@@ -110,7 +158,7 @@ internal static class BackendCatalog
                 (VideoCodecId.AV1, "av1_vulkan"),
             ],
             FF.HardwareDeviceType.Vulkan,
-            [VideoStorageKind.DmaBuf],
+            [GpuInput.VulkanImport],
             WindowsRank: 70,
             LinuxRank: 100,
             MacRank: 0
@@ -123,7 +171,7 @@ internal static class BackendCatalog
                 (VideoCodecId.AV1, "av1_vaapi"),
             ],
             FF.HardwareDeviceType.Vaapi,
-            [VideoStorageKind.DmaBuf],
+            [GpuInput.VaapiMap],
             WindowsRank: 0,
             LinuxRank: 90,
             MacRank: 0
@@ -132,7 +180,7 @@ internal static class BackendCatalog
             EncoderBackend.VideoToolbox,
             [(VideoCodecId.H264, "h264_videotoolbox"), (VideoCodecId.H265, "hevc_videotoolbox")],
             FF.HardwareDeviceType.VideoToolbox,
-            [VideoStorageKind.IOSurface],
+            [GpuInput.IOSurface],
             WindowsRank: 0,
             LinuxRank: 0,
             MacRank: 100

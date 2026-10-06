@@ -242,46 +242,54 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         }
     }
 
-    private Session Open(in VideoFrame frame, string reason)
-    {
-        long started = _time.GetTimestamp();
-        VideoSize size = _configuration.Size;
-        PixelFormat format = frame.Format.PixelFormat;
-        EncoderInput input = frame.Storage.Kind switch
+    // The encoder input the backend declares for the frame's storage.
+    private EncoderInput GpuInputFor(in VideoFrame frame, PixelFormat format, VideoSize size) =>
+        _spec.InputFor(frame.Storage.Kind) switch
         {
-            VideoStorageKind.Cpu => CpuInput(format, size),
-            VideoStorageKind.D3D12
+            GpuInput.D3D12Texture
                 when OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240)
                     && frame.Storage.TryGetValue(out D3D12Image d3d12) => new D3D12Input(
                 d3d12,
                 format,
                 size
             ),
-            VideoStorageKind.D3D11
+            GpuInput.D3D11Texture
                 when OperatingSystem.IsWindowsVersionAtLeast(6, 1)
                     && frame.Storage.TryGetValue(out D3D11Image d3d11) => new D3D11Input(
                 d3d11,
                 format,
                 size
             ),
-            VideoStorageKind.DmaBuf when OperatingSystem.IsLinux() => _spec.DeviceType
-            == FF.HardwareDeviceType.Vulkan
-                ? new VulkanDmaBufInput(
-                    CreateDevice(),
-                    format,
-                    size,
-                    modifier => LogDmaBufCopied(_logger, Info.ImplementationName, modifier)
-                )
-                : new DmaBufInput(CreateDevice(), format, size),
-            VideoStorageKind.IOSurface when OperatingSystem.IsMacOS() => new IOSurfaceInput(
+            GpuInput.VulkanImport when OperatingSystem.IsLinux() => new VulkanDmaBufInput(
+                CreateDevice(),
+                format,
+                size,
+                modifier => LogDmaBufCopied(_logger, Info.ImplementationName, modifier)
+            ),
+            GpuInput.VaapiMap when OperatingSystem.IsLinux() => new DmaBufInput(
+                CreateDevice(),
+                format,
+                size
+            ),
+            GpuInput.IOSurface when OperatingSystem.IsMacOS() => new IOSurfaceInput(
                 CreateDevice(),
                 format,
                 size
             ),
             _ => throw new NotSupportedException(
-                $"{frame.Storage.Kind} frames cannot be encoded on this platform."
+                $"{_spec.Backend} does not take {frame.Storage.Kind} frames on this platform."
             ),
         };
+
+    private Session Open(in VideoFrame frame, string reason)
+    {
+        long started = _time.GetTimestamp();
+        VideoSize size = _configuration.Size;
+        PixelFormat format = frame.Format.PixelFormat;
+        EncoderInput input =
+            frame.Storage.Kind == VideoStorageKind.Cpu
+                ? CpuInput(format, size)
+                : GpuInputFor(in frame, format, size);
 
         try
         {
