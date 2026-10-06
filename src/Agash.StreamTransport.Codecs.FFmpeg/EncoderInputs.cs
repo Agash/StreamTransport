@@ -259,10 +259,13 @@ internal sealed class DmaBufInput : EncoderInput
 
     public override FF.HardwareFramePool Pool => _pool;
 
+    // VA-API takes buffers as they are, so a picture still being written is waited for in the kernel.
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
     {
+        DmaBufImage image = DmaBufs.Picture(in frame);
+        DmaBufs.WaitUntilWritten(in image);
         using var imported = FF.Frame.FromDrmPrime(
-            DmaBufs.ToDrmPrime(DmaBufs.Finished(in frame)),
+            DmaBufs.ToDrmPrime(image),
             _size.Width,
             _size.Height
         );
@@ -324,7 +327,7 @@ internal sealed class VulkanDmaBufInput : EncoderInput
 
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
     {
-        DmaBufImage image = DmaBufs.Finished(in frame);
+        DmaBufImage image = DmaBufs.Picture(in frame);
         FF.DrmPrimeImage picture = DmaBufs.ToDrmPrime(image);
         if (picture.Objects.Length != 1)
         {
@@ -345,6 +348,7 @@ internal sealed class VulkanDmaBufInput : EncoderInput
 
         if (!inPlace)
         {
+            DmaBufs.WaitUntilWritten(in image);
             Copy(picture, destination);
             return;
         }
@@ -360,7 +364,22 @@ internal sealed class VulkanDmaBufInput : EncoderInput
 
         if (import.Reading++ == 0)
         {
-            _importer.Acquire(import.Frame);
+            // The encoder's GPU work waits for the producer's sync point; a device that cannot import
+            // one waits for it here.
+            FF.DrmSyncPoint? ready = null;
+            if (image.Sync is { } sync)
+            {
+                if (_importer.WaitsForSyncPoints)
+                {
+                    ready = new FF.DrmSyncPoint(sync.AcquireSyncobj, sync.AcquirePoint);
+                }
+                else
+                {
+                    DmaBufs.WaitUntilWritten(in image);
+                }
+            }
+
+            _importer.Acquire(import.Frame, ready);
         }
 
         import.LastUse = ++_uses;
@@ -481,22 +500,22 @@ internal sealed class VulkanDmaBufInput : EncoderInput
 [SupportedOSPlatform("linux")]
 internal static class DmaBufs
 {
-    // The frame's picture, which must be finished when it is delivered.
-    public static DmaBufImage Finished(in VideoFrame frame)
+    private static readonly TimeSpan WriterTimeout = TimeSpan.FromSeconds(1);
+
+    // The frame's picture.
+    public static DmaBufImage Picture(in VideoFrame frame) =>
+        frame.Storage.TryGetValue(out DmaBufImage image)
+            ? image
+            : throw new ArgumentException("The frame is not a DMA-BUF.", nameof(frame));
+
+    // Blocks until a picture that carries a sync point is written, for a reader that cannot wait on the
+    // GPU; a picture without one is finished when it is delivered.
+    public static void WaitUntilWritten(in DmaBufImage image)
     {
-        if (!frame.Storage.TryGetValue(out DmaBufImage image))
+        if (image.Sync is { } sync)
         {
-            throw new ArgumentException("The frame is not a DMA-BUF.", nameof(frame));
+            DrmSync.Wait(in sync, image.Device, WriterTimeout);
         }
-
-        if (image.Sync is not null)
-        {
-            throw new NotSupportedException(
-                "DMA-BUF frames with explicit sync timelines are not supported yet; deliver them finished."
-            );
-        }
-
-        return image;
     }
 
     // One layer in the picture's DRM format. Planes in one DMA-BUF are one object, whichever descriptor
