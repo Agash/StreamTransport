@@ -71,7 +71,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// <param name="loggerFactory">Optional logging.</param>
     /// <param name="controller">
     /// Optional send-side congestion controller. When supplied, inbound RFC 8888 feedback drives it and the
-    /// resulting <see cref="BitrateEstimateChanged"/> estimates retune the encoder/pacer; when null, only
+    /// resulting <see cref="CapacityChanged"/> estimates retune the encoder/pacer; when null, only
     /// receive-side feedback generation runs.
     /// </param>
     /// <param name="timeProvider">
@@ -83,7 +83,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         PeerConnectionOptions options,
         RtcCertificate certificate,
         ILoggerFactory? loggerFactory = null,
-        INetworkController? controller = null,
+        ICongestionController? controller = null,
         TimeProvider? timeProvider = null,
         IMeterFactory? meterFactory = null
     )
@@ -119,7 +119,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _loggerFactory.CreateLogger<Pacer>()
         )
         {
-            BitsPerSecond = Math.Max(0, controller?.CurrentEstimate.PacingRateBps ?? 0),
+            BitsPerSecond = Math.Max(0, controller?.Current.PacingBitsPerSecond ?? 0),
         };
 
         // A receive-only endpoint still reports, under an SSRC of its own.
@@ -665,7 +665,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         int payloadLength = payload.Length;
         int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
         long now = NowMicros();
-        RecordSent(header.Ssrc, header.SequenceNumber, protectedLength, now);
+        RecordSent(header.Ssrc, header.SequenceNumber, protectedLength, packet.Class);
         RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
         if (packet.Class == TrafficClass.Retransmission)
         {

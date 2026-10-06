@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
-    <ProjectReference Include="..\Agash.StreamTransport.WebRtc.CongestionControl\Agash.StreamTransport.WebRtc.CongestionControl.csproj" />
+    <ProjectReference Include="..\Agash.StreamTransport.Adaptation\Agash.StreamTransport.Adaptation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

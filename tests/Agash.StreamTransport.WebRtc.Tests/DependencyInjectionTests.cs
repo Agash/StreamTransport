@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.CongestionControl;
 using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,15 +40,15 @@ public sealed class DependencyInjectionTests
         Assert.AreEqual(1, offer.Media.Count);
         Assert.AreEqual(certificate.Fingerprint, offer.Media[0].Fingerprint);
         Assert.IsTrue(
-            pc.CurrentBitrateEstimate.TargetBitrateBps > 0,
+            pc.CurrentCapacity.TargetBitsPerSecond > 0,
             "the connection runs the registered congestion controller"
         );
 
-        var controller = provider.GetRequiredService<INetworkController>();
+        var controller = provider.GetRequiredService<ICongestionController>();
         Assert.IsInstanceOfType<ScreamCongestionController>(controller);
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps > 0);
+        Assert.IsTrue(controller.Current.TargetBitsPerSecond > 0);
         Assert.IsTrue(
-            controller.CurrentEstimate.PacingRateBps >= controller.CurrentEstimate.TargetBitrateBps
+            controller.Current.PacingBitsPerSecond >= controller.Current.TargetBitsPerSecond
         );
     }
 

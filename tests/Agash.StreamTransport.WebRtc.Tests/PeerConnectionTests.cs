@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.CongestionControl;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
@@ -319,10 +319,10 @@ public sealed class PeerConnectionTests
         sender.StateChanged += OnState;
         receiver.StateChanged += OnState;
 
-        var estimate = new TaskCompletionSource<BitrateEstimate>(
+        var estimate = new TaskCompletionSource<CapacityEstimate>(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
-        sender.BitrateEstimateChanged += e => estimate.TrySetResult(e);
+        sender.CapacityChanged += e => estimate.TrySetResult(e);
 
         SdpDescription offer = sender.CreateOffer();
         receiver.SetRemoteDescription(offer, SdpType.Offer);
@@ -340,13 +340,13 @@ public sealed class PeerConnectionTests
             TimeSpan.FromMilliseconds(10),
             TimeSpan.FromSeconds(30)
         );
-        BitrateEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        CapacityEstimate got = await estimate.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.IsTrue(
-            got.TargetBitrateBps > 0,
+            got.TargetBitsPerSecond > 0,
             "the controller should produce a positive target bitrate."
         );
         Assert.IsTrue(
-            got.PacingRateBps >= got.TargetBitrateBps,
+            got.PacingBitsPerSecond >= got.TargetBitsPerSecond,
             "pacing rate should not be below the target."
         );
     }

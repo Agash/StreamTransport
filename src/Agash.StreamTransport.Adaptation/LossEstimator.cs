@@ -1,4 +1,4 @@
-namespace Agash.StreamTransport.WebRtc.CongestionControl;
+namespace Agash.StreamTransport.Adaptation;
 
 /// <summary>
 /// SCReAM v2 loss estimator (a port of libwebrtc's <c>modules/congestion_controller/scream/loss_estimator</c>):

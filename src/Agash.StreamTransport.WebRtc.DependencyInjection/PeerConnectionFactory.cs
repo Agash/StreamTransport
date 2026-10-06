@@ -1,4 +1,5 @@
 using System.Diagnostics.Metrics;
+using Agash.StreamTransport.Adaptation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -9,7 +10,7 @@ namespace Agash.StreamTransport.WebRtc.DependencyInjection;
 /// congestion controller of their own. Resolve it from the container rather than constructing a peer
 /// connection by hand, so every connection is wired the same way.
 /// </summary>
-/// <param name="services">The container, which supplies a new <see cref="INetworkController"/> per connection.</param>
+/// <param name="services">The container, which supplies a new <see cref="ICongestionController"/> per connection.</param>
 /// <param name="certificate">The DTLS certificate every connection authenticates with.</param>
 /// <param name="timeProvider">The clock every connection runs on.</param>
 /// <param name="loggerFactory">The logging.</param>
@@ -28,7 +29,7 @@ public sealed class PeerConnectionFactory(
             options,
             certificate,
             loggerFactory,
-            services.GetService<INetworkController>(),
+            services.GetService<ICongestionController>(),
             timeProvider,
             services.GetService<IMeterFactory>()
         );

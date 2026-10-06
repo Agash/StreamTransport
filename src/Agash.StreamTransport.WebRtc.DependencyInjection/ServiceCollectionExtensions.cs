@@ -1,4 +1,4 @@
-using Agash.StreamTransport.WebRtc.CongestionControl;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -12,7 +12,7 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers the WebRTC stack: the system <see cref="TimeProvider"/> unless one is registered, the DTLS
     /// certificate (singleton, so the fingerprint is stable), a
-    /// <see cref="PeerConnectionFactory"/>, a per-connection SCReAM <see cref="INetworkController"/>, and
+    /// <see cref="PeerConnectionFactory"/>, a per-connection SCReAM <see cref="ICongestionController"/>, and
     /// the RTP payload formats this library implements with the <see cref="RtpPayloadFormatRegistry"/>
     /// built from every registered <see cref="RtpPayloadFormat"/>.
     /// </summary>
@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<PeerConnectionFactory>();
 
         // The controller is stateful per connection, so it is transient; options are bound from IOptions.
-        services.TryAddTransient<INetworkController>(static sp => new ScreamCongestionController(
+        services.TryAddTransient<ICongestionController>(static sp => new ScreamCongestionController(
             sp.GetService<IOptions<ScreamOptions>>()?.Value
         ));
 

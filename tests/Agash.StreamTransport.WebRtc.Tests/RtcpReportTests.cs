@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
@@ -280,7 +281,7 @@ public sealed class RtcpReportTests
                     SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
                 },
                 Certificate,
-                controller: new CongestionControl.ScreamCongestionController()
+                controller: new ScreamCongestionController()
             );
             PeerConnection receiver = new(
                 new PeerConnectionOptions

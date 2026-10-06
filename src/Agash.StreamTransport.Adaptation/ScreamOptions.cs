@@ -1,4 +1,4 @@
-namespace Agash.StreamTransport.WebRtc.CongestionControl;
+namespace Agash.StreamTransport.Adaptation;
 
 /// <summary>Tunables for <see cref="ScreamCongestionController"/> (RFC 8298 parameters).</summary>
 public sealed class ScreamOptions

@@ -1,6 +1,6 @@
 using System.Diagnostics;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.CongestionControl;
 using Agash.StreamTransport.WebRtc.Sdp;
 
 // A NativeAOT smoke test for the first-party WebRTC stack: two peer connections negotiate over loopback,
@@ -40,7 +40,7 @@ answerer.RtpReceived += (_, payload) => received.TrySetResult(payload.ToArray())
 
 // Exercise the SCReAM controller too (pure AOT-safe math), so it's covered by this binary.
 var controller = new ScreamCongestionController();
-_ = controller.OnProcessInterval(0);
+_ = controller.OnTick(TimeSpan.Zero);
 
 var sw = Stopwatch.StartNew();
 SdpDescription offer = offerer.CreateOffer();
@@ -58,7 +58,7 @@ catch (TimeoutException)
 }
 
 Console.WriteLine(
-    $"NATIVE-AOT-OK: connected + encrypted RTP delivered in {sw.ElapsedMilliseconds} ms (controller {controller.CurrentEstimate.TargetBitrateBps} bps)"
+    $"NATIVE-AOT-OK: connected + encrypted RTP delivered in {sw.ElapsedMilliseconds} ms (controller {controller.Current.TargetBitsPerSecond} bps)"
 );
 return 0;
 

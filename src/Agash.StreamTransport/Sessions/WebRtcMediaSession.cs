@@ -191,7 +191,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
             _services.Metrics.KeyframeRequests.Add(1, StreamTransportMetrics.Direction("received"));
             _videoSend?.RequestKeyframe();
         };
-        connection.BitrateEstimateChanged += OnBitrateEstimate;
+        connection.CapacityChanged += OnCapacity;
         _signaling.DescriptionReceived += OnDescriptionAsync;
         _signaling.IceCandidateReceived += OnCandidateAsync;
         _mobility = _services.Mobility?.Register(connection.TriggerNetworkRecovery);
@@ -455,7 +455,7 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
 
         if (_endpoints.VideoSource is { } source)
         {
-            long start = _connection!.CurrentBitrateEstimate.TargetBitrateBps;
+            long start = _connection!.CurrentCapacity.TargetBitsPerSecond;
             // The stream is encoded for what the receiver declared it decodes: its profile and level.
             _videoSend = new VideoSendStream(
                 source,
@@ -601,14 +601,14 @@ internal sealed partial class WebRtcMediaSession : IMediaSession
         }
     }
 
-    private void OnBitrateEstimate(BitrateEstimate estimate)
+    private void OnCapacity(CapacityEstimate estimate)
     {
         long audio = _audioSend is null ? 0 : _options.AudioBitsPerSecond;
         if (_allocator is { } allocator)
         {
             _videoSend?.SetBitrate(
                 allocator.VideoBitsPerSecond(
-                    estimate.TargetBitrateBps,
+                    estimate.TargetBitsPerSecond,
                     audio,
                     MinimumVideoBitsPerSecond
                 )

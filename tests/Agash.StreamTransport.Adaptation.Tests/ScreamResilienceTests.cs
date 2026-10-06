@@ -1,16 +1,15 @@
-using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.CongestionControl;
+using static Agash.StreamTransport.Adaptation.Tests.Feedback;
 
-namespace Agash.StreamTransport.WebRtc.Tests;
+namespace Agash.StreamTransport.Adaptation.Tests;
 
 /// <summary>
-/// Deterministic resilience scenarios driven entirely through the <see cref="INetworkController"/> abstraction
+/// Deterministic resilience scenarios driven entirely through the <see cref="ICongestionController"/> abstraction
 /// (no sockets, no timing): feed synthetic per-packet feedback and assert how the bitrate adapts and how fast
 /// it recovers - loss backoff, sustained-loss collapse toward the floor, feedback-starvation easing, and
 /// recovery speed after a loss spike measured in feedback intervals.
 /// </summary>
 [TestClass]
-public sealed class CongestionResilienceTests
+public sealed class ScreamResilienceTests
 {
     private const long IntervalMicros = 20_000; // 20 ms feedback cadence.
     private static readonly ScreamOptions Options = new()
@@ -21,13 +20,13 @@ public sealed class CongestionResilienceTests
         QueueDelayTargetMs = 60,
     };
 
-    private static PacketResult[] Clean(ref ushort seq, long now, int count = 10)
+    private static Sent[] Clean(ref ushort seq, long now, int count = 10)
     {
-        var results = new PacketResult[count];
+        var results = new Sent[count];
         long sendTime = now - IntervalMicros;
         for (int i = 0; i < count; i++)
         {
-            results[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000); // ~20 ms RTT, all received.
+            results[i] = Packet(seq++, 1200, sendTime, sendTime + 10_000); // ~20 ms RTT, all received.
         }
 
         return results;
@@ -43,39 +42,40 @@ public sealed class CongestionResilienceTests
         for (int batch = 0; batch < 100; batch++)
         {
             now += IntervalMicros;
-            controller.OnFeedback(Clean(ref seq, now), now);
+            Feed(controller, Clean(ref seq, now), now);
         }
 
-        long peak = controller.CurrentEstimate.TargetBitrateBps;
+        long peak = controller.Current.TargetBitsPerSecond;
 
         // A sustained loss spike (3 of 4 lost across several RTTs) drives the SCReAM v2 loss filter past its
         // threshold and forces a multiplicative back-off. Spaced > VirtualRtt (25 ms) so each report steps it.
         for (int batch = 0; batch < 5; batch++)
         {
             now += 30_000;
-            controller.OnFeedback(
+            Feed(
+                controller,
                 [
-                    new PacketResult(seq++, 1200, now - 30_000, now - 15_000),
-                    new PacketResult(seq++, 1200, now - 30_000, -1),
-                    new PacketResult(seq++, 1200, now - 30_000, -1),
-                    new PacketResult(seq++, 1200, now - 30_000, -1),
+                    Packet(seq++, 1200, now - 30_000, now - 15_000),
+                    Packet(seq++, 1200, now - 30_000, -1),
+                    Packet(seq++, 1200, now - 30_000, -1),
+                    Packet(seq++, 1200, now - 30_000, -1),
                 ],
                 now
             );
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps < peak,
+            controller.Current.TargetBitsPerSecond < peak,
             "the sustained loss spike must back the rate off."
         );
 
         // Clean delivery resumes; count feedback intervals until it climbs back to 90% of the pre-spike rate.
         int intervals = 0;
         const int max = 1000;
-        while (controller.CurrentEstimate.TargetBitrateBps < peak * 0.9 && intervals < max)
+        while (controller.Current.TargetBitsPerSecond < peak * 0.9 && intervals < max)
         {
             now += IntervalMicros;
-            controller.OnFeedback(Clean(ref seq, now), now);
+            Feed(controller, Clean(ref seq, now), now);
             intervals++;
         }
 
@@ -100,32 +100,32 @@ public sealed class CongestionResilienceTests
         for (int batch = 0; batch < 100; batch++)
         {
             now += IntervalMicros;
-            controller.OnFeedback(Clean(ref seq, now), now);
+            Feed(controller, Clean(ref seq, now), now);
         }
 
         // Sustained ~50% loss for many batches: the rate should collapse toward the floor.
         for (int batch = 0; batch < 100; batch++)
         {
             now += IntervalMicros;
-            var results = new PacketResult[10];
+            var results = new Sent[10];
             long sendTime = now - IntervalMicros;
             for (int i = 0; i < results.Length; i++)
             {
                 results[i] =
                     i % 2 == 0
-                        ? new PacketResult(seq++, 1200, sendTime, sendTime + 10_000)
-                        : new PacketResult(seq++, 1200, sendTime, -1);
+                        ? Packet(seq++, 1200, sendTime, sendTime + 10_000)
+                        : Packet(seq++, 1200, sendTime, -1);
             }
 
-            controller.OnFeedback(results, now);
+            Feed(controller, results, now);
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps < Options.MaxBitrateBps / 4,
+            controller.Current.TargetBitsPerSecond < Options.MaxBitrateBps / 4,
             "sustained loss must collapse the rate."
         );
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps >= Options.MinBitrateBps,
+            controller.Current.TargetBitsPerSecond >= Options.MinBitrateBps,
             "the rate must never drop below the floor."
         );
     }
@@ -140,17 +140,17 @@ public sealed class CongestionResilienceTests
         for (int batch = 0; batch < 100; batch++)
         {
             now += IntervalMicros;
-            controller.OnFeedback(Clean(ref seq, now), now);
+            Feed(controller, Clean(ref seq, now), now);
         }
 
-        long before = controller.CurrentEstimate.TargetBitrateBps;
+        long before = controller.Current.TargetBitsPerSecond;
 
         // No feedback for > 1 s (the link went quiet): the process tick should ease the rate down defensively.
         now += 2_000_000;
-        controller.OnProcessInterval(now);
+        controller.OnTick(Time(now));
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps < before,
+            controller.Current.TargetBitsPerSecond < before,
             "feedback starvation must ease the rate off."
         );
     }
@@ -166,14 +166,17 @@ public sealed class CongestionResilienceTests
         for (int batch = 0; batch < 50; batch++)
         {
             now += IntervalMicros;
-            controller.OnFeedback([new PacketResult(seq++, 1200, now - 40_000, now - 20_000)], now);
+            Feed(controller, [Packet(seq++, 1200, now - 40_000, now - 20_000)], now);
         }
 
-        long rttMs = controller.CurrentEstimate.SmoothedRttMicros / 1000;
+        long rttMs = (long)controller.Current.SmoothedRoundTrip.TotalMilliseconds;
         Assert.IsTrue(
             rttMs is > 20 and < 60,
             $"smoothed RTT should converge near 40 ms, got {rttMs} ms."
         );
-        Assert.IsTrue(controller.CurrentEstimate.BaseRttMicros > 0, "base RTT should be set.");
+        Assert.IsTrue(
+            controller.Current.MinimumRoundTrip > TimeSpan.Zero,
+            "base RTT should be set."
+        );
     }
 }

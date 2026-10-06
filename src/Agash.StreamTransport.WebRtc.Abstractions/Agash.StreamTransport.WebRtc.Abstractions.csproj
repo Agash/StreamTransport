@@ -5,7 +5,7 @@
     <AssemblyName>Agash.StreamTransport.WebRtc.Abstractions</AssemblyName>
     <RootNamespace>Agash.StreamTransport.WebRtc</RootNamespace>
     <PackageId>Agash.StreamTransport.WebRtc.Abstractions</PackageId>
-    <Description>Contracts shared by the Agash.StreamTransport WebRTC packages: ICE and DTLS roles, network-control seams for congestion control, and network change monitoring. BCL only.</Description>
+    <Description>Contracts shared by the Agash.StreamTransport WebRTC packages: ICE and DTLS roles, network change monitoring, and transport health and loss statistics. BCL only.</Description>
     <PackageTags>webrtc;ice;dtls;srtp;rtp;abstractions;dotnet</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <MinVerTagPrefix>v</MinVerTagPrefix>

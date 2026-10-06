@@ -1,10 +1,9 @@
-using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.CongestionControl;
+using static Agash.StreamTransport.Adaptation.Tests.Feedback;
 
-namespace Agash.StreamTransport.WebRtc.Tests;
+namespace Agash.StreamTransport.Adaptation.Tests;
 
 [TestClass]
-public sealed class CongestionControlTests
+public sealed class ScreamCongestionControllerTests
 {
     private static readonly ScreamOptions Options = new()
     {
@@ -20,28 +19,28 @@ public sealed class CongestionControlTests
         var controller = new ScreamCongestionController(Options);
         long now = 0;
         ushort seq = 0;
-        long start = controller.CurrentEstimate.TargetBitrateBps;
+        long start = controller.Current.TargetBitsPerSecond;
 
         // 200 feedback batches of fully-received packets at a steady low RTT (~20 ms).
         for (int batch = 0; batch < 200; batch++)
         {
             now += 20_000;
-            var results = new PacketResult[10];
+            var results = new Sent[10];
             for (int i = 0; i < results.Length; i++)
             {
                 long sendTime = now - 20_000;
-                results[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000);
+                results[i] = Packet(seq++, 1200, sendTime, sendTime + 10_000);
             }
 
-            controller.OnFeedback(results, now);
+            Feed(controller, results, now);
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps > start,
+            controller.Current.TargetBitsPerSecond > start,
             "rate should grow on clean delivery"
         );
         Assert.IsTrue(
-            controller.CurrentEstimate.PacingRateBps > controller.CurrentEstimate.TargetBitrateBps,
+            controller.Current.PacingBitsPerSecond > controller.Current.TargetBitsPerSecond,
             "pacing has headroom"
         );
     }
@@ -53,25 +52,25 @@ public sealed class CongestionControlTests
         // the controller backs off. Feedback is spaced > VirtualRtt (25 ms) so each report steps the filter.
         var controller = new ScreamCongestionController(Options);
         (long now, ushort seq) = RampClean(controller, 50);
-        long beforeLoss = controller.CurrentEstimate.TargetBitrateBps;
+        long beforeLoss = controller.Current.TargetBitsPerSecond;
 
         for (int batch = 0; batch < 10; batch++)
         {
             now += 30_000;
-            PacketResult[] lossy =
+            Sent[] lossy =
             [
-                new PacketResult(seq++, 1200, now - 30_000, now - 15_000),
-                new PacketResult(seq++, 1200, now - 30_000, -1),
-                new PacketResult(seq++, 1200, now - 30_000, -1),
+                Packet(seq++, 1200, now - 30_000, now - 15_000),
+                Packet(seq++, 1200, now - 30_000, -1),
+                Packet(seq++, 1200, now - 30_000, -1),
             ];
-            controller.OnFeedback(lossy, now);
+            Feed(controller, lossy, now);
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps < beforeLoss,
+            controller.Current.TargetBitsPerSecond < beforeLoss,
             "sustained loss must reduce the target"
         );
-        Assert.IsTrue(controller.CurrentEstimate.TargetBitrateBps >= Options.MinBitrateBps);
+        Assert.IsTrue(controller.Current.TargetBitsPerSecond >= Options.MinBitrateBps);
     }
 
     [TestMethod]
@@ -81,27 +80,27 @@ public sealed class CongestionControlTests
         // drifts net-negative under this noise, so the controller must NOT collapse the rate - it holds or grows.
         var controller = new ScreamCongestionController(Options);
         (long now, ushort seq) = RampClean(controller, 50);
-        long beforeNoise = controller.CurrentEstimate.TargetBitrateBps;
+        long beforeNoise = controller.Current.TargetBitsPerSecond;
 
         for (int batch = 0; batch < 100; batch++)
         {
             // Space reports 30 ms apart (> VirtualRtt, so each steps the filter) but keep the RTT sample at the
             // same 20 ms as the ramp, so any rate change comes from the loss filter, not an RTT shift.
             now += 30_000;
-            var results = new PacketResult[10];
+            var results = new Sent[10];
             for (int i = 0; i < results.Length; i++)
             {
                 long sendTime = now - 20_000;
                 // One spurious loss every third report; the rest delivered cleanly at a low RTT.
                 bool lost = batch % 3 == 0 && i == 0;
-                results[i] = new PacketResult(seq++, 1200, sendTime, lost ? -1 : sendTime + 10_000);
+                results[i] = Packet(seq++, 1200, sendTime, lost ? -1 : sendTime + 10_000);
             }
 
-            controller.OnFeedback(results, now);
+            Feed(controller, results, now);
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps >= beforeNoise,
+            controller.Current.TargetBitsPerSecond >= beforeNoise,
             "spurious random loss must not drive a back-off (the rate should hold or keep growing)"
         );
     }
@@ -115,18 +114,18 @@ public sealed class CongestionControlTests
         // an explicit congestion signal, not noise to be filtered.
         var controller = new ScreamCongestionController(Options);
         (long now, ushort seq) = RampClean(controller, 50);
-        long before = controller.CurrentEstimate.TargetBitrateBps;
+        long before = controller.Current.TargetBitsPerSecond;
 
         now += 20_000;
-        var ce = new PacketResult[10];
+        var ce = new Sent[10];
         for (int i = 0; i < ce.Length; i++)
         {
             long sendTime = now - 20_000;
-            ce[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000, Ecn: 0x03);
+            ce[i] = Packet(seq++, 1200, sendTime, sendTime + 10_000, EcnCodepoint.Ce);
         }
-        controller.OnFeedback(ce, now);
+        Feed(controller, ce, now);
 
-        long afterCe = controller.CurrentEstimate.TargetBitrateBps;
+        long afterCe = controller.Current.TargetBitsPerSecond;
         Assert.IsTrue(afterCe < before, "ECN-CE must reduce the target");
         Assert.IsTrue(
             afterCe > before * Options.BackoffFactor,
@@ -142,22 +141,22 @@ public sealed class CongestionControlTests
         // below it).
         var controller = new ScreamCongestionController(Options);
         (long now, ushort seq) = RampClean(controller, 80);
-        long before = controller.CurrentEstimate.TargetBitrateBps;
+        long before = controller.Current.TargetBitsPerSecond;
 
         for (int batch = 0; batch < 40; batch++)
         {
             now += 20_000;
-            var ce = new PacketResult[10];
+            var ce = new Sent[10];
             for (int i = 0; i < ce.Length; i++)
             {
                 long sendTime = now - 20_000;
-                ce[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000, Ecn: 0x03);
+                ce[i] = Packet(seq++, 1200, sendTime, sendTime + 10_000, EcnCodepoint.Ce);
             }
 
-            controller.OnFeedback(ce, now);
+            Feed(controller, ce, now);
         }
 
-        long after = controller.CurrentEstimate.TargetBitrateBps;
+        long after = controller.Current.TargetBitsPerSecond;
         Assert.IsTrue(after < before / 2, "sustained ECN-CE must drive the rate well below half");
         Assert.IsTrue(after >= Options.MinBitrateBps, "but never below the configured floor");
     }
@@ -172,14 +171,14 @@ public sealed class CongestionControlTests
         for (int batch = 0; batch < batches; batch++)
         {
             now += 20_000;
-            var ok = new PacketResult[10];
+            var ok = new Sent[10];
             for (int i = 0; i < ok.Length; i++)
             {
                 long sendTime = now - 20_000;
-                ok[i] = new PacketResult(seq++, 1200, sendTime, sendTime + 10_000);
+                ok[i] = Packet(seq++, 1200, sendTime, sendTime + 10_000);
             }
 
-            controller.OnFeedback(ok, now);
+            Feed(controller, ok, now);
         }
 
         return (now, seq);
@@ -194,21 +193,18 @@ public sealed class CongestionControlTests
 
         // Establish a low base RTT.
         now += 20_000;
-        controller.OnFeedback([new PacketResult(seq++, 1200, now - 20_000, now - 10_000)], now);
+        Feed(controller, [Packet(seq++, 1200, now - 20_000, now - 10_000)], now);
 
         // Now RTT balloons well past the queue-delay target (bufferbloat): growth must stall / back off.
-        long high = controller.CurrentEstimate.TargetBitrateBps;
+        long high = controller.Current.TargetBitsPerSecond;
         for (int batch = 0; batch < 20; batch++)
         {
             now += 300_000; // 300 ms RTT - far above the 60 ms target
-            controller.OnFeedback(
-                [new PacketResult(seq++, 1200, now - 300_000, now - 150_000)],
-                now
-            );
+            Feed(controller, [Packet(seq++, 1200, now - 300_000, now - 150_000)], now);
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps <= high,
+            controller.Current.TargetBitsPerSecond <= high,
             "standing queue delay must not let the rate grow"
         );
     }
@@ -221,47 +217,26 @@ public sealed class CongestionControlTests
         // one lossless RTT: -1/2; alternating nets -1/6 per pair.)
         var controller = new ScreamCongestionController(Options);
         (long now, ushort seq) = RampClean(controller, 50);
-        long before = controller.CurrentEstimate.TargetBitrateBps;
+        long before = controller.Current.TargetBitsPerSecond;
 
         for (int batch = 0; batch < 60; batch++)
         {
             now += 30_000; // > VirtualRtt so every report steps the filter; RTT sample held at 20 ms
             bool lossRtt = batch % 2 == 0;
-            var results = new PacketResult[10];
+            var results = new Sent[10];
             for (int i = 0; i < results.Length; i++)
             {
                 long sendTime = now - 20_000;
                 bool lost = lossRtt && i == 0;
-                results[i] = new PacketResult(seq++, 1200, sendTime, lost ? -1 : sendTime + 10_000);
+                results[i] = Packet(seq++, 1200, sendTime, lost ? -1 : sendTime + 10_000);
             }
 
-            controller.OnFeedback(results, now);
+            Feed(controller, results, now);
         }
 
         Assert.IsTrue(
-            controller.CurrentEstimate.TargetBitrateBps >= before,
+            controller.Current.TargetBitsPerSecond >= before,
             "alternating (non-consecutive) loss RTTs must not trigger a back-off"
         );
-    }
-
-    [TestMethod]
-    public void PacingBudget_RefillsAtRate_AndCapsBurst()
-    {
-        var budget = new PacingBudget(initialRateBps: 8_000_000, maxBurstMs: 40); // 1 MB/s
-        budget.Refill(0); // prime
-
-        // After 10 ms at 1 MB/s, ~10 000 bytes available.
-        int available = budget.Refill(10_000);
-        Assert.IsTrue(
-            available is > 9_000 and < 11_000,
-            $"expected ~10 000 bytes, got {available}"
-        );
-
-        // A long idle does not let the budget exceed the burst cap (~40 ms = ~40 000 bytes).
-        int capped = budget.Refill(10_000 + 5_000_000);
-        Assert.IsTrue(capped <= 41_000, $"burst must be capped, got {capped}");
-
-        budget.Consume(capped);
-        Assert.AreEqual(0, budget.Refill(10_000 + 5_000_000));
     }
 }
