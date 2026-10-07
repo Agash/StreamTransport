@@ -54,6 +54,26 @@ public sealed class D3D12ProcessorTests
     }
 
     [TestMethod]
+    public void AlphaPack_OddColourWidth_IsRefused()
+    {
+        using var gpu = TestGpu.Open();
+        VideoStreamDescription odd = new(
+            VideoStorageKind.D3D12,
+            PixelFormat.Bgra,
+            new VideoSize(1919, 1080),
+            gpu.Adapter
+        );
+
+        // The packed frame is 3838 wide, even, but a 4:2:0 chroma block would straddle the halves.
+        Assert.IsNull(
+            Factory.QueryCapabilities(
+                odd,
+                new VideoProcessing(Nv12Output(gpu), Alpha: AlphaLayout.PackSideBySide)
+            )
+        );
+    }
+
+    [TestMethod]
     public void AlphaPack_PutsAlphaInTheRightHalfLumaWithNeutralChroma()
     {
         using var gpu = TestGpu.Open();

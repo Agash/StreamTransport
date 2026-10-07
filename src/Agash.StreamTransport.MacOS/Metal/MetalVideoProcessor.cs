@@ -81,7 +81,9 @@ public sealed class MetalVideoProcessorFactory(ILoggerFactory? loggerFactory = n
                         Width = colour.Width * 2,
                     }
                     : colour;
-            return size.Width % 2 == 0 && size.Height % 2 == 0
+            // The colour itself must be even: 4:2:0 chroma averages 2x2 blocks, and an odd colour width
+            // would put a block across the colour and alpha halves of a packed frame.
+            return colour.Width % 2 == 0 && colour.Height % 2 == 0
                 ? Info(PixelFormat.Nv12, size, input.Device, storage)
                 : null;
         }
