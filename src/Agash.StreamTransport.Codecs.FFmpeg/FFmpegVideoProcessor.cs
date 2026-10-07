@@ -224,6 +224,7 @@ internal sealed class FFmpegVideoProcessor(
             : direct ? _source.GetPlane(3)
             : _work.GetPlane(3);
         FF.ImagePlane luma = _output.GetWritablePlane(0);
+        bool full = target.Range == ColorRange.Full;
         for (int row = 0; row < height; row++)
         {
             Span<byte> line = luma.GetRow(row);
@@ -231,7 +232,7 @@ internal sealed class FFmpegVideoProcessor(
             ReadOnlySpan<byte> alphaRow = a.GetRow(row);
             for (int x = 0; x < width; x++)
             {
-                line[width + x] = ToVideoRange(packedRgb ? alphaRow[(4 * x) + 3] : alphaRow[x]);
+                line[width + x] = ToLuma(packedRgb ? alphaRow[(4 * x) + 3] : alphaRow[x], full);
             }
         }
 
@@ -283,6 +284,7 @@ internal sealed class FFmpegVideoProcessor(
         _output.AllocateVideo(width, height, Formats.ToFFmpeg(output.PixelFormat));
         SetColor(_output, target);
         FF.ReadOnlyImagePlane packedLuma = _source.GetPlane(0);
+        bool full = _source.ColorRange == Formats.ToFFmpeg(ColorRange.Full);
         if (output.PixelFormat == PixelFormat.Yuva420)
         {
             for (int plane = 0; plane < 3; plane++)
@@ -304,7 +306,7 @@ internal sealed class FFmpegVideoProcessor(
                 ReadOnlySpan<byte> packed = packedLuma.GetRow(row);
                 for (int x = 0; x < width; x++)
                 {
-                    line[x] = FromVideoRange(packed[width + x]);
+                    line[x] = FromLuma(packed[width + x], full);
                 }
             }
 
@@ -320,17 +322,21 @@ internal sealed class FFmpegVideoProcessor(
             ReadOnlySpan<byte> packed = packedLuma.GetRow(row);
             for (int x = 0; x < width; x++)
             {
-                line[(4 * x) + 3] = FromVideoRange(packed[width + x]);
+                line[(4 * x) + 3] = FromLuma(packed[width + x], full);
             }
         }
     }
 
     private const byte Neutral = 128;
 
-    private static byte ToVideoRange(byte alpha) => (byte)(16 + (((219 * alpha) + 127) / 255));
+    // Alpha travels as the packed frame's luma, in the frame's range, as grey (a, a, a) does through the
+    // GPU processors' matrix: 16-235 in a limited-range frame, 0-255 in a full-range one. A frame packed
+    // by one processor then unpacks the same in any other.
+    private static byte ToLuma(byte alpha, bool full) =>
+        full ? alpha : (byte)(16 + (((219 * alpha) + 127) / 255));
 
-    private static byte FromVideoRange(byte luma) =>
-        (byte)Math.Clamp((((luma - 16) * 255) + 109) / 219, 0, 255);
+    private static byte FromLuma(byte luma, bool full) =>
+        full ? luma : (byte)Math.Clamp((((luma - 16) * 255) + 109) / 219, 0, 255);
 
     private static void SetColor(FF.Frame frame, VideoColor color)
     {

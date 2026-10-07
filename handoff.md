@@ -71,8 +71,8 @@ to NuGet. Releases and upstream patches are the owner's call.
    `systemd-run --user`. A cloud session cannot reach the LAN machines (lab box and Mac at
    192.168.20.183), so cross-machine runs wait for the local machine.
 2. **Alpha and colour, from two external reviews:**
-   - A2 to A10 in the ledger, with verification marks. A5 and A9 are confirmed in code; the rest are
-     still to verify.
+   - A3 to A10 in the ledger, with verification marks (A1 and A2 are fixed). A5 and A9 are confirmed in
+     code; the rest are still to verify.
    - In particular, VideoToolbox hardware decode of HEVC alpha (A9).
    - Also `x-alpha` negotiated from real encoder and decoder capabilities (A10), and `AlphaLayout.Layer`
      made codec-neutral (HEVC now; VVC and AV2 later).
