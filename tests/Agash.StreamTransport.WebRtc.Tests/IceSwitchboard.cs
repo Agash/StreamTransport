@@ -26,6 +26,28 @@ internal sealed class IceSwitchboard
     /// <summary>How many connectivity checks (binding requests) have been delivered.</summary>
     public int ChecksDelivered { get; private set; }
 
+    /// <summary>
+    /// Whether gathered candidates reach the other peer, as trickle over signaling does; off, a peer learns
+    /// a new address only from the checks that arrive from it (peer-reflexive).
+    /// </summary>
+    public bool Trickle { get; set; } = true;
+
+    /// <summary>An interface coming up on a peer mid-session, as a modem attaching does.</summary>
+    public void AddInterface(Peer peer, IPAddress address)
+    {
+        Bind(peer, [address]);
+        Exchange();
+    }
+
+    /// <summary>An interface going away on a peer: its endpoint is removed and the address goes dark.</summary>
+    public void RemoveInterface(Peer peer, IPAddress address)
+    {
+        _ = _cut.Add(address);
+        int handle = peer.Endpoints.FindIndex(e => e.Address.Equals(address));
+        peer.Machine.RemoveLocalEndpoint(handle, Now);
+        Exchange();
+    }
+
     /// <summary>A controlling and a controlled machine on the given addresses, trickling to each other.</summary>
     public (Peer Controlling, Peer Controlled) Pair(
         IPAddress[] controlling,
@@ -212,7 +234,10 @@ internal sealed class IceSwitchboard
                     busy = true;
                     if (iceEvent.Candidate is { } candidate)
                     {
-                        peer.Remote?.Machine.AddRemoteCandidate(candidate);
+                        if (Trickle)
+                        {
+                            peer.Remote?.Machine.AddRemoteCandidate(candidate);
+                        }
                     }
                     else
                     {

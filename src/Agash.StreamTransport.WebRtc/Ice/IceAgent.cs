@@ -303,6 +303,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     {
         lock (_gate)
         {
+            Regather(_cts?.Token ?? CancellationToken.None);
             _machine.TriggerRecovery();
         }
 
@@ -384,16 +385,64 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         foreach (IPAddress address in _socketFactory.GetLocalAddresses(_includeLoopback))
         {
-            if (!_socketFactory.TryBind(address, out IIceSocket socket))
+            Bind(address, cancellationToken);
+        }
+    }
+
+    // Binds a host socket on an address and hands it to the machine. Called holding the lock.
+    private void Bind(IPAddress address, CancellationToken cancellationToken)
+    {
+        if (!_socketFactory.TryBind(address, out IIceSocket socket))
+        {
+            return; // The family is unavailable or the address is not bindable.
+        }
+
+        int handle = _nextHandle++;
+        LocalSocket local = new(handle, socket);
+        _sockets[handle] = local;
+        _machine.AddLocalEndpoint(handle, socket.LocalEndPoint);
+        local.Receiving = ReceiveLoopAsync(local, cancellationToken);
+    }
+
+    // Continual gathering, as libwebrtc's GATHER_CONTINUALLY and pion's GatherContinually: an address that
+    // came up gets a socket and a host candidate (raised for trickling, and paired with every remote
+    // candidate known, so a peer that can reach it learns it from the checks alone), and an address that
+    // went away loses its socket and pairs. Relayed endpoints are left alone; their allocation fails over
+    // by consent. Called holding the lock, after the agent started.
+    private void Regather(CancellationToken cancellationToken)
+    {
+        if (_policy == IceTransportPolicy.Relay || _cts is null)
+        {
+            return;
+        }
+
+        HashSet<IPAddress> current = [.. _socketFactory.GetLocalAddresses(_includeLoopback)];
+        HashSet<IPAddress> bound = [];
+        foreach (LocalSocket local in _sockets.Values.ToList())
+        {
+            if (local.Kind != IceCandidateKind.Host)
             {
-                continue; // The family is unavailable or the address is not bindable.
+                continue;
             }
 
-            int handle = _nextHandle++;
-            LocalSocket local = new(handle, socket);
-            _sockets[handle] = local;
-            _machine.AddLocalEndpoint(handle, socket.LocalEndPoint);
-            local.Receiving = ReceiveLoopAsync(local, cancellationToken);
+            IPAddress address = local.Socket.LocalEndPoint.Address;
+            if (current.Contains(address))
+            {
+                _ = bound.Add(address);
+                continue;
+            }
+
+            _machine.RemoveLocalEndpoint(local.Handle, Now);
+            _ = _sockets.Remove(local.Handle);
+            local.Socket.Dispose();
+        }
+
+        foreach (IPAddress address in current)
+        {
+            if (!bound.Contains(address))
+            {
+                Bind(address, cancellationToken);
+            }
         }
     }
 
@@ -538,7 +587,7 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
 
             int handle = _nextHandle++;
-            LocalSocket local = new(handle, allocation);
+            LocalSocket local = new(handle, allocation, IceCandidateKind.Relayed);
             _sockets[handle] = local;
             _machine.AddLocalEndpoint(
                 handle,
@@ -805,11 +854,17 @@ public sealed partial class IceAgent : IAsyncDisposable
     [LoggerMessage(EventId = 1115, Level = LogLevel.Error, Message = "An ICE event handler failed")]
     private partial void LogEventHandlerFailed(Exception exception);
 
-    private sealed class LocalSocket(int handle, IIceSocket socket)
+    private sealed class LocalSocket(
+        int handle,
+        IIceSocket socket,
+        IceCandidateKind kind = IceCandidateKind.Host
+    )
     {
         public int Handle { get; } = handle;
 
         public IIceSocket Socket { get; } = socket;
+
+        public IceCandidateKind Kind { get; } = kind;
 
         public Task? Receiving { get; set; }
     }

@@ -64,6 +64,7 @@ internal sealed partial class IceStateMachine
     private byte[] _localPassword;
     private IceCredentials _remote;
     private CandidatePair? _selected;
+    private bool _started;
 
     // The pair the last data datagram came over, so the per-packet lookup is one comparison.
     private CandidatePair? _lastData;
@@ -154,6 +155,13 @@ internal sealed partial class IceStateMachine
 
         LogLocalCandidate(candidate.Kind, candidate.Endpoint);
         _events.Enqueue(new IceEvent(candidate, State));
+
+        // An interface that came up mid-session (continual gathering): its server-reflexive address is
+        // asked for now, and its pairs are checked with the next checks.
+        if (_started)
+        {
+            QueryStunServers(local);
+        }
     }
 
     /// <summary>Starts checking, and asks STUN servers for server-reflexive candidates.</summary>
@@ -162,32 +170,64 @@ internal sealed partial class IceStateMachine
     {
         NextTimeout = now + _timings.Ta;
         SetState(IceConnectionState.Checking);
-        Span<byte> transaction = stackalloc byte[StunHeader.TransactionIdLength];
+        _started = true;
         foreach (LocalEndpoint local in _locals)
         {
-            if (local.Candidate.Kind != IceCandidateKind.Host)
+            QueryStunServers(local);
+        }
+    }
+
+    /// <summary>
+    /// Removes a local endpoint whose address went away, with its pairs. When the selected pair was one of
+    /// them, the best valid alternate takes over at once; with none, every pair is checked again.
+    /// </summary>
+    /// <param name="handle">The endpoint's handle.</param>
+    /// <param name="now">The time.</param>
+    public void RemoveLocalEndpoint(int handle, TimeSpan now)
+    {
+        if (_locals.Find(l => l.Handle == handle) is not { } local)
+        {
+            return;
+        }
+
+        _ = _locals.Remove(local);
+        _ = _pairs.RemoveAll(p => ReferenceEquals(p.Local, local));
+        foreach (
+            string transaction in _inFlight
+                .Where(entry => ReferenceEquals(entry.Value.Pair.Local, local))
+                .Select(entry => entry.Key)
+                .ToList()
+        )
+        {
+            _ = _inFlight.Remove(transaction);
+        }
+
+        foreach (
+            string transaction in _gatherInFlight
+                .Where(entry => ReferenceEquals(entry.Value, local))
+                .Select(entry => entry.Key)
+                .ToList()
+        )
+        {
+            _ = _gatherInFlight.Remove(transaction);
+        }
+
+        if (_lastData is { } last && ReferenceEquals(last.Local, local))
+        {
+            _lastData = null;
+        }
+
+        LogLocalCandidateRemoved(local.Candidate.Kind, local.Candidate.Endpoint);
+        if (_selected is { } selected && ReferenceEquals(selected.Local, local))
+        {
+            _selected = null;
+            if (Best(now) is { } next && IsWritable(next, now))
             {
-                continue;
+                Switch(next, now);
             }
-
-            foreach (IPEndPoint server in _stunServers)
+            else
             {
-                if (!IceCandidate.CanReach(local.Candidate.Endpoint.Address, server.Address))
-                {
-                    continue;
-                }
-
-                RandomNumberGenerator.Fill(transaction);
-                byte[] buffer = new byte[64];
-                StunMessageWriter writer = new(
-                    buffer,
-                    StunMessageClass.Request,
-                    StunMethod.Binding,
-                    transaction
-                );
-                writer.AddFingerprint();
-                _gatherInFlight[Convert.ToHexString(transaction)] = local;
-                _transmits.Enqueue(new IceTransmit(local.Handle, server, buffer[..writer.Length]));
+                Recheck();
             }
         }
     }
@@ -336,6 +376,36 @@ internal sealed partial class IceStateMachine
     public bool TryPollTransmit(out IceTransmit transmit) => _transmits.TryDequeue(out transmit);
 
     public bool TryPollEvent(out IceEvent iceEvent) => _events.TryDequeue(out iceEvent);
+
+    // Asks every STUN server the endpoint reaches for its server-reflexive address.
+    private void QueryStunServers(LocalEndpoint local)
+    {
+        if (local.Candidate.Kind != IceCandidateKind.Host)
+        {
+            return;
+        }
+
+        Span<byte> transaction = stackalloc byte[StunHeader.TransactionIdLength];
+        foreach (IPEndPoint server in _stunServers)
+        {
+            if (!IceCandidate.CanReach(local.Candidate.Endpoint.Address, server.Address))
+            {
+                continue;
+            }
+
+            RandomNumberGenerator.Fill(transaction);
+            byte[] buffer = new byte[64];
+            StunMessageWriter writer = new(
+                buffer,
+                StunMessageClass.Request,
+                StunMethod.Binding,
+                transaction
+            );
+            writer.AddFingerprint();
+            _gatherInFlight[Convert.ToHexString(transaction)] = local;
+            _transmits.Enqueue(new IceTransmit(local.Handle, server, buffer[..writer.Length]));
+        }
+    }
 
     private static string Foundation(IceCandidateKind kind, IPAddress baseAddress) =>
         $"{(int)kind}-{baseAddress}";
@@ -664,6 +734,12 @@ internal sealed partial class IceStateMachine
             return;
         }
 
+        Recheck();
+    }
+
+    // With no pair selected, every pair is checked again from the start and nominated afresh.
+    private void Recheck()
+    {
         foreach (CandidatePair pair in _pairs)
         {
             pair.State = PairState.Waiting;
@@ -908,6 +984,13 @@ internal sealed partial class IceStateMachine
         Message = "ICE local candidate {Kind} {Endpoint}"
     )]
     private partial void LogLocalCandidate(IceCandidateKind kind, IPEndPoint endpoint);
+
+    [LoggerMessage(
+        EventId = 1138,
+        Level = LogLevel.Information,
+        Message = "ICE local candidate {Kind} {Endpoint} removed: its address went away"
+    )]
+    private partial void LogLocalCandidateRemoved(IceCandidateKind kind, IPEndPoint endpoint);
 
     [LoggerMessage(
         EventId = 1131,

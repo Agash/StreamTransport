@@ -18,6 +18,13 @@ internal sealed class InMemoryIceNetwork
 
     /// <summary>A socket factory that offers <paramref name="addresses"/> as this agent's local interfaces.</summary>
     public IIceSocketFactory Factory(params IPAddress[] addresses) =>
+        new FakeFactory(this, () => addresses);
+
+    /// <summary>
+    /// A socket factory whose local interfaces are whatever <paramref name="addresses"/> returns when asked,
+    /// so a test can bring interfaces up and take them down.
+    /// </summary>
+    public IIceSocketFactory Factory(Func<IEnumerable<IPAddress>> addresses) =>
         new FakeFactory(this, addresses);
 
     /// <summary>The endpoints bound on an address so far.</summary>
@@ -63,12 +70,14 @@ internal sealed class InMemoryIceNetwork
         return endpoint;
     }
 
-    private sealed class FakeFactory(InMemoryIceNetwork network, IPAddress[] addresses)
-        : IIceSocketFactory
+    private sealed class FakeFactory(
+        InMemoryIceNetwork network,
+        Func<IEnumerable<IPAddress>> addresses
+    ) : IIceSocketFactory
     {
         public EcnSupport Ecn => EcnSupport.SetRead;
 
-        public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback) => addresses;
+        public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback) => addresses();
 
         public bool TryBind(IPAddress address, out IIceSocket socket)
         {
@@ -109,9 +118,21 @@ internal sealed class InMemoryIceNetwork
             CancellationToken cancellationToken
         )
         {
-            (IPEndPoint from, byte[] data, EcnCodepoint ecn) = await _rx
-                .Reader.ReadAsync(cancellationToken)
-                .ConfigureAwait(false);
+            IPEndPoint from;
+            byte[] data;
+            EcnCodepoint ecn;
+            try
+            {
+                (from, data, ecn) = await _rx
+                    .Reader.ReadAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ChannelClosedException)
+            {
+                // As a closed socket does.
+                throw new ObjectDisposedException(nameof(FakeSocket));
+            }
+
             data.CopyTo(buffer.Span);
             return new IceReceiveResult(data.Length, from, (byte)ecn);
         }
@@ -119,6 +140,11 @@ internal sealed class InMemoryIceNetwork
         public void Enqueue(IPEndPoint from, byte[] data, EcnCodepoint ecn) =>
             _rx.Writer.TryWrite((from, data, ecn));
 
-        public void Dispose() => _rx.Writer.TryComplete();
+        // Closing unbinds, as a socket does: the address no longer receives on this port.
+        public void Dispose()
+        {
+            _ = _network._sockets.TryRemove(LocalEndPoint, out _);
+            _ = _rx.Writer.TryComplete();
+        }
     }
 }

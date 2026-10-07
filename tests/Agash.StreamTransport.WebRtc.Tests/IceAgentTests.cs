@@ -160,6 +160,94 @@ public sealed class IceAgentTests
     }
 
     [TestMethod]
+    [Timeout(30_000)]
+    public async Task NetworkChange_BindsANewInterface_AndMovesOffOneThatWentAway()
+    {
+        var wifi = IPAddress.Parse("10.0.0.1");
+        var cellular = IPAddress.Parse("10.1.0.1");
+        List<IPAddress> interfaces = [wifi];
+        HashSet<IPAddress> gone = [];
+        InMemoryIceNetwork network = new()
+        {
+            Drop = (from, to, _) =>
+            {
+                lock (gone)
+                {
+                    return gone.Contains(from.Address) || gone.Contains(to.Address);
+                }
+            },
+        };
+        await using var agents = Agents.Start(
+            network: network,
+            addressesOfA: () =>
+            {
+                lock (interfaces)
+                {
+                    return [.. interfaces];
+                }
+            },
+            addressesOfB: [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        await agents.BothConnectedAsync();
+        List<IceCandidate> trickled = [];
+        agents.A.LocalCandidateGathered += c =>
+        {
+            lock (trickled)
+            {
+                trickled.Add(c);
+            }
+        };
+
+        // Wi-Fi goes and the modem comes up, one network change.
+        lock (interfaces)
+        {
+            interfaces.Clear();
+            interfaces.Add(cellular);
+        }
+
+        lock (gone)
+        {
+            gone.Add(wifi);
+        }
+
+        agents.A.TriggerRecovery();
+
+        while (agents.A.SelectedPath?.Local.Address.Equals(cellular) != true)
+        {
+            await Task.Delay(20);
+        }
+
+        lock (trickled)
+        {
+            Assert.IsTrue(
+                trickled.Exists(c => c.Endpoint.Address.Equals(cellular)),
+                "the new interface's candidate is raised for trickling."
+            );
+        }
+
+        Assert.IsEmpty(
+            network.BoundOn(wifi),
+            "the socket on the address that went away is closed."
+        );
+        while (agents.B.SelectedPath?.Remote.Address.Equals(cellular) != true)
+        {
+            await agents.A.SendAsync(new byte[] { 0x80, 1 });
+            await Task.Delay(20);
+        }
+
+        await agents.A.SendAsync(new byte[] { 0x80, 2 });
+        await agents.B.SendAsync(new byte[] { 0x80, 3 });
+        await ReadTaggedAsync(agents.ReceivedByB, 2);
+        await ReadTaggedAsync(agents.ReceivedByA, 3);
+    }
+
+    // Reads until the datagram carrying the tag arrives.
+    private static async Task ReadTaggedAsync(ChannelReader<byte[]> reader, byte tag)
+    {
+        while ((await reader.ReadAsync().AsTask().WaitAsync(Patience))[1] != tag) { }
+    }
+
+    [TestMethod]
     public async Task Send_BeforeAPairIsSelected_IsDropped()
     {
         await using IceAgent agent = new(
@@ -197,22 +285,29 @@ public sealed class IceAgentTests
 
         public ChannelReader<bool> AConnected => _aConnected.Reader;
 
-        public static Agents Start(IceTimings? timings = null)
+        public static Agents Start(
+            IceTimings? timings = null,
+            InMemoryIceNetwork? network = null,
+            Func<IEnumerable<IPAddress>>? addressesOfA = null,
+            IPAddress[]? addressesOfB = null
+        )
         {
-            InMemoryIceNetwork network = new();
+            network ??= new();
             var credentialsA = IceCredentials.Generate();
             var credentialsB = IceCredentials.Generate();
             Agents agents = new(
                 new IceAgent(
                     credentialsA,
                     IceRole.Controlling,
-                    socketFactory: network.Factory(IPAddress.Parse("10.0.0.1")),
+                    socketFactory: addressesOfA is null
+                        ? network.Factory(IPAddress.Parse("10.0.0.1"))
+                        : network.Factory(addressesOfA),
                     timings: timings
                 ),
                 new IceAgent(
                     credentialsB,
                     IceRole.Controlled,
-                    socketFactory: network.Factory(IPAddress.Parse("10.0.0.2"))
+                    socketFactory: network.Factory(addressesOfB ?? [IPAddress.Parse("10.0.0.2")])
                 )
             );
             agents.A.LocalCandidateGathered += agents.B.AddRemoteCandidate;

@@ -325,6 +325,66 @@ public sealed class IceMobilityTests
     }
 
     [TestMethod]
+    [DataRow(true, DisplayName = "trickled")]
+    [DataRow(false, DisplayName = "peer-reflexive, no signaling")]
+    public void InterfaceComingUp_IsCheckedMidSession_AndTakesOverWhenTheOldOneGoes(bool trickle)
+    {
+        IceSwitchboard board = new();
+        var wifi = IPAddress.Parse("10.0.0.1");
+        var cellular = IPAddress.Parse("10.1.0.1");
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [wifi],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        board.Trickle = trickle;
+
+        // The modem attaches: no restart, its pairs are checked alongside the live one.
+        board.AddInterface(a, cellular);
+        _ = board.Stream(TimeSpan.FromSeconds(2));
+        Assert.AreEqual(
+            wifi,
+            a.SelectedAddress,
+            "media stays where it is while the new pairs check."
+        );
+
+        // Wi-Fi drops with an interface event: the warm cellular pair takes over at once.
+        board.RemoveInterface(a, wifi);
+        TimeSpan removedAt = board.Now;
+        Assert.AreEqual(cellular, a.SelectedAddress);
+        while (IsOnPeerOf(b, wifi) && board.Now - removedAt < TimeSpan.FromSeconds(5))
+        {
+            _ = board.Stream(TimeSpan.FromMilliseconds(20));
+        }
+
+        Assert.IsLessThan(
+            TimeSpan.FromSeconds(1),
+            board.Now - removedAt,
+            "the controlled side follows within the time the media takes to arrive."
+        );
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(sent, fromA);
+        Assert.AreEqual(sent, fromB);
+        Assert.IsTrue(a.Connected && b.Connected);
+    }
+
+    [TestMethod]
+    public void SelectedInterfaceGoing_WithNoAlternate_ChecksAgain()
+    {
+        IceSwitchboard board = new();
+        var wifi = IPAddress.Parse("10.0.0.1");
+        (IceSwitchboard.Peer a, _) = Connect(board, [wifi], [IPAddress.Parse("10.0.0.2")]);
+
+        board.RemoveInterface(a, wifi);
+
+        Assert.IsNull(a.Machine.Selected);
+        Assert.AreEqual(IceConnectionState.Checking, a.Machine.State);
+
+        board.AddInterface(a, IPAddress.Parse("10.1.0.1"));
+        Assert.IsTrue(board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)));
+    }
+
+    [TestMethod]
     public void Connected_ChecksAtTheKeepAliveCadence_NotThePacingRate()
     {
         IceSwitchboard board = new();
