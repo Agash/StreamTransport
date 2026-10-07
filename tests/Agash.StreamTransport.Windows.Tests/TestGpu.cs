@@ -53,6 +53,9 @@ internal sealed unsafe class TestGpu : IDisposable
 
     public GpuIdentity Adapter { get; }
 
+    /// <summary>The ID3D12Device.</summary>
+    public nint Device => (nint)_device;
+
     public static TestGpu Open()
     {
         Guid iid = typeof(ID3D12Device).GUID;

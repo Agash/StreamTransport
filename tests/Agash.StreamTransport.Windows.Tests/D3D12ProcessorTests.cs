@@ -2,6 +2,7 @@ using System.Numerics;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Windows.Direct3D12;
+using Windows.Win32.Graphics.Direct3D12;
 using Windows.Win32.Graphics.Dxgi.Common;
 
 namespace Agash.StreamTransport.Windows.Tests;
@@ -51,6 +52,35 @@ public sealed class D3D12ProcessorTests
         }
 
         Assert.AreEqual(VideoColor.Bt709, output.Color);
+    }
+
+    // Where the device stores to NV12, the shader writes the output's two planes in place, with no
+    // second pass copying intermediate planes in.
+    [TestMethod]
+    public void Nv12Output_IsWrittenInPlace_WhereTheDeviceStoresNv12()
+    {
+        using var gpu = TestGpu.Open();
+        using (D3D12Engine engine = new(gpu.Device))
+        {
+            if (!engine.StoresNv12)
+            {
+                Assert.Inconclusive("This GPU stores to NV12 only through separate planes.");
+            }
+        }
+
+        Kept output = Run(
+            gpu,
+            PixelFormat.Bgra,
+            Picture(PixelFormat.Bgra),
+            new VideoProcessing(Nv12Output(gpu), Alpha: AlphaLayout.PackSideBySide),
+            out _
+        );
+
+        Assert.IsTrue(
+            Direct3D12
+                .D3D12Engine.Describe(output.Image.Resource)
+                .Flags.HasFlag(D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
+        );
     }
 
     [TestMethod]
