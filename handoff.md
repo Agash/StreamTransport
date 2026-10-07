@@ -7,15 +7,39 @@ Branch: `restructure`. Everything below is pushed.
 
 1. `docs/research/restructure-ledger.md`: the working ledger. Every item (T, F, Z, A, C rows) with its
    status and evidence, the step plan, the research notes and the state at handoff at the end.
-2. The StreamWeaver repo's `CLAUDE.md` and `AGENTS.md` for conventions. The parts that matter most here:
-   - **Commits:** Conventional Commits, subject-only unless a body adds information.
-   - **No attribution:** no AI or Claude mention anywhere.
-   - **Comments:** no ADR or audit ids in code comments.
-   - **Prose:** no em dashes, no "X, not Y" constructions, no historical "no longer" text.
-   - **Warnings:** fix every one at source.
-   - **Timing:** through `TimeProvider`, never `Task.Delay` in library code.
-   - **Third-party files:** do not commit `docs/references/`; it holds third-party RFC, draft and source
-     copies.
+2. The rules below. They are not negotiable and apply to everything that lands in or near a repository.
+
+## Rules
+
+**Attribution:** never attribute any work to an AI, an assistant, Claude or Anthropic, under any
+circumstances. That covers:
+- `Co-Authored-By` lines and session trailers or links;
+- "generated with" lines;
+- commit messages, PR titles and bodies, issues, branch and tag names;
+- code comments, file headers and docs.
+
+Write everything as the human author would.
+
+**Writing.** Plain, concise, developer-to-developer.
+- No filler, no marketing tone, no summaries of what a diff already shows.
+- No em or en dashes, and no "X, not Y" contrasts.
+- No history: describe what the code is, never what it replaced or "no longer" does. That applies to
+  code, comments, docs and commit messages alike.
+
+**Commits.** Conventional Commits. Subject only, 50 characters or fewer, imperative. Add a one- or two-line
+body only when it explains a non-obvious why. One logical change per commit.
+
+**Code.**
+- **References:** no ADR, audit or ledger ids in code comments; only GitHub issue and PR numbers.
+- **Warnings:** fix every warning at source.
+- **Timing:** through `TimeProvider`, never `Task.Delay` in library code.
+- **Logging:** `[LoggerMessage]` with disjoint event ids.
+- **Copies:** zero-copy and in-place wherever the platform allows.
+- **Pre-release:** no compatibility shims.
+
+**Repository.** Do not commit `docs/references/`: it holds copies of third-party RFCs, drafts and
+sources. Never dispatch CI workflows on `main` of the published libraries, because dispatching publishes
+to NuGet. Releases and upstream patches are the owner's call.
 
 ## State
 
