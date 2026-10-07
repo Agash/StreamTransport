@@ -643,6 +643,33 @@ internal sealed unsafe class D3D12VideoProcessor(
             0
         );
         engine.ShaderResource(1, 0, DXGI_FORMAT.DXGI_FORMAT_R8_UNORM, 0, 0);
+        if (output.Luma == 0)
+        {
+            // The NV12 texture itself, plane by plane: no second pass.
+            engine.UnorderedAccess(0, output.Texture, DXGI_FORMAT.DXGI_FORMAT_R8_UNORM, plane: 0);
+            engine.UnorderedAccess(1, output.Texture, DXGI_FORMAT.DXGI_FORMAT_R8G8_UNORM, plane: 1);
+            D3D12Engine.Transition(
+                list,
+                output.Texture,
+                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON,
+                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+            );
+            list->SetComputeRoot32BitConstants(
+                0,
+                (uint)(sizeof(RgbToYuvConstants) / 4),
+                &constants,
+                0
+            );
+            list->Dispatch(Groups(size.Width / 2), Groups(size.Height / 2), 1);
+            D3D12Engine.Transition(
+                list,
+                output.Texture,
+                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON
+            );
+            return (engine.Submit(), colour);
+        }
+
         engine.UnorderedAccess(0, output.Luma, DXGI_FORMAT.DXGI_FORMAT_R8_UNORM);
         engine.UnorderedAccess(1, output.Chroma, DXGI_FORMAT.DXGI_FORMAT_R8G8_UNORM);
         list->SetComputeRoot32BitConstants(0, (uint)(sizeof(RgbToYuvConstants) / 4), &constants, 0);

@@ -6,6 +6,19 @@ here are in `docs/references/` (RFCs as published; drafts at their current revis
 Status: `done`, `active`, `todo`, `deferred`, `needs decision`. Evidence marks: [V] verified on hardware
 or by test, [S] read in source or spec, [A] assumed.
 
+**Standing goal: write in place everywhere (user, 2026-10-07).** Every conversion writes its result directly
+into the surface that is delivered (encoder input, sink buffer, shared texture), with no intermediate
+surface and no second pass, on every platform and API path we support; a copy is only the fallback where
+the device cannot do it, chosen by a capability probe, never the default. Status of the GPU processors:
+- D3D12: in place since A6 (plane-slice UAVs on NV12 where the device stores to it; copy fallback).
+- Vulkan: in place: the output DMA-BUF is built from the R8 and R8G8 plane images the shader writes.
+  Open: per-frame image views and descriptor sets (A5); per-plane imports of tiled NV12 (Z19); the copy
+  fallback rebuilt per frame (Z9).
+- Metal: in place: the kernel writes the IOSurface's plane textures.
+- Still copying, to fix toward this goal: Windows 1080p transcode 1088/1152 alignment (Z10), decoded
+  frames into PipeWire sink buffers (Z23), FlexFEC source copies of each protected packet
+  (ToFecSource .ToArray(), F23).
+
 ## Where we are (2026-10-07)
 
 Steps 1 to 6 are done (transport correctness, the ADR-119 split, SCReAMv2, ECN, path MTU with Dtls.Core
@@ -130,13 +143,14 @@ From an external brief, every item checked against the code at `f2e589a` and the
 | A3 | Chroma of the packed/converted NV12 is a 2x2 box average (centre-sited); H.264's default chroma location is left. Decide and document; compare against swscale as oracle [report, plausible] | todo |
 | A4 | GPU conversion applies matrix and range only; VideoColor primaries/transfer are carried as metadata, not converted (BT.2020/PQ/HLG -> BT.709 is not a real conversion). Document the contract or add RGB->RGB primaries and transfer handling [report, plausible] | todo |
 | A5 | Vulkan processor creates image views and allocates/updates/frees a descriptor set per frame (VulkanVideoProcessor ~401-433, views destroyed ~592) [V]; cache views and use a descriptor ring | todo, P1 |
-| A6 | D3D12 processor writes R8/R8G8 intermediates and copies them into the NV12 resource, a second full-frame copy [report, unverified] | todo, confirmed [V]: the compute pass writes R8/R8G8 textures, then D3D12Engine.Copy copies both into the NV12 texture (D3D12VideoProcessor ~645-671). Fix: create the NV12 output with ALLOW_UNORDERED_ACCESS and write plane UAVs (D3D12_TEX2D_UAV PlaneSlice 0 R8_UNORM, 1 R8G8_UNORM) after CheckFeatureSupport reports typed UAV store for NV12; keep the copy as the fallback; verify the D3D12 encoders accept a UAV-flagged NV12 input |
+| A6 | D3D12 processor writes R8/R8G8 intermediates and copies them into the NV12 resource, a second full-frame copy [report, unverified] | done: where CheckFeatureSupport reports typed UAV store for NV12 (RTX 3060: yes), the pool makes the NV12 output shader-writable and the compute pass writes its two planes through plane-slice UAVs, no intermediates, no copy; elsewhere the R8/R8G8 + copy path stays. Test Nv12Output_IsWrittenInPlace_WhereTheDeviceStoresNv12; GPU alpha session tests confirm the D3D12 encoders take the UAV-flagged NV12 |
 | A7 | Alpha half of a packed frame needs no RGB matrix: Y = 16 + 219a/255, chroma 128; special-case the blocks [report] | optional |
 | A8 | FFmpeg pinned at BtbN ffmpeg-n9.0.1-11-ge47273f4d9 (eng/fetch-ffmpeg.ps1) [V]; report says 9.0.2 is out (2026-09-18) [unverified] | todo: bump once a BtbN 9.0.2 build exists |
 | A9 | VideoToolbox HEVC encodes the alpha layer (alpha_quality) but DecodesAlphaLayer is software-only (FFmpegVideoDecoderFactory.cs:209) [V]: Mac-to-Mac native alpha only decodes in software. Use VideoToolbox's own hevcWithAlpha hardware decode; make AlphaLayout.Layer codec-neutral (HEVC AUX_ALPHA now, VVC AUX_ALPHA and AV2 ALPHA_AUX later) | todo |
 | A10 | x-alpha is advertised from the application's offer, not derived from the chosen encoder/decoder capability (WebRtcMediaTransport ~428) [V partially]; Layer must be negotiated only when encoder and decoder really do it | not a defect [V]: MediaSession.AlphaWays offers Layer only when the registry has an encoder (CanEncodeAlphaLayer) or decoder (CanDecodeAlphaLayer) of it, and encoder/decoder selection filters on EncodesAlphaLayer/DecodesAlphaLayer when Layer is negotiated (MediaCodecRegistry 109, 142, 216). The real gap is A9 (VideoToolbox hardware decode) |
 | A11 | QSV HEVC alpha_encode exists in FFmpeg (Windows, D3D11 RGBA) but no matching hardware decode; defer until a decoder exposes the layer [report] | deferred |
 | C1 | Codec roadmap: VVC/H.266 (RFC 9328 RTP payload; FFmpeg 9 native vvc decoder, libvvenc encoder; check realtime viability in software and alpha via AUX_ALPHA/H.274), AV1 complete (RTP spec, SVC), AV2 prep (ALPHA_AUX). Compare and decide with measurements | todo: research |
+| F23 | FlexFEC copies each protected packet's payload (ToFecSource .ToArray()) and each recovered packet; keep a reference into the pooled send buffer for the group's lifetime instead | todo (write-in-place goal) |
 | F15 | `WasapiTests.SinkToLoopbackSource_CarriesTheToneWithCaptureTimes` depends on the machine's output volume: it reads the tone back through the default output's loopback and fails when the output is muted or low (0.0007 RMS seen 2026-10-07). Read the endpoint volume and mute state and make the test inconclusive when the loopback cannot carry the tone [S] | open |
 | F16 | Path MTU: PTB messages (ICMP Packet Too Big) are not used; RFC 8899 4.6 makes them optional and they would need validation against the quoted packet. The relayed-pair maximum reserves the worst TURN framing (52 bytes); a pair on ChannelData could use 48 more [S] | open |
 | T17 | DSCP: not set anywhere; orthogonal to ECN, an optimisation only [S] | deferred (after T11) |
@@ -740,6 +754,6 @@ the capture moment (added ~16 ms and frame bursts). Stage summaries now report m
 
 Done today and pushed on `restructure`: 1804a4a encoder ranking, bc0b4e0 frame timing on one clock,
 d9847da/bc6c746/fae5647 ICE mobility (T25-T27), 7a75175 congestion restart (T28), 932bb1a/07ea78d WHIP/WHEP
-trickle and ICE restart (T29), 6fe0796 FlexFEC SDP negotiation (T14 part), d8879b8 alpha even width (A1), 4ec24db T15 recovery policy, a98d01f T32 repair over the second path, A2 alpha range.
+trickle and ICE restart (T29), 6fe0796 FlexFEC SDP negotiation (T14 part), d8879b8 alpha even width (A1), 4ec24db T15 recovery policy, a98d01f T32 repair over the second path, 01ee3c7 A2 alpha range, A6 D3D12 NV12 in place.
 Windows: every suite passes. Mac: every suite passed at b038056 (T14 part and A1 included). Lab box unreachable since bc0b4e0 (asleep);
 it has not run T25-T29, T14 or A1: run it first. Next: A2-A10, C1, T16, Z items.

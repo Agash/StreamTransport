@@ -95,12 +95,13 @@ internal sealed class D3D12TexturePool(
             }
         }
 
-        // Frames are delivered in COMMON. NV12 is written through R8 and R8G8 planes, which stay in the
-        // UAV state, and copied in; RGB is written directly.
+        // Frames are delivered in COMMON. NV12 is written in place through views of its two planes where
+        // the device stores to NV12; elsewhere through R8 and R8G8 planes, which stay in the UAV state, and
+        // copied in. RGB is written directly.
         const D3D12_RESOURCE_STATES Common = D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON;
         const D3D12_RESOURCE_STATES Writable =
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        return format == DXGI_FORMAT.DXGI_FORMAT_NV12
+        return format == DXGI_FORMAT.DXGI_FORMAT_NV12 && !_engine.StoresNv12
             ? new PooledTexture(
                 this,
                 _engine.CreateTexture(format, width, height, false, Common),

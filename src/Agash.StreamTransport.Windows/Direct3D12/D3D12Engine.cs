@@ -161,6 +161,14 @@ internal sealed unsafe class D3D12Engine : IDisposable
     public static D3D12_RESOURCE_DESC Describe(nint resource) =>
         ((ID3D12Resource*)resource)->GetDesc();
 
+    /// <summary>
+    /// Whether shaders write NV12 textures in place, through views of their luma and chroma planes,
+    /// instead of through separate planes copied in.
+    /// </summary>
+    public bool StoresNv12 => _storesNv12 ??= CanStore(DXGI_FORMAT.DXGI_FORMAT_NV12);
+
+    private bool? _storesNv12;
+
     /// <summary>Whether shaders can store to a format through a typed UAV on this device.</summary>
     /// <param name="format">The format.</param>
     /// <returns>True when a typed UAV store works.</returns>
@@ -443,13 +451,15 @@ internal sealed unsafe class D3D12Engine : IDisposable
     /// <param name="index">0 or 1, for u0 or u1.</param>
     /// <param name="resource">The texture, or zero for a null view.</param>
     /// <param name="format">The view format.</param>
-    public void UnorderedAccess(int index, nint resource, DXGI_FORMAT format)
+    /// <param name="plane">The plane of a planar texture: 0 for NV12's luma, 1 for its chroma.</param>
+    public void UnorderedAccess(int index, nint resource, DXGI_FORMAT format, uint plane = 0)
     {
         D3D12_UNORDERED_ACCESS_VIEW_DESC view = new()
         {
             Format = format,
             ViewDimension = D3D12_UAV_DIMENSION.D3D12_UAV_DIMENSION_TEXTURE2D,
         };
+        view.Anonymous.Texture2D.PlaneSlice = plane;
         _device->CreateUnorderedAccessView(
             (ID3D12Resource*)resource,
             null,

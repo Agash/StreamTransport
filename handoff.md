@@ -36,6 +36,8 @@ body only when it explains a non-obvious why. One logical change per commit.
 - **Logging:** `[LoggerMessage]` with disjoint event ids.
 - **Copies:** zero-copy and in-place wherever the platform allows.
 - **Pre-release:** no compatibility shims.
+- **Write in place:** every conversion writes straight into the delivered surface on every platform and
+  API path; a copy is only the probed fallback. Status per platform is in the ledger.
 
 **Repository.** Do not commit `docs/references/`: it holds copies of third-party RFCs, drafts and
 sources. Never dispatch CI workflows on `main` of the published libraries, because dispatching publishes
@@ -71,7 +73,7 @@ to NuGet. Releases and upstream patches are the owner's call.
    `systemd-run --user`. A cloud session cannot reach the LAN machines (lab box and Mac at
    192.168.20.183), so cross-machine runs wait for the local machine.
 2. **Alpha and colour, from two external reviews:**
-   - A3 to A10 in the ledger, with verification marks (A1 and A2 are fixed). A5 and A9 are confirmed in
+   - A3 to A9 in the ledger, with verification marks (A1, A2 and A6 are fixed; A10 is not a defect). A5 and A9 are confirmed in
      code; the rest are still to verify.
    - In particular, VideoToolbox hardware decode of HEVC alpha (A9).
    - Also `x-alpha` negotiated from real encoder and decoder capabilities (A10), and `AlphaLayout.Layer`
