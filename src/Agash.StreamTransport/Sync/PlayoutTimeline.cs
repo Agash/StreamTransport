@@ -24,6 +24,9 @@ internal enum PlayoutStream
 /// count; samples more than 15 deviations from the median are clamped to that bound, as libwebrtc's jitter
 /// estimator rejects delay outliers. The target delay covers the slower stream: the largest of each
 /// stream's base above the offset plus its jitter, plus a margin, within the configured bounds.</para>
+/// <para>A stream in its startup does not size the buffer: its first frames play on arrival when late,
+/// and only once it is past its startup does it count toward the target. Its base still settles meanwhile,
+/// so the encoder's slow first frames do not leave the buffer long.</para>
 /// <para>The delay moves toward the target by at most 100 ms each second, as libwebrtc's video timing does
 /// (larger steps show as freezes; smaller ones as a brief slow or fast motion). A frame that arrives after
 /// its slot raises the delay at once by how late it is, up to the target, and plays immediately.</para>
@@ -93,7 +96,7 @@ internal sealed class PlayoutTimeline
 
         long offset = Offset();
         long release = capture.Nanoseconds + offset + _delay;
-        if (release < now.Nanoseconds && _delay < target)
+        if (release < now.Nanoseconds && _delay < target && _streams[(int)stream].Started)
         {
             _delay = Math.Min(target, _delay + (now.Nanoseconds - release));
         }
@@ -106,13 +109,15 @@ internal sealed class PlayoutTimeline
         : _streams[0].Seen ? _streams[0].Base
         : _streams[1].Base;
 
+    // A stream in its startup sets no target yet: its first frames are late while its encoder opens, and
+    // its base is not settled until faster frames arrive.
     private long Target()
     {
         long offset = Offset();
         long need = 0;
         foreach (StreamState stream in _streams)
         {
-            if (stream.Seen)
+            if (stream.Started)
             {
                 need = Math.Max(need, stream.Base - offset + stream.Jitter);
             }
@@ -133,6 +138,9 @@ internal sealed class PlayoutTimeline
         private long? _jitter;
 
         public bool Seen { get; private set; }
+
+        // Past its startup: its base and jitter are settled enough to size the buffer.
+        public bool Started => _samples > StartupSamples;
 
         public long Base { get; private set; }
 

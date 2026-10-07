@@ -136,6 +136,10 @@ public sealed class HttpMediaTests
                 )
                 + $"; end to end {Mean(endToEnd):0.0} ms over {endToEnd.Length}"
         );
+        double[] encodeCalls = meters.Values("streamtransport.video.encode.duration");
+        TestContext.WriteLine(
+            $"encoder calls {Mean(encodeCalls):0.0} ms mean, {Percentile(encodeCalls, 0.95):0.0} ms p95 over {encodeCalls.Length}; frames dropped busy {meters.Count("streamtransport.video.frames.dropped")}"
+        );
         Assert.IsLessThan(
             35,
             Math.Abs(monitored - measured.MeanOffset.TotalMilliseconds),
@@ -282,6 +286,12 @@ public sealed class HttpMediaTests
         MediaServices.Loopback(new MediaSessionOptions { VideoCodecs = [VideoCodecId.H264] });
 
     // An ordinary ASP.NET Core application on a loopback port, with the media services and the endpoints.
+    private static double Percentile(double[] seconds, double p) =>
+        seconds.Length == 0
+            ? double.NaN
+            : seconds.Order().ElementAt((int)Math.Min(seconds.Length - 1, p * seconds.Length))
+                * 1000;
+
     private static double Mean(double[] seconds) =>
         seconds.Length == 0 ? double.NaN : seconds.Average() * 1000;
 
