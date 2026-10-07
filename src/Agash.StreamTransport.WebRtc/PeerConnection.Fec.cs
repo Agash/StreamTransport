@@ -17,8 +17,13 @@ public sealed partial class PeerConnection
 {
     private readonly FlexFecAccumulator _fecAccumulator = new();
     private readonly Lock _fecGate = new();
-    private readonly Dictionary<ushort, FecSourcePacket> _fecRecvCache = [];
-    private readonly Queue<ushort> _fecRecvOrder = [];
+
+    // The peer's last 256 protected packets for recovery, a slot per sequence number modulo 256, each
+    // slot's buffer reused: no allocation per packet.
+    private const int ReceiveSlots = 256;
+    private const int SlotBytes = 1500;
+    private readonly byte[][] _fecRecvBodies = new byte[ReceiveSlots][];
+    private readonly FecSourcePacket?[] _fecRecvPackets = new FecSourcePacket?[ReceiveSlots];
     private FecConfiguration _fec = FecConfiguration.None;
 
     private static readonly TimeSpan ReplanInterval = TimeSpan.FromMilliseconds(500);
@@ -67,15 +72,6 @@ public sealed partial class PeerConnection
         Volatile.Write(ref _fec, new FecConfiguration(send, receive));
         LogFec(send is not null, receive is not null);
         UpdateDatagramLimit();
-    }
-
-    private static FecSourcePacket ToFecSource(ReadOnlySpan<byte> cleartextRtp)
-    {
-        byte headerBits = (byte)((cleartextRtp[0] & 0x3F) | (((cleartextRtp[1] >> 7) & 1) << 6)); // P/X/CC + M.
-        byte pt = (byte)(cleartextRtp[1] & 0x7F);
-        ushort seq = BinaryPrimitives.ReadUInt16BigEndian(cleartextRtp[2..]);
-        uint ts = BinaryPrimitives.ReadUInt32BigEndian(cleartextRtp[4..]);
-        return new FecSourcePacket(seq, headerBits, pt, ts, cleartextRtp[12..].ToArray());
     }
 
     // Send side: fold the protected media packet into the group's parity, in place; once the group is
@@ -162,19 +158,33 @@ public sealed partial class PeerConnection
     // Receive side: cache a protected media packet so a later repair can recover a neighbour.
     private void CacheProtectedPacket(ReadOnlySpan<byte> cleartextRtp)
     {
-        FecSourcePacket source = ToFecSource(cleartextRtp);
+        ReadOnlySpan<byte> body = cleartextRtp[12..];
+        if (body.Length > SlotBytes)
+        {
+            return;
+        }
+
+        ushort sequence = BinaryPrimitives.ReadUInt16BigEndian(cleartextRtp[2..]);
+        int slot = sequence % ReceiveSlots;
         lock (_fecGate)
         {
-            if (_fecRecvCache.TryAdd(source.SequenceNumber, source))
-            {
-                _fecRecvOrder.Enqueue(source.SequenceNumber);
-                while (_fecRecvOrder.Count > 256)
-                {
-                    _fecRecvCache.Remove(_fecRecvOrder.Dequeue());
-                }
-            }
+            byte[] buffer = _fecRecvBodies[slot] ??= new byte[SlotBytes];
+            body.CopyTo(buffer);
+            _fecRecvPackets[slot] = new FecSourcePacket(
+                sequence,
+                (byte)((cleartextRtp[0] & 0x3F) | (((cleartextRtp[1] >> 7) & 1) << 6)),
+                (byte)(cleartextRtp[1] & 0x7F),
+                BinaryPrimitives.ReadUInt32BigEndian(cleartextRtp[4..]),
+                buffer.AsMemory(0, body.Length)
+            );
         }
     }
+
+    // A cached protected packet by sequence number, when its slot still holds it.
+    private FecSourcePacket? Cached(ushort sequence) =>
+        _fecRecvPackets[sequence % ReceiveSlots] is { } packet && packet.SequenceNumber == sequence
+            ? packet
+            : null;
 
     // Receive side: a repair arrived - recover a lost media packet and deliver it through the normal path.
     private void OnFecPacket(ReadOnlySpan<byte> fecBody, uint protectedSsrc)
@@ -182,10 +192,7 @@ public sealed partial class PeerConnection
         FecRecoveredPacket? recovered;
         lock (_fecGate)
         {
-            recovered = FlexFec.TryRecover(
-                fecBody,
-                seq => _fecRecvCache.TryGetValue(seq, out FecSourcePacket s) ? s : null
-            );
+            recovered = FlexFec.TryRecover(fecBody, Cached);
         }
 
         if (recovered is not { } r)
