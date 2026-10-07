@@ -1414,6 +1414,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private partial void LogFec(bool sends, bool receives);
 
     [LoggerMessage(
+        EventId = 1105,
+        Level = LogLevel.Debug,
+        Message = "Loss repair: FEC group {Group} (0 is off) at loss {Loss:P1}, round trip {RoundTrip}"
+    )]
+    private partial void LogRecoveryPlan(int group, double loss, TimeSpan roundTrip);
+
+    [LoggerMessage(
         EventId = 1103,
         Level = LogLevel.Warning,
         Message = "The {Kind} section {Mid} is rejected: the peers share no codec for it."

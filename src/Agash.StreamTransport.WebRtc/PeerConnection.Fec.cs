@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 
@@ -17,6 +18,15 @@ public sealed partial class PeerConnection
     private readonly Dictionary<ushort, FecSourcePacket> _fecRecvCache = [];
     private readonly Queue<ushort> _fecRecvOrder = [];
     private FecConfiguration _fec = FecConfiguration.None;
+
+    private static readonly TimeSpan ReplanInterval = TimeSpan.FromMilliseconds(500);
+
+    // The FEC group size the recovery policy set: 0 sends no repairs. Off until loss is seen.
+    private int _fecGroupSize;
+    private RecoveryPolicy? _recovery;
+    private long _protectedPackets;
+    private long _protectedFrames;
+    private TimeSpan _replannedAt;
 
     private bool FecEnabled => Volatile.Read(ref _fec).Send is not null;
 
@@ -68,12 +78,26 @@ public sealed partial class PeerConnection
 
     // Send side: accumulate the protected media packet; return a repair body to send once a group is complete
     // (the caller sends it after the media packet, on the same chain, so SRTP protect is never concurrent).
+    // Every protected packet counts toward the frame statistics the policy plans from.
     private byte[]? AccumulateFec(ReadOnlySpan<byte> cleartextRtp)
     {
+        _ = Interlocked.Increment(ref _protectedPackets);
+        if ((cleartextRtp[1] & 0x80) != 0)
+        {
+            _ = Interlocked.Increment(ref _protectedFrames);
+        }
+
+        int group = Volatile.Read(ref _fecGroupSize);
         lock (_fecGate)
         {
+            if (group <= 0)
+            {
+                _fecSendWindow.Clear();
+                return null;
+            }
+
             _fecSendWindow.Add(ToFecSource(cleartextRtp));
-            if (_fecSendWindow.Count < Math.Clamp(_options.FecGroupSize, 1, FlexFec.MaxProtected))
+            if (_fecSendWindow.Count < Math.Min(group, FlexFec.MaxProtected))
             {
                 return null;
             }
@@ -81,6 +105,39 @@ public sealed partial class PeerConnection
             byte[] repair = FlexFec.BuildRepair(_fecSendWindow);
             _fecSendWindow.Clear();
             return repair;
+        }
+    }
+
+    // Plans the repair from the path and what was sent since the last plan; runs on the process timer.
+    private void ReplanRecovery(CapacityEstimate estimate, TimeSpan now)
+    {
+        if (!FecEnabled || now - _replannedAt < ReplanInterval)
+        {
+            return;
+        }
+
+        double seconds = (now - _replannedAt).TotalSeconds;
+        _replannedAt = now;
+        long packets = Interlocked.Exchange(ref _protectedPackets, 0);
+        long frames = Interlocked.Exchange(ref _protectedFrames, 0);
+        if (frames == 0)
+        {
+            return;
+        }
+
+        _recovery ??= new RecoveryPolicy(_options.Recovery);
+        RecoveryPlan plan = _recovery.Plan(
+            new RecoveryInputs(
+                _lossRate,
+                estimate.SmoothedRoundTrip,
+                estimate.TargetBitsPerSecond,
+                frames / seconds,
+                (double)packets / frames
+            )
+        );
+        if (Interlocked.Exchange(ref _fecGroupSize, plan.FecGroupSize) != plan.FecGroupSize)
+        {
+            LogRecoveryPlan(plan.FecGroupSize, _lossRate, estimate.SmoothedRoundTrip);
         }
     }
 

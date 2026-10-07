@@ -342,6 +342,7 @@ public sealed partial class PeerConnection
             }
 
             estimate = _controller.OnTick(now);
+            ReplanRecovery(estimate, now);
         }
 
         OnEstimate(estimate);

@@ -52,7 +52,9 @@ to NuGet. Releases and upstream patches are the owner's call.
   - 932bb1a, 07ea78d: WHIP/WHEP trickle and ICE restart over PATCH (T29).
   - 6fe0796: FlexFEC negotiated in SDP per RFC 8627 (part of T14).
   - d8879b8: side-by-side alpha refuses odd colour widths (A1).
-- **Tests:** Windows, every suite passes. Mac, every suite passed at 07ea78d. The Linux lab box has been
+  - T15: the joint recovery policy (`RecoveryPolicy` in Adaptation), sizing FlexFEC groups from loss,
+    round trip and frame size, with retransmission always on.
+- **Tests:** Windows, every suite passes. Mac, every suite passed at b038056. The Linux lab box has been
   unreachable since bc0b4e0 (it sleeps), so it has not run anything after that.
 - **Decided:**
   - RTX is kept next to FlexFEC parity (libwebrtc practice). This deviates from RFC 8627 section 1.1.7 and
@@ -66,18 +68,16 @@ to NuGet. Releases and upstream patches are the owner's call.
 1. Run the lab box suite: `ssh agash@192.168.20.102`, fish shell, start the suite with
    `systemd-run --user`. A cloud session cannot reach the LAN machines (lab box and Mac at
    192.168.20.183), so cross-machine runs wait for the local machine.
-2. **T15 joint recovery policy**, as designed in the ledger: libwebrtc's hybrid NACK/FEC mode switching
-   and an analytic FEC group size. Sources are listed in the ledger.
-3. **T32:** send repairs over the standby modem's pair (path-diverse repair).
-4. **Alpha and colour, from two external reviews:**
+2. **T32:** send repairs over the standby modem's pair (path-diverse repair).
+3. **Alpha and colour, from two external reviews:**
    - A2 to A10 in the ledger, with verification marks. A5 and A9 are confirmed in code; the rest are
      still to verify.
    - In particular, VideoToolbox hardware decode of HEVC alpha (A9).
    - Also `x-alpha` negotiated from real encoder and decoder capabilities (A10), and `AlphaLayout.Layer`
      made codec-neutral (HEVC now; VVC and AV2 later).
-5. **C1 codec research:** VVC (RFC 9328, FFmpeg 9's vvc decoder and libvvenc, realtime viability,
+4. **C1 codec research:** VVC (RFC 9328, FFmpeg 9's vvc decoder and libvvenc, realtime viability,
    AUX_ALPHA), AV1 complete, AV2 preparation.
-6. **The rest of the ledger:**
+5. **The rest of the ledger:**
    - T16 network-emulation rig (lab box, netem).
    - Zero-copy items Z9, Z10, Z19, Z23, Z30.
    - ARM codec engines Z26 (field agent).

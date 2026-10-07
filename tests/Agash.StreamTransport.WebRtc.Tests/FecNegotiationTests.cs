@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Net;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 
@@ -60,14 +61,15 @@ public sealed class FecNegotiationTests
         Assert.IsTrue(FlexFec.IsFlexFec(read.Media[0].Codecs[1]));
     }
 
-    // The receiver sends no video and announces no FEC SSRC, as a WHIP server does; a dropped media
-    // packet comes back from the sender's repair alone, with no retransmission negotiated.
+    // The receiver sends no video and announces no FEC SSRC, as a WHIP server does. Loss turns the
+    // sender's FEC on through its recovery policy, and dropped packets come back from the repairs alone,
+    // with no retransmission negotiated.
     [TestMethod]
     [Timeout(60_000)]
-    public async Task ReceiveOnlyPeer_RecoversALostPacketFromTheNegotiatedRepair()
+    public async Task ReceiveOnlyPeer_RecoversLostPacketsFromTheNegotiatedRepairs()
     {
         int mediaSeen = 0;
-        ushort? dropped = null;
+        ConcurrentDictionary<ushort, byte> dropped = new();
         InMemoryIceNetwork network = new()
         {
             Drop = (_, _, data) =>
@@ -77,13 +79,13 @@ public sealed class FecNegotiationTests
                     || (data[0] & 0xC0) != 0x80
                     || (data[1] & 0x7F) != 96
                     || BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(8)) != SenderVideo
-                    || Interlocked.Increment(ref mediaSeen) != 25
+                    || Interlocked.Increment(ref mediaSeen) % 30 != 0
                 )
                 {
                     return false;
                 }
 
-                dropped = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(2));
+                dropped.TryAdd(BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(2)), 0);
                 return true;
             },
         };
@@ -99,8 +101,17 @@ public sealed class FecNegotiationTests
                     },
                 ],
                 SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
+
+                // The in-memory network has next to no round trip, where the policy repairs by
+                // retransmission alone; this test is about the FEC wiring.
+                Recovery = new RecoveryPolicyOptions
+                {
+                    RetransmitOnlyRoundTrip = TimeSpan.Zero,
+                    SmallFrameRoundTrip = TimeSpan.Zero,
+                },
             },
-            Certificate
+            Certificate,
+            controller: new ScreamCongestionController()
         );
         await using PeerConnection receiver = new(
             new PeerConnectionOptions
@@ -114,30 +125,30 @@ public sealed class FecNegotiationTests
                 ],
                 SocketFactory = network.Factory(IPAddress.Parse("10.0.0.2")),
             },
-            Certificate
+            Certificate,
+            controller: new ScreamCongestionController()
         );
         ConcurrentDictionary<ushort, byte> arrived = new();
         receiver.RtpReceived += (header, _) => arrived.TryAdd(header.SequenceNumber, 0);
         await ConnectAsync(sender, receiver);
 
-        byte[] payload = new byte[600];
+        // Four packets a frame at 30 fps for six seconds; the first loss turns FEC on.
+        byte[] payload = new byte[1000];
         payload[0] = 0x65;
-        for (uint frame = 0; frame < 60; frame++)
+        for (uint frame = 0; frame < 180; frame++)
         {
-            Assert.IsTrue(sender.TrySendRtp(96, SenderVideo, frame * 3000, true, payload));
-            await Task.Delay(5, TestContext.CancellationToken);
+            for (int packet = 0; packet < 4; packet++)
+            {
+                _ = sender.TrySendRtp(96, SenderVideo, frame * 3000, packet == 3, payload);
+            }
+
+            await Task.Delay(33, TestContext.CancellationToken);
         }
 
-        using CancellationTokenSource guard = new(TimeSpan.FromSeconds(10));
-        while (dropped is null || !arrived.ContainsKey(dropped.Value))
-        {
-            await Task.Delay(20, guard.Token);
-        }
-
-        Assert.IsTrue(
-            arrived.ContainsKey(dropped!.Value),
-            "the repair recovers the dropped packet."
-        );
+        await Task.Delay(500, TestContext.CancellationToken);
+        int recovered = dropped.Keys.Count(arrived.ContainsKey);
+        TestContext.WriteLine($"dropped {dropped.Count}, recovered {recovered}");
+        Assert.IsGreaterThan(0, recovered, "repairs recover dropped packets.");
     }
 
     private static async Task ConnectAsync(PeerConnection a, PeerConnection b)
