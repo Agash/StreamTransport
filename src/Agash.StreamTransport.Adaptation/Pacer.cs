@@ -25,7 +25,7 @@ public sealed partial class Pacer : IAsyncDisposable
     private readonly Lock _gate = new();
     private readonly WakeSignal _wake;
     private readonly CancellationTokenSource _stop = new();
-    private readonly long[] _sentBytes = new long[4];
+    private readonly long[] _sentBytes = new long[Enum.GetValues<TrafficClass>().Length];
     private readonly Task _loop;
 
     /// <summary>A pacer sending through a callback.</summary>

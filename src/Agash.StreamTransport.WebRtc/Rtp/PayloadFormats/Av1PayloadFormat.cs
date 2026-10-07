@@ -29,8 +29,7 @@ public sealed class Av1PayloadFormat : RtpPayloadFormat
     public override RtpPayloadTraits KeyframeRequires => RtpPayloadTraits.SequenceParameters;
 
     /// <inheritdoc/>
-    public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
-        new Av1Packetizer(maxPayloadSize);
+    public override IRtpPacketizer CreatePacketizer() => new Av1Packetizer();
 
     /// <inheritdoc/>
     public override IRtpDepacketizer CreateDepacketizer() => new Av1Depacketizer();
@@ -76,23 +75,19 @@ public sealed class Av1Packetizer : IRtpPacketizer
 {
     private const int AggregationHeaderSize = 1;
 
-    private readonly int _maxPayloadSize;
-
-    /// <summary>A packetizer producing payloads of at most <paramref name="maxPayloadSize"/> bytes.</summary>
-    /// <param name="maxPayloadSize">The largest RTP payload in bytes; at least 3.</param>
-    public Av1Packetizer(int maxPayloadSize)
-    {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxPayloadSize, AggregationHeaderSize + 2);
-        _maxPayloadSize = maxPayloadSize;
-    }
+    // The payload limit of the temporal unit being packetized.
+    private int _maxPayloadSize;
 
     /// <summary>Splits a temporal unit in the low-overhead bitstream format into RTP payloads.</summary>
     /// <param name="frame">The temporal unit: OBUs, each but the last with a size field.</param>
+    /// <param name="maxPayloadSize">The largest RTP payload in bytes; at least 3.</param>
     /// <param name="writer">Reusable payload storage; reset before writing.</param>
     /// <exception cref="InvalidDataException">An OBU runs past the end of the temporal unit.</exception>
-    public void Packetize(ReadOnlySpan<byte> frame, RtpPayloadWriter writer)
+    public void Packetize(ReadOnlySpan<byte> frame, int maxPayloadSize, RtpPayloadWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxPayloadSize, AggregationHeaderSize + 2);
+        _maxPayloadSize = maxPayloadSize;
         writer.Reset();
 
         int count = Obu.Count(frame);

@@ -46,7 +46,7 @@ internal sealed class RtpStreamWriter(
     {
         lock (_gate)
         {
-            packetizer.Packetize(frame, _payloads);
+            packetizer.Packetize(frame, connection.MaximumRtpPayloadSize, _payloads);
             MediaTime origin = timestamp.Origin;
             _first ??= origin;
             uint rtpTimestamp = unchecked(_start + (uint)rate.ToTicks(origin - _first.Value));

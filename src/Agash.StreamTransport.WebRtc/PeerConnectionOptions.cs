@@ -55,6 +55,14 @@ public sealed class PeerConnectionOptions
     /// <summary>The RFC 8083 circuit breakers' tunables; the RFC's defaults when null.</summary>
     public Adaptation.CircuitBreakerOptions? CircuitBreaker { get; init; }
 
+    /// <summary>
+    /// Path MTU discovery (RFC 8899): media starts at the base size and grows to what the path is found to
+    /// carry, probing with padded RTX packets the peer acknowledges in its congestion-control feedback. It
+    /// runs on a sending connection with a congestion controller, RTX and that feedback agreed; null keeps
+    /// media at the base size of the defaults.
+    /// </summary>
+    public Adaptation.PathMtuOptions? PathMtu { get; init; } = new();
+
     /// <summary>The media lines to negotiate (offerer side); the answerer mirrors the remote offer.</summary>
     public IReadOnlyList<MediaLine> Media { get; init; } = [];
 

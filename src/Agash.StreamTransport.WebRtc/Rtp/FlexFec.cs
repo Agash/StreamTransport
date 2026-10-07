@@ -43,7 +43,7 @@ public static class FlexFec
     public const int MaxProtected = 15;
 
     // FEC header (F=0, single SSRC, 15-bit mask) = 8 bytes fixed + 4 bytes (SN base + k + 15-bit mask).
-    private const int HeaderLength = 12;
+    internal const int HeaderLength = 12;
 
     /// <summary>
     /// Build the FlexFEC repair body protecting <paramref name="sources"/> (1..15 packets, ascending sequence

@@ -76,7 +76,9 @@ public sealed class MediaRateAllocator
     private (long Audio, long Recovery) Sample() =>
         (
             _sentBytes(TrafficClass.Audio),
-            _sentBytes(TrafficClass.Retransmission) + _sentBytes(TrafficClass.Repair)
+            _sentBytes(TrafficClass.Retransmission)
+                + _sentBytes(TrafficClass.Repair)
+                + _sentBytes(TrafficClass.Probe)
         );
 
     // Folds the bytes sent since the last sample into the averages, once enough time has passed.

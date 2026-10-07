@@ -53,8 +53,7 @@ public sealed class H264PayloadFormat : RtpPayloadFormat
         RtpPayloadTraits.SequenceParameters | RtpPayloadTraits.PictureParameters;
 
     /// <inheritdoc/>
-    public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
-        new H264Packetizer(maxPayloadSize);
+    public override IRtpPacketizer CreatePacketizer() => new H264Packetizer();
 
     /// <inheritdoc/>
     public override IRtpDepacketizer CreateDepacketizer() => new H264Depacketizer();
@@ -102,9 +101,7 @@ public sealed class H264PayloadFormat : RtpPayloadFormat
 /// a STAP-A packet, a NAL unit that fits alone is a single-NAL-unit packet, and a larger one is split into
 /// FU-A fragments.
 /// </summary>
-/// <param name="maxPayloadSize">The largest RTP payload in bytes; at least 3.</param>
-public sealed class H264Packetizer(int maxPayloadSize)
-    : NalUnitPacketizer(maxPayloadSize, nalHeaderSize: 1, fragmentHeaderSize: 2)
+public sealed class H264Packetizer() : NalUnitPacketizer(nalHeaderSize: 1, fragmentHeaderSize: 2)
 {
     /// <inheritdoc/>
     /// <remarks>STAP-A: the F bit of any unit and the highest NRI, with type 24.</remarks>

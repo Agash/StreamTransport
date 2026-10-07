@@ -114,7 +114,8 @@ public sealed class EcnValidator(TimeSpan? retryInterval = null)
             bool marked = _marked.Remove(observation.Packet.Id, out EcnCodepoint sent);
             if (observation.Outcome == PacketOutcome.Lost)
             {
-                _markedLost += marked ? 1 : 0;
+                // A path MTU probe lost to its size would read as marked packets being dropped.
+                _markedLost += marked && observation.Packet.Class != TrafficClass.Probe ? 1 : 0;
                 continue;
             }
 

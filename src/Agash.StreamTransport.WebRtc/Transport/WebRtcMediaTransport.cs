@@ -34,7 +34,6 @@ internal sealed record WebRtcTransportServices(
 internal sealed partial class WebRtcMediaTransport : IMediaTransport
 {
     // RTP payload size that fits a 1280-byte IPv6 minimum MTU after IP, UDP, RTP, extension and SRTP.
-    private const int MaxPayloadSize = 1100;
     private const int FirstVideoPayloadType = 96;
     private const int AudioPayloadType = 111;
 
@@ -459,7 +458,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     private static RtpStreamWriter Writer(RtpPayloadFormat format, SdpCodec codec, uint ssrc) =>
         new(
-            format.CreatePacketizer(MaxPayloadSize),
+            format.CreatePacketizer(),
             (byte)codec.PayloadType,
             ssrc,
             new ClockRate(format.ClockRate)

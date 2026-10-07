@@ -173,7 +173,7 @@ public sealed class Av1PayloadFormatTests
     private static List<byte[]> Packetize(byte[] unit, int maxPayloadSize)
     {
         RtpPayloadWriter writer = new();
-        new Av1Packetizer(maxPayloadSize).Packetize(unit, writer);
+        new Av1Packetizer().Packetize(unit, maxPayloadSize, writer);
         return [.. Enumerable.Range(0, writer.Count).Select(i => writer[i].ToArray())];
     }
 

@@ -100,6 +100,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         _logger = _loggerFactory.CreateLogger<PeerConnection>();
         _controller = controller;
 
+        // Path MTU discovery adapts what a sender sends, so it runs with the sender's controller.
+        _pathMtuOptions = controller is not null ? options.PathMtu : null;
+        _pathMtuOptions?.Validate();
+        _datagramLimit = (options.PathMtu ?? new PathMtuOptions()).BaseSize;
+
         foreach (MediaLine line in options.Media)
         {
             if (_rtcpSenderSsrc == 0)
@@ -664,6 +669,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             )
         )
         {
+            if (packet.Class == TrafficClass.Probe)
+            {
+                AbandonProbe();
+            }
+
             return ValueTask.CompletedTask;
         }
 
@@ -683,7 +693,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Interlocked.Increment(ref _rtxPacketsSent);
             _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("sent"));
         }
-        else
+        else if (packet.Class != TrafficClass.Probe)
         {
             Interlocked.Increment(ref _mediaPacketsSent);
             _metrics.PacketsSent.Add(1);

@@ -168,7 +168,7 @@ public sealed class H265PayloadFormatTests
     private static List<byte[]> Packetize(byte[] accessUnit, int maxPayloadSize)
     {
         var writer = new RtpPayloadWriter();
-        new H265Packetizer(maxPayloadSize).Packetize(accessUnit, writer);
+        new H265Packetizer().Packetize(accessUnit, maxPayloadSize, writer);
         var list = new List<byte[]>(writer.Count);
         for (int i = 0; i < writer.Count; i++)
         {

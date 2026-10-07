@@ -13,30 +13,32 @@ public abstract class NalUnitPacketizer : IRtpPacketizer
 {
     private const int LengthSize = 2;
 
-    private readonly int _maxPayloadSize;
     private readonly int _nalHeaderSize;
     private readonly int _fragmentHeaderSize;
 
-    /// <summary>Sets the payload limit and the codec's header sizes.</summary>
-    /// <param name="maxPayloadSize">The largest RTP payload in bytes.</param>
+    // The payload limit of the frame being packetized.
+    private int _maxPayloadSize;
+
+    /// <summary>Sets the codec's header sizes.</summary>
     /// <param name="nalHeaderSize">The size of the codec's NAL unit header, which an aggregation header matches.</param>
     /// <param name="fragmentHeaderSize">The size of the headers that open each fragmentation unit.</param>
-    protected NalUnitPacketizer(int maxPayloadSize, int nalHeaderSize, int fragmentHeaderSize)
+    protected NalUnitPacketizer(int nalHeaderSize, int fragmentHeaderSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nalHeaderSize);
         ArgumentOutOfRangeException.ThrowIfLessThan(fragmentHeaderSize, nalHeaderSize);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxPayloadSize, fragmentHeaderSize + 1);
-        _maxPayloadSize = maxPayloadSize;
         _nalHeaderSize = nalHeaderSize;
         _fragmentHeaderSize = fragmentHeaderSize;
     }
 
     /// <summary>Splits an Annex-B access unit into RTP payloads.</summary>
     /// <param name="frame">The access unit, NAL units separated by Annex-B start codes.</param>
+    /// <param name="maxPayloadSize">The largest RTP payload in bytes; more than a fragment header.</param>
     /// <param name="writer">Reusable payload storage; reset before writing.</param>
-    public void Packetize(ReadOnlySpan<byte> frame, RtpPayloadWriter writer)
+    public void Packetize(ReadOnlySpan<byte> frame, int maxPayloadSize, RtpPayloadWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxPayloadSize, _fragmentHeaderSize + 1);
+        _maxPayloadSize = maxPayloadSize;
         writer.Reset();
 
         // Pending NAL units are consecutive in the access unit, so a run is a start, an end and a count.

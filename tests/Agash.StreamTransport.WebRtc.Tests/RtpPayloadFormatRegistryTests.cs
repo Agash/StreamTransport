@@ -111,11 +111,11 @@ public sealed class RtpPayloadFormatRegistryTests
     public void SingleFrameFormat_RoundTripsOnePacketPerFrame()
     {
         RtpPayloadWriter writer = new();
-        IRtpPacketizer packetizer = OpusPayloadFormat.Instance.CreatePacketizer(1200);
+        IRtpPacketizer packetizer = OpusPayloadFormat.Instance.CreatePacketizer();
         using IRtpDepacketizer depacketizer = OpusPayloadFormat.Instance.CreateDepacketizer();
         byte[] packet = [0xFC, 1, 2, 3];
 
-        packetizer.Packetize(packet, writer);
+        packetizer.Packetize(packet, 1200, writer);
         Assert.AreEqual(1, writer.Count);
         Assert.IsTrue(
             depacketizer.TryPush(writer[0].Span, marker: false, out EncodedFrameBuffer frame)
@@ -126,7 +126,7 @@ public sealed class RtpPayloadFormatRegistryTests
         }
 
         Assert.ThrowsExactly<ArgumentException>(() =>
-            OpusPayloadFormat.Instance.CreatePacketizer(3).Packetize(packet, writer)
+            OpusPayloadFormat.Instance.CreatePacketizer().Packetize(packet, 3, writer)
         );
     }
 
@@ -138,8 +138,7 @@ public sealed class RtpPayloadFormatRegistryTests
 
         public override int ClockRate => 90_000;
 
-        public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
-            new H264Packetizer(maxPayloadSize);
+        public override IRtpPacketizer CreatePacketizer() => new H264Packetizer();
 
         public override IRtpDepacketizer CreateDepacketizer() => new H264Depacketizer();
     }
@@ -152,8 +151,7 @@ public sealed class RtpPayloadFormatRegistryTests
 
         public override int ClockRate => 90_000;
 
-        public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
-            new SingleFramePacketizer(maxPayloadSize);
+        public override IRtpPacketizer CreatePacketizer() => new SingleFramePacketizer();
 
         public override IRtpDepacketizer CreateDepacketizer() => new SingleFrameDepacketizer();
     }

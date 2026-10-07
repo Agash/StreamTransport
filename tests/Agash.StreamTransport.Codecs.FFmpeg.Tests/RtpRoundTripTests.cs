@@ -28,7 +28,7 @@ public sealed class RtpRoundTripTests
         Assert.IsTrue(
             RtpPayloadFormatRegistry.BuiltIn.TryGet(codec.ToString(), out RtpPayloadFormat? format)
         );
-        IRtpPacketizer packetizer = format.CreatePacketizer(maxPayloadSize);
+        IRtpPacketizer packetizer = format.CreatePacketizer();
         RtpPayloadWriter writer = new();
         using RtpFrameBuffer buffer = new(format);
         List<byte[]> received = [];
@@ -36,7 +36,7 @@ public sealed class RtpRoundTripTests
         ushort sequence = 65_000; // crosses the 16-bit wrap
         for (int i = 0; i < stream.Count; i++)
         {
-            packetizer.Packetize(stream[i].Data, writer);
+            packetizer.Packetize(stream[i].Data, maxPayloadSize, writer);
             uint timestamp = (uint)(i * 3000);
             ushort first = sequence;
             sequence += (ushort)writer.Count;

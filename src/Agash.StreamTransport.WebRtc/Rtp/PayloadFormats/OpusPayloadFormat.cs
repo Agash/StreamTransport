@@ -32,20 +32,18 @@ public sealed class OpusPayloadFormat : RtpPayloadFormat
     public override ImmutableArray<string?> FormatParameterSets => ["minptime=10;useinbandfec=1"];
 
     /// <inheritdoc/>
-    public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
-        new SingleFramePacketizer(maxPayloadSize);
+    public override IRtpPacketizer CreatePacketizer() => new SingleFramePacketizer();
 
     /// <inheritdoc/>
     public override IRtpDepacketizer CreateDepacketizer() => new SingleFrameDepacketizer();
 }
 
 /// <summary>Packetizes a format whose frames each travel whole in one RTP payload.</summary>
-/// <param name="maxPayloadSize">The largest RTP payload in bytes.</param>
-public sealed class SingleFramePacketizer(int maxPayloadSize) : IRtpPacketizer
+public sealed class SingleFramePacketizer : IRtpPacketizer
 {
     /// <inheritdoc/>
     /// <exception cref="ArgumentException">The frame is larger than a payload may be.</exception>
-    public void Packetize(ReadOnlySpan<byte> frame, RtpPayloadWriter writer)
+    public void Packetize(ReadOnlySpan<byte> frame, int maxPayloadSize, RtpPayloadWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
         if (frame.Length > maxPayloadSize)

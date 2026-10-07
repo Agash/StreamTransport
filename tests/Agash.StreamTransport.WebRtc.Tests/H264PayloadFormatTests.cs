@@ -141,7 +141,7 @@ public sealed class H264PayloadFormatTests
     internal static List<byte[]> Packetize(byte[] accessUnit, int maxPayloadSize)
     {
         RtpPayloadWriter writer = new();
-        new H264Packetizer(maxPayloadSize).Packetize(accessUnit, writer);
+        new H264Packetizer().Packetize(accessUnit, maxPayloadSize, writer);
         return [.. Enumerable.Range(0, writer.Count).Select(i => writer[i].ToArray())];
     }
 

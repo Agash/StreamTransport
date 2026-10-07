@@ -8,7 +8,7 @@ internal readonly record struct PacingStep(PacedPacket? Packet, TimeSpan? Wait);
 /// <summary>
 /// The pacing decisions, apart from threads and clocks: every call is given the time, so tests step it
 /// directly. Audio goes first and never waits, and may drive the budget negative. The other classes wait
-/// for one token bucket at the pacing rate, retransmissions first, then video, then repair; saved-up
+/// for one token bucket at the pacing rate, retransmissions first, then video, repair and probes; saved-up
 /// budget is capped at a short burst, and never below the packet waiting. A standing queue drains at
 /// whatever rate empties it within <see cref="MaxQueueDelay"/>.
 /// </summary>
@@ -24,9 +24,10 @@ internal sealed class PacingQueue
 
     private readonly Queue<PacedPacket> _audio = new();
 
-    // Retransmission, video and repair, in the order they go.
+    // Retransmission, video, repair and probes, in the order they go.
     private readonly Queue<(PacedPacket Packet, TimeSpan Enqueued)>[] _paced =
     [
+        new(),
         new(),
         new(),
         new(),

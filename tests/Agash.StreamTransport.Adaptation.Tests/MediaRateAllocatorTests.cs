@@ -73,7 +73,7 @@ public sealed class MediaRateAllocatorTests
 
     private sealed class Counters
     {
-        private readonly long[] _bytes = new long[4];
+        private readonly long[] _bytes = new long[Enum.GetValues<TrafficClass>().Length];
 
         public long Read(TrafficClass trafficClass) => _bytes[(int)trafficClass];
 

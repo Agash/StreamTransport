@@ -226,7 +226,7 @@ public sealed class ParserFuzzTests
             _ => Bytes(200),
         };
         RtpPayloadWriter writer = new();
-        format.CreatePacketizer(1100).Packetize(frame, writer);
+        format.CreatePacketizer().Packetize(frame, 1100, writer);
         byte[][] seeds = [.. Enumerable.Range(0, writer.Count).Select(i => writer[i].ToArray())];
         using IRtpDepacketizer depacketizer = format.CreateDepacketizer();
         using var buffer = new RtpFrameBuffer(format);

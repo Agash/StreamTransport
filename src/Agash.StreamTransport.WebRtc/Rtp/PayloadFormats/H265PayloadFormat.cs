@@ -43,8 +43,7 @@ public sealed class H265PayloadFormat : RtpPayloadFormat
         | RtpPayloadTraits.PictureParameters;
 
     /// <inheritdoc/>
-    public override IRtpPacketizer CreatePacketizer(int maxPayloadSize) =>
-        new H265Packetizer(maxPayloadSize);
+    public override IRtpPacketizer CreatePacketizer() => new H265Packetizer();
 
     /// <inheritdoc/>
     public override IRtpDepacketizer CreateDepacketizer() => new H265Depacketizer();
@@ -95,9 +94,7 @@ public sealed class H265PayloadFormat : RtpPayloadFormat
 /// a NAL unit that fits alone is a single-NAL-unit packet, and a larger one is split into Fragmentation
 /// Units.
 /// </summary>
-/// <param name="maxPayloadSize">The largest RTP payload in bytes; at least 4.</param>
-public sealed class H265Packetizer(int maxPayloadSize)
-    : NalUnitPacketizer(maxPayloadSize, nalHeaderSize: 2, fragmentHeaderSize: 3)
+public sealed class H265Packetizer() : NalUnitPacketizer(nalHeaderSize: 2, fragmentHeaderSize: 3)
 {
     /// <inheritdoc/>
     /// <remarks>The F bit of any unit and the lowest LayerId and TemporalId of all of them, with type 48.</remarks>

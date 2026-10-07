@@ -164,7 +164,7 @@ public sealed class RtpFrameBufferTests
     private static List<byte[]> Packets(RtpPayloadFormat format, byte[] frame, int maxPayloadSize)
     {
         RtpPayloadWriter writer = new();
-        format.CreatePacketizer(maxPayloadSize).Packetize(frame, writer);
+        format.CreatePacketizer().Packetize(frame, maxPayloadSize, writer);
         return [.. Enumerable.Range(0, writer.Count).Select(i => writer[i].ToArray())];
     }
 

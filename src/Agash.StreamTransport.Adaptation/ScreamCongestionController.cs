@@ -276,6 +276,13 @@ public sealed class ScreamCongestionController : ICongestionController
         {
             bool lost = observation.Outcome == PacketOutcome.Lost;
 
+            // A path MTU probe lost to its size is no sign of congestion (RFC 8899 section 3, item 7); it
+            // leaves the bytes in flight with the next acknowledgement like any other packet.
+            if (lost && observation.Packet.Class == TrafficClass.Probe)
+            {
+                continue;
+            }
+
             // Section 4.5.2: the average loss rate, one sample a packet.
             double alpha = Math.Min(
                 _options.LossRateThreshold / 4,

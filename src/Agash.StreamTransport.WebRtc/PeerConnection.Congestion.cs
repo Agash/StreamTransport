@@ -195,6 +195,11 @@ public sealed partial class PeerConnection
         lock (_feedbackGate)
         {
             controller.OnPacketSent(packet);
+            if (trafficClass == TrafficClass.Probe)
+            {
+                NoteProbeSent(packet.Id);
+            }
+
             return MarkForEcn(packet.Id);
         }
     }
@@ -288,6 +293,10 @@ public sealed partial class PeerConnection
             if (_observations.Count > 0)
             {
                 CheckEcn(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations));
+                ObservePathMtu(
+                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
+                    now
+                );
                 _ = _controller.OnFeedback(
                     System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
                     null,
@@ -299,6 +308,7 @@ public sealed partial class PeerConnection
         }
 
         OnEstimate(estimate);
+        ProbePathMtu(Now);
     }
 
     private void SendCongestionFeedbackIfDue()
@@ -529,20 +539,27 @@ public sealed partial class PeerConnection
         }
 
         CheckEcn(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations));
+        ObservePathMtu(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
+            now
+        );
 
-        // Rolling loss rate over the resolved packets (EWMA), for the health model.
-        if (_observations.Count > 0)
+        // Rolling loss rate over the resolved packets (EWMA), for the health model. Path MTU probes are
+        // left out: one lost to its size says nothing about the path's health.
+        int resolved = 0;
+        int lost = 0;
+        foreach (PacketObservation observation in _observations)
         {
-            int lost = 0;
-            foreach (PacketObservation observation in _observations)
+            if (observation.Packet.Class != TrafficClass.Probe)
             {
-                if (observation.Outcome == PacketOutcome.Lost)
-                {
-                    lost++;
-                }
+                resolved++;
+                lost += observation.Outcome == PacketOutcome.Lost ? 1 : 0;
             }
+        }
 
-            double sample = (double)lost / _observations.Count;
+        if (resolved > 0)
+        {
+            double sample = (double)lost / resolved;
             _lossRate = _lossRate <= 0 ? sample : (_lossRate * 0.8) + (sample * 0.2);
         }
 

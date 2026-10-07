@@ -142,5 +142,10 @@ public sealed partial class PeerConnection
                 _ecnValidator.Start();
             }
         }
+
+        if (path is { } selected)
+        {
+            SelectPathMtu(selected);
+        }
     }
 }

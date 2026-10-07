@@ -50,9 +50,8 @@ public abstract class RtpPayloadFormat
     public virtual RtpPayloadTraits KeyframeRequires => RtpPayloadTraits.None;
 
     /// <summary>Creates the packetizer for one send stream.</summary>
-    /// <param name="maxPayloadSize">The largest RTP payload in bytes.</param>
     /// <returns>The packetizer.</returns>
-    public abstract IRtpPacketizer CreatePacketizer(int maxPayloadSize);
+    public abstract IRtpPacketizer CreatePacketizer();
 
     /// <summary>Creates the depacketizer for one receive stream.</summary>
     /// <returns>The depacketizer.</returns>
@@ -120,8 +119,11 @@ public interface IRtpPacketizer
     /// it. The caller sets the RTP marker bit on the last payload.
     /// </summary>
     /// <param name="frame">The encoded frame.</param>
+    /// <param name="maxPayloadSize">
+    /// The largest RTP payload in bytes, which follows the path MTU and so can change between frames.
+    /// </param>
     /// <param name="writer">Reusable payload storage.</param>
-    void Packetize(ReadOnlySpan<byte> frame, RtpPayloadWriter writer);
+    void Packetize(ReadOnlySpan<byte> frame, int maxPayloadSize, RtpPayloadWriter writer);
 }
 
 /// <summary>Reassembles encoded frames from the RTP payloads of one receive stream, fed in sequence order.</summary>

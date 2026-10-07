@@ -9,6 +9,7 @@ public sealed class RtpSendHistory(int capacity = 512)
 {
     private readonly Entry[] _entries = new Entry[capacity];
     private readonly Lock _gate = new();
+    private int _newest = -1;
 
     /// <summary>Stores a copy of a sent RTP packet for possible retransmission.</summary>
     public void Store(ushort sequenceNumber, ReadOnlySpan<byte> rtpPacket)
@@ -17,6 +18,7 @@ public sealed class RtpSendHistory(int capacity = 512)
         lock (_gate)
         {
             _entries[sequenceNumber % _entries.Length] = new Entry(sequenceNumber, copy);
+            _newest = sequenceNumber;
         }
     }
 
@@ -38,6 +40,38 @@ public sealed class RtpSendHistory(int capacity = 512)
 
         rtpPacket = default;
         return false;
+    }
+
+    /// <summary>The largest of the packets stored last, the newest of them on a tie.</summary>
+    /// <param name="window">How many of the newest sequence numbers to look at.</param>
+    /// <param name="rtpPacket">The packet, when one of them is stored.</param>
+    /// <returns>Whether one is.</returns>
+    public bool TryGetLargestRecent(int window, out ReadOnlyMemory<byte> rtpPacket)
+    {
+        rtpPacket = default;
+        lock (_gate)
+        {
+            if (_newest < 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < Math.Min(window, _entries.Length); i++)
+            {
+                ushort sequence = (ushort)(_newest - i);
+                Entry entry = _entries[sequence % _entries.Length];
+                if (
+                    entry.Packet is { } packet
+                    && entry.SequenceNumber == sequence
+                    && packet.Length > rtpPacket.Length
+                )
+                {
+                    rtpPacket = packet;
+                }
+            }
+        }
+
+        return !rtpPacket.IsEmpty;
     }
 
     private readonly record struct Entry(ushort SequenceNumber, byte[]? Packet);
