@@ -528,15 +528,18 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// <summary>
     /// Queues a media payload as an RTP packet at the connection's pacer, which protects and sends it in
     /// turn with the retransmissions and FEC repairs that share its budget. The sequence number is managed
-    /// per SSRC; abs-capture-time is added when configured and <paramref name="captureNtp"/> is set. The
-    /// payload is copied once, into the packet.
+    /// per SSRC; the <paramref name="extensions"/> the negotiation agreed on are written into its header.
+    /// The payload is copied once, into the packet.
     /// </summary>
     /// <param name="payloadType">The RTP payload type.</param>
     /// <param name="ssrc">The stream's SSRC.</param>
     /// <param name="rtpTimestamp">The RTP timestamp.</param>
     /// <param name="marker">The marker bit.</param>
     /// <param name="payload">The payload.</param>
-    /// <param name="captureNtp">The abs-capture-time, or zero for none.</param>
+    /// <param name="extensions">
+    /// The header extension values the packet carries, of those negotiated. A packet carrying video-timing
+    /// gets its pacer exit stamped as it leaves, relative to its abs-capture-time.
+    /// </param>
     /// <returns>False, dropping the packet, when DTLS-SRTP is not established yet.</returns>
     public bool TrySendRtp(
         byte payloadType,
@@ -544,7 +547,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         uint rtpTimestamp,
         bool marker,
         ReadOnlySpan<byte> payload,
-        ulong captureNtp = 0
+        RtpExtensionValues extensions = default
     )
     {
         if (_srtp is null || TransmissionCeased)
@@ -571,8 +574,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ssrc,
             payload,
             Volatile.Read(ref _extensions),
-            new RtpExtensionValues(captureNtp != 0 ? captureNtp : null)
+            extensions,
+            out int timingAt
         );
+        if (timingAt >= 0 && extensions.AbsoluteCaptureTimeNtp is { } timedCapture)
+        {
+            NotePacerStamp(ssrc, sequence, timingAt, timedCapture);
+        }
         ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
 
         // FlexFEC protects the video stream: the cleartext is what FEC XORs.
@@ -684,6 +692,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         int payloadLength = payload.Length;
+        StampPacerExit(packet.Buffer, header.Ssrc, header.SequenceNumber);
         int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
         long now = NowMicros();
         EcnCodepoint ecn = RecordSent(

@@ -36,12 +36,17 @@ internal sealed class RtpStreamWriter(
     /// <param name="frame">The encoded frame.</param>
     /// <param name="timestamp">When it was made.</param>
     /// <param name="capture">When it was captured, on this side's wall clock.</param>
+    /// <param name="timing">
+    /// Its encode timing when it is a timing frame: its last packet then carries the video-timing extension,
+    /// with packetization finished now and the pacer exit stamped as it leaves, and its capture time.
+    /// </param>
     /// <returns>False when the connection could not take the packets.</returns>
     public bool Write(
         PeerConnection connection,
         ReadOnlySpan<byte> frame,
         MediaTimestamp timestamp,
-        NtpTime capture
+        NtpTime capture,
+        FrameSendTiming? timing = null
     )
     {
         lock (_gate)
@@ -51,15 +56,34 @@ internal sealed class RtpStreamWriter(
             _first ??= origin;
             uint rtpTimestamp = unchecked(_start + (uint)rate.ToTicks(origin - _first.Value));
             bool sent = true;
+            int last = _payloads.Count - 1;
             for (int i = 0; i < _payloads.Count; i++)
             {
+                RtpExtensionValues extensions =
+                    i == last && timing is { } timed
+                        ? new RtpExtensionValues(
+                            capture.Value,
+                            new VideoTiming(
+                                (byte)timed.Reasons,
+                                VideoTiming.Delta(timed.EncodeStart),
+                                VideoTiming.Delta(timed.EncodeFinish),
+                                VideoTiming.Delta(
+                                    PeerConnection.NtpDifference(capture.Value, connection.NtpNow)
+                                ),
+                                0,
+                                0,
+                                0
+                            )
+                        )
+                    : i == 0 ? new RtpExtensionValues(capture.Value)
+                    : default;
                 sent &= connection.TrySendRtp(
                     payloadType,
                     ssrc,
                     rtpTimestamp,
-                    i == _payloads.Count - 1,
+                    i == last,
                     _payloads[i].Span,
-                    i == 0 ? capture.Value : 0
+                    extensions
                 );
             }
 

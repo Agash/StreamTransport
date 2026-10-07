@@ -145,6 +145,7 @@ public sealed partial class PeerConnection
                     body[12..]
                 );
                 SenderReportReceived?.Invoke(ssrc, ntp, rtpTimestamp);
+                NoteSenderClock(ntp, now);
                 lock (_reportGate)
                 {
                     if (_receiveStatistics.TryGetValue(ssrc, out RtpReceiveStatistics? statistics))

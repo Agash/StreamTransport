@@ -131,7 +131,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 loss.NackSequencesRequested,
                 loss.RtxPacketsRecovered,
                 loss.KeyframeRequestsSent,
-                connection.CircuitBreakerState
+                connection.CircuitBreakerState,
+                connection.SenderClockOffset
             );
         }
     }
@@ -189,7 +190,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     public long SentBytes(TrafficClass trafficClass) => _connection?.SentBytes(trafficClass) ?? 0;
 
-    public bool TrySendVideo(in EncodedVideoFrame frame, NtpTime capture)
+    public bool TrySendVideo(in EncodedVideoFrame frame, NtpTime capture, FrameSendTiming? timing)
     {
         if (_videoWriter is not { } writer || _connection is not { } connection)
         {
@@ -197,7 +198,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         }
 
         connection.NoteMediaFrame(frame.Data.Length);
-        return writer.Write(connection, frame.Data, frame.Timestamp, capture);
+        return writer.Write(connection, frame.Data, frame.Timestamp, capture, timing);
     }
 
     public bool TrySendAudio(in EncodedAudioFrame frame, NtpTime capture) =>
@@ -637,11 +638,29 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
     {
         private readonly RtpFrameBuffer _buffer = new(format);
         private readonly RtpClockAligner _aligner = new(new ClockRate(format.ClockRate));
+
+        // Frames still arriving, by RTP timestamp: when their first and last packets came, and the timing
+        // the last one carried. A frame that never completes leaves its entry behind, cleared in bulk.
+        private readonly Dictionary<uint, Arrival> _arrivals = [];
         private bool _captureTimes;
         private long? _gapSince;
 
         public void OnPacket(in RtpHeader header, ReadOnlySpan<byte> payload)
         {
+            var arrived = NtpTime.From(owner._time.GetUtcNow());
+            if (_arrivals.Count > 64)
+            {
+                _arrivals.Clear();
+            }
+
+            _arrivals[header.Timestamp] = _arrivals.TryGetValue(header.Timestamp, out Arrival seen)
+                ? seen with
+                {
+                    Last = arrived,
+                    Timing = header.Extensions.VideoTiming ?? seen.Timing,
+                }
+                : new Arrival(arrived, arrived, header.Extensions.VideoTiming);
+
             if (header.AbsoluteCaptureTimeNtp is { } ntp and not 0)
             {
                 _captureTimes = true;
@@ -659,7 +678,20 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 NtpTime? capture = _aligner.TryGetCapture(frame.Timestamp, out NtpTime at)
                     ? at
                     : null;
-                owner._receiver!.OnVideoFrame(frame.Frame, frame.IsKeyframe, capture);
+                VideoReceiveTiming? timing =
+                    _arrivals.Remove(frame.Timestamp, out Arrival arrival)
+                    && arrival.Timing is { } sent
+                        ? new VideoReceiveTiming(
+                            (FrameTimingReasons)sent.Flags,
+                            TimeSpan.FromMilliseconds(sent.EncodeStart),
+                            TimeSpan.FromMilliseconds(sent.EncodeFinish),
+                            TimeSpan.FromMilliseconds(sent.PacketizationFinish),
+                            TimeSpan.FromMilliseconds(sent.PacerExit),
+                            arrival.First,
+                            arrival.Last
+                        )
+                        : null;
+                owner._receiver!.OnVideoFrame(frame.Frame, frame.IsKeyframe, capture, timing);
             }
 
             long now = owner._time.GetTimestamp();
@@ -690,6 +722,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         }
 
         public void Dispose() => _buffer.Dispose();
+
+        private readonly record struct Arrival(NtpTime First, NtpTime Last, VideoTiming? Timing);
     }
 
     // Received audio: each packet copied out of the receive buffer, numbered, placed on the stream's

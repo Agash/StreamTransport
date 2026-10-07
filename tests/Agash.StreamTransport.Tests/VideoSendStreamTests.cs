@@ -22,7 +22,7 @@ public sealed class VideoSendStreamTests
             new VideoSendSetup(H264, 1_000_000),
             registry,
             new MediaSessionOptions(),
-            (in EncodedVideoFrame _) => sent.TrySetResult(),
+            (in EncodedVideoFrame _, FrameSendTiming? _) => sent.TrySetResult(),
             MediaClock.System,
             new StreamTransportMetrics(meterFactory: null),
             NullLogger.Instance

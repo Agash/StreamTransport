@@ -16,6 +16,16 @@ internal sealed record VideoReceiveSetup(
     Action RequestKeyframe
 );
 
+/// <summary>Where a receive stream's timing frames go, and the clocks that place them.</summary>
+/// <param name="WallClock">This side's wall clock, for receive, decode and presentation stamps.</param>
+/// <param name="SenderClockOffset">This side's clock less the sender's, when estimated.</param>
+/// <param name="Reported">Takes each timing frame's report once the frame is presented.</param>
+internal sealed record VideoTimingSetup(
+    CaptureClock WallClock,
+    Func<TimeSpan?> SenderClockOffset,
+    Action<VideoFrameTimingReport> Reported
+);
+
 /// <summary>
 /// Receives one video stream from a peer: the transport hands over complete frames, and a worker
 /// decodes, converts what the sink cannot take (and unpacks alpha), and plays each frame on arrival or
@@ -36,6 +46,13 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
     private readonly ArrivalStamps _stamps;
+    private readonly VideoTimingSetup? _timingSetup;
+
+    // Timing frames between arrival and presentation, by the stamp their frame carries; a frame that is
+    // skipped or fails takes its entry with it.
+    private readonly Lock _timingGate = new();
+    private readonly Dictionary<MediaTimestamp, PendingTiming> _timings = [];
+
     private readonly Channel<(
         EncodedFrameBuffer Frame,
         bool Keyframe,
@@ -61,6 +78,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <param name="clock">The local media clock.</param>
     /// <param name="metrics">The library's instruments.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="timing">Where timing frames go; none traced when null.</param>
     public VideoReceiveStream(
         VideoReceiveSetup setup,
         IVideoSink sink,
@@ -68,10 +86,12 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         Playout playout,
         MediaClock clock,
         StreamTransportMetrics metrics,
-        ILogger logger
+        ILogger logger,
+        VideoTimingSetup? timing = null
     )
     {
         _setup = setup;
+        _timingSetup = timing;
         _sink = sink;
         _registry = registry;
         _playout = playout;
@@ -97,9 +117,30 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <param name="frame">The access unit.</param>
     /// <param name="keyframe">Whether it can be decoded on its own.</param>
     /// <param name="capture">When the sender captured it, when known.</param>
-    public void OnEncodedFrame(EncodedFrameBuffer frame, bool keyframe, NtpTime? capture)
+    /// <param name="timing">The frame's timing, when the sender timed it.</param>
+    public void OnEncodedFrame(
+        EncodedFrameBuffer frame,
+        bool keyframe,
+        NtpTime? capture,
+        VideoReceiveTiming? timing = null
+    )
     {
-        if (_frames.Writer.TryWrite((frame, keyframe, _stamps.Stamp(capture))))
+        MediaTimestamp stamp = _stamps.Stamp(capture);
+        if (timing is { } received && capture is { } captured && _timingSetup is not null)
+        {
+            lock (_timingGate)
+            {
+                // Bounded: a frame that never presents (dropped, failed) leaves an entry behind.
+                if (_timings.Count > 64)
+                {
+                    _timings.Clear();
+                }
+
+                _timings[stamp] = new PendingTiming(received, captured);
+            }
+        }
+
+        if (_frames.Writer.TryWrite((frame, keyframe, stamp)))
         {
             Interlocked.Increment(ref _waiting);
         }
@@ -114,8 +155,56 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// into the sink's own surface where the sink lends one, so nothing is converted that is not shown.
     /// </summary>
     /// <param name="frame">The decoded frame.</param>
-    public void OnFrame(in VideoFrame frame) =>
-        _playout.Video(in frame, _stamps.TakeCapture(frame.Timestamp), _presenter);
+    public void OnFrame(in VideoFrame frame)
+    {
+        Action? presented = null;
+        if (_timingSetup is { } setup)
+        {
+            lock (_timingGate)
+            {
+                if (_timings.Remove(frame.Timestamp, out PendingTiming pending))
+                {
+                    presented = () => Report(setup, pending);
+                }
+            }
+        }
+
+        _playout.Video(in frame, _stamps.TakeCapture(frame.Timestamp), _presenter, presented);
+    }
+
+    private void Report(VideoTimingSetup setup, PendingTiming pending)
+    {
+        NtpTime now = setup.WallClock.ToNtp(_clock.Now);
+        VideoReceiveTiming t = pending.Received;
+        setup.Reported(
+            new VideoFrameTimingReport(
+                t.Reasons,
+                pending.Capture,
+                t.EncodeStart,
+                t.EncodeFinish,
+                t.PacketizationFinish,
+                t.PacerExit,
+                t.FirstPacketReceived,
+                t.LastPacketReceived,
+                pending.DecodeStart,
+                pending.DecodeFinish,
+                now,
+                setup.SenderClockOffset()
+            )
+        );
+    }
+
+    // A timing frame's stamps so far: what arrived with it, then its decoding.
+    private struct PendingTiming(VideoReceiveTiming received, NtpTime capture)
+    {
+        public VideoReceiveTiming Received { get; } = received;
+
+        public NtpTime Capture { get; } = capture;
+
+        public NtpTime DecodeStart { get; set; }
+
+        public NtpTime DecodeFinish { get; set; }
+    }
 
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
@@ -206,10 +295,12 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         {
             _decoder ??= CreateDecoder();
             MediaTime started = _clock.Now;
+            NoteDecode(stamp, started, finished: false);
             _decoder.Decode(
                 new EncodedVideoFrame(frame.Span, _setup.Format.Codec, keyframe, stamp),
                 this
             );
+            NoteDecode(stamp, _clock.Now, finished: true);
             _metrics.VideoDecodeDuration.Record(
                 (_clock.Now - started).TotalSeconds,
                 StreamTransportMetrics.Codec(_setup.Format.Codec)
@@ -225,6 +316,35 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             LogDecodeFailed(exception);
             _ = _stamps.TakeCapture(stamp);
             RequestKeyframe();
+        }
+    }
+
+    // Decode stamps of a timing frame. A decoder that hands the frame over during Decode reaches OnFrame
+    // before the finish is noted, so the finish is taken there too.
+    private void NoteDecode(MediaTimestamp stamp, MediaTime at, bool finished)
+    {
+        if (_timingSetup is not { } setup)
+        {
+            return;
+        }
+
+        lock (_timingGate)
+        {
+            if (_timings.TryGetValue(stamp, out PendingTiming pending))
+            {
+                NtpTime wall = setup.WallClock.ToNtp(at);
+                if (finished)
+                {
+                    pending.DecodeFinish = wall;
+                }
+                else
+                {
+                    pending.DecodeStart = wall;
+                    pending.DecodeFinish = wall;
+                }
+
+                _timings[stamp] = pending;
+            }
         }
     }
 

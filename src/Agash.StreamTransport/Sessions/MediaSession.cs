@@ -88,6 +88,8 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     public event Action<CircuitBreakerState>? CircuitBreakerChanged;
 
+    public event Action<VideoFrameTimingReport>? VideoFrameTimed;
+
     public Task Connected => _connected.Task;
 
     public TransportState State => _transport.State;
@@ -182,12 +184,13 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
     void IReceivedMediaConsumer.OnVideoFrame(
         EncodedFrameBuffer frame,
         bool keyframe,
-        NtpTime? capture
+        NtpTime? capture,
+        VideoReceiveTiming? timing
     )
     {
         if (Volatile.Read(ref _videoReceive) is { } stream)
         {
-            stream.OnEncodedFrame(frame, keyframe, capture);
+            stream.OnEncodedFrame(frame, keyframe, capture, timing);
         }
         else
         {
@@ -355,10 +358,21 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
                     _playout,
                     _services.Clock,
                     _services.Metrics,
-                    _logger
+                    _logger,
+                    new VideoTimingSetup(
+                        _captureClock,
+                        () => _transport.Statistics.SenderClockOffset,
+                        OnVideoFrameTimed
+                    )
                 )
             );
         }
+    }
+
+    private void OnVideoFrameTimed(VideoFrameTimingReport report)
+    {
+        _services.Metrics.RecordTiming(report);
+        VideoFrameTimed?.Invoke(report);
     }
 
     private void BuildAudio(NegotiatedAudio audio)
@@ -392,8 +406,8 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         }
     }
 
-    private void SendVideo(in EncodedVideoFrame frame) =>
-        _ = _transport.TrySendVideo(in frame, _captureClock.ToNtp(frame.Timestamp.Origin));
+    private void SendVideo(in EncodedVideoFrame frame, FrameSendTiming? timing) =>
+        _ = _transport.TrySendVideo(in frame, _captureClock.ToNtp(frame.Timestamp.Origin), timing);
 
     private void SendAudio(in EncodedAudioFrame frame) =>
         _ = _transport.TrySendAudio(in frame, _captureClock.ToNtp(frame.Timestamp.Origin));

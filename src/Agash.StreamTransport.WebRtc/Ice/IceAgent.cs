@@ -131,6 +131,21 @@ public sealed partial class IceAgent : IAsyncDisposable
             )
             : null;
 
+    /// <summary>
+    /// The selected pair's round trip, smoothed over its connectivity and consent checks; null before one is
+    /// answered.
+    /// </summary>
+    public TimeSpan? SelectedRoundTrip
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _machine.SelectedRoundTrip;
+            }
+        }
+    }
+
     /// <summary>This agent's local credentials (rotated on an ICE restart).</summary>
     public IceCredentials LocalCredentials
     {

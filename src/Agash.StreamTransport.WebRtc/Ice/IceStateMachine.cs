@@ -38,7 +38,11 @@ internal sealed partial class IceStateMachine
     private readonly List<IceCandidate> _remoteCandidates = [];
     private readonly List<CandidatePair> _pairs = [];
     private readonly List<IPEndPoint> _stunServers = [];
-    private readonly Dictionary<string, CandidatePair> _inFlight = new(StringComparer.Ordinal);
+
+    // Checks awaiting their response, with when each was sent: a response times its pair's round trip.
+    private readonly Dictionary<string, (CandidatePair Pair, TimeSpan SentAt)> _inFlight = new(
+        StringComparer.Ordinal
+    );
     private readonly Dictionary<string, LocalEndpoint> _gatherInFlight = new(
         StringComparer.Ordinal
     );
@@ -74,6 +78,9 @@ internal sealed partial class IceStateMachine
 
     /// <summary>When the machine next needs <see cref="HandleTimeout"/>; null before it starts.</summary>
     public TimeSpan? NextTimeout { get; private set; }
+
+    /// <summary>The selected pair's smoothed round trip from its checks, once one has been answered.</summary>
+    public TimeSpan? SelectedRoundTrip => _selected?.RoundTrip;
 
     /// <summary>
     /// The selected pair: the local endpoint's handle, the remote endpoint and both candidates' kinds;
@@ -365,10 +372,12 @@ internal sealed partial class IceStateMachine
             return;
         }
 
-        if (!_inFlight.Remove(transaction, out CandidatePair? pair))
+        if (!_inFlight.Remove(transaction, out (CandidatePair Pair, TimeSpan SentAt) check))
         {
             return;
         }
+
+        CandidatePair pair = check.Pair;
 
         // A response's MESSAGE-INTEGRITY is keyed by the responder's password.
         if (
@@ -381,6 +390,7 @@ internal sealed partial class IceStateMachine
 
         pair.State = PairState.Succeeded;
         pair.LastResponse = now;
+        pair.NoteRoundTrip(now - check.SentAt);
         LogPairSucceeded(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
         if (pair.NominationCheck || (pair.NominatedByPeer && _role == IceRole.Controlled))
         {
@@ -492,7 +502,7 @@ internal sealed partial class IceStateMachine
 
         check.LastSent = now;
         check.Transmits++;
-        SendBindingCheck(check);
+        SendBindingCheck(check, now);
     }
 
     private CandidatePair? NextOrdinaryCheck(TimeSpan now)
@@ -552,7 +562,7 @@ internal sealed partial class IceStateMachine
         if (Since(selected.LastSent, now) > _timings.ConsentInterval)
         {
             selected.LastSent = now;
-            SendBindingCheck(selected);
+            SendBindingCheck(selected, now);
         }
     }
 
@@ -568,7 +578,7 @@ internal sealed partial class IceStateMachine
             )
             {
                 pair.LastSent = now;
-                SendBindingCheck(pair);
+                SendBindingCheck(pair, now);
             }
         }
     }
@@ -593,7 +603,7 @@ internal sealed partial class IceStateMachine
         return best;
     }
 
-    private void SendBindingCheck(CandidatePair pair)
+    private void SendBindingCheck(CandidatePair pair, TimeSpan now)
     {
         Span<byte> transaction = stackalloc byte[StunHeader.TransactionIdLength];
         RandomNumberGenerator.Fill(transaction);
@@ -636,7 +646,7 @@ internal sealed partial class IceStateMachine
 
         writer.AddMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password));
         writer.AddFingerprint();
-        _inFlight[Convert.ToHexString(transaction)] = pair;
+        _inFlight[Convert.ToHexString(transaction)] = (pair, now);
         _transmits.Enqueue(
             new IceTransmit(pair.Local.Handle, pair.Remote.Endpoint, buffer[..writer.Length])
         );
@@ -739,6 +749,13 @@ internal sealed partial class IceStateMachine
         public TimeSpan? LastSent { get; set; }
 
         public TimeSpan? LastResponse { get; set; }
+
+        // The pair's smoothed round trip from its checks, as libwebrtc's Connection keeps it: each sample
+        // weighs one to the estimate's three.
+        public TimeSpan? RoundTrip { get; private set; }
+
+        public void NoteRoundTrip(TimeSpan sample) =>
+            RoundTrip = RoundTrip is { } smoothed ? ((smoothed * 3) + sample) / 4 : sample;
 
         public int Transmits { get; set; }
     }

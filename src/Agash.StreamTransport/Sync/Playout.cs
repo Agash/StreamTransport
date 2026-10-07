@@ -67,20 +67,28 @@ internal sealed class Playout : IAsyncDisposable
     /// <param name="frame">The frame, borrowed.</param>
     /// <param name="capture">The sender's capture instant, when known.</param>
     /// <param name="sink">Where it goes.</param>
-    public void Video(in VideoFrame frame, NtpTime? capture, IVideoFrameConsumer sink)
+    /// <param name="presented">Called once the frame has reached the sink, for a traced frame.</param>
+    public void Video(
+        in VideoFrame frame,
+        NtpTime? capture,
+        IVideoFrameConsumer sink,
+        Action? presented = null
+    )
     {
         if (_scheduler is { } scheduler && capture is { } at)
         {
-            scheduler.Schedule(at, new VideoEntry(frame.Retain(), sink, at, _sync));
+            scheduler.Schedule(at, new VideoEntry(frame.Retain(), sink, at, _sync, presented));
             _metrics.PlayoutDelay.Record(scheduler.CurrentDelay.TotalSeconds);
         }
         else
         {
             sink.OnFrame(in frame);
-            if (capture is { } presented)
+            if (capture is { } shown)
             {
-                _sync.VideoPresented(presented);
+                _sync.VideoPresented(shown);
             }
+
+            presented?.Invoke();
         }
     }
 
@@ -115,13 +123,15 @@ internal sealed class Playout : IAsyncDisposable
         VideoFrameLease lease,
         IVideoFrameConsumer sink,
         NtpTime capture,
-        SyncMonitor sync
+        SyncMonitor sync,
+        Action? presented
     ) : IPlayoutEntry
     {
         public void Play()
         {
             sink.OnFrame(lease.Frame);
             sync.VideoPresented(capture);
+            presented?.Invoke();
         }
 
         public void Dispose() => lease.Dispose();

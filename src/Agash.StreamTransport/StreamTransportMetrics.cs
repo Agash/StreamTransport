@@ -102,6 +102,16 @@ internal sealed class StreamTransportMetrics : IDisposable
             "s",
             "The synced playout buffer depth each time it is set."
         );
+        VideoStage = _meter.CreateHistogram<double>(
+            "streamtransport.video.timing.stage",
+            "s",
+            "How long timing frames spent in each stage from capture to presentation, by stage."
+        );
+        VideoEndToEnd = _meter.CreateHistogram<double>(
+            "streamtransport.video.timing.end_to_end",
+            "s",
+            "Timing frames' latency from capture on the sender to presentation here."
+        );
         AvSyncOffset = _meter.CreateHistogram<double>(
             "streamtransport.playout.av_offset",
             "s",
@@ -158,6 +168,37 @@ internal sealed class StreamTransportMetrics : IDisposable
     public Histogram<double> PlayoutDelay { get; }
 
     public Histogram<double> AvSyncOffset { get; }
+
+    public Histogram<double> VideoStage { get; }
+
+    public Histogram<double> VideoEndToEnd { get; }
+
+    public void RecordTiming(VideoFrameTimingReport report)
+    {
+        Stage("encode_queue", report.EncodeQueue);
+        Stage("encode", report.Encode);
+        Stage("packetize", report.Packetize);
+        Stage("pacer", report.Pacer);
+        if (report.Network is { } network)
+        {
+            Stage("network", network);
+        }
+
+        Stage("receive", report.Receive);
+        Stage("assembly", report.Assembly);
+        Stage("decode", report.Decode);
+        Stage("playout", report.Playout);
+        if (report.EndToEnd is { } total)
+        {
+            VideoEndToEnd.Record(total.TotalSeconds);
+        }
+    }
+
+    private void Stage(string stage, TimeSpan duration) =>
+        VideoStage.Record(
+            duration.TotalSeconds,
+            new KeyValuePair<string, object?>("streamtransport.stage", stage)
+        );
 
     public static KeyValuePair<string, object?> Codec(VideoCodecId codec) =>
         new("streamtransport.codec", codec.Name);

@@ -110,6 +110,32 @@ public sealed class HttpMediaTests
         // audio frame: it is what tells a real stream's sync, where there is no test signal.
         double monitored = meters.Values(AvOffset).Skip(measuredFrom).Average() * 1000;
         TestContext.WriteLine($"session A/V offset {monitored:0.0} ms; test signal {measured}");
+
+        // Where timing frames' latency went, stage by stage, as the session reports it.
+        string[] stages =
+        [
+            "encode_queue",
+            "encode",
+            "packetize",
+            "pacer",
+            "network",
+            "receive",
+            "assembly",
+            "decode",
+            "playout",
+        ];
+        double[] endToEnd = meters.Values("streamtransport.video.timing.end_to_end");
+        Assert.IsNotEmpty(endToEnd, "timing frames were reported");
+        TestContext.WriteLine(
+            "timing frames: "
+                + string.Join(
+                    ", ",
+                    stages.Select(stage =>
+                        $"{stage} {Mean(meters.Values("streamtransport.video.timing.stage", stage)):0.0}"
+                    )
+                )
+                + $"; end to end {Mean(endToEnd):0.0} ms over {endToEnd.Length}"
+        );
         Assert.IsLessThan(
             35,
             Math.Abs(monitored - measured.MeanOffset.TotalMilliseconds),
@@ -256,6 +282,9 @@ public sealed class HttpMediaTests
         MediaServices.Loopback(new MediaSessionOptions { VideoCodecs = [VideoCodecId.H264] });
 
     // An ordinary ASP.NET Core application on a loopback port, with the media services and the endpoints.
+    private static double Mean(double[] seconds) =>
+        seconds.Length == 0 ? double.NaN : seconds.Average() * 1000;
+
     private static async Task<WebApplication> StartAsync(
         Action<WebApplication> map,
         Action<IServiceCollection>? services = null

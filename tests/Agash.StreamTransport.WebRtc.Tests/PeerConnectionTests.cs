@@ -96,7 +96,7 @@ public sealed class PeerConnectionTests
                 rtpTimestamp: 160,
                 marker: true,
                 payload,
-                captureNtp
+                new RtpExtensionValues(captureNtp)
             )
         );
 

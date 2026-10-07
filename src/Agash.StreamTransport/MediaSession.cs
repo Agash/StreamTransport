@@ -75,6 +75,13 @@ public interface IMediaSession : IAsyncDisposable
     /// </summary>
     event Action<CircuitBreakerState>? CircuitBreakerChanged;
 
+    /// <summary>
+    /// Raised for each received timing frame once it is presented, with where its latency went from capture
+    /// on: the sender times a frame every 200 ms and any unusually large one. Raised on the playout thread;
+    /// a handler must return quickly.
+    /// </summary>
+    event Action<VideoFrameTimingReport>? VideoFrameTimed;
+
     /// <summary>The transport's counters and estimates: capacity, loss, recovery, the circuit breaker.</summary>
     TransportStatistics Transport { get; }
 

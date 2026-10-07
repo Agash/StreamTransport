@@ -65,6 +65,7 @@ internal sealed class MeterRecorder : IMeterFactory
                     or "streamtransport.reason"
                     or "streamtransport.webrtc.ice.local_kind"
                     or "streamtransport.signaling.message_type"
+                    or "streamtransport.stage"
             )
             {
                 tag = pair.Value as string;

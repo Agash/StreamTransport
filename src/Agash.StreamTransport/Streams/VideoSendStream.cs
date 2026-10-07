@@ -29,6 +29,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private readonly MediaCodecRegistry _registry;
     private readonly MediaSessionOptions _options;
     private readonly EncodedVideoSink _send;
+    private readonly FrameTimingTracker _timing = new();
     private readonly MediaClock _clock;
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
@@ -288,6 +289,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         try
         {
             MediaTime started = _clock.Now;
+            _timing.EncodeStarted(frame.Timestamp.Origin, started);
             _encoder.Encode(in frame, new EncodeRequest(keyframe), _encoded);
             _metrics.VideoEncodeDuration.Record(
                 (_clock.Now - started).TotalSeconds,
@@ -459,7 +461,14 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private void Transmit(in EncodedVideoFrame frame)
     {
         _encoderDelivered = true;
-        _send(in frame);
+        FrameSendTiming? timing = _timing.EncodeFinished(
+            frame.Timestamp.Origin,
+            frame.Data.Length,
+            Interlocked.Read(ref _bitsPerSecond),
+            FramesPerSecond,
+            _clock.Now
+        );
+        _send(in frame, timing);
         Interlocked.Increment(ref _framesSent);
         _metrics.VideoFramesSent.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
     }

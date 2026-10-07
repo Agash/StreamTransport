@@ -84,6 +84,55 @@ public sealed record NegotiatedAudio(AudioCodecFormat Format);
 /// <param name="Audio">The audio, or null when none was agreed.</param>
 public sealed record NegotiatedMedia(NegotiatedVideo? Video, NegotiatedAudio? Audio);
 
+/// <summary>Why a video frame carries timing: on a schedule, for its size, or both.</summary>
+[Flags]
+public enum FrameTimingReasons : byte
+{
+    /// <summary>Not a timing frame.</summary>
+    None = 0,
+
+    /// <summary>Chosen by the periodic timer, every 200 ms of capture time.</summary>
+    Timer = 1,
+
+    /// <summary>Chosen because it is five times the average frame or more.</summary>
+    Size = 2,
+}
+
+/// <summary>
+/// The sender's encode timing of one video frame, as offsets from its capture, for tracing latency frame by
+/// frame (a timing frame). The transport adds when packetization finished and the last packet left.
+/// </summary>
+/// <param name="EncodeStart">When the encoder took the frame.</param>
+/// <param name="EncodeFinish">When the encoder produced it.</param>
+/// <param name="Reasons">Why the frame is timed.</param>
+public readonly record struct FrameSendTiming(
+    TimeSpan EncodeStart,
+    TimeSpan EncodeFinish,
+    FrameTimingReasons Reasons
+);
+
+/// <summary>
+/// The timing a received video frame carried and how it arrived: the sender's stamps as offsets from
+/// capture on its clock, and when the frame's first and last packets reached this side, on this side's
+/// wall clock.
+/// </summary>
+/// <param name="Reasons">Why the sender timed the frame.</param>
+/// <param name="EncodeStart">When the sender's encoder took the frame.</param>
+/// <param name="EncodeFinish">When the sender's encoder produced it.</param>
+/// <param name="PacketizationFinish">When the sender had its packets queued.</param>
+/// <param name="PacerExit">When its last packet left the sender.</param>
+/// <param name="FirstPacketReceived">When its first packet arrived here.</param>
+/// <param name="LastPacketReceived">When its last packet arrived here.</param>
+public readonly record struct VideoReceiveTiming(
+    FrameTimingReasons Reasons,
+    TimeSpan EncodeStart,
+    TimeSpan EncodeFinish,
+    TimeSpan PacketizationFinish,
+    TimeSpan PacerExit,
+    NtpTime FirstPacketReceived,
+    NtpTime LastPacketReceived
+);
+
 /// <summary>
 /// Takes the media a transport receives, on the transport's receive thread. Each frame's buffer passes to
 /// the consumer, which disposes it.
@@ -94,7 +143,13 @@ public interface IReceivedMediaConsumer
     /// <param name="frame">The access unit.</param>
     /// <param name="keyframe">Whether it can be decoded on its own.</param>
     /// <param name="capture">When the sender captured it, on the sender's wall clock, when known.</param>
-    void OnVideoFrame(EncodedFrameBuffer frame, bool keyframe, NtpTime? capture);
+    /// <param name="timing">The frame's timing, when the sender timed it.</param>
+    void OnVideoFrame(
+        EncodedFrameBuffer frame,
+        bool keyframe,
+        NtpTime? capture,
+        VideoReceiveTiming? timing
+    );
 
     /// <summary>An audio packet.</summary>
     /// <param name="packet">The packet.</param>
@@ -118,6 +173,10 @@ public interface IReceivedMediaConsumer
 /// <param name="Recovered">Lost packets recovered on receipt.</param>
 /// <param name="KeyframeRequestsSent">Keyframe requests sent to the peer.</param>
 /// <param name="CircuitBreaker">Whether media flows.</param>
+/// <param name="SenderClockOffset">
+/// This side's wall clock less the peer's, as estimated from the peer's sender reports and the round trip;
+/// null before the first report. It places the peer's capture times on this side's clock.
+/// </param>
 public readonly record struct TransportStatistics(
     CapacityEstimate Capacity,
     double LossRate,
@@ -126,7 +185,8 @@ public readonly record struct TransportStatistics(
     long RetransmissionsRequested,
     long Recovered,
     long KeyframeRequestsSent,
-    CircuitBreakerState CircuitBreaker
+    CircuitBreakerState CircuitBreaker,
+    TimeSpan? SenderClockOffset
 );
 
 /// <summary>
@@ -201,8 +261,9 @@ public interface IMediaTransport : IAsyncDisposable
     /// <summary>Sends an encoded video frame; dropped when the transport cannot send yet.</summary>
     /// <param name="frame">The frame.</param>
     /// <param name="capture">When it was captured, on this side's wall clock.</param>
+    /// <param name="timing">The frame's encode timing, when it is a timing frame.</param>
     /// <returns>Whether it was queued to send.</returns>
-    bool TrySendVideo(in EncodedVideoFrame frame, NtpTime capture);
+    bool TrySendVideo(in EncodedVideoFrame frame, NtpTime capture, FrameSendTiming? timing);
 
     /// <summary>Sends an encoded audio packet; dropped when the transport cannot send yet.</summary>
     /// <param name="frame">The packet.</param>
