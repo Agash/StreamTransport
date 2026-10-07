@@ -25,6 +25,35 @@ public sealed class MediaCodecRegistryTests
         Assert.IsFalse(registry.CanDecode(Vp9.Codec));
     }
 
+    // An encoder that changes rate while running beats a higher-ranked one that must reopen for each
+    // change, among encoders that take GPU frames; GPU input still comes first.
+    [TestMethod]
+    public void QueryVideoEncoder_PrefersOneThatChangesRateInPlace_AfterGpuInput()
+    {
+        FakeEncoders reopens = new(
+            rank: 9,
+            "reopens",
+            storage: VideoStorageKind.D3D12,
+            reconfigurable: false
+        );
+        FakeEncoders inPlace = new(rank: 5, "in-place", storage: VideoStorageKind.D3D11);
+        FakeEncoders memoryOnly = new(rank: 20, "memory-only");
+
+        Assert.AreEqual(
+            "in-place",
+            Registry(encoders: [reopens, inPlace, memoryOnly])
+                .QueryVideoEncoder(Vp9, null)!
+                .ImplementationName
+        );
+        Assert.AreEqual(
+            "reopens",
+            Registry(encoders: [reopens, memoryOnly])
+                .QueryVideoEncoder(Vp9, null)!
+                .ImplementationName,
+            "a memory-only encoder does not win for changing rate in place"
+        );
+    }
+
     [TestMethod]
     public void TryCreateVideoEncoder_FallsBackWhenTheBestFailsToOpen()
     {
@@ -140,7 +169,8 @@ public sealed class MediaCodecRegistryTests
         string name,
         bool supports = true,
         bool throws = false,
-        VideoStorageKind? storage = null
+        VideoStorageKind? storage = null,
+        bool reconfigurable = true
     ) : IVideoEncoderFactory
     {
         private readonly VideoEncoderInfo _info = new(
@@ -152,7 +182,7 @@ public sealed class MediaCodecRegistryTests
             2,
             2,
             new VideoSize(4096, 4096),
-            true
+            reconfigurable
         );
 
         public int Attempts { get; private set; }

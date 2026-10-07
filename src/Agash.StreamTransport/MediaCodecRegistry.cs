@@ -170,8 +170,10 @@ public sealed partial class MediaCodecRegistry
     }
 
     // The encoders for a format, best first: those that take frames on the GPU ahead of those that take
-    // only system memory, so a GPU source's frames stay on the GPU whenever an encoder can take them, and
-    // by rank within each.
+    // only system memory, so a GPU source's frames stay on the GPU whenever an encoder can take them; then
+    // those that change rate while running, since one that cannot is reopened at each change of the
+    // congestion controller's target, which stalls it for tens of milliseconds, forces a keyframe and
+    // drops frames; and by rank within each.
     private IEnumerable<(IVideoEncoderFactory Factory, VideoEncoderInfo Info)> Encoders(
         VideoCodecFormat format,
         GpuIdentity? device
@@ -182,7 +184,8 @@ public sealed partial class MediaCodecRegistry
             .Select(static e => (e.Factory, Info: e.Info!))
             .OrderBy(static e =>
                 e.Info.Input.Storages.Any(static s => s != VideoStorageKind.Cpu) ? 0 : 1
-            );
+            )
+            .ThenBy(static e => e.Info.ReconfigurableRate ? 0 : 1);
 
     /// <summary>Makes the best decoder that opens for a format and what its consumer accepts.</summary>
     /// <param name="format">The codec format.</param>
