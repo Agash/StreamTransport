@@ -8,7 +8,9 @@ public enum AlphaLayout
 
     /// <summary>
     /// Colour and alpha side by side in one opaque frame twice as wide: colour on the left, alpha as luma
-    /// on the right with neutral chroma. A processor packs frames with alpha into it before an encoder.
+    /// on the right with neutral chroma, in the frame's range (16-235 limited, 0-255 full). The colour
+    /// width and height are even, so no 4:2:0 chroma block spans both halves. A processor packs frames
+    /// with alpha into it before an encoder; any codec carries it.
     /// </summary>
     PackSideBySide,
 
@@ -16,9 +18,11 @@ public enum AlphaLayout
     UnpackSideBySide,
 
     /// <summary>
-    /// Alpha as the codec's own auxiliary picture layer: H.265's alpha layer (an auxiliary layer the
-    /// alpha channel information SEI describes), carried in the same RTP stream (RFC 7798). The colour
-    /// stays the base layer, which a decoder that ignores the layer shows opaque.
+    /// Alpha as the codec's own auxiliary picture layer, in the same access unit and RTP stream as the
+    /// colour, which stays the base layer a decoder that ignores the layer shows opaque. H.265 has it
+    /// (AUX_ALPHA with the alpha channel information SEI, RFC 7798 carries both layers); VVC (AUX_ALPHA,
+    /// H.274 alpha information, RFC 9328) and AV2 define it the same way. Negotiated only where both the
+    /// encoder and the decoder in use code the layer.
     /// </summary>
     Layer,
 }
@@ -38,7 +42,12 @@ public readonly record struct VideoStreamDescription(
 /// <summary>What a processor turns frames into.</summary>
 /// <param name="Output">What the next stage accepts: storages, pixel formats and GPU.</param>
 /// <param name="Size">The size to scale to; null keeps the input size (doubled in width when packing alpha).</param>
-/// <param name="Color">The colour to convert to; null keeps the input's.</param>
+/// <param name="Color">
+/// The colour to convert to; null keeps the input's. Processors convert the YCbCr matrix and range;
+/// primaries and transfer are carried as stated and not converted, so a source in other primaries or an
+/// HDR transfer is mapped before it reaches one. The GPU processors make 4:2:0 chroma as the average of
+/// each 2x2 block, centre-sited.
+/// </param>
 /// <param name="Alpha">What to do with transparency.</param>
 public sealed record VideoProcessing(
     VideoConstraints Output,
