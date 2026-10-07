@@ -71,7 +71,10 @@ public sealed class DeliveryTracker
     /// <param name="reports">What the feedback says, packet by packet.</param>
     /// <param name="now">Now, on the sender's monotonic clock.</param>
     /// <param name="observations">Where newly resolved packets go.</param>
-    /// <returns>A round-trip sample, from the latest-sent packet that arrived with a known hold time.</returns>
+    /// <returns>
+    /// A round-trip sample: from sending the latest-sent delivered packet the feedback covers until the
+    /// feedback arrived.
+    /// </returns>
     public TimeSpan? OnFeedback(
         ReadOnlySpan<PacketReport> reports,
         TimeSpan now,
@@ -126,14 +129,16 @@ public sealed class DeliveryTracker
                 new PacketObservation(entry.Packet, outcome, report.ArrivedAt, report.Ecn)
             );
 
-            if (report.HeldFor is { } held && entry.Packet.SentAt > latestSent)
+            // The round trip runs from sending the latest-sent packet the feedback covers until the
+            // feedback arrives, the receiver's wait before reporting included: that is how long a packet
+            // occupies a congestion window, which SCReAMv2's s_rtt measures (computed as RFC 6298 does, from
+            // send to acknowledgement; the reference implementation takes the newest packet of each report).
+            // Leaving the wait out sizes the window for a round trip shorter than its packets stay in it,
+            // which on a fast path holds the sender far below its target.
+            if (entry.Packet.SentAt > latestSent)
             {
-                TimeSpan sample = now - entry.Packet.SentAt - held;
-                if (sample > TimeSpan.Zero)
-                {
-                    latestSent = entry.Packet.SentAt;
-                    roundTrip = sample;
-                }
+                latestSent = entry.Packet.SentAt;
+                roundTrip = now - entry.Packet.SentAt;
             }
         }
 

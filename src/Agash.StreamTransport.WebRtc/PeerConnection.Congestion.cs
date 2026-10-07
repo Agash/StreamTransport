@@ -519,7 +519,6 @@ public sealed partial class PeerConnection
                             id,
                             metric.Received,
                             reportedAt - held,
-                            held,
                             (EcnCodepoint)(metric.Ecn & 0x03)
                         )
                     );

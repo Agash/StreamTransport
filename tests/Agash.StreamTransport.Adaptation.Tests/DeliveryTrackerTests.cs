@@ -72,26 +72,28 @@ public sealed class DeliveryTrackerTests
         Assert.AreEqual(4, seen.Single(static o => o.Outcome == PacketOutcome.Lost).Packet.Id);
     }
 
-    // RFC 8888: a received packet whose arrival time is unknown or over range is still received.
+    // RFC 8888: a received packet whose arrival time is unknown or over range is still received, and its
+    // feedback still times the round trip, which needs only the sending and feedback times.
     [TestMethod]
-    public void OnFeedback_ReceivedWithoutATime_IsDeliveredWithoutARoundTrip()
+    public void OnFeedback_ReceivedWithoutATime_IsDeliveredAndTimesTheRoundTrip()
     {
         DeliveryTracker tracker = Sent(1);
         List<PacketObservation> seen = [];
         TimeSpan? roundTrip = tracker.OnFeedback(
-            [new PacketReport(1, true, null, null, EcnCodepoint.Ect1)],
+            [new PacketReport(1, true, null, EcnCodepoint.Ect1)],
             30 * Ms,
             seen
         );
 
         Assert.AreEqual(PacketOutcome.Delivered, seen.Single().Outcome);
         Assert.AreEqual(EcnCodepoint.Ect1, seen.Single().Ecn);
-        Assert.IsNull(roundTrip);
+        Assert.AreEqual(29 * Ms, roundTrip, "sent at 1 ms, feedback at 30 ms");
     }
 
-    // The round trip excludes the time the receiver held the packet before reporting it.
+    // The round trip runs from sending the latest-sent packet until its feedback arrives, the receiver's
+    // wait included, as SCReAMv2's s_rtt does.
     [TestMethod]
-    public void OnFeedback_RoundTrip_ExcludesTheReceiversHoldTime()
+    public void OnFeedback_RoundTrip_RunsFromSendingUntilTheFeedbackArrives()
     {
         DeliveryTracker tracker = new();
         tracker.OnSent(new SentPacket(1, 1200, 10 * Ms, TrafficClass.Video));
@@ -100,14 +102,14 @@ public sealed class DeliveryTrackerTests
 
         TimeSpan? roundTrip = tracker.OnFeedback(
             [
-                new PacketReport(1, true, null, 40 * Ms, EcnCodepoint.NotEct),
-                new PacketReport(2, true, null, 30 * Ms, EcnCodepoint.NotEct),
+                new PacketReport(1, true, null, EcnCodepoint.NotEct),
+                new PacketReport(2, true, null, EcnCodepoint.NotEct),
             ],
             90 * Ms,
             seen
         );
 
-        Assert.AreEqual(40 * Ms, roundTrip, "from the latest-sent packet: 90 - 20 - 30");
+        Assert.AreEqual(70 * Ms, roundTrip, "from the latest-sent packet: 90 - 20");
     }
 
     [TestMethod]
@@ -135,18 +137,18 @@ public sealed class DeliveryTrackerTests
         tracker.OnSent(new SentPacket(2, 1200, 10 * Ms, TrafficClass.Video));
         List<PacketObservation> seen = [];
 
-        // Packet 2 is reported at 60 ms: RACK.rtt is 50 ms, the round trip less the 10 ms hold 40 ms, and the
-        // window a quarter of that, so packet 1 is due at 5 + 50 + 10 = 65 ms.
+        // Packet 2 is reported at 60 ms: RACK.rtt and the round trip are 50 ms, and the window a quarter of
+        // that, so packet 1 is due at 5 + 50 + 12.5 = 67.5 ms.
         _ = tracker.OnFeedback(
-            [new PacketReport(2, true, null, 10 * Ms, EcnCodepoint.NotEct)],
+            [new PacketReport(2, true, null, EcnCodepoint.NotEct)],
             60 * Ms,
             seen
         );
         Assert.HasCount(1, seen);
-        tracker.OnTick(64 * Ms, seen);
+        tracker.OnTick(67 * Ms, seen);
         Assert.HasCount(1, seen, "not due before RACK.rtt and the window");
 
-        tracker.OnTick(65 * Ms, seen);
+        tracker.OnTick(68 * Ms, seen);
         Assert.HasCount(2, seen);
         Assert.AreEqual(1, seen[1].Packet.Id);
         Assert.AreEqual(PacketOutcome.Lost, seen[1].Outcome);
@@ -194,7 +196,7 @@ public sealed class DeliveryTrackerTests
         return tracker;
     }
 
-    private static PacketReport Got(long id) => new(id, true, null, null, EcnCodepoint.NotEct);
+    private static PacketReport Got(long id) => new(id, true, null, EcnCodepoint.NotEct);
 
-    private static PacketReport Missing(long id) => new(id, false, null, null, EcnCodepoint.NotEct);
+    private static PacketReport Missing(long id) => new(id, false, null, EcnCodepoint.NotEct);
 }

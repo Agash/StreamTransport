@@ -189,7 +189,6 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
                     id,
                     true,
                     ReportArrivalTimes ? arrived : null,
-                    Now - arrived,
                     ce ? EcnCodepoint.Ce : EcnCodepoint.Ect1
                 )
             );
@@ -200,7 +199,7 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
         {
             if (!got.Contains(id))
             {
-                reports.Add(new PacketReport(id, false, null, null, EcnCodepoint.NotEct));
+                reports.Add(new PacketReport(id, false, null, EcnCodepoint.NotEct));
             }
         }
 

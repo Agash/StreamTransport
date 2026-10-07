@@ -17,16 +17,11 @@ public readonly record struct SentPacket(long Id, int Size, TimeSpan SentAt, Tra
 /// When it arrived, on the receiver's clock, when the feedback says (RFC 8888 does per packet; QUIC
 /// acknowledgements do not). Only differences between arrivals are meaningful across the two clocks.
 /// </param>
-/// <param name="HeldFor">
-/// How long the receiver held it before reporting, when known (RFC 8888's arrival time offset, QUIC's ACK
-/// delay); a round trip excludes it.
-/// </param>
 /// <param name="Ecn">The ECN codepoint it arrived with.</param>
 public readonly record struct PacketReport(
     long Id,
     bool Received,
     TimeSpan? ArrivedAt,
-    TimeSpan? HeldFor,
     EcnCodepoint Ecn
 );
 
