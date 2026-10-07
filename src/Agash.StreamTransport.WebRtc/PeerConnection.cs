@@ -180,7 +180,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.LocalSsrc,
                     SdpSetup.ActPass,
                     line.Direction,
-                    line.RtxSsrc
+                    line.RtxSsrc,
+                    line.FecSsrc
                 )
             );
         }
@@ -289,6 +290,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             bool repairs = answered.Exists(Rtx.IsRtx);
+            bool protects = answered.Exists(FlexFec.IsFlexFec);
             IReadOnlyList<SdpCodec> answerCodecs = answered;
             IReadOnlyList<SdpCodec> remoteCodecs = offered;
 
@@ -300,7 +302,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     ssrc,
                     SdpSetup.Active,
                     Answer(remote.Direction, LocalDirectionFor(remote.Kind)),
-                    repairs ? rtxSsrc : null
+                    repairs ? rtxSsrc : null,
+                    protects ? LocalFecSsrcFor(remote.Mid, remote.Kind) : null
                 ) with
                 {
                     // An answer carries these only when the offer did (RFC 5506, RFC 8888 section 6).
@@ -318,6 +321,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         AgreeExtensions(new SdpDescription { Media = media });
         NegotiatedMedia = negotiated;
         ConfigureRtx(offer);
+        ConfigureFec(offer);
         if (_iceAgent is null)
         {
             StartIce(IceRole.Controlled);
@@ -401,7 +405,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.LocalSsrc,
                     SdpSetup.ActPass,
                     line.Direction,
-                    line.RtxSsrc
+                    line.RtxSsrc,
+                    line.FecSsrc
                 )
             );
         }
@@ -474,6 +479,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
             NegotiatedMedia = negotiated;
             ConfigureRtx(description);
+            ConfigureFec(description);
         }
 
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
@@ -584,8 +590,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
 
         // FlexFEC protects the video stream: the cleartext is what FEC XORs.
+        FecSender? fecSender = Volatile.Read(ref _fec).Send;
         byte[]? fecRepair =
-            FecEnabled && ssrc == _options.FecProtectedSsrc ? AccumulateFec(packet) : null;
+            fecSender is { } protecting && ssrc == protecting.ProtectedSsrc
+                ? AccumulateFec(packet)
+                : null;
 
         // Kept for a NACK-driven RTX retransmission.
         if (Volatile.Read(ref _rtx).Send.ContainsKey(ssrc))
@@ -602,7 +611,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         );
 
         // The repair rides its own SSRC behind the group it protects, and is not itself protected.
-        if (fecRepair is not null)
+        if (fecRepair is not null && fecSender is { } fecTo)
         {
             byte[] repair = ArrayPool<byte>.Shared.Rent(
                 RtpPacket.FixedHeaderLength + fecRepair.Length + SrtpSession.MaxProtectionOverhead
@@ -610,10 +619,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             int repairLength = RtpPacket.Write(
                 repair,
                 false,
-                _options.FecPayloadType,
-                NextSequence(_options.FecSsrc),
+                fecTo.PayloadType,
+                NextSequence(fecTo.FecSsrc),
                 0,
-                _options.FecSsrc,
+                fecTo.FecSsrc,
                 fecRepair
             );
             _pacer.Enqueue(new PacedPacket(repair, repairLength, TrafficClass.Repair));
@@ -1128,15 +1137,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         // FlexFEC: a repair packet recovers a lost media packet; a protected media packet is cached for recovery.
-        if (FecEnabled)
+        if (Volatile.Read(ref _fec).Receive is { } fecFrom)
         {
-            if (header.PayloadType == _options.FecPayloadType)
+            if (header.Ssrc == fecFrom.FecSsrc)
             {
-                OnFecPacket(payload);
+                OnFecPacket(payload, fecFrom.ProtectedSsrc);
                 return;
             }
 
-            if (header.Ssrc == _options.FecProtectedSsrc)
+            if (header.Ssrc == fecFrom.ProtectedSsrc)
             {
                 CacheProtectedPacket(packet.Span[..plaintextLength]);
             }
@@ -1153,7 +1162,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         uint ssrc,
         SdpSetup setup,
         SdpDirection direction,
-        uint? rtxSsrc
+        uint? rtxSsrc,
+        uint? fecSsrc = null
     ) =>
         new()
         {
@@ -1167,6 +1177,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Setup = setup,
             Ssrc = ssrc == 0 ? null : ssrc,
             RtxSsrc = ssrc == 0 ? null : rtxSsrc,
+            FecSsrc =
+                ssrc == 0 || direction is SdpDirection.RecvOnly or SdpDirection.Inactive
+                    ? null
+                    : fecSsrc,
             Cname = _cname,
             Ecn = LocalEcnCapability,
             Extensions = OfferedExtensions(kind),
@@ -1180,6 +1194,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
         )?.LocalSsrc
         ?? 0;
+
+    private uint? LocalFecSsrcFor(string mid, SdpMediaKind kind) =>
+        (
+            _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
+            ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
+        )?.FecSsrc;
 
     private uint? LocalRtxSsrcFor(string mid, SdpMediaKind kind) =>
         (
@@ -1385,6 +1405,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "Retransmission negotiated: this side repairs {Sent} streams and asks for repairs of {Received}."
     )]
     private partial void LogRtx(int sent, int received);
+
+    [LoggerMessage(
+        EventId = 1104,
+        Level = LogLevel.Debug,
+        Message = "FlexFEC negotiated: this side protects its video {Sends}, recovers the peer's {Receives}."
+    )]
+    private partial void LogFec(bool sends, bool receives);
 
     [LoggerMessage(
         EventId = 1103,

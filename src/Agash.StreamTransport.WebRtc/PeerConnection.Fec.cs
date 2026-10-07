@@ -1,13 +1,14 @@
 using System.Buffers.Binary;
 using Agash.StreamTransport.WebRtc.Rtp;
+using Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.WebRtc;
 
 /// <summary>
-/// FlexFEC (RFC 8627) wiring for <see cref="PeerConnection"/>, gated by <see cref="PeerConnectionOptions.EnableFec"/>:
-/// the send side emits a repair packet per group of protected video packets on a dedicated SSRC; the receive
-/// side caches protected media and recovers a single lost packet per group from a repair, delivering it through
-/// the normal receive path. Loss repair with no retransmit round trip - the IRL profile's loss-masking.
+/// FlexFEC (RFC 8627) wiring for <see cref="PeerConnection"/>, as negotiated: the send side emits a repair
+/// packet per group of its protected video packets on its FEC SSRC when the peer accepted the
+/// <c>flexfec</c> codec; the receive side caches the peer's protected media and recovers a single lost
+/// packet per group from the peer's repair, delivering it through the normal receive path.
 /// </summary>
 public sealed partial class PeerConnection
 {
@@ -15,8 +16,46 @@ public sealed partial class PeerConnection
     private readonly Lock _fecGate = new();
     private readonly Dictionary<ushort, FecSourcePacket> _fecRecvCache = [];
     private readonly Queue<ushort> _fecRecvOrder = [];
+    private FecConfiguration _fec = FecConfiguration.None;
 
-    private bool FecEnabled => _options.EnableFec && _options.FecProtectedSsrc != 0;
+    private bool FecEnabled => Volatile.Read(ref _fec).Send is not null;
+
+    // What FlexFEC the negotiation agreed: this endpoint protects its media on its FEC SSRC when both
+    // sides list the flexfec codec and it announced an FEC SSRC; it recovers the peer's media from the
+    // repairs on the SSRC the peer's FEC-FR group names. RFC 8627 section 1.1.7 has an answer to an offer
+    // of both FlexFEC and RTX keep only FlexFEC; this endpoint keeps both, as libwebrtc does, using FEC
+    // parity next to RFC 4588 retransmission.
+    private void ConfigureFec(SdpDescription remote)
+    {
+        FecSender? send = null;
+        FecReceiver? receive = null;
+        foreach (NegotiatedMediaInfo media in NegotiatedMedia)
+        {
+            if (
+                media.Codecs.FirstOrDefault(FlexFec.IsFlexFec) is not { EncodingName: not null } fec
+            )
+            {
+                continue;
+            }
+
+            if (LocalFecSsrcFor(media.Mid, media.Kind) is { } local && media.LocalSsrc != 0)
+            {
+                send = new FecSender(media.LocalSsrc, local, (byte)fec.PayloadType);
+            }
+
+            if (
+                remote.Media.FirstOrDefault(m => m.Mid == media.Mid) is
+                { Ssrc: { } remoteMedia, FecSsrc: { } remoteFec }
+            )
+            {
+                receive = new FecReceiver(remoteMedia, remoteFec);
+            }
+        }
+
+        Volatile.Write(ref _fec, new FecConfiguration(send, receive));
+        LogFec(send is not null, receive is not null);
+        UpdateDatagramLimit();
+    }
 
     private static FecSourcePacket ToFecSource(ReadOnlySpan<byte> cleartextRtp)
     {
@@ -63,7 +102,7 @@ public sealed partial class PeerConnection
     }
 
     // Receive side: a repair arrived - recover a lost media packet and deliver it through the normal path.
-    private void OnFecPacket(ReadOnlySpan<byte> fecBody)
+    private void OnFecPacket(ReadOnlySpan<byte> fecBody, uint protectedSsrc)
     {
         FecRecoveredPacket? recovered;
         lock (_fecGate)
@@ -86,7 +125,7 @@ public sealed partial class PeerConnection
         rtp[1] = (byte)((((r.HeaderBits >> 6) & 1) << 7) | r.PayloadType);
         BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), r.SequenceNumber);
         BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), r.Timestamp);
-        BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), _options.FecProtectedSsrc);
+        BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), protectedSsrc);
         r.BodyAfterHeader.CopyTo(rtp.AsSpan(12));
 
         if (RtpPacket.TryParse(rtp, out RtpHeader header, out ReadOnlySpan<byte> payload))

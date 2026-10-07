@@ -133,6 +133,7 @@ public static class SdpReader
                     ExtmapAllowMixed = m.ExtmapAllowMixed || sessionAllowMixed,
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
+                    FecSsrc = m.FecSsrc,
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
                     EndOfCandidates = m.EndOfCandidates,
@@ -297,6 +298,8 @@ public static class SdpReader
         public uint? Ssrc { get; private set; }
         public string? Cname { get; private set; }
         public uint? RtxSsrc { get; private set; }
+
+        public uint? FecSsrc { get; private set; }
         public bool Rejected { get; init; }
         public List<IceCandidate> Candidates { get; } = [];
         public bool EndOfCandidates { get; private set; }
@@ -422,6 +425,10 @@ public static class SdpReader
             {
                 ParseFid(fid);
             }
+            else if (TryValue(line, "a=ssrc-group:FEC-FR ", out string fecFr))
+            {
+                ParseFecFr(fecFr);
+            }
             else if (TryValue(line, "a=ssrc:", out string ssrc))
             {
                 ParseSsrc(ssrc);
@@ -517,6 +524,21 @@ public static class SdpReader
                 {
                     Cname ??= cname;
                 }
+            }
+        }
+
+        // a=ssrc-group:FEC-FR <media> <fec> (RFC 5956, RFC 8627).
+        private void ParseFecFr(string value)
+        {
+            string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (
+                parts.Length == 2
+                && uint.TryParse(parts[0], out uint media)
+                && uint.TryParse(parts[1], out uint fec)
+            )
+            {
+                Ssrc = media;
+                FecSsrc = fec;
             }
         }
 

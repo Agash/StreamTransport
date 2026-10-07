@@ -344,10 +344,13 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 }
             }
 
+            // FlexFEC (RFC 8627): received whenever the peer sends it; sent when asked for.
+            codecs.Add(FlexFec.Codec(payloadType++));
             lines.Add(
                 new MediaLine("1", SdpMediaKind.Video, NewSsrc(), codecs)
                 {
                     RtxSsrc = NewSsrc(),
+                    FecSsrc = _options.ForwardErrorCorrection && video.Sends ? NewSsrc() : null,
                     Direction = Direction(video.Sends, video.Receives),
                 }
             );
@@ -362,9 +365,6 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             IceTransportPolicy = _options.IceTransportPolicy,
             IncludeLoopback = _options.IncludeLoopbackCandidates,
             LocalAddressPreferences = _options.LocalAddressPreferences,
-            EnableFec = _options.ForwardErrorCorrection && offer.Video?.Sends == true,
-            FecProtectedSsrc =
-                lines.FirstOrDefault(l => l.Kind == SdpMediaKind.Video)?.LocalSsrc ?? 0,
         };
     }
 
@@ -404,13 +404,17 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         NegotiatedAudio? audio = null;
         foreach (NegotiatedMediaInfo media in connection.NegotiatedMedia)
         {
-            if (media.Codecs.Count == 0)
+            // The first media codec; retransmission and FEC codecs repair it and are not candidates.
+            int first = media
+                .Codecs.ToList()
+                .FindIndex(static c => !Rtx.IsRtx(c) && !FlexFec.IsFlexFec(c));
+            if (first < 0)
             {
                 continue;
             }
 
-            SdpCodec local = media.Codecs[0];
-            SdpCodec remote = media.RemoteCodecs[0];
+            SdpCodec local = media.Codecs[first];
+            SdpCodec remote = media.RemoteCodecs[first];
             if (!_services.PayloadFormats.TryGet(local, out RtpPayloadFormat? payloadFormat))
             {
                 LogUnknownCodec(local.EncodingName);

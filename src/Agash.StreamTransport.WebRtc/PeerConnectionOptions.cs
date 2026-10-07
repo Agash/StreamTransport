@@ -26,6 +26,13 @@ public sealed record MediaLine(
     /// </summary>
     public uint? RtxSsrc { get; init; }
 
+    /// <summary>
+    /// The SSRC this endpoint sends FlexFEC repairs of the line's media on (RFC 8627), when the peer takes
+    /// them: <see cref="Codecs"/> lists the <c>flexfec</c> codec for that, and for receiving the peer's
+    /// repairs. Null sends none.
+    /// </summary>
+    public uint? FecSsrc { get; init; }
+
     /// <summary>Whether this endpoint sends, receives or both on the line.</summary>
     public SdpDirection Direction { get; init; } = SdpDirection.SendRecv;
 }
@@ -101,23 +108,7 @@ public sealed class PeerConnectionOptions
     /// </summary>
     public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
 
-    /// <summary>
-    /// Enable FlexFEC (RFC 8627) loss repair for the protected video stream: the sender emits a repair packet
-    /// per <see cref="FecGroupSize"/> media packets on <see cref="FecSsrc"/>, and the receiver recovers a single
-    /// lost media packet per group without a retransmit round trip. Off by default; the IRL profile turns it on.
-    /// </summary>
-    public bool EnableFec { get; init; }
-
-    /// <summary>The RTP payload type for FlexFEC repair packets.</summary>
-    public byte FecPayloadType { get; init; } = 35;
-
-    /// <summary>The SSRC FlexFEC repair packets are sent on.</summary>
-    public uint FecSsrc { get; init; } = 0x5EED_00F0;
-
-    /// <summary>The media SSRC FlexFEC protects (the video stream).</summary>
-    public uint FecProtectedSsrc { get; init; }
-
-    /// <summary>Media packets protected by one repair packet (1-15).</summary>
+    /// <summary>Media packets protected by one FlexFEC repair packet (1-15).</summary>
     public int FecGroupSize { get; init; } = 10;
 }
 

@@ -171,10 +171,20 @@ public static class SdpWriter
                 sb.Append(CultureInfo.InvariantCulture, $"a=ssrc-group:FID {ssrc} {rtx}\r\n");
             }
 
+            if (media.FecSsrc is { } fec)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc-group:FEC-FR {ssrc} {fec}\r\n");
+            }
+
             sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{ssrc} cname:{cname}\r\n");
             if (media.RtxSsrc is { } rtxSsrc)
             {
                 sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{rtxSsrc} cname:{cname}\r\n");
+            }
+
+            if (media.FecSsrc is { } fecSsrc)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{fecSsrc} cname:{cname}\r\n");
             }
         }
     }

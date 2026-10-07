@@ -145,6 +145,12 @@ public sealed record SdpMediaDescription
     /// </summary>
     public uint? RtxSsrc { get; init; }
 
+    /// <summary>
+    /// The SSRC FlexFEC repairs of <see cref="Ssrc"/> travel on (RFC 8627), as
+    /// <c>a=ssrc-group:FEC-FR media fec</c> pairs them; null when the section announces none.
+    /// </summary>
+    public uint? FecSsrc { get; init; }
+
     /// <summary>The RTCP canonical name (<c>a=ssrc ... cname:</c>).</summary>
     public string? Cname { get; init; }
 

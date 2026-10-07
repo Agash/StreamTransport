@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.WebRtc.Rtp;
 
@@ -31,14 +32,45 @@ public readonly record struct FecRecoveredPacket(
 );
 
 /// <summary>
-/// FlexFEC (RFC 8627, flexfec-03) over a single source SSRC with a 15-bit flexible mask: builds a repair
-/// packet body that XOR-protects a run of up to 15 source packets, and recovers a single lost source packet
-/// from the repair plus the other protected packets. The repair body is carried as the payload of a FlexFEC
-/// RTP packet (its own SSRC + payload type, with the protected media SSRC as CSRC). Loss-masking without a
-/// retransmit round trip - the right repair for a high-RTT/lossy uplink (the IRL contribution profile).
+/// FlexFEC (RFC 8627) over a single source SSRC with a 15-bit flexible mask: builds a repair packet body
+/// that XOR-protects a run of up to 15 source packets, and recovers a single lost source packet from the
+/// repair plus the other protected packets. The repair body is carried as the payload of a FlexFEC RTP
+/// packet (its own SSRC and payload type, with the protected media SSRC as CSRC), negotiated as the
+/// <c>flexfec</c> codec with an <c>a=ssrc-group:FEC-FR</c> pairing the two SSRCs (RFC 8627 section 5).
+/// Loss repair without a retransmission round trip.
 /// </summary>
 public static class FlexFec
 {
+    /// <summary>The encoding name: <c>flexfec</c> (RFC 8627 section 5.1.2).</summary>
+    public const string EncodingName = "flexfec";
+
+    /// <summary>
+    /// The repair window offered, in microseconds (RFC 8627 section 5.1.2): how far a repair packet may
+    /// trail the oldest source packet it protects. One second covers a group spanning several frames at
+    /// low frame rates; the receiver keeps 256 protected packets for it.
+    /// </summary>
+    public const int RepairWindowMicros = 1_000_000;
+
+    /// <summary>Whether a codec is FlexFEC.</summary>
+    /// <param name="codec">The codec.</param>
+    /// <returns>True for <c>flexfec</c>.</returns>
+    public static bool IsFlexFec(SdpCodec codec) =>
+        string.Equals(codec.EncodingName, EncodingName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The FlexFEC codec for a video section.</summary>
+    /// <param name="payloadType">Its payload type.</param>
+    /// <param name="clockRate">The protected stream's clock rate, as RFC 8627 recommends.</param>
+    /// <returns>The codec.</returns>
+    public static SdpCodec Codec(int payloadType, int clockRate = 90_000) =>
+        new(
+            payloadType,
+            EncodingName,
+            clockRate,
+            null,
+            FormattableString.Invariant($"repair-window={RepairWindowMicros}"),
+            []
+        );
+
     /// <summary>Max source packets one 15-bit-mask repair packet can protect.</summary>
     public const int MaxProtected = 15;
 
