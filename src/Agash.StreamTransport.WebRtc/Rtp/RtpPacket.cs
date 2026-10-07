@@ -3,22 +3,29 @@ using System.Buffers.Binary;
 namespace Agash.StreamTransport.WebRtc.Rtp;
 
 /// <summary>
-/// Reads and writes RTP packets (RFC 3550 §5.1) with one-byte header extensions (RFC 8285), including the
-/// abs-capture-time extension used for A/V synchronization. Allocation-free: parsing borrows the caller's
-/// buffer and writing composes into a caller-supplied span.
+/// Reads and writes RTP packets (RFC 3550 section 5.1) with header extensions (RFC 8285) under the
+/// identifiers the two sides negotiated in an <see cref="RtpExtensionMap"/>. Allocation-free: parsing
+/// borrows the caller's buffer and writing composes into a caller-supplied span.
 /// </summary>
 public static class RtpPacket
 {
     /// <summary>The fixed RTP header length (no CSRCs, no extension).</summary>
     public const int FixedHeaderLength = 12;
 
-    /// <summary>The RFC 8285 one-byte header-extension profile identifier (<c>0xBEDE</c>).</summary>
-    private const ushort OneByteExtensionProfile = 0xBEDE;
-
     /// <summary>
-    /// Composes an RTP packet into <paramref name="destination"/>: the fixed header, an optional
-    /// abs-capture-time one-byte extension, then the payload. Returns the total length written.
+    /// Composes an RTP packet into <paramref name="destination"/>: the fixed header, the extension block
+    /// for the <paramref name="extensions"/> the map has identifiers for, then the payload.
     /// </summary>
+    /// <param name="destination">Where the packet goes.</param>
+    /// <param name="marker">The marker bit.</param>
+    /// <param name="payloadType">The payload type.</param>
+    /// <param name="sequenceNumber">The sequence number.</param>
+    /// <param name="timestamp">The RTP timestamp.</param>
+    /// <param name="ssrc">The SSRC.</param>
+    /// <param name="payload">The payload.</param>
+    /// <param name="map">The negotiated extension identifiers; null writes no extensions.</param>
+    /// <param name="extensions">The extension values.</param>
+    /// <returns>The packet's length.</returns>
     public static int Write(
         Span<byte> destination,
         bool marker,
@@ -27,46 +34,100 @@ public static class RtpPacket
         uint timestamp,
         uint ssrc,
         ReadOnlySpan<byte> payload,
-        int absCaptureTimeExtensionId = 0,
-        ulong absCaptureTimeNtp = 0
+        RtpExtensionMap? map = null,
+        RtpExtensionValues extensions = default
+    ) =>
+        Write(
+            destination,
+            marker,
+            payloadType,
+            sequenceNumber,
+            timestamp,
+            ssrc,
+            payload,
+            map,
+            extensions,
+            out _
+        );
+
+    /// <summary>
+    /// Composes an RTP packet as <see cref="Write(Span{byte}, bool, byte, ushort, uint, uint, ReadOnlySpan{byte}, RtpExtensionMap?, RtpExtensionValues)"/>
+    /// does, reporting where the video-timing value landed so the pacer can stamp its exit time in place.
+    /// </summary>
+    /// <param name="destination">Where the packet goes.</param>
+    /// <param name="marker">The marker bit.</param>
+    /// <param name="payloadType">The payload type.</param>
+    /// <param name="sequenceNumber">The sequence number.</param>
+    /// <param name="timestamp">The RTP timestamp.</param>
+    /// <param name="ssrc">The SSRC.</param>
+    /// <param name="payload">The payload.</param>
+    /// <param name="map">The negotiated extension identifiers; null writes no extensions.</param>
+    /// <param name="extensions">The extension values.</param>
+    /// <param name="videoTimingAt">Where the video-timing value starts in the packet, or -1.</param>
+    /// <returns>The packet's length.</returns>
+    public static int Write(
+        Span<byte> destination,
+        bool marker,
+        byte payloadType,
+        ushort sequenceNumber,
+        uint timestamp,
+        uint ssrc,
+        ReadOnlySpan<byte> payload,
+        RtpExtensionMap? map,
+        RtpExtensionValues extensions,
+        out int videoTimingAt
     )
     {
-        destination[0] = 0x80; // V=2, P=0, CC=0; X set below if there's an extension.
+        destination[0] = 0x80; // V=2, P=0, CC=0; X set below when there is an extension block.
         destination[1] = (byte)((marker ? 0x80 : 0) | (payloadType & 0x7F));
         BinaryPrimitives.WriteUInt16BigEndian(destination[2..], sequenceNumber);
         BinaryPrimitives.WriteUInt32BigEndian(destination[4..], timestamp);
         BinaryPrimitives.WriteUInt32BigEndian(destination[8..], ssrc);
 
         int offset = FixedHeaderLength;
-        if (absCaptureTimeExtensionId is > 0 and < 15)
+        videoTimingAt = -1;
+        if (map is not null && !extensions.IsEmpty)
         {
-            destination[0] |= 0x10; // X = 1
-            BinaryPrimitives.WriteUInt16BigEndian(destination[offset..], OneByteExtensionProfile);
-
-            // One element: id||len-1 byte + 8 octets of UQ32.32 NTP. Pad the element area to a 32-bit word.
-            const int elementLength = 8;
-            int dataLength = 1 + elementLength; // element header + value
-            int paddedWords = (dataLength + 3) / 4;
-            BinaryPrimitives.WriteUInt16BigEndian(destination[(offset + 2)..], (ushort)paddedWords);
-
-            Span<byte> ext = destination[(offset + 4)..];
-            ext[0] = (byte)((absCaptureTimeExtensionId << 4) | (elementLength - 1));
-            BinaryPrimitives.WriteUInt64BigEndian(ext[1..], absCaptureTimeNtp);
-            ext[(1 + elementLength)..(paddedWords * 4)].Clear();
-            offset += 4 + (paddedWords * 4);
+            int block = map.Write(destination[offset..], extensions, out int timingAt);
+            if (block > 0)
+            {
+                destination[0] |= 0x10; // X = 1
+                videoTimingAt = timingAt < 0 ? -1 : offset + timingAt;
+                offset += block;
+            }
         }
 
         payload.CopyTo(destination[offset..]);
         return offset + payload.Length;
     }
 
-    /// <summary>Parses an RTP packet, exposing its header fields and the payload span.</summary>
+    /// <summary>Parses an RTP packet, ignoring its header extensions.</summary>
+    /// <param name="packet">The packet.</param>
+    /// <param name="header">Its header fields.</param>
+    /// <param name="payload">Its payload, borrowed from the packet.</param>
+    /// <returns>Whether it is a well-formed RTP packet.</returns>
     public static bool TryParse(
         ReadOnlySpan<byte> packet,
         out RtpHeader header,
         out ReadOnlySpan<byte> payload
+    ) => TryParse(packet, RtpExtensionMap.None, out header, out payload);
+
+    /// <summary>
+    /// Parses an RTP packet, reading the values of the header extensions the map has identifiers for.
+    /// </summary>
+    /// <param name="packet">The packet.</param>
+    /// <param name="map">The negotiated extension identifiers.</param>
+    /// <param name="header">Its header fields and extension values.</param>
+    /// <param name="payload">Its payload, borrowed from the packet.</param>
+    /// <returns>Whether it is a well-formed RTP packet.</returns>
+    public static bool TryParse(
+        ReadOnlySpan<byte> packet,
+        RtpExtensionMap map,
+        out RtpHeader header,
+        out ReadOnlySpan<byte> payload
     )
     {
+        ArgumentNullException.ThrowIfNull(map);
         header = default;
         payload = default;
         if (packet.Length < FixedHeaderLength || (packet[0] >> 6) != 2)
@@ -88,7 +149,7 @@ public static class RtpPacket
             return false;
         }
 
-        ulong? absCaptureNtp = null;
+        RtpExtensionValues extensions = default;
         if (hasExtension)
         {
             if (offset + 4 > packet.Length)
@@ -98,69 +159,39 @@ public static class RtpPacket
 
             ushort profile = BinaryPrimitives.ReadUInt16BigEndian(packet[offset..]);
             int words = BinaryPrimitives.ReadUInt16BigEndian(packet[(offset + 2)..]);
-            int extDataStart = offset + 4;
-            int extDataEnd = extDataStart + (words * 4);
-            if (extDataEnd > packet.Length)
+            int dataStart = offset + 4;
+            int dataEnd = dataStart + (words * 4);
+            if (dataEnd > packet.Length)
             {
                 return false;
             }
 
-            if (profile == OneByteExtensionProfile)
-            {
-                absCaptureNtp = FindAbsCaptureTime(packet[extDataStart..extDataEnd]);
-            }
-
-            offset = extDataEnd;
+            extensions = map.Read(profile, packet[dataStart..dataEnd]);
+            offset = dataEnd;
         }
 
         payload = packet[offset..];
-        header = new RtpHeader(marker, payloadType, sequenceNumber, timestamp, ssrc, absCaptureNtp);
+        header = new RtpHeader(marker, payloadType, sequenceNumber, timestamp, ssrc, extensions);
         return true;
-    }
-
-    private static ulong? FindAbsCaptureTime(ReadOnlySpan<byte> extension)
-    {
-        int i = 0;
-        while (i < extension.Length)
-        {
-            byte b = extension[i];
-            if (b == 0)
-            {
-                i++; // padding
-                continue;
-            }
-
-            int length = (b & 0x0F) + 1;
-            if (i + 1 + length > extension.Length)
-            {
-                break;
-            }
-
-            // abs-capture-time carries an 8- or 16-octet value; the first 8 octets are the UQ32.32 NTP time.
-            if (length is 8 or 16)
-            {
-                return BinaryPrimitives.ReadUInt64BigEndian(extension[(i + 1)..]);
-            }
-
-            i += 1 + length;
-        }
-
-        return null;
     }
 }
 
-/// <summary>The parsed RTP header fields (RFC 3550 §5.1) plus the abs-capture-time, if present.</summary>
+/// <summary>The parsed RTP header fields (RFC 3550 section 5.1) and the extension values read with them.</summary>
 /// <param name="Marker">The marker bit.</param>
 /// <param name="PayloadType">The payload type (7 bits).</param>
 /// <param name="SequenceNumber">The RTP sequence number.</param>
 /// <param name="Timestamp">The RTP timestamp.</param>
 /// <param name="Ssrc">The synchronization source identifier.</param>
-/// <param name="AbsoluteCaptureTimeNtp">The abs-capture-time as a UQ32.32 NTP timestamp, if the extension was present.</param>
+/// <param name="Extensions">The values of the negotiated extensions the packet carries.</param>
 public readonly record struct RtpHeader(
     bool Marker,
     byte PayloadType,
     ushort SequenceNumber,
     uint Timestamp,
     uint Ssrc,
-    ulong? AbsoluteCaptureTimeNtp
-);
+    RtpExtensionValues Extensions = default
+)
+{
+    /// <summary>The abs-capture-time as a UQ32.32 NTP timestamp, when the packet carries it.</summary>
+    public ulong? AbsoluteCaptureTimeNtp => Extensions.AbsoluteCaptureTimeNtp;
+}

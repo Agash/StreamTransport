@@ -127,6 +127,15 @@ public sealed record SdpMediaDescription
     /// </summary>
     public SdpEcnCapability? Ecn { get; init; }
 
+    /// <summary>The RTP header extensions mapped for this section (<c>a=extmap</c>, RFC 8285).</summary>
+    public IReadOnlyList<SdpExtension> Extensions { get; init; } = [];
+
+    /// <summary>
+    /// Whether one- and two-byte extension elements may mix in one packet (<c>a=extmap-allow-mixed</c>,
+    /// RFC 8285 section 6).
+    /// </summary>
+    public bool ExtmapAllowMixed { get; init; }
+
     /// <summary>The media SSRC of this section, if announced (<c>a=ssrc</c>).</summary>
     public uint? Ssrc { get; init; }
 
@@ -148,6 +157,15 @@ public sealed record SdpMediaDescription
     /// <summary>Whether the section says no more candidates follow (<c>a=end-of-candidates</c>).</summary>
     public bool EndOfCandidates { get; init; }
 }
+
+/// <summary>
+/// One RTP header extension mapping (<c>a=extmap</c>, RFC 8285 section 5): the local identifier the
+/// extension travels under, the URI naming it, and an optional direction.
+/// </summary>
+/// <param name="Id">The identifier: 1 to 14 for the one-byte form, up to 255 for the two-byte form.</param>
+/// <param name="Uri">The URI naming the extension.</param>
+/// <param name="Direction">The direction, when the mapping states one; otherwise the section's.</param>
+public readonly record struct SdpExtension(int Id, string Uri, SdpDirection? Direction = null);
 
 /// <summary>A WebRTC session description: the BUNDLE group plus its media sections (JSEP, RFC 8829).</summary>
 public sealed record SdpDescription

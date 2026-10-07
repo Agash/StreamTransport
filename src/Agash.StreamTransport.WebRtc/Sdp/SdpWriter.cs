@@ -115,6 +115,22 @@ public static class SdpWriter
             sb.Append("a=rtcp-fb:* ack ccfb\r\n");
         }
 
+        if (media.ExtmapAllowMixed)
+        {
+            sb.Append("a=extmap-allow-mixed\r\n");
+        }
+
+        foreach (SdpExtension extension in media.Extensions)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=extmap:{extension.Id}");
+            if (extension.Direction is { } direction)
+            {
+                sb.Append('/').Append(DirectionText(direction));
+            }
+
+            sb.Append(' ').Append(extension.Uri).Append("\r\n");
+        }
+
         if (media.Ecn is { } ecn && !ecn.Methods.IsEmpty)
         {
             sb.Append("a=ecn-capable-rtp: ").Append(string.Join(',', ecn.Methods));

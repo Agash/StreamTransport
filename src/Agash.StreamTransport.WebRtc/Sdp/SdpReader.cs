@@ -26,6 +26,8 @@ public static class SdpReader
         SdpSetup sessionSetup = SdpSetup.ActPass;
         bool iceLite = false;
         List<IceCandidate> sessionCandidates = [];
+        List<SdpExtension> sessionExtensions = [];
+        bool sessionAllowMixed = false;
 
         var media = new List<MediaBuilder>();
         MediaBuilder? current = null;
@@ -61,6 +63,22 @@ public static class SdpReader
             )
             {
                 (current?.Candidates ?? sessionCandidates).Add(parsed);
+                continue;
+            }
+
+            if (current is null && TryValue(line, "a=extmap:", out string extmap))
+            {
+                if (ParseExtmap(extmap) is { } extension)
+                {
+                    sessionExtensions.Add(extension);
+                }
+
+                continue;
+            }
+
+            if (current is null && line == "a=extmap-allow-mixed")
+            {
+                sessionAllowMixed = true;
                 continue;
             }
 
@@ -110,6 +128,9 @@ public static class SdpReader
                     RtcpReducedSize = m.RtcpReducedSize,
                     CongestionControlFeedback = m.CongestionControlFeedback,
                     Ecn = m.Ecn,
+                    // RFC 8285 section 5: mappings are all at session level or all at media level.
+                    Extensions = m.Extensions.Count > 0 ? m.Extensions : sessionExtensions,
+                    ExtmapAllowMixed = m.ExtmapAllowMixed || sessionAllowMixed,
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
                     Cname = m.Cname,
@@ -156,6 +177,41 @@ public static class SdpReader
         }
     }
 
+    // "<id>[/<direction>] <uri> [<attributes>]" (RFC 8285 section 8); malformed mappings are ignored.
+    internal static SdpExtension? ParseExtmap(string value)
+    {
+        string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            return null;
+        }
+
+        string[] idAndDirection = parts[0].Split('/');
+        if (
+            !int.TryParse(
+                idAndDirection[0],
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int id
+            )
+        )
+        {
+            return null;
+        }
+
+        SdpDirection? direction =
+            idAndDirection.Length > 1
+                ? idAndDirection[1] switch
+                {
+                    "sendonly" => SdpDirection.SendOnly,
+                    "recvonly" => SdpDirection.RecvOnly,
+                    "inactive" => SdpDirection.Inactive,
+                    _ => SdpDirection.SendRecv,
+                }
+                : null;
+        return new SdpExtension(id, parts[1], direction);
+    }
+
     internal static bool TryValue(string line, string prefix, out string value)
     {
         if (line.StartsWith(prefix, StringComparison.Ordinal))
@@ -192,6 +248,10 @@ public static class SdpReader
         public bool CongestionControlFeedback { get; private set; }
 
         public SdpEcnCapability? Ecn { get; private set; }
+
+        public List<SdpExtension> Extensions { get; } = [];
+
+        public bool ExtmapAllowMixed { get; private set; }
 
         // "rtp,ice mode=setread; ect=1": the initiation methods, then parameters (RFC 6679 section 6.1);
         // unknown methods and parameters are ignored.
@@ -346,6 +406,17 @@ public static class SdpReader
             else if (TryValue(line, "a=ecn-capable-rtp:", out string ecn))
             {
                 Ecn = ParseEcn(ecn);
+            }
+            else if (TryValue(line, "a=extmap:", out string extmap))
+            {
+                if (ParseExtmap(extmap) is { } extension)
+                {
+                    Extensions.Add(extension);
+                }
+            }
+            else if (line == "a=extmap-allow-mixed")
+            {
+                ExtmapAllowMixed = true;
             }
             else if (TryValue(line, "a=ssrc-group:FID ", out string fid))
             {

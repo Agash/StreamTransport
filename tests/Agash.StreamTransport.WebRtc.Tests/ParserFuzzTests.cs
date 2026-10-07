@@ -428,8 +428,12 @@ public sealed class ParserFuzzTests
             90000,
             0x11223344,
             Bytes(60),
-            withExtension ? 1 : 0,
-            withExtension ? 0x0123456789ABCDEFUL : 0
+            withExtension ? RtpExtensionMap.Offered : null,
+            new RtpExtensionValues(
+                0x0123456789ABCDEFUL,
+                new VideoTiming(VideoTiming.ByTimer, 1, 2, 3, 4, 0, 0),
+                new PlayoutDelay(TimeSpan.Zero, TimeSpan.FromMilliseconds(100))
+            )
         );
         return buffer[..length];
     }

@@ -282,6 +282,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     ) with
                     {
                         Rejected = true,
+                        Extensions = [],
                     }
                 );
                 continue;
@@ -306,6 +307,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     RtcpReducedSize = remote.RtcpReducedSize,
                     CongestionControlFeedback = remote.CongestionControlFeedback,
                     Ecn = AnswerEcn(remote.Ecn),
+                    Extensions = AnsweredExtensions(remote),
                 }
             );
             negotiated.Add(
@@ -313,6 +315,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             );
         }
 
+        AgreeExtensions(new SdpDescription { Media = media });
         NegotiatedMedia = negotiated;
         ConfigureRtx(offer);
         if (_iceAgent is null)
@@ -433,6 +436,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         if (type == SdpType.Answer)
         {
+            AgreeExtensions(description);
+
             // Offerer learns the role from the answerer's choice: their active => we are the DTLS server.
             _dtlsRole = first.Setup == SdpSetup.Active ? DtlsRole.Server : DtlsRole.Client;
 
@@ -552,7 +557,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // RTP header + optional abs-capture-time + payload, with room to protect it in place. Rented from
         // the shared pool so the per-packet path does not allocate (matters on an SBC's GC).
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            RtpPacket.FixedHeaderLength + 16 + payload.Length + SrtpSession.MaxProtectionOverhead
+            RtpPacket.FixedHeaderLength
+                + Volatile.Read(ref _extensions).MaximumBlockLength
+                + payload.Length
+                + SrtpSession.MaxProtectionOverhead
         );
         int rtpLength = RtpPacket.Write(
             buffer,
@@ -562,8 +570,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             rtpTimestamp,
             ssrc,
             payload,
-            captureNtp != 0 ? _options.AbsCaptureTimeExtensionId : 0,
-            captureNtp
+            Volatile.Read(ref _extensions),
+            new RtpExtensionValues(captureNtp != 0 ? captureNtp : null)
         );
         ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
 
@@ -598,9 +606,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 NextSequence(_options.FecSsrc),
                 0,
                 _options.FecSsrc,
-                fecRepair,
-                0,
-                0
+                fecRepair
             );
             _pacer.Enqueue(new PacedPacket(repair, repairLength, TrafficClass.Repair));
         }
@@ -1031,6 +1037,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             !srtp.UnprotectRtp(span, span.Length, out int plaintextLength)
             || !RtpPacket.TryParse(
                 span[..plaintextLength],
+                Volatile.Read(ref _extensions),
                 out RtpHeader header,
                 out ReadOnlySpan<byte> payload
             )
@@ -1153,6 +1160,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             RtxSsrc = ssrc == 0 ? null : rtxSsrc,
             Cname = _cname,
             Ecn = LocalEcnCapability,
+            Extensions = OfferedExtensions(kind),
         };
 
     // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its

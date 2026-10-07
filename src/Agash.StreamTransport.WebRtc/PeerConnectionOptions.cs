@@ -101,9 +101,6 @@ public sealed class PeerConnectionOptions
     /// </summary>
     public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
 
-    /// <summary>The one-byte header-extension id used for abs-capture-time (1-14), or 0 to disable.</summary>
-    public int AbsCaptureTimeExtensionId { get; init; } = 1;
-
     /// <summary>
     /// Enable FlexFEC (RFC 8627) loss repair for the protected video stream: the sender emits a repair packet
     /// per <see cref="FecGroupSize"/> media packets on <see cref="FecSsrc"/>, and the receiver recovers a single

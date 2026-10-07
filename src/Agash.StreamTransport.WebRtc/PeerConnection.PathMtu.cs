@@ -36,9 +36,7 @@ public sealed partial class PeerConnection
     // the packet it is built from.
     private const int MaxRtpPadding = 255;
 
-    // Room the media payload leaves in a datagram: the RTP header with the abs-capture-time slot, an RTX
-    // retransmission's original sequence number, and a FlexFEC repair's header when FEC is on.
-    private const int RtpHeaderRoom = RtpPacket.FixedHeaderLength + 16;
+    // An RTX retransmission's original sequence number, which the media payload leaves room for.
     private const int RtxRoom = 2;
 
     // A relayed pair's datagrams travel inside TURN framing, at most a Send indication: the STUN header, an
@@ -67,12 +65,14 @@ public sealed partial class PeerConnection
 
     /// <summary>
     /// The largest RTP payload that fits <see cref="MaximumDatagramSize"/> with everything a packet and its
-    /// repairs add: the header and its extension, the SRTP tag, an RTX sequence number, a FlexFEC header.
+    /// repairs add: the header and the largest extension block the negotiated extensions make, the SRTP
+    /// tag, an RTX sequence number, a FlexFEC header.
     /// Packetizers read it per frame, so media follows the path MTU as it changes.
     /// </summary>
     public int MaximumRtpPayloadSize =>
         MaximumDatagramSize
-        - RtpHeaderRoom
+        - RtpPacket.FixedHeaderLength
+        - Volatile.Read(ref _extensions).MaximumBlockLength
         - SrtpSession.MaxProtectionOverhead
         - RtxRoom
         - (FecEnabled ? FlexFec.HeaderLength : 0);

@@ -54,13 +54,14 @@ public sealed class RtpRtcpTests
             timestamp: 1000,
             ssrc: 0x55667788,
             payload,
-            absCaptureTimeExtensionId: 1,
-            absCaptureTimeNtp: ntp
+            RtpExtensionMap.Offered,
+            new RtpExtensionValues(ntp)
         );
 
         Assert.IsTrue(
             RtpPacket.TryParse(
                 buffer.AsSpan(0, length),
+                RtpExtensionMap.Offered,
                 out RtpHeader header,
                 out ReadOnlySpan<byte> parsedPayload
             )
