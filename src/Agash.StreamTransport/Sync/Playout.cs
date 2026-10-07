@@ -12,6 +12,7 @@ internal sealed class Playout : IAsyncDisposable
 {
     private readonly PlayoutScheduler? _scheduler;
     private readonly StreamTransportMetrics _metrics;
+    private readonly SyncMonitor _sync;
     private long _audioOffsetTicks;
 
     /// <summary>Playout as the options ask.</summary>
@@ -27,6 +28,7 @@ internal sealed class Playout : IAsyncDisposable
     )
     {
         _metrics = metrics;
+        _sync = new SyncMonitor(clock, metrics);
         if (options.Playout == PlayoutMode.Synced)
         {
             MaxDelay = options.MaxPlayoutDelay;
@@ -55,6 +57,9 @@ internal sealed class Playout : IAsyncDisposable
     /// <summary>The longest a frame waits for its slot, or zero when frames play on arrival.</summary>
     public TimeSpan MaxDelay { get; }
 
+    /// <summary>The measured lip sync, smoothed: positive when audio lags video; null until measured.</summary>
+    public TimeSpan? AvSyncOffset => _sync.Offset;
+
     /// <summary>The playout buffer depth, or zero when frames play on arrival.</summary>
     public TimeSpan CurrentDelay => _scheduler?.CurrentDelay ?? TimeSpan.Zero;
 
@@ -66,12 +71,16 @@ internal sealed class Playout : IAsyncDisposable
     {
         if (_scheduler is { } scheduler && capture is { } at)
         {
-            scheduler.Schedule(at, new VideoEntry(frame.Retain(), sink));
+            scheduler.Schedule(at, new VideoEntry(frame.Retain(), sink, at, _sync));
             _metrics.PlayoutDelay.Record(scheduler.CurrentDelay.TotalSeconds);
         }
         else
         {
             sink.OnFrame(in frame);
+            if (capture is { } presented)
+            {
+                _sync.VideoPresented(presented);
+            }
         }
     }
 
@@ -83,27 +92,53 @@ internal sealed class Playout : IAsyncDisposable
     {
         if (_scheduler is { } scheduler && capture is { } at)
         {
-            scheduler.Schedule(at, new AudioEntry(frame.Retain(), sink), AudioOutputOffset);
+            scheduler.Schedule(
+                at,
+                new AudioEntry(frame.Retain(), sink, at, _sync),
+                AudioOutputOffset
+            );
         }
         else
         {
             sink.OnFrame(in frame);
+            if (capture is { } presented)
+            {
+                _sync.AudioPresented(presented);
+            }
         }
     }
 
     /// <inheritdoc/>
     public ValueTask DisposeAsync() => _scheduler?.DisposeAsync() ?? ValueTask.CompletedTask;
 
-    private sealed class VideoEntry(VideoFrameLease lease, IVideoFrameConsumer sink) : IPlayoutEntry
+    private sealed class VideoEntry(
+        VideoFrameLease lease,
+        IVideoFrameConsumer sink,
+        NtpTime capture,
+        SyncMonitor sync
+    ) : IPlayoutEntry
     {
-        public void Play() => sink.OnFrame(lease.Frame);
+        public void Play()
+        {
+            sink.OnFrame(lease.Frame);
+            sync.VideoPresented(capture);
+        }
 
         public void Dispose() => lease.Dispose();
     }
 
-    private sealed class AudioEntry(AudioFrameLease lease, IAudioFrameConsumer sink) : IPlayoutEntry
+    private sealed class AudioEntry(
+        AudioFrameLease lease,
+        IAudioFrameConsumer sink,
+        NtpTime capture,
+        SyncMonitor sync
+    ) : IPlayoutEntry
     {
-        public void Play() => sink.OnFrame(lease.Frame);
+        public void Play()
+        {
+            sink.OnFrame(lease.Frame);
+            sync.AudioPresented(capture);
+        }
 
         public void Dispose() => lease.Dispose();
     }

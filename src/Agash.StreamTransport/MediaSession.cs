@@ -39,6 +39,10 @@ public sealed record MediaEndpoints
 /// <param name="AudioConcealed">Audio gaps filled by concealment.</param>
 /// <param name="AudioRecovered">Lost audio packets rebuilt from redundancy.</param>
 /// <param name="PlayoutDelay">The synced playout buffer depth; zero when frames play on arrival.</param>
+/// <param name="AvSyncOffset">
+/// The lip sync measured where frames reach the sinks, smoothed: the capture instant of the video shown less
+/// that of the audio heard with it, positive when audio lags video; null until both have played.
+/// </param>
 public readonly record struct MediaSessionStatistics(
     int VideoFramesSent,
     int AudioFramesSent,
@@ -49,7 +53,8 @@ public readonly record struct MediaSessionStatistics(
     int VideoFramesSkipped,
     int AudioConcealed,
     int AudioRecovered,
-    TimeSpan PlayoutDelay
+    TimeSpan PlayoutDelay,
+    TimeSpan? AvSyncOffset
 );
 
 /// <summary>A media session with one peer.</summary>

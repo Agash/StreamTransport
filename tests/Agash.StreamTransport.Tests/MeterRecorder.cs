@@ -38,6 +38,10 @@ internal sealed class MeterRecorder : IMeterFactory
 
     public int Count(string instrument, string? tag = null) => Matching(instrument, tag).Count();
 
+    // An instrument's measurements so far, in the order they were recorded.
+    public double[] Values(string instrument, string? tag = null) =>
+        [.. Matching(instrument, tag).Select(static m => m.Value)];
+
     public void Dispose() => _listener.Dispose();
 
     private IEnumerable<(string Instrument, double Value, string? Tag)> Matching(

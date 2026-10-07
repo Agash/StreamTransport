@@ -111,7 +111,8 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
             _videoReceive?.FramesSkipped ?? 0,
             _audioReceive?.Concealed ?? 0,
             _audioReceive?.Recovered ?? 0,
-            _playout.CurrentDelay
+            _playout.CurrentDelay,
+            _playout.AvSyncOffset
         );
 
     public TimeSpan AudioOutputOffset

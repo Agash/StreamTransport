@@ -102,6 +102,11 @@ internal sealed class StreamTransportMetrics : IDisposable
             "s",
             "The synced playout buffer depth each time it is set."
         );
+        AvSyncOffset = _meter.CreateHistogram<double>(
+            "streamtransport.playout.av_offset",
+            "s",
+            "Lip sync at presentation: the capture instant of the video frame shown less that of the audio heard with it; positive when audio lags video."
+        );
     }
 
     // Encode and decode take from a fraction of a millisecond (GPU) to tens (software 4K).
@@ -151,6 +156,8 @@ internal sealed class StreamTransportMetrics : IDisposable
     public Counter<long> AudioFramesRepaired { get; }
 
     public Histogram<double> PlayoutDelay { get; }
+
+    public Histogram<double> AvSyncOffset { get; }
 
     public static KeyValuePair<string, object?> Codec(VideoCodecId codec) =>
         new("streamtransport.codec", codec.Name);

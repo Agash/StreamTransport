@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
 using Agash.StreamTransport.AspNetCore;
@@ -21,36 +22,44 @@ namespace Agash.StreamTransport.Tests;
 [TestCategory("Integration")]
 public sealed class HttpMediaTests
 {
+    private const string AvOffset = "streamtransport.playout.av_offset";
+
+    public TestContext TestContext { get; set; } = null!;
+
     [TestMethod]
     [Timeout(60_000)]
     public async Task Whip_PublishedTestSignal_ArrivesAndIsInSync()
     {
         TestSignalAnalyzer analyzer = new();
+        using MeterRecorder meters = new();
+        int measuredFrom = 0;
         int ended = 0;
-        await using WebApplication app = await StartAsync(web =>
-            web.MapWhip(
-                "/whip/{room}",
-                (context, _) =>
-                    ValueTask.FromResult<HttpMediaSetup?>(
-                        (string?)context.Request.RouteValues["room"] == "studio"
-                            ? new HttpMediaSetup(
-                                new MediaEndpoints
+        await using WebApplication app = await StartAsync(
+            web =>
+                web.MapWhip(
+                    "/whip/{room}",
+                    (context, _) =>
+                        ValueTask.FromResult<HttpMediaSetup?>(
+                            (string?)context.Request.RouteValues["room"] == "studio"
+                                ? new HttpMediaSetup(
+                                    new MediaEndpoints
+                                    {
+                                        VideoSink = analyzer.WrapVideo(),
+                                        AudioSink = analyzer.WrapAudio(),
+                                    },
+                                    Loopback()
+                                )
                                 {
-                                    VideoSink = analyzer.WrapVideo(),
-                                    AudioSink = analyzer.WrapAudio(),
-                                },
-                                Loopback()
-                            )
-                            {
-                                Ended = () =>
-                                {
-                                    Interlocked.Increment(ref ended);
-                                    return ValueTask.CompletedTask;
-                                },
-                            }
-                            : null
-                    )
-            )
+                                    Ended = () =>
+                                    {
+                                        Interlocked.Increment(ref ended);
+                                        return ValueTask.CompletedTask;
+                                    },
+                                }
+                                : null
+                        )
+                ),
+            services => services.AddSingleton<IMeterFactory>(meters)
         );
         IServiceProvider services = app.Services;
         TestSignalGenerator generator = new();
@@ -82,6 +91,7 @@ public sealed class HttpMediaTests
             }
 
             analyzer.Reset();
+            measuredFrom = meters.Count(AvOffset);
             while (analyzer.Measure().Pairs < 3)
             {
                 await Task.Delay(200);
@@ -95,6 +105,16 @@ public sealed class HttpMediaTests
 
         TestSignalMeasurement measured = analyzer.Measure();
         Assert.IsLessThan(60, Math.Abs(measured.MeanOffset.TotalMilliseconds), measured.ToString());
+
+        // The session's own lip-sync measurement agrees with the test signal's, within a video frame and an
+        // audio frame: it is what tells a real stream's sync, where there is no test signal.
+        double monitored = meters.Values(AvOffset).Skip(measuredFrom).Average() * 1000;
+        TestContext.WriteLine($"session A/V offset {monitored:0.0} ms; test signal {measured}");
+        Assert.IsLessThan(
+            35,
+            Math.Abs(monitored - measured.MeanOffset.TotalMilliseconds),
+            $"session {monitored:0.0} ms, test signal {measured}"
+        );
         Assert.AreEqual(1, Volatile.Read(ref ended), "the DELETE ended the server's session");
     }
 
