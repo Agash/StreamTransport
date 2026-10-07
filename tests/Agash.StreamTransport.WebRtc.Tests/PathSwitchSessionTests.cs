@@ -115,6 +115,79 @@ public sealed class PathSwitchSessionTests
         );
     }
 
+    [TestMethod]
+    [Timeout(90_000)]
+    public async Task RepairOverStandby_RetransmitsOnTheOtherInterface()
+    {
+        IPAddress? mediaPath = null;
+        int lostOnMediaPath = 0;
+        int repairsOnStandby = 0;
+        ConcurrentDictionary<ushort, byte> dropped = new();
+        InMemoryIceNetwork network = new()
+        {
+            Drop = (from, _, data) =>
+            {
+                if (data.Length < 12 || (data[0] & 0xC0) != 0x80)
+                {
+                    return false;
+                }
+
+                uint ssrc = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+                    data.AsSpan(8)
+                );
+                if (ssrc == VideoSsrc + 1 && mediaPath is { } media && !from.Address.Equals(media))
+                {
+                    Interlocked.Increment(ref repairsOnStandby);
+                }
+
+                if (
+                    ssrc == VideoSsrc
+                    && (data[1] & 0x7F) == 96
+                    && Interlocked.Increment(ref lostOnMediaPath) % 25 == 0
+                )
+                {
+                    dropped.TryAdd(
+                        System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(2)),
+                        0
+                    );
+                    return true;
+                }
+
+                return false;
+            },
+        };
+        await using PeerConnection sender = new(
+            Options(network, VideoSsrc, repairOverStandby: true, "10.0.0.1", "10.1.0.1"),
+            Certificate,
+            controller: new ScreamCongestionController(Scream)
+        );
+        await using PeerConnection receiver = new(
+            Options(network, 0xBBBB_0001, "10.0.0.2", "10.1.0.2"),
+            Certificate,
+            controller: new ScreamCongestionController(Scream)
+        );
+        ConcurrentDictionary<ushort, byte> arrived = new();
+        receiver.RtpReceived += (header, _) => arrived.TryAdd(header.SequenceNumber, 0);
+        await ConnectAsync(sender, receiver);
+
+        // Let the other interface's pairs validate, then stream with loss on the media path.
+        await Task.Delay(TimeSpan.FromSeconds(6), TestContext.CancellationToken);
+        mediaPath = sender.SelectedPath!.Value.Local.Address;
+        using var media = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.CancellationToken
+        );
+        media.CancelAfter(TimeSpan.FromSeconds(5));
+        await SendAsync(sender, media.Token);
+        await Task.Delay(1000, TestContext.CancellationToken);
+
+        int recovered = dropped.Keys.Count(arrived.ContainsKey);
+        TestContext.WriteLine(
+            $"dropped {dropped.Count}, recovered {recovered}, repairs on standby {repairsOnStandby}"
+        );
+        Assert.IsGreaterThan(0, repairsOnStandby, "retransmissions travel the other interface.");
+        Assert.IsGreaterThan(dropped.Count / 2, recovered);
+    }
+
     private static async Task ConnectAsync(PeerConnection a, PeerConnection b)
     {
         a.LocalIceCandidate += b.AddRemoteIceCandidate;
@@ -162,9 +235,17 @@ public sealed class PathSwitchSessionTests
         InMemoryIceNetwork network,
         uint ssrc,
         params string[] addresses
+    ) => Options(network, ssrc, repairOverStandby: false, addresses);
+
+    private static PeerConnectionOptions Options(
+        InMemoryIceNetwork network,
+        uint ssrc,
+        bool repairOverStandby,
+        params string[] addresses
     ) =>
         new()
         {
+            RepairOverStandby = repairOverStandby,
             Media =
             [
                 new MediaLine("0", SdpMediaKind.Video, ssrc, [H264, Rtx.For(97, 96)])

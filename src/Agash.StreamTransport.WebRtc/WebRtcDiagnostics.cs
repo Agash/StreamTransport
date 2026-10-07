@@ -75,6 +75,11 @@ internal sealed class WebRtcMetrics
             "{packet}",
             "RTX retransmissions, by direction: sent, or received and recovered."
         );
+        StandbyRepairs = meter.CreateCounter<long>(
+            "streamtransport.webrtc.repair.standby",
+            "{packet}",
+            "Retransmissions and FEC repairs sent over the standby path on another interface."
+        );
     }
 
     // For connections made without dependency injection.
@@ -97,6 +102,8 @@ internal sealed class WebRtcMetrics
     public Counter<long> NackedSequences { get; }
 
     public Counter<long> Retransmissions { get; }
+
+    public Counter<long> StandbyRepairs { get; }
 
     public static WebRtcMetrics For(IMeterFactory? meterFactory) =>
         meterFactory is null ? Shared : new WebRtcMetrics(meterFactory);

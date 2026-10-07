@@ -399,6 +399,37 @@ public sealed class IceMobilityTests
         Assert.IsLessThan(80, checks, $"{checks} checks in a quiet minute.");
     }
 
+    [TestMethod]
+    public void RepairsOnTheStandbyPath_LeaveBothSelectionsWhereTheyAre()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        _ = board.Stream(TimeSpan.FromSeconds(3));
+        var selectedA = a.Machine.Selected;
+        var selectedB = b.Machine.Selected;
+        Assert.IsNotNull(a.Machine.Standby(board.Now), "the other interface stands by.");
+        Assert.AreNotEqual(selectedA!.Value.Local, a.Machine.Standby(board.Now)!.Value.Local);
+
+        // Media on the selected pair, a repair on the standby for every few media packets.
+        var step = TimeSpan.FromMilliseconds(20);
+        int repairs = 0;
+        for (TimeSpan elapsed = TimeSpan.Zero; elapsed < TimeSpan.FromSeconds(20); elapsed += step)
+        {
+            Assert.IsTrue(board.SendData(a));
+            Assert.IsTrue(board.SendData(b));
+            repairs += board.SendOnStandby(a) ? 1 : 0;
+            board.Run(step);
+        }
+
+        Assert.IsGreaterThan(500, repairs);
+        Assert.AreEqual(selectedA, a.Machine.Selected);
+        Assert.AreEqual(selectedB, b.Machine.Selected, "the controlled side follows nominations.");
+    }
+
     private static bool IsOnPeerOf(IceSwitchboard.Peer peer, IPAddress address) =>
         peer.Machine.Selected?.Remote.Address.Equals(address) == true;
 

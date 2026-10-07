@@ -147,6 +147,24 @@ internal sealed class IceSwitchboard
         return true;
     }
 
+    /// <summary>Sends a repair over a peer's standby pair; returns whether one existed and it arrived.</summary>
+    public bool SendOnStandby(Peer from)
+    {
+        if (from.Machine.Standby(Now) is not { } standby)
+        {
+            return false;
+        }
+
+        IPEndPoint source = from.Endpoints[standby.Local];
+        if (!Passes(source, standby.Remote, [0x80]) || Owner(standby.Remote) is not { } to)
+        {
+            return false;
+        }
+
+        to.Peer.Machine.NoteDataReceived(to.Handle, source, Now);
+        return true;
+    }
+
     /// <summary>
     /// Streams media both ways for a duration, a datagram from each peer every interval, as a call does;
     /// returns how many of each peer's datagrams arrived.

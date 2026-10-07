@@ -122,6 +122,38 @@ internal sealed partial class IceStateMachine
     /// <param name="remote">The peer's credentials.</param>
     public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
 
+    /// <summary>
+    /// The best valid pair on another local endpoint than the selected one, writable and answering its
+    /// keep-alives: a second, independent path (another interface or modem) repairs can travel over.
+    /// Null when none.
+    /// </summary>
+    /// <param name="now">The time.</param>
+    /// <returns>The pair's local handle and remote endpoint, or null.</returns>
+    public (int Local, IPEndPoint Remote)? Standby(TimeSpan now)
+    {
+        if (_selected is not { } selected)
+        {
+            return null;
+        }
+
+        CandidatePair? best = null;
+        foreach (CandidatePair pair in _pairs)
+        {
+            if (
+                pair.State == PairState.Succeeded
+                && pair.Local.Handle != selected.Local.Handle
+                && IsWritable(pair, now)
+                && Since(pair.LastResponse, now) <= _timings.StandbyPingInterval * 2
+                && (best is null || Compare(pair, best, now, damped: false) > 0)
+            )
+            {
+                best = pair;
+            }
+        }
+
+        return best is null ? null : (best.Local.Handle, best.Remote.Endpoint);
+    }
+
     /// <summary>Server-reflexive queries still waiting for a response.</summary>
     public int PendingGathers => _gatherInFlight.Count;
 
@@ -479,6 +511,7 @@ internal sealed partial class IceStateMachine
         if (useCandidate && _role == IceRole.Controlled)
         {
             pair.NominatedByPeer = true;
+            pair.LastNominated = now;
             if (pair.State == PairState.Succeeded)
             {
                 Nominate(pair, now);
@@ -868,6 +901,17 @@ internal sealed partial class IceStateMachine
                 return a.NominatedByPeer ? 1 : -1;
             }
 
+            // The controlling agent nominates its selected pair on every check of it, so the most recent
+            // nomination is where it sends media; data decides only between pairs nominated alike, since
+            // repairs may arrive on a second path.
+            int nominated = (a.LastNominated ?? TimeSpan.MinValue).CompareTo(
+                b.LastNominated ?? TimeSpan.MinValue
+            );
+            if (nominated != 0)
+            {
+                return nominated;
+            }
+
             int data = (a.LastDataReceived ?? TimeSpan.MinValue).CompareTo(
                 b.LastDataReceived ?? TimeSpan.MinValue
             );
@@ -1086,6 +1130,9 @@ internal sealed partial class IceStateMachine
         public TimeSpan? LastReceived { get; set; }
 
         public TimeSpan? LastDataReceived { get; set; }
+
+        // When the controlling agent last nominated the pair (USE-CANDIDATE).
+        public TimeSpan? LastNominated { get; set; }
 
         public bool WasReceiving { get; set; }
 

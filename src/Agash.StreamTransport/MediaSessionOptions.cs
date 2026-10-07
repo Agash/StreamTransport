@@ -133,7 +133,11 @@ public sealed record MediaSessionOptions
                 AudioExpectedLossPercent = 20,
                 // Forward error correction repairs loss without a retransmission round trip, which a
                 // high-RTT cellular uplink cannot afford; interactive profiles repair with RTX in time.
-                Transport = new MediaTransportOptions { ForwardErrorCorrection = true },
+                Transport = new MediaTransportOptions
+                {
+                    ForwardErrorCorrection = true,
+                    RepairOverSecondPath = true,
+                },
                 Playout = PlayoutMode.Synced,
                 MaxPlayoutDelay = TimeSpan.FromMilliseconds(800),
                 PlayoutMargin = TimeSpan.FromMilliseconds(40),
