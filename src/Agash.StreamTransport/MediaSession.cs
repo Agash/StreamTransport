@@ -108,6 +108,15 @@ public interface IMediaSession : IAsyncDisposable
     /// </summary>
     /// <returns>Whether media flows again.</returns>
     bool TryResumeTransmission();
+
+    /// <summary>
+    /// Finds the network path again from scratch, keeping the media session and its keys: for WebRTC an
+    /// ICE restart. For when no known path works any more; a path that merely changed is followed without
+    /// it.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the restart.</param>
+    /// <returns>A task that completes once the restart has been signaled.</returns>
+    Task RestartTransportAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>

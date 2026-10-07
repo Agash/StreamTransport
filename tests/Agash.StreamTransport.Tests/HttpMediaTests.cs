@@ -299,14 +299,86 @@ public sealed class HttpMediaTests
                 await PatchAsync(trickle, tag, "text/plain")
             );
             Assert.AreEqual(HttpStatusCode.BadRequest, await PatchAsync("hello", tag));
-            Assert.AreEqual(
-                HttpStatusCode.UnprocessableEntity,
-                await PatchAsync(
+            Assert.AreEqual(HttpStatusCode.NoContent, await PatchAsync(trickle, tag));
+            Assert.AreEqual(TransportState.Connected, publishing.Session.State);
+
+            // New credentials restart ICE: 200, the server's new credentials and a new tag; the old tag
+            // names an ICE session that is gone.
+            using HttpRequestMessage restart = new(HttpMethod.Patch, resource)
+            {
+                Content = new StringContent(
                     "a=ice-ufrag:fresh\r\na=ice-pwd:freshfreshfreshfreshfr\r\n" + trickle,
-                    "*"
+                    Encoding.UTF8,
+                    TrickleIceFragment.MediaType
+                ),
+            };
+            _ = restart.Headers.TryAddWithoutValidation("If-Match", "*");
+            using HttpResponseMessage restarted = await http.SendAsync(restart);
+            Assert.AreEqual(HttpStatusCode.OK, restarted.StatusCode);
+            Assert.IsTrue(
+                TrickleIceFragment.TryParse(
+                    await restarted.Content.ReadAsStringAsync(),
+                    out TrickleIceFragment server
                 )
             );
-            Assert.AreEqual(HttpStatusCode.NoContent, await PatchAsync(trickle, tag));
+            Assert.IsNotNull(server.UsernameFragment);
+            Assert.IsNotEmpty(server.Candidates);
+            string newTag = restarted.Headers.ETag!.Tag;
+            Assert.AreNotEqual(tag, newTag);
+            Assert.AreEqual(HttpStatusCode.PreconditionFailed, await PatchAsync(trickle, tag));
+            Assert.AreEqual(HttpStatusCode.NoContent, await PatchAsync(trickle, newTag));
+        }
+    }
+
+    [TestMethod]
+    [Timeout(90_000)]
+    public async Task Whip_IceRestart_KeepsMediaFlowing()
+    {
+        TestSignalAnalyzer analyzer = new();
+        await using WebApplication app = await StartAsync(web =>
+            web.MapWhip(
+                "/whip",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(
+                            new MediaEndpoints
+                            {
+                                VideoSink = analyzer.WrapVideo(),
+                                AudioSink = analyzer.WrapAudio(),
+                            },
+                            Loopback()
+                        )
+                    )
+            )
+        );
+        TestSignalGenerator generator = new();
+        using IVideoInput video = await new TestSignalVideoInputProvider(generator).OpenAsync(
+            new VideoInputInfo("test", "signal", "Test signal", MediaInputKind.Generated, []),
+            new VideoInputRequest { Size = new VideoSize(640, 360), FrameRate = 30 },
+            CancellationToken.None
+        );
+        HttpMediaSession publishing = await WhipClient.PublishAsync(
+            app.Services.GetRequiredService<IMediaSessionFactory>(),
+            new Uri(Address(app), "/whip"),
+            new MediaEndpoints { VideoSource = video },
+            Loopback()
+        );
+        await using (publishing)
+        {
+            await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
+            while (analyzer.Measure().Frames < 30)
+            {
+                await Task.Delay(100);
+            }
+
+            await publishing.Session.RestartTransportAsync();
+            int atRestart = analyzer.Measure().Frames;
+            using CancellationTokenSource guard = new(TimeSpan.FromSeconds(30));
+            while (analyzer.Measure().Frames < atRestart + 60)
+            {
+                await Task.Delay(100, guard.Token);
+            }
+
             Assert.AreEqual(TransportState.Connected, publishing.Session.State);
         }
     }

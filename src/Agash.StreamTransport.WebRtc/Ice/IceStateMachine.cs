@@ -113,6 +113,13 @@ internal sealed partial class IceStateMachine
             ? (pair.Local.Handle, pair.Remote.Endpoint, pair.Local.Candidate.Kind, pair.Remote.Kind)
             : null;
 
+    /// <summary>
+    /// Sets the peer's ICE credentials. New ones after the first come with an ICE restart, which restarts
+    /// this agent too, so every pair is checked again under them. Candidates of the peer's old session are
+    /// kept: a candidate of the new one can arrive by trickle before the description that carries the new
+    /// credentials, and an old candidate that no longer answers only fails its checks.
+    /// </summary>
+    /// <param name="remote">The peer's credentials.</param>
     public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
 
     /// <summary>Server-reflexive queries still waiting for a response.</summary>

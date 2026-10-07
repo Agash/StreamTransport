@@ -151,6 +151,9 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     public bool TryResumeTransmission() => _transport.TryResume();
 
+    public Task RestartTransportAsync(CancellationToken cancellationToken = default) =>
+        _transport.RestartAsync(cancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)

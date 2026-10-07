@@ -84,6 +84,103 @@ public sealed record TrickleIceFragment(
         );
     }
 
+    /// <summary>
+    /// A fragment of the first media section of a session description with that section's own
+    /// candidates: what an ICE restart sends (RFC 9725 section 4.3.3).
+    /// </summary>
+    /// <param name="sdp">The session description.</param>
+    /// <returns>The fragment.</returns>
+    public static TrickleIceFragment FromFirstSection(string sdp)
+    {
+        ArgumentNullException.ThrowIfNull(sdp);
+        List<string> candidates = [];
+        bool inFirst = false;
+        foreach (string raw in sdp.Split('\n'))
+        {
+            string line = raw.TrimEnd('\r');
+            if (line.StartsWith("m=", StringComparison.Ordinal))
+            {
+                if (inFirst)
+                {
+                    break;
+                }
+
+                inFirst = true;
+            }
+            else if (inFirst && line.StartsWith("a=candidate:", StringComparison.Ordinal))
+            {
+                candidates.Add(line[2..]);
+            }
+        }
+
+        return ForFirstSection(sdp, candidates);
+    }
+
+    /// <summary>
+    /// A session description with this fragment's ICE in place of its own: every section's credentials
+    /// replaced, every candidate dropped and this fragment's candidates put in the first section. How
+    /// either end of an ICE restart over HTTP turns the fragment back into the description it stands for,
+    /// the rest of which still applies (RFC 9725 section 4.3.3).
+    /// </summary>
+    /// <param name="sdp">The description negotiated before.</param>
+    /// <returns>The description with this fragment's ICE.</returns>
+    public string ApplyTo(string sdp)
+    {
+        ArgumentNullException.ThrowIfNull(sdp);
+        StringBuilder result = new();
+        int sections = 0;
+        bool written = false;
+        foreach (string raw in sdp.Split('\n'))
+        {
+            string line = raw.TrimEnd('\r');
+            if (
+                line.Length == 0
+                || line.StartsWith("a=candidate:", StringComparison.Ordinal)
+                || line == "a=end-of-candidates"
+            )
+            {
+                continue;
+            }
+
+            if (line.StartsWith("m=", StringComparison.Ordinal) && ++sections == 2)
+            {
+                WriteCandidates(result);
+                written = true;
+            }
+
+            if (
+                line.StartsWith("a=ice-ufrag:", StringComparison.Ordinal)
+                && UsernameFragment is { } ufrag
+            )
+            {
+                line = "a=ice-ufrag:" + ufrag;
+            }
+            else if (
+                line.StartsWith("a=ice-pwd:", StringComparison.Ordinal) && Password is { } password
+            )
+            {
+                line = "a=ice-pwd:" + password;
+            }
+
+            result.Append(line).Append("\r\n");
+        }
+
+        if (!written)
+        {
+            WriteCandidates(result);
+        }
+
+        return result.ToString();
+    }
+
+    private void WriteCandidates(StringBuilder body)
+    {
+        foreach (string candidate in Candidates)
+        {
+            body.Append("a=").Append(candidate).Append("\r\n");
+        }
+    }
+
     /// <summary>Reads a fragment body.</summary>
     /// <param name="body">The body.</param>
     /// <param name="fragment">The fragment, when the body is one.</param>

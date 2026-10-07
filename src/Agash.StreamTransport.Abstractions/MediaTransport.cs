@@ -277,6 +277,15 @@ public interface IMediaTransport : IAsyncDisposable
     /// <summary>Resumes media after the circuit breaker opened, when that is allowed yet.</summary>
     /// <returns>Whether media flows again.</returns>
     bool TryResume();
+
+    /// <summary>
+    /// Finds the network path again from scratch, keeping the session and its keys: for WebRTC an ICE
+    /// restart, with fresh credentials and candidates exchanged over signaling. For when no known path
+    /// works any more; a path that merely changed is followed without it.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the restart.</param>
+    /// <returns>A task that completes once the restart has been signaled.</returns>
+    Task RestartAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Makes the transport for each session.</summary>

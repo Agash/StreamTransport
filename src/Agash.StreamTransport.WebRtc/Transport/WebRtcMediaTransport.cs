@@ -225,6 +225,20 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     public bool TryResume() => _connection?.TryResumeTransmission() ?? true;
 
+    // An ICE restart (RFC 8829): fresh credentials and candidates in a new offer; the answer brings the
+    // peer's, and media carries on under the same DTLS-SRTP keys.
+    public async Task RestartAsync(CancellationToken cancellationToken = default)
+    {
+        if (_connection is not { } connection)
+        {
+            return;
+        }
+
+        LogIceRestart();
+        await SendDescriptionAsync(SdpKind.Offer, connection.RestartIce(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -823,6 +837,9 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     [LoggerMessage(1167, LogLevel.Debug, "Sent the local {Kind}.")]
     private partial void LogDescriptionSent(SdpKind kind);
+
+    [LoggerMessage(1173, LogLevel.Information, "Restarting ICE: fresh credentials and candidates.")]
+    private partial void LogIceRestart();
 
     [LoggerMessage(1168, LogLevel.Warning, "The STUN server {Url} did not resolve; it is skipped.")]
     private partial void LogStunUnresolved(string url);

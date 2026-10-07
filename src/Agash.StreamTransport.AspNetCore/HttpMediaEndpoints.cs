@@ -64,8 +64,9 @@ public static class HttpMediaServiceCollectionExtensions
 /// with them. Candidates travel inside the offer and answer, and a client trickles the ones it gathers
 /// later in a <c>PATCH</c> of the resource (RFC 9725 section 4.3.2): <c>204</c> once added, <c>428</c>
 /// without the <c>If-Match</c> of the resource's ETag, <c>412</c> with another. An ICE restart in a
-/// <c>PATCH</c> is answered <c>422</c>. The returned group takes the host's conventions, such as
-/// <c>RequireAuthorization</c> or <c>RequireCors</c>.
+/// <c>PATCH</c> (new credentials, <c>If-Match: *</c>) gets <c>200</c> with the server's new credentials
+/// and candidates and a new ETag (section 4.3.3). The returned group takes the host's conventions, such
+/// as <c>RequireAuthorization</c> or <c>RequireCors</c>.
 /// </summary>
 public static class HttpMediaEndpointRouteBuilderExtensions
 {
@@ -224,14 +225,24 @@ public static class HttpMediaEndpointRouteBuilderExtensions
             body = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
         }
 
-        context.Response.StatusCode = await context
+        (int status, string? tag, string? fragment) = await context
             .RequestServices.GetRequiredService<HttpMediaResources>()
             .TrickleAsync(
                 (string)context.Request.RouteValues["resource"]!,
                 context.Request.Headers.IfMatch,
-                body
+                body,
+                context.RequestAborted
             )
             .ConfigureAwait(false);
+        context.Response.StatusCode = status;
+        if (tag is not null && fragment is not null)
+        {
+            context.Response.Headers.ETag = $"\"{tag}\"";
+            context.Response.ContentType = TrickleIceFragment.MediaType;
+            await context
+                .Response.WriteAsync(fragment, context.RequestAborted)
+                .ConfigureAwait(false);
+        }
     }
 }
 
@@ -278,12 +289,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             setup.Endpoints,
             setup.Options
         );
-        Resource resource = new(
-            session,
-            channel,
-            TrickleIceFragment.ForFirstSection(offer, []).UsernameFragment,
-            setup.Ended
-        );
+        Resource resource = new(session, channel, offer, id, setup.Ended);
         try
         {
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -314,52 +320,99 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         }
     }
 
-    // Adds a client's trickled candidates to its session (RFC 9725 section 4.3): the status to answer.
-    public async Task<int> TrickleAsync(string id, StringValues ifMatch, string body)
+    // A client's PATCH (RFC 9725 section 4.3): trickled candidates for its ICE session, or an ICE restart.
+    // The status to answer, and for a restart the new session's tag and the server's fragment.
+    public async Task<(int Status, string? Tag, string? Fragment)> TrickleAsync(
+        string id,
+        StringValues ifMatch,
+        string body,
+        CancellationToken cancellationToken
+    )
     {
         if (!_resources.TryGetValue(id, out Resource? resource))
         {
-            return StatusCodes.Status404NotFound;
+            return (StatusCodes.Status404NotFound, null, null);
         }
 
-        // The resource's ETag names its ICE session; a PATCH must say which one it means.
-        if (StringValues.IsNullOrEmpty(ifMatch))
+        await resource.Patching.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return StatusCodes.Status428PreconditionRequired;
-        }
+            // The resource's ETag names its ICE session; a PATCH must say which one it means.
+            if (StringValues.IsNullOrEmpty(ifMatch))
+            {
+                return (StatusCodes.Status428PreconditionRequired, null, null);
+            }
 
-        if (
-            !ifMatch.Any(value =>
-                value is not null
-                && value.Split(',').Any(tag => tag.Trim() is "*" || tag.Trim() == $"\"{id}\"")
+            if (
+                !ifMatch.Any(value =>
+                    value is not null
+                    && value
+                        .Split(',')
+                        .Any(tag => tag.Trim() is "*" || tag.Trim() == $"\"{resource.Tag}\"")
+                )
             )
-        )
+            {
+                return (StatusCodes.Status412PreconditionFailed, null, null);
+            }
+
+            if (!TrickleIceFragment.TryParse(body, out TrickleIceFragment fragment))
+            {
+                return (StatusCodes.Status400BadRequest, null, null);
+            }
+
+            if (
+                fragment.UsernameFragment is { } ufrag
+                && !string.Equals(ufrag, resource.RemoteUsernameFragment, StringComparison.Ordinal)
+            )
+            {
+                return await RestartAsync(id, resource, fragment, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            foreach (string candidate in fragment.Candidates)
+            {
+                await resource.Channel.DeliverAsync(candidate, fragment.Mid).ConfigureAwait(false);
+            }
+
+            LogTrickled(id, fragment.Candidates.Count);
+            return (StatusCodes.Status204NoContent, null, null);
+        }
+        finally
         {
-            return StatusCodes.Status412PreconditionFailed;
+            _ = resource.Patching.Release();
+        }
+    }
+
+    // New credentials are an ICE restart (RFC 9725 section 4.3.3): the client's fragment stands in for a
+    // new offer, the rest of the first one still applying; the session restarts ICE and answers, and the
+    // answer's credentials and candidates go back with a new tag for the new ICE session. A restart that
+    // fails leaves the session and its ICE session as they were.
+    private async Task<(int Status, string? Tag, string? Fragment)> RestartAsync(
+        string id,
+        Resource resource,
+        TrickleIceFragment fragment,
+        CancellationToken cancellationToken
+    )
+    {
+        string offer = fragment.ApplyTo(resource.Offer);
+        string answer;
+        try
+        {
+            answer = await resource
+                .Channel.RestartAsync(offer, AnswerLimit, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException exception)
+        {
+            LogRestartFailed(exception, id);
+            return (StatusCodes.Status503ServiceUnavailable, null, null);
         }
 
-        if (!TrickleIceFragment.TryParse(body, out TrickleIceFragment fragment))
-        {
-            return StatusCodes.Status400BadRequest;
-        }
-
-        // New credentials are an ICE restart, which this server does not do over PATCH.
-        if (
-            fragment.UsernameFragment is { } ufrag
-            && !string.Equals(ufrag, resource.RemoteUsernameFragment, StringComparison.Ordinal)
-        )
-        {
-            LogRestartRefused(id);
-            return StatusCodes.Status422UnprocessableEntity;
-        }
-
-        foreach (string candidate in fragment.Candidates)
-        {
-            await resource.Channel.DeliverAsync(candidate, fragment.Mid).ConfigureAwait(false);
-        }
-
-        LogTrickled(id, fragment.Candidates.Count);
-        return StatusCodes.Status204NoContent;
+        resource.Offer = offer;
+        resource.Tag = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+        var ours = TrickleIceFragment.FromFirstSection(answer);
+        LogRestarted(id, fragment.Candidates.Count, ours.Candidates.Count);
+        return (StatusCodes.Status200OK, resource.Tag, ours.Format());
     }
 
     public async Task<bool> EndAsync(string id)
@@ -397,14 +450,22 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
     [LoggerMessage(
         2714,
         LogLevel.Information,
-        "Session {Resource}: an ICE restart over PATCH was refused (422)."
+        "Session {Resource} restarted ICE: the client gave {Remote} candidates, the server {Local}."
     )]
-    private partial void LogRestartRefused(string resource);
+    private partial void LogRestarted(string resource, int remote, int local);
+
+    [LoggerMessage(
+        2716,
+        LogLevel.Warning,
+        "Session {Resource}: an ICE restart was not answered in time; the ICE session stays as it was."
+    )]
+    private partial void LogRestartFailed(Exception exception, string resource);
 
     private sealed class Resource(
         IMediaSession session,
         OfferChannel channel,
-        string? remoteUsernameFragment,
+        string offer,
+        string tag,
         Func<ValueTask>? ended
     ) : IAsyncDisposable
     {
@@ -412,8 +473,17 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
 
         public OfferChannel Channel { get; } = channel;
 
-        // The client's ICE username fragment from its offer: a PATCH with another restarts ICE.
-        public string? RemoteUsernameFragment { get; } = remoteUsernameFragment;
+        // One PATCH at a time, so a restart and the trickles around it apply in the order they arrive.
+        public SemaphoreSlim Patching { get; } = new(1, 1);
+
+        // The client's offer as it stands, ICE restarts applied: a PATCH with other credentials restarts.
+        public string Offer { get; set; } = offer;
+
+        public string? RemoteUsernameFragment =>
+            TrickleIceFragment.ForFirstSection(Offer, []).UsernameFragment;
+
+        // The entity tag of the current ICE session.
+        public string Tag { get; set; } = tag;
 
         public async ValueTask DisposeAsync()
         {
@@ -423,6 +493,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             }
 
             await session.DisposeAsync().ConfigureAwait(false);
+            Patching.Dispose();
             if (ended is not null)
             {
                 await ended().ConfigureAwait(false);
@@ -436,6 +507,38 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         private readonly TaskCompletionSource<string> _answer = new(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
+
+        // The answer to an ICE restart's offer, while one is out.
+        private TaskCompletionSource<string>? _restart;
+
+        // Hands the session an ICE restart's offer and waits for its answer.
+        public async Task<string> RestartAsync(
+            string offer,
+            TimeSpan limit,
+            CancellationToken cancellationToken
+        )
+        {
+            TaskCompletionSource<string> answered = new(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            _restart = answered;
+            try
+            {
+                if (DescriptionReceived is { } received)
+                {
+                    await received(new SessionDescription(SdpKind.Offer, offer))
+                        .ConfigureAwait(false);
+                }
+
+                return await answered
+                    .Task.WaitAsync(limit, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                _restart = null;
+            }
+        }
 
         public event Func<SessionDescription, Task>? DescriptionReceived;
 
@@ -473,7 +576,9 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         {
             if (description.Kind == SdpKind.Answer)
             {
-                _ = _answer.TrySetResult(description.Sdp);
+                _ = _restart is { } restart
+                    ? restart.TrySetResult(description.Sdp)
+                    : _answer.TrySetResult(description.Sdp);
             }
 
             return Task.CompletedTask;

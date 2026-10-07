@@ -67,6 +67,98 @@ public sealed class TrickleIceTests
         Assert.IsFalse(TrickleIceFragment.TryParse(body, out _));
 
     [TestMethod]
+    public void ApplyTo_PutsTheFragmentsIceInPlaceOfTheDescriptions()
+    {
+        TrickleIceFragment restart = new(
+            "NewU",
+            "NewPasswordNewPassword",
+            TrickleIceFragment.DefaultMediaLine,
+            "0",
+            [Cellular]
+        );
+        const string answer =
+            "v=0\r\ns=-\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=ice-ufrag:OldU\r\n"
+            + "a=ice-pwd:OldPasswordOldPassword\r\na=candidate:1 1 udp 1 192.0.2.1 1 typ host\r\n"
+            + "a=end-of-candidates\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:1\r\n"
+            + "a=ice-ufrag:OldU\r\na=ice-pwd:OldPasswordOldPassword\r\n";
+
+        string applied = restart.ApplyTo(answer);
+
+        Assert.AreEqual(
+            "v=0\r\ns=-\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=ice-ufrag:NewU\r\n"
+                + "a=ice-pwd:NewPasswordNewPassword\r\na="
+                + Cellular
+                + "\r\n"
+                + "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:1\r\n"
+                + "a=ice-ufrag:NewU\r\na=ice-pwd:NewPasswordNewPassword\r\n",
+            applied
+        );
+        CollectionAssert.AreEqual(
+            new[] { "candidate:1 1 udp 2130706431 192.0.2.1 50000 typ host" },
+            TrickleIceFragment.FromFirstSection(Offer).Candidates.ToArray()
+        );
+    }
+
+    [TestMethod]
+    public async Task Client_RestartsIceInAPatch_AndTricklesUnderTheNewSession()
+    {
+        RecordingHandler server = new(HttpStatusCode.NoContent)
+        {
+            Restart =
+                "a=ice-ufrag:SrvU\r\na=ice-pwd:ServerPasswordServerPassw\r\n"
+                + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n"
+                + "a=candidate:7 1 udp 2130706431 203.0.113.5 40000 typ host\r\n",
+        };
+        await using HttpSdpChannel channel = Channel(server);
+        List<SessionDescription> answers = [];
+        channel.DescriptionReceived += d =>
+        {
+            answers.Add(d);
+            return Task.CompletedTask;
+        };
+        await channel.SendAsync(
+            new SessionDescription(SdpKind.Offer, Offer),
+            TestContext.CancellationToken
+        );
+
+        string restartOffer = Offer
+            .Replace("EsAw", "Rst1", StringComparison.Ordinal)
+            .Replace(
+                "P2uYro0UCOQ4zxjKXaWCBui1",
+                "RestartPasswordRestartPa",
+                StringComparison.Ordinal
+            );
+        await channel.SendAsync(
+            new SessionDescription(SdpKind.Offer, restartOffer),
+            TestContext.CancellationToken
+        );
+        await channel.SendAsync(
+            new IceCandidateInit(Cellular, "0", 0),
+            TestContext.CancellationToken
+        );
+
+        Assert.HasCount(2, server.Patches);
+        Assert.AreEqual("*", server.Patches[0].IfMatch);
+        Assert.IsTrue(
+            TrickleIceFragment.TryParse(server.Patches[0].Body, out TrickleIceFragment sent)
+        );
+        Assert.AreEqual("Rst1", sent.UsernameFragment);
+        Assert.HasCount(1, sent.Candidates, "the restart carries the new session's candidates.");
+        Assert.HasCount(2, answers);
+        StringAssert.Contains(answers[1].Sdp, "a=ice-ufrag:SrvU");
+        StringAssert.Contains(answers[1].Sdp, "203.0.113.5 40000");
+        Assert.AreEqual(
+            "\"r2\"",
+            server.Patches[1].IfMatch,
+            "a trickle carries the new session's tag."
+        );
+        Assert.IsTrue(
+            TrickleIceFragment.TryParse(server.Patches[1].Body, out TrickleIceFragment next)
+        );
+        Assert.AreEqual("Rst1", next.UsernameFragment);
+    }
+
+    [TestMethod]
     public async Task Client_BuffersUntilAnswered_ThenPatchesWithTheIceSessionTag()
     {
         RecordingHandler server = new(HttpStatusCode.NoContent);
@@ -136,6 +228,9 @@ public sealed class TrickleIceTests
     {
         public List<(string Body, string? IfMatch, string? Type, Uri Uri)> Patches { get; } = [];
 
+        // The server's fragment for an ICE restart (a PATCH with If-Match "*"), answered 200 with tag r2.
+        public string? Restart { get; init; }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken
@@ -145,7 +240,13 @@ public sealed class TrickleIceTests
             {
                 HttpResponseMessage created = new(HttpStatusCode.Created)
                 {
-                    Content = new StringContent("v=0\r\n", Encoding.UTF8, "application/sdp"),
+                    Content = new StringContent(
+                        "v=0\r\ns=-\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n"
+                            + "a=ice-ufrag:Ans1\r\na=ice-pwd:AnswerPasswordAnswerPassw\r\n"
+                            + "a=candidate:5 1 udp 2130706431 192.0.2.50 30000 typ host\r\n",
+                        Encoding.UTF8,
+                        "application/sdp"
+                    ),
                 };
                 created.Headers.Location = new Uri("/whip/live/r1", UriKind.Relative);
                 created.Headers.ETag = new("\"r1\"");
@@ -162,6 +263,20 @@ public sealed class TrickleIceTests
                         request.RequestUri!
                     )
                 );
+                if (Restart is { } fragment && request.Headers.IfMatch.Any(t => t.Tag == "*"))
+                {
+                    HttpResponseMessage restarted = new(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            fragment,
+                            Encoding.UTF8,
+                            TrickleIceFragment.MediaType
+                        ),
+                    };
+                    restarted.Headers.ETag = new("\"r2\"");
+                    return restarted;
+                }
+
                 return new HttpResponseMessage(patchStatus);
             }
 

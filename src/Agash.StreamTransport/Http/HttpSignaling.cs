@@ -190,6 +190,7 @@ internal sealed partial class HttpSdpChannel(
     private readonly List<string> _pending = [];
     private readonly SemaphoreSlim _trickling = new(1, 1);
     private string? _offer;
+    private string? _answer;
     private EntityTagHeaderValue? _iceSession;
     private bool _trickleRefused;
 
@@ -211,6 +212,12 @@ internal sealed partial class HttpSdpChannel(
         if (description.Kind != SdpKind.Offer)
         {
             throw new InvalidOperationException("A WHIP or WHEP client only offers.");
+        }
+
+        if (Resource is { } existing && _answer is not null)
+        {
+            await RestartAsync(existing, description, cancellationToken).ConfigureAwait(false);
+            return;
         }
 
         try
@@ -244,6 +251,7 @@ internal sealed partial class HttpSdpChannel(
             string answer = await response
                 .Content.ReadAsStringAsync(timeout.Token)
                 .ConfigureAwait(false);
+            _answer = answer;
             LogAnswered(endpoint, Resource);
             if (DescriptionReceived is { } received)
             {
@@ -314,6 +322,79 @@ internal sealed partial class HttpSdpChannel(
                     ? candidate.Candidate[2..]
                     : candidate.Candidate
             );
+        }
+
+        await TrickleAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // An ICE restart (RFC 9725 section 4.3.3): the new credentials and candidates in a PATCH with
+    // If-Match "*"; the server's come back in a 200 with the new ICE session's tag, and stand in for an
+    // answer to the restart offer, the rest of the first answer still applying. Trickles wait behind it,
+    // so they carry the new session's credentials and tag.
+    private async Task RestartAsync(
+        Uri resource,
+        SessionDescription offer,
+        CancellationToken cancellationToken
+    )
+    {
+        string answer;
+        await _trickling.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_pending)
+            {
+                // Candidates of the old ICE session mean nothing to the new one.
+                _pending.Clear();
+            }
+
+            using HttpRequestMessage request = new(HttpMethod.Patch, resource)
+            {
+                Content = new StringContent(
+                    TrickleIceFragment.FromFirstSection(offer.Sdp).Format(),
+                    Encoding.UTF8,
+                    TrickleIceFragment.MediaType
+                ),
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(
+                TrickleIceFragment.MediaType
+            );
+            request.Headers.IfMatch.Add(EntityTagHeaderValue.Any);
+            Authorize(request);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(options.Timeout);
+            using HttpResponseMessage response = await _http
+                .SendAsync(request, timeout.Token)
+                .ConfigureAwait(false);
+            string body = await response
+                .Content.ReadAsStringAsync(timeout.Token)
+                .ConfigureAwait(false);
+            if (
+                response.StatusCode != HttpStatusCode.OK
+                || !TrickleIceFragment.TryParse(body, out TrickleIceFragment restarted)
+            )
+            {
+                // The server keeps the ICE session it has (RFC 9725 section 4.3.3).
+                throw new HttpRequestException(
+                    $"The server answered the ICE restart with {(int)response.StatusCode} {response.ReasonPhrase}.",
+                    null,
+                    response.StatusCode
+                );
+            }
+
+            _offer = offer.Sdp;
+            _iceSession = response.Headers.ETag;
+            answer = restarted.ApplyTo(_answer!);
+            _answer = answer;
+            LogRestarted(resource, restarted.Candidates.Count);
+        }
+        finally
+        {
+            _ = _trickling.Release();
+        }
+
+        if (DescriptionReceived is { } received)
+        {
+            await received(new SessionDescription(SdpKind.Answer, answer)).ConfigureAwait(false);
         }
 
         await TrickleAsync(cancellationToken).ConfigureAwait(false);
@@ -452,6 +533,13 @@ internal sealed partial class HttpSdpChannel(
         "Deleting {Resource} failed; the server ends it when it times out."
     )]
     private partial void LogDeleteFailed(Exception exception, Uri resource);
+
+    [LoggerMessage(
+        2715,
+        LogLevel.Information,
+        "{Resource} restarted ICE; it gave {Count} candidates."
+    )]
+    private partial void LogRestarted(Uri resource, int count);
 
     [LoggerMessage(2705, LogLevel.Debug, "Trickled {Count} candidates to {Resource}.")]
     private partial void LogTrickled(Uri resource, int count);
