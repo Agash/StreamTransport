@@ -486,6 +486,9 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
     private static ImmutableSortedDictionary<string, string> CodecParameters(string? fmtp) =>
         FormatParameters.Parse(fmtp).Remove(FormatParameters.AlphaName);
 
+    // Whether the description carrying every candidate gathered so far has gone out.
+    private bool _describedCandidates;
+
     private void OnRtp(RtpHeader header, ReadOnlyMemory<byte> payload)
     {
         if (header.PayloadType == _videoPayloadType && _videoReceive is { } video)
@@ -565,10 +568,12 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         return Task.CompletedTask;
     }
 
-    // A channel that does not trickle gets the candidates inside the description instead.
+    // A channel that does not trickle gets the candidates inside the description instead; one gathered
+    // after the description went out (an interface that came up mid-session) is sent on its own, and a
+    // channel that cannot deliver it drops it.
     private void OnLocalCandidate(WebRtcIceCandidate candidate)
     {
-        if (_signaling.SupportsTrickle)
+        if (_signaling.SupportsTrickle || Volatile.Read(ref _describedCandidates))
         {
             _ = SendCandidateAsync(candidate);
         }
@@ -607,6 +612,10 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             await connection
                 .WhenCandidatesGatheredAsync(GatherLimit, cancellationToken)
                 .ConfigureAwait(false);
+
+            // From here a new candidate is sent on its own; one gathered while the description is built
+            // goes both ways, which the peer takes once.
+            Volatile.Write(ref _describedCandidates, true);
             description = connection.WithLocalCandidates(description);
         }
 

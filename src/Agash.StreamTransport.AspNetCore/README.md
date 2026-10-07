@@ -19,7 +19,14 @@ app.MapWhep("/whep/{room}", (context, ct) =>
 
 A `POST` of an SDP offer makes a session and answers `201 Created` with the resource's `Location` and the
 SDP answer; a `DELETE` of the resource ends it. Candidates travel inside the offer and answer, so the
-answer waits briefly for STUN and TURN servers; trickle (`PATCH`) is answered `405`. A handler returning
-null refuses the offer with `404`. Sessions end on `DELETE`, on failure, and when the host stops.
+answer waits briefly for STUN and TURN servers. A handler returning null refuses the offer with `404`.
+Sessions end on `DELETE`, on failure, and when the host stops.
 
-The clients, `WhipClient.PublishAsync` and `WhepClient.PlayAsync`, are in `Agash.StreamTransport`.
+A client trickles candidates it gathers later, such as a field device's modem coming up mid-stream, in
+a `PATCH` of the resource with an `application/trickle-ice-sdpfrag` body and `If-Match` set to the
+resource's `ETag` (RFC 9725 section 4.3.2). The server adds them and answers `204`, then checks the new
+addresses itself, which opens its own firewall to them. A `PATCH` without `If-Match` gets `428`, with a
+stale tag `412`; one carrying new ICE credentials (a restart) gets `422`.
+
+The clients, `WhipClient.PublishAsync` and `WhepClient.PlayAsync`, are in `Agash.StreamTransport`; they
+trickle late candidates the same way and stop if the server answers that it takes none.

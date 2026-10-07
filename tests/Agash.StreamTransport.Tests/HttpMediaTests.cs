@@ -228,8 +228,87 @@ public sealed class HttpMediaTests
         Assert.AreEqual(HttpStatusCode.UnsupportedMediaType, wrongType.StatusCode);
         Assert.AreEqual(HttpStatusCode.BadRequest, notSdp.StatusCode);
         Assert.AreEqual(HttpStatusCode.NoContent, options.StatusCode);
-        Assert.AreEqual(HttpStatusCode.MethodNotAllowed, patch.StatusCode);
+        Assert.AreEqual(HttpStatusCode.NotFound, patch.StatusCode);
         Assert.AreEqual(HttpStatusCode.NotFound, delete.StatusCode);
+    }
+
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task Patch_OnALiveResource_TakesTrickledCandidatesForItsIceSession()
+    {
+        TestSignalAnalyzer analyzer = new();
+        await using WebApplication app = await StartAsync(web =>
+            web.MapWhip(
+                "/whip",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(
+                            new MediaEndpoints { AudioSink = analyzer.WrapAudio() },
+                            Loopback()
+                        )
+                    )
+            )
+        );
+        using IAudioInput audio = await new TestSignalAudioInputProvider(
+            new TestSignalGenerator()
+        ).OpenAsync(
+            new AudioInputInfo("test", "signal", "Test signal", MediaInputKind.Generated),
+            CancellationToken.None
+        );
+        HttpMediaSession publishing = await WhipClient.PublishAsync(
+            app.Services.GetRequiredService<IMediaSessionFactory>(),
+            new Uri(Address(app), "/whip"),
+            new MediaEndpoints { AudioSource = audio },
+            Loopback()
+        );
+        await using (publishing)
+        {
+            await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
+            Uri resource = publishing.Resource!;
+            string tag = $"\"{resource.Segments[^1]}\"";
+            using HttpClient http = new();
+            const string Candidate = "a=candidate:9 1 udp 2130706431 127.0.0.1 9 typ host";
+
+            async Task<HttpStatusCode> PatchAsync(
+                string body,
+                string? ifMatch,
+                string type = TrickleIceFragment.MediaType
+            )
+            {
+                using HttpRequestMessage request = new(HttpMethod.Patch, resource)
+                {
+                    Content = new StringContent(body, Encoding.UTF8, type),
+                };
+                if (ifMatch is not null)
+                {
+                    _ = request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+                }
+
+                using HttpResponseMessage response = await http.SendAsync(request);
+                return response.StatusCode;
+            }
+
+            string trickle = $"m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n{Candidate}\r\n";
+            Assert.AreEqual(HttpStatusCode.PreconditionRequired, await PatchAsync(trickle, null));
+            Assert.AreEqual(
+                HttpStatusCode.PreconditionFailed,
+                await PatchAsync(trickle, "\"another\"")
+            );
+            Assert.AreEqual(
+                HttpStatusCode.UnsupportedMediaType,
+                await PatchAsync(trickle, tag, "text/plain")
+            );
+            Assert.AreEqual(HttpStatusCode.BadRequest, await PatchAsync("hello", tag));
+            Assert.AreEqual(
+                HttpStatusCode.UnprocessableEntity,
+                await PatchAsync(
+                    "a=ice-ufrag:fresh\r\na=ice-pwd:freshfreshfreshfreshfr\r\n" + trickle,
+                    "*"
+                )
+            );
+            Assert.AreEqual(HttpStatusCode.NoContent, await PatchAsync(trickle, tag));
+            Assert.AreEqual(TransportState.Connected, publishing.Session.State);
+        }
     }
 
     [TestMethod]

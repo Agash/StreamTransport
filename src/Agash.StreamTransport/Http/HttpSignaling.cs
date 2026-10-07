@@ -21,8 +21,10 @@ public sealed record HttpSignalingOptions
 
 /// <summary>
 /// A session signaled over HTTP: WHIP to publish (RFC 9725), WHEP to play. The client posts its offer,
-/// with every candidate in it, and the server answers once; disposing the session deletes the resource the
-/// server made for it.
+/// with every candidate in it, and the server answers once. Candidates gathered later, such as on an
+/// interface that came up mid-session, go to the resource in <c>PATCH</c> requests (RFC 9725 section 4.3.2),
+/// so a server behind a firewall checks the new address and lets it in. Disposing the session deletes the
+/// resource the server made for it.
 /// </summary>
 public sealed class HttpMediaSession : IAsyncDisposable
 {
@@ -167,7 +169,8 @@ public static class WhepClient
         );
 }
 
-// The client's side of WHIP and WHEP signaling: one offer out, one answer back, candidates inside both.
+// The client's side of WHIP and WHEP signaling: one offer out, one answer back, candidates inside both,
+// and candidates gathered afterwards trickled in PATCH requests.
 internal sealed partial class HttpSdpChannel(
     Uri endpoint,
     HttpSignalingOptions options,
@@ -181,6 +184,14 @@ internal sealed partial class HttpSdpChannel(
     private readonly TaskCompletionSource _answered = new(
         TaskCreationOptions.RunContinuationsAsynchronously
     );
+
+    // Candidates waiting to be trickled: until the answer names the resource, and while a PATCH is out.
+    // One PATCH carries everything waiting (RFC 9725 section 4.3.2).
+    private readonly List<string> _pending = [];
+    private readonly SemaphoreSlim _trickling = new(1, 1);
+    private string? _offer;
+    private EntityTagHeaderValue? _iceSession;
+    private bool _trickleRefused;
 
     public event Func<SessionDescription, Task>? DescriptionReceived;
 
@@ -228,6 +239,8 @@ internal sealed partial class HttpSdpChannel(
             Resource = response.Headers.Location is { } location
                 ? new Uri(endpoint, location)
                 : null;
+            _offer = description.Sdp;
+            _iceSession = response.Headers.ETag;
             string answer = await response
                 .Content.ReadAsStringAsync(timeout.Token)
                 .ConfigureAwait(false);
@@ -245,6 +258,8 @@ internal sealed partial class HttpSdpChannel(
             _answered.TrySetException(exception);
             throw;
         }
+
+        await TrickleAsync(cancellationToken).ConfigureAwait(false);
     }
 
     // OPTIONS on the endpoint returns the ICE servers the server advertises (RFC 9725 section 4.6); a
@@ -276,11 +291,114 @@ internal sealed partial class HttpSdpChannel(
         }
     }
 
-    // Candidates ride in the offer.
-    public Task SendAsync(
+    // A candidate gathered after the offer: trickled once the resource exists, with any others waiting.
+    public async Task SendAsync(
         IceCandidateInit candidate,
         CancellationToken cancellationToken = default
-    ) => Task.CompletedTask;
+    )
+    {
+        if (string.IsNullOrEmpty(candidate.Candidate))
+        {
+            return;
+        }
+
+        lock (_pending)
+        {
+            if (_trickleRefused)
+            {
+                return;
+            }
+
+            _pending.Add(
+                candidate.Candidate.StartsWith("a=", StringComparison.Ordinal)
+                    ? candidate.Candidate[2..]
+                    : candidate.Candidate
+            );
+        }
+
+        await TrickleAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // Sends what is waiting in one PATCH. One at a time, so the candidates arrive in the order gathered;
+    // a candidate added while one is out goes in the next.
+    private async Task TrickleAsync(CancellationToken cancellationToken)
+    {
+        if (Resource is not { } resource || _offer is not { } offer)
+        {
+            return;
+        }
+
+        await _trickling.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            string[] candidates;
+            lock (_pending)
+            {
+                if (_trickleRefused || _pending.Count == 0)
+                {
+                    return;
+                }
+
+                candidates = [.. _pending];
+                _pending.Clear();
+            }
+
+            string body = TrickleIceFragment.ForFirstSection(offer, candidates).Format();
+            using HttpRequestMessage request = new(HttpMethod.Patch, resource)
+            {
+                Content = new StringContent(body, Encoding.UTF8, TrickleIceFragment.MediaType),
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(
+                TrickleIceFragment.MediaType
+            );
+            if (_iceSession is { } session)
+            {
+                request.Headers.IfMatch.Add(session);
+            }
+
+            Authorize(request);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(options.Timeout);
+            using HttpResponseMessage response = await _http
+                .SendAsync(request, timeout.Token)
+                .ConfigureAwait(false);
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.NoContent or HttpStatusCode.OK:
+                    LogTrickled(resource, candidates.Length);
+                    break;
+                case HttpStatusCode.MethodNotAllowed
+                or HttpStatusCode.UnprocessableContent
+                or HttpStatusCode.NotImplemented
+                or HttpStatusCode.UnsupportedMediaType:
+                    // The server takes no trickled candidates: the ones in the offer are all it gets.
+                    lock (_pending)
+                    {
+                        _trickleRefused = true;
+                        _pending.Clear();
+                    }
+
+                    LogTrickleRefused(resource, (int)response.StatusCode);
+                    break;
+                default:
+                    LogTrickleFailed(resource, (int)response.StatusCode, candidates.Length);
+                    break;
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            // Candidates gathered later go in the next PATCH; the session carries on without these.
+            LogTrickleError(exception, resource);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            LogTrickleTimedOut(resource);
+        }
+        finally
+        {
+            _ = _trickling.Release();
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -306,6 +424,8 @@ internal sealed partial class HttpSdpChannel(
         {
             _http.Dispose();
         }
+
+        _trickling.Dispose();
     }
 
     private void Authorize(HttpRequestMessage request)
@@ -332,6 +452,29 @@ internal sealed partial class HttpSdpChannel(
         "Deleting {Resource} failed; the server ends it when it times out."
     )]
     private partial void LogDeleteFailed(Exception exception, Uri resource);
+
+    [LoggerMessage(2705, LogLevel.Debug, "Trickled {Count} candidates to {Resource}.")]
+    private partial void LogTrickled(Uri resource, int count);
+
+    [LoggerMessage(
+        2706,
+        LogLevel.Information,
+        "{Resource} takes no trickled candidates ({Status}); later candidates are not sent."
+    )]
+    private partial void LogTrickleRefused(Uri resource, int status);
+
+    [LoggerMessage(
+        2707,
+        LogLevel.Warning,
+        "Trickling {Count} candidates to {Resource} failed with {Status}."
+    )]
+    private partial void LogTrickleFailed(Uri resource, int status, int count);
+
+    [LoggerMessage(2708, LogLevel.Warning, "Trickling candidates to {Resource} failed.")]
+    private partial void LogTrickleError(Exception exception, Uri resource);
+
+    [LoggerMessage(2709, LogLevel.Warning, "Trickling candidates to {Resource} timed out.")]
+    private partial void LogTrickleTimedOut(Uri resource);
 
     [LoggerMessage(2703, LogLevel.Debug, "{Endpoint} advertises {Count} ICE servers.")]
     private partial void LogDiscovered(Uri endpoint, int count);

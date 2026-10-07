@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Primitives;
 using WebRtcSdp = Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.AspNetCore;
@@ -60,9 +61,11 @@ public static class HttpMediaServiceCollectionExtensions
 /// session and answers with <c>201 Created</c>, the resource's URL and the SDP answer; a <c>DELETE</c> of
 /// the resource ends it. When the host registers an <see cref="IIceServerProvider"/>, its STUN and TURN
 /// servers are advertised as <c>Link</c> headers on <c>OPTIONS</c> and on the answer, so clients gather
-/// with them. Candidates travel inside the offer and answer; trickle (<c>PATCH</c>) is answered
-/// <c>405</c>. The returned group takes the host's conventions, such as <c>RequireAuthorization</c> or
-/// <c>RequireCors</c>.
+/// with them. Candidates travel inside the offer and answer, and a client trickles the ones it gathers
+/// later in a <c>PATCH</c> of the resource (RFC 9725 section 4.3.2): <c>204</c> once added, <c>428</c>
+/// without the <c>If-Match</c> of the resource's ETag, <c>412</c> with another. An ICE restart in a
+/// <c>PATCH</c> is answered <c>422</c>. The returned group takes the host's conventions, such as
+/// <c>RequireAuthorization</c> or <c>RequireCors</c>.
 /// </summary>
 public static class HttpMediaEndpointRouteBuilderExtensions
 {
@@ -101,7 +104,7 @@ public static class HttpMediaEndpointRouteBuilderExtensions
         group.MapPost("", (RequestDelegate)(context => OfferAsync(context, handler, protocol)));
         group.MapMethods("", [HttpMethods.Options], (RequestDelegate)Options);
         group.MapDelete("/{resource}", (RequestDelegate)DeleteAsync);
-        group.MapMethods("/{resource}", [HttpMethods.Patch], (RequestDelegate)NoTrickle);
+        group.MapMethods("/{resource}", [HttpMethods.Patch], (RequestDelegate)TrickleAsync);
         return group;
     }
 
@@ -201,11 +204,34 @@ public static class HttpMediaEndpointRouteBuilderExtensions
             : StatusCodes.Status404NotFound;
     }
 
-    private static Task NoTrickle(HttpContext context)
+    private static async Task TrickleAsync(HttpContext context)
     {
-        context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-        context.Response.Headers.Allow = "DELETE";
-        return Task.CompletedTask;
+        if (
+            !string.Equals(
+                context.Request.ContentType?.Split(';')[0].Trim(),
+                TrickleIceFragment.MediaType,
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            context.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
+            return;
+        }
+
+        string body;
+        using (StreamReader reader = new(context.Request.Body, Encoding.UTF8))
+        {
+            body = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+        }
+
+        context.Response.StatusCode = await context
+            .RequestServices.GetRequiredService<HttpMediaResources>()
+            .TrickleAsync(
+                (string)context.Request.RouteValues["resource"]!,
+                context.Request.Headers.IfMatch,
+                body
+            )
+            .ConfigureAwait(false);
     }
 }
 
@@ -252,7 +278,12 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             setup.Endpoints,
             setup.Options
         );
-        Resource resource = new(session, setup.Ended);
+        Resource resource = new(
+            session,
+            channel,
+            TrickleIceFragment.ForFirstSection(offer, []).UsernameFragment,
+            setup.Ended
+        );
         try
         {
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
@@ -281,6 +312,54 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             await resource.DisposeAsync().ConfigureAwait(false);
             return null;
         }
+    }
+
+    // Adds a client's trickled candidates to its session (RFC 9725 section 4.3): the status to answer.
+    public async Task<int> TrickleAsync(string id, StringValues ifMatch, string body)
+    {
+        if (!_resources.TryGetValue(id, out Resource? resource))
+        {
+            return StatusCodes.Status404NotFound;
+        }
+
+        // The resource's ETag names its ICE session; a PATCH must say which one it means.
+        if (StringValues.IsNullOrEmpty(ifMatch))
+        {
+            return StatusCodes.Status428PreconditionRequired;
+        }
+
+        if (
+            !ifMatch.Any(value =>
+                value is not null
+                && value.Split(',').Any(tag => tag.Trim() is "*" || tag.Trim() == $"\"{id}\"")
+            )
+        )
+        {
+            return StatusCodes.Status412PreconditionFailed;
+        }
+
+        if (!TrickleIceFragment.TryParse(body, out TrickleIceFragment fragment))
+        {
+            return StatusCodes.Status400BadRequest;
+        }
+
+        // New credentials are an ICE restart, which this server does not do over PATCH.
+        if (
+            fragment.UsernameFragment is { } ufrag
+            && !string.Equals(ufrag, resource.RemoteUsernameFragment, StringComparison.Ordinal)
+        )
+        {
+            LogRestartRefused(id);
+            return StatusCodes.Status422UnprocessableEntity;
+        }
+
+        foreach (string candidate in fragment.Candidates)
+        {
+            await resource.Channel.DeliverAsync(candidate, fragment.Mid).ConfigureAwait(false);
+        }
+
+        LogTrickled(id, fragment.Candidates.Count);
+        return StatusCodes.Status204NoContent;
     }
 
     public async Task<bool> EndAsync(string id)
@@ -312,9 +391,29 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
     [LoggerMessage(2712, LogLevel.Warning, "A {Protocol} offer could not be answered.")]
     private partial void LogAnswerFailed(Exception exception, string protocol);
 
-    private sealed class Resource(IMediaSession session, Func<ValueTask>? ended) : IAsyncDisposable
+    [LoggerMessage(2713, LogLevel.Debug, "Session {Resource} took {Count} trickled candidates.")]
+    private partial void LogTrickled(string resource, int count);
+
+    [LoggerMessage(
+        2714,
+        LogLevel.Information,
+        "Session {Resource}: an ICE restart over PATCH was refused (422)."
+    )]
+    private partial void LogRestartRefused(string resource);
+
+    private sealed class Resource(
+        IMediaSession session,
+        OfferChannel channel,
+        string? remoteUsernameFragment,
+        Func<ValueTask>? ended
+    ) : IAsyncDisposable
     {
         private int _disposed;
+
+        public OfferChannel Channel { get; } = channel;
+
+        // The client's ICE username fragment from its offer: a PATCH with another restarts ICE.
+        public string? RemoteUsernameFragment { get; } = remoteUsernameFragment;
 
         public async ValueTask DisposeAsync()
         {
@@ -344,13 +443,21 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
 
         public bool SupportsTrickle => false;
 
+        // A candidate the client trickled after its offer.
+        public async Task DeliverAsync(string candidate, string? mid)
+        {
+            if (IceCandidateReceived is { } received)
+            {
+                await received(new IceCandidateInit(candidate, mid, 0)).ConfigureAwait(false);
+            }
+        }
+
         public async Task<string> AnswerAsync(
             string offer,
             TimeSpan limit,
             CancellationToken cancellationToken
         )
         {
-            _ = IceCandidateReceived;
             if (DescriptionReceived is { } received)
             {
                 await received(new SessionDescription(SdpKind.Offer, offer)).ConfigureAwait(false);
