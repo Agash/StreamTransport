@@ -101,10 +101,10 @@ internal sealed unsafe partial class VulkanEngine
             descriptorCount = 64,
         };
 
-        // Sets live until their batch has run, so as many batches as are in flight hold theirs.
+        // Kernels reuse their sets once the batch that bound them has run, so each holds about as many
+        // as batches are in flight.
         VkDescriptorPoolCreateInfo descriptorInfo = new()
         {
-            flags = VkDescriptorPoolCreateFlags.FreeDescriptorSet,
             maxSets = 64,
             poolSizeCount = 2,
             pPoolSizes = sizes,
@@ -184,7 +184,7 @@ internal sealed unsafe partial class VulkanEngine
             .Value;
     }
 
-    /// <summary>A descriptor set for a kernel, freed after the batch that uses it has run.</summary>
+    /// <summary>A new descriptor set of a layout, kept for the life of the engine.</summary>
     public VkDescriptorSet AllocateSet(VkDescriptorSetLayout layout)
     {
         VkDescriptorSetAllocateInfo info = new()
@@ -197,9 +197,6 @@ internal sealed unsafe partial class VulkanEngine
         Api.vkAllocateDescriptorSets(&info, &set).CheckResult();
         return set;
     }
-
-    public void FreeSet(VkDescriptorSet set) =>
-        Api.vkFreeDescriptorSets(_descriptors, 1, &set).CheckResult();
 
     /// <summary>A memory type both allowed and with the properties asked for.</summary>
     public uint MemoryType(uint allowed, VkMemoryPropertyFlags properties)
@@ -377,6 +374,10 @@ internal sealed unsafe partial class VulkanEngine
 /// <summary>A compute pipeline with its descriptor layout and push constants.</summary>
 internal sealed unsafe class ComputeKernel
 {
+    private readonly VulkanEngine _engine;
+    private readonly Stack<VkDescriptorSet> _sets = new();
+    private readonly Lock _setsGate = new();
+
     public ComputeKernel(
         VulkanEngine engine,
         string spirv,
@@ -384,6 +385,7 @@ internal sealed unsafe class ComputeKernel
         uint pushBytes
     )
     {
+        _engine = engine;
         VkDeviceApi api = engine.Api;
         VkDescriptorSetLayoutBinding* layoutBindings =
             stackalloc VkDescriptorSetLayoutBinding[bindings.Length];
@@ -458,4 +460,28 @@ internal sealed unsafe class ComputeKernel
     public VkPipelineLayout Layout { get; }
 
     public VkPipeline Pipeline { get; }
+
+    /// <summary>
+    /// A descriptor set of the kernel's layout, to return once the batch that binds it has run.
+    /// </summary>
+    public VkDescriptorSet RentSet()
+    {
+        lock (_setsGate)
+        {
+            if (_sets.TryPop(out VkDescriptorSet set))
+            {
+                return set;
+            }
+        }
+
+        return _engine.AllocateSet(SetLayout);
+    }
+
+    public void ReturnSet(VkDescriptorSet set)
+    {
+        lock (_setsGate)
+        {
+            _sets.Push(set);
+        }
+    }
 }
