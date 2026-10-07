@@ -3,8 +3,8 @@ using Agash.StreamTransport.Media;
 namespace Agash.StreamTransport.Codecs.FFmpeg.Tests;
 
 /// <summary>
-/// Side-by-side alpha in system memory: the same layout the GPU processors pack, alpha as video-range
-/// luma beside the colour with neutral chroma.
+/// Side-by-side alpha in system memory: the same layout the GPU processors pack, alpha as luma in the
+/// frame's range beside the colour with neutral chroma.
 /// </summary>
 [TestClass]
 public sealed class AlphaPackingTests
@@ -50,6 +50,43 @@ public sealed class AlphaPackingTests
         int chromaRight = packed == PixelFormat.Nv12 ? Width : Width / 2;
         Assert.AreEqual(128, chroma[chromaRight]);
         Assert.AreEqual(128, chroma[(image.Planes[1].Stride * ((Height / 2) - 1)) + chromaRight]);
+    }
+
+    // In a full-range frame alpha is full-range luma too, as grey through the GPU processors' matrix is,
+    // so a frame packed here unpacks the same on a GPU and the other way round.
+    [TestMethod]
+    public void Pack_FullRangeFrame_CarriesAlphaAsFullRangeLuma()
+    {
+        byte[] pixels = Picture();
+        using IVideoProcessor processor = Factory.Create(
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(
+                VideoConstraints.Cpu(PixelFormat.Nv12),
+                Color: VideoColor.Bt709 with
+                {
+                    Range = ColorRange.Full,
+                },
+                Alpha: AlphaLayout.PackSideBySide
+            )
+        );
+        Kept kept = new();
+
+        processor.Process(Bgra(pixels), kept);
+
+        using VideoFrameLease lease = kept.Lease!;
+        Assert.IsTrue(lease.Frame.Storage.TryGetValue(out CpuImage image));
+        ReadOnlySpan<byte> luma = lease.Frame.GetPlane(0);
+        for (int row = 0; row < Height; row++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                Assert.AreEqual(
+                    pixels[(((row * Width) + x) * 4) + 3],
+                    luma[(row * image.Planes[0].Stride) + Width + x],
+                    $"alpha at ({x}, {row})"
+                );
+            }
+        }
     }
 
     [TestMethod]
