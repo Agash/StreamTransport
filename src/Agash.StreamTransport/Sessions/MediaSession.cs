@@ -360,7 +360,6 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
                     _services.Metrics,
                     _logger,
                     new VideoTimingSetup(
-                        _captureClock,
                         () => _transport.Statistics.SenderClockOffset,
                         OnVideoFrameTimed
                     )

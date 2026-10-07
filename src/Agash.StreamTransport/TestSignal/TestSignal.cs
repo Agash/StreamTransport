@@ -331,33 +331,30 @@ internal sealed class TestSignalVideoInput : IVideoInput
         var period = TimeSpan.FromSeconds(1 / mode.FrameRate);
         byte[] picture = new byte[size.Width * size.Height * 3 / 2];
         using PeriodicTimer timer = new(period, _generator.TimeProvider);
-        long first = (long)Math.Ceiling((_generator.Clock.Now - _generator.Origin) / period);
-        long index = first;
         try
         {
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                // Every frame that is due, so the schedule holds through a late tick.
-                while (_generator.Origin + (period * index) <= _generator.Clock.Now)
+                // One frame a tick, captured as it is made, as a camera stamps a frame when it takes it
+                // (and as libwebrtc's frame generator capturer does): a frame stamped with a schedule
+                // instead leaves up to a period after its own capture time, and a late tick would send
+                // the frames it missed in a burst.
+                MediaTime time = _generator.Clock.Now;
+                Span<byte> luma = picture.AsSpan(0, size.Width * size.Height);
+                _generator.Draw(luma, picture.AsSpan(luma.Length), size, time, period);
+                VideoFrame frame = new(
+                    new VideoFormat(PixelFormat.Nv12, size.Width, size.Height),
+                    MediaTimestamp.Captured(time),
+                    luma,
+                    size.Width,
+                    picture.AsSpan(luma.Length),
+                    size.Width,
+                    color: VideoColor.Bt709,
+                    duration: period
+                );
+                foreach (IVideoFrameConsumer consumer in _consumers)
                 {
-                    MediaTime time = _generator.Origin + (period * index);
-                    index++;
-                    Span<byte> luma = picture.AsSpan(0, size.Width * size.Height);
-                    _generator.Draw(luma, picture.AsSpan(luma.Length), size, time, period);
-                    VideoFrame frame = new(
-                        new VideoFormat(PixelFormat.Nv12, size.Width, size.Height),
-                        MediaTimestamp.Captured(time),
-                        luma,
-                        size.Width,
-                        picture.AsSpan(luma.Length),
-                        size.Width,
-                        color: VideoColor.Bt709,
-                        duration: period
-                    );
-                    foreach (IVideoFrameConsumer consumer in _consumers)
-                    {
-                        consumer.OnFrame(in frame);
-                    }
+                    consumer.OnFrame(in frame);
                 }
             }
         }

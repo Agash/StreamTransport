@@ -111,7 +111,8 @@ public sealed class HttpMediaTests
         double monitored = meters.Values(AvOffset).Skip(measuredFrom).Average() * 1000;
         TestContext.WriteLine($"session A/V offset {monitored:0.0} ms; test signal {measured}");
 
-        // Where timing frames' latency went, stage by stage, as the session reports it.
+        // Where timing frames' latency went, stage by stage, as the session reports it: medians, since the
+        // first frames carry the encoder opening and the decoder waiting for a keyframe.
         string[] stages =
         [
             "encode_queue",
@@ -131,10 +132,10 @@ public sealed class HttpMediaTests
                 + string.Join(
                     ", ",
                     stages.Select(stage =>
-                        $"{stage} {Mean(meters.Values("streamtransport.video.timing.stage", stage)):0.0}"
+                        $"{stage} {Percentile(meters.Values("streamtransport.video.timing.stage", stage), 0.5):0.0}"
                     )
                 )
-                + $"; end to end {Mean(endToEnd):0.0} ms over {endToEnd.Length}"
+                + $"; end to end {Percentile(endToEnd, 0.5):0.0} ms median over {endToEnd.Length}"
         );
         double[] encodeCalls = meters.Values("streamtransport.video.encode.duration");
         TestContext.WriteLine(

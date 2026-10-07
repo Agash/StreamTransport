@@ -17,11 +17,9 @@ internal sealed record VideoReceiveSetup(
 );
 
 /// <summary>Where a receive stream's timing frames go, and the clocks that place them.</summary>
-/// <param name="WallClock">This side's wall clock, for receive, decode and presentation stamps.</param>
 /// <param name="SenderClockOffset">This side's clock less the sender's, when estimated.</param>
 /// <param name="Reported">Takes each timing frame's report once the frame is presented.</param>
 internal sealed record VideoTimingSetup(
-    CaptureClock WallClock,
     Func<TimeSpan?> SenderClockOffset,
     Action<VideoFrameTimingReport> Reported
 );
@@ -164,6 +162,8 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             {
                 if (_timings.Remove(frame.Timestamp, out PendingTiming pending))
                 {
+                    // A hardware decoder hands the frame over after Decode returns, so decoding ends here.
+                    pending.DecodeFinish = WallNow();
                     presented = () => Report(setup, pending);
                 }
             }
@@ -174,7 +174,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
 
     private void Report(VideoTimingSetup setup, PendingTiming pending)
     {
-        NtpTime now = setup.WallClock.ToNtp(_clock.Now);
+        NtpTime now = WallNow();
         VideoReceiveTiming t = pending.Received;
         setup.Reported(
             new VideoFrameTimingReport(
@@ -295,12 +295,11 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         {
             _decoder ??= CreateDecoder();
             MediaTime started = _clock.Now;
-            NoteDecode(stamp, started, finished: false);
+            NoteDecodeStart(stamp, started);
             _decoder.Decode(
                 new EncodedVideoFrame(frame.Span, _setup.Format.Codec, keyframe, stamp),
                 this
             );
-            NoteDecode(stamp, _clock.Now, finished: true);
             _metrics.VideoDecodeDuration.Record(
                 (_clock.Now - started).TotalSeconds,
                 StreamTransportMetrics.Codec(_setup.Format.Codec)
@@ -319,9 +318,13 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         }
     }
 
-    // Decode stamps of a timing frame. A decoder that hands the frame over during Decode reaches OnFrame
-    // before the finish is noted, so the finish is taken there too.
-    private void NoteDecode(MediaTimestamp stamp, MediaTime at, bool finished)
+    // The decode start of a timing frame; decoding ends when the decoder hands the frame over (OnFrame),
+    // which a hardware decoder does after Decode returns.
+    // The wall clock, read directly as the transport reads it for packet arrivals, so every receive-side
+    // stamp of a timing frame is on one clock: an anchored mapping drifts from it by milliseconds.
+    private NtpTime WallNow() => NtpTime.From(_clock.TimeProvider.GetUtcNow());
+
+    private void NoteDecodeStart(MediaTimestamp stamp, MediaTime at)
     {
         if (_timingSetup is not { } setup)
         {
@@ -332,17 +335,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         {
             if (_timings.TryGetValue(stamp, out PendingTiming pending))
             {
-                NtpTime wall = setup.WallClock.ToNtp(at);
-                if (finished)
-                {
-                    pending.DecodeFinish = wall;
-                }
-                else
-                {
-                    pending.DecodeStart = wall;
-                    pending.DecodeFinish = wall;
-                }
-
+                pending.DecodeStart = WallNow();
                 _timings[stamp] = pending;
             }
         }
