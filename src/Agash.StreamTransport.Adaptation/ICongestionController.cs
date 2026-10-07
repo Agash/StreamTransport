@@ -58,6 +58,15 @@ public interface ICongestionController
         TimeSpan now
     );
 
+    /// <summary>
+    /// Starts over on a new network path (RFC 9000 section 9.4): the capacity of the new path may be
+    /// nothing like the old one's, so every estimate goes back to its initial value. The transport does not
+    /// call this when only a port changed, as NAT rebinding does, since the path is the same.
+    /// </summary>
+    /// <param name="roundTrip">The new path's round trip, measured before the switch, if known.</param>
+    /// <param name="now">Now, on the sender's monotonic clock.</param>
+    void OnPathChanged(TimeSpan? roundTrip, TimeSpan now);
+
     /// <summary>Lets the controller act on the passage of time, every few tens of milliseconds.</summary>
     /// <param name="now">Now, on the sender's monotonic clock.</param>
     /// <returns>The updated estimate.</returns>

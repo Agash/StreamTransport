@@ -183,6 +183,32 @@ public sealed class ScreamCongestionControllerTests
         Assert.IsTrue(controller.CanTransmit(1200, now + TimeSpan.FromMilliseconds(600)));
     }
 
+    // A new path: every estimate is back where a new controller starts, the round trip seeded from the one
+    // measured on the new path, and the controller converges on the new path's capacity from there.
+    [TestMethod]
+    public void OnPathChanged_StartsOverAsANewController_AndConvergesOnTheNewPath()
+    {
+        ScreamCongestionController controller = new(Options);
+        PathSimulator wifi = new(controller) { CapacityBps = 8_000_000 };
+        wifi.Run(TimeSpan.FromSeconds(20));
+        Assert.IsGreaterThan(4_000_000, controller.Current.TargetBitsPerSecond);
+
+        controller.OnPathChanged(TimeSpan.FromMilliseconds(60), TimeSpan.FromSeconds(20));
+
+        ScreamCongestionController fresh = new(Options);
+        Assert.AreEqual(fresh.Current.TargetBitsPerSecond, controller.Current.TargetBitsPerSecond);
+        Assert.AreEqual(fresh.ReferenceWindow, controller.ReferenceWindow);
+        Assert.AreEqual(0, controller.BytesInFlight);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(60), controller.Current.SmoothedRoundTrip);
+
+        PathSimulator cellular = new(controller) { CapacityBps = 3_000_000 };
+        cellular.Run(TimeSpan.FromSeconds(20));
+        cellular.Run(TimeSpan.FromSeconds(10));
+        Report(cellular);
+        Assert.IsGreaterThan(0.85 * cellular.CapacityBps, cellular.DeliveredBps);
+        Assert.IsLessThan(30, cellular.MeanQueueDelayMs);
+    }
+
     private static void Warm(ScreamCongestionController controller, ref TimeSpan now)
     {
         for (int i = 0; i < 50; i++)

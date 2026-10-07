@@ -73,11 +73,11 @@ public sealed class ScreamCongestionController : ICongestionController
     // Section 4.1.1.
     private long _maxBytesInFlight;
     private long _maxBytesInFlightPrev;
-    private double _lastTransmit = double.NaN;
+    private double _lastTransmit;
     private double _rttRolledAt;
 
     // Section 4.1.2.
-    private long _highestAcked = long.MinValue;
+    private long _highestAcked;
     private long _bytesNewlyAcked;
     private long _bytesNewlyAckedCe;
 
@@ -94,41 +94,41 @@ public sealed class ScreamCongestionController : ICongestionController
     private double _qdelayMaxAvg;
     private double _qdelayMinAvg;
     private double _qdelayDevAvg;
-    private double _refWndDelayScale = 1;
+    private double _refWndDelayScale;
     private double _lastQdelayAvgUpdate;
 
     // Section 4.2.2.
-    private double _refWndI = 1;
-    private bool _refWndIUpdateAllowed = true;
+    private double _refWndI;
+    private bool _refWndIUpdateAllowed;
     private double _qdelayTarget;
-    private double _lastCongestionDetected = double.NegativeInfinity;
+    private double _lastCongestionDetected;
     private double _lastReaction;
-    private double _maxPolicedRefWnd = double.PositiveInfinity;
+    private double _maxPolicedRefWnd;
 
     // ECN response.
     private int _classicScore;
 
     // Round trip.
     private double _sRtt;
-    private double _minRtt = double.PositiveInfinity;
+    private double _minRtt;
 
     // Base delay (RFC 6817).
     private int _baseIndex;
-    private double _baseRolledAt = double.NaN;
+    private double _baseRolledAt;
 
     // Section 4.4.
     private double _targetBitrate;
     private double _rateAdjustFactor;
     private double _frameSizeDev;
-    private double _framePeriod = 0.02;
-    private double _lastFrame = double.NaN;
+    private double _framePeriod;
+    private double _lastFrame;
 
     // Section 4.5.
-    private double _qdelayMin = double.PositiveInfinity;
+    private double _qdelayMin;
     private double _delayMinAvg;
-    private double _driftHoldUntil = double.NegativeInfinity;
+    private double _driftHoldUntil;
     private double _ackedBitrate;
-    private double _ackedSince = double.NaN;
+    private double _ackedSince;
     private long _ackedBytes;
     private double _lossEventRate;
     private double _lastSlowUpdate;
@@ -141,23 +141,12 @@ public sealed class ScreamCongestionController : ICongestionController
         _virtualRtt = _options.VirtualRttMs / 1000.0;
         _qdelayTargetLo = _options.QueueDelayTargetMs / 1000.0;
         _qdelayTargetHi = Math.Max(_qdelayTargetLo, _options.QueueDelayTargetMaxMs / 1000.0);
-        _qdelayTarget = _qdelayTargetLo;
-        _qdelayMaxAvg = _qdelayTargetLo;
         EcnMode = _options.Ecn;
-        Array.Fill(_baseDelays, double.PositiveInfinity);
-
-        // The window the start rate needs over a nominal round trip.
-        ReferenceWindow = Math.Max(
-            _options.MinReferenceWindow,
-            _options.StartBitrateBps / 8.0 * 0.1
-        );
-        _targetBitrate = Math.Clamp(
-            _options.StartBitrateBps,
-            _options.MinBitrateBps,
-            _options.MaxBitrateBps
-        );
-        Current = Estimate();
+        Initialize(roundTrip: null);
     }
+
+    /// <inheritdoc/>
+    public void OnPathChanged(TimeSpan? roundTrip, TimeSpan now) => Initialize(roundTrip);
 
     /// <inheritdoc/>
     public CapacityEstimate Current { get; private set; }
@@ -754,5 +743,74 @@ public sealed class ScreamCongestionController : ICongestionController
             TimeSpan.FromSeconds(_sRtt),
             double.IsPositiveInfinity(_minRtt) ? TimeSpan.Zero : TimeSpan.FromSeconds(_minRtt)
         );
+    }
+
+    // Every piece of path state at its initial value (section 4 of the draft), the start rate's window
+    // over a nominal round trip, and the smoothed round trip seeded from a measured one when known.
+    private void Initialize(TimeSpan? roundTrip)
+    {
+        _maxBytesInFlight = 0;
+        _maxBytesInFlightPrev = 0;
+        _lastTransmit = double.NaN;
+        _rttRolledAt = 0;
+        _highestAcked = long.MinValue;
+        _bytesNewlyAcked = 0;
+        _bytesNewlyAckedCe = 0;
+        _lossDetected = false;
+        _unitsMarked = false;
+        _lossRate = 0;
+        _l4sAlpha = 0;
+        _lastL4sUpdate = 0;
+        _unitsDeliveredThisRtt = 0;
+        _unitsMarkedThisRtt = 0;
+        _qdelay = 0;
+        _qdelayAvg = 0;
+        _qdelayMinAvg = 0;
+        _qdelayDevAvg = 0;
+        _refWndDelayScale = 1;
+        _lastQdelayAvgUpdate = 0;
+        _refWndI = 1;
+        _refWndIUpdateAllowed = true;
+        _lastCongestionDetected = double.NegativeInfinity;
+        _lastReaction = 0;
+        _maxPolicedRefWnd = double.PositiveInfinity;
+        _classicScore = 0;
+        _sRtt = 0;
+        _minRtt = double.PositiveInfinity;
+        _baseIndex = 0;
+        _baseRolledAt = double.NaN;
+        _rateAdjustFactor = 0;
+        _frameSizeDev = 0;
+        _framePeriod = 0.02;
+        _lastFrame = double.NaN;
+        _qdelayMin = double.PositiveInfinity;
+        _delayMinAvg = 0;
+        _driftHoldUntil = double.NegativeInfinity;
+        _ackedBitrate = 0;
+        _ackedSince = double.NaN;
+        _ackedBytes = 0;
+        _lossEventRate = 0;
+        _lastSlowUpdate = 0;
+        _qdelayTarget = _qdelayTargetLo;
+        _qdelayMaxAvg = _qdelayTargetLo;
+        _inFlight.Clear();
+        _qdelayNorm.Clear();
+        Array.Fill(_baseDelays, double.PositiveInfinity);
+        BytesInFlight = 0;
+        ReferenceWindow = Math.Max(
+            _options.MinReferenceWindow,
+            _options.StartBitrateBps / 8.0 * 0.1
+        );
+        _targetBitrate = Math.Clamp(
+            _options.StartBitrateBps,
+            _options.MinBitrateBps,
+            _options.MaxBitrateBps
+        );
+        if (roundTrip is { } rtt && rtt > TimeSpan.Zero)
+        {
+            _sRtt = rtt.TotalSeconds;
+        }
+
+        Current = Estimate();
     }
 }

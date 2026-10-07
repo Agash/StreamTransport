@@ -135,6 +135,16 @@ public sealed partial class PeerConnection
     // A new path may not carry what the old one did.
     private void OnPathChanged(IcePath? path)
     {
+        if (path is { } next)
+        {
+            if (_lastPath is { } previous && !SameAddresses(previous, next))
+            {
+                RestartCongestionControl(next);
+            }
+
+            _lastPath = next;
+        }
+
         lock (_feedbackGate)
         {
             if (_ecnAgreed != EcnCodepoint.NotEct && path is not null)

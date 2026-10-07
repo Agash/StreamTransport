@@ -261,6 +261,13 @@ public sealed partial class PeerConnection
     private partial void LogPathMtu(int size);
 
     [LoggerMessage(
+        EventId = 1172,
+        Level = LogLevel.Information,
+        Message = "Media moved to new addresses ({Remote}); congestion control starts over from a {RoundTrip} round trip"
+    )]
+    private partial void LogCongestionRestarted(System.Net.IPEndPoint remote, TimeSpan roundTrip);
+
+    [LoggerMessage(
         EventId = 1171,
         Level = LogLevel.Warning,
         Message = "Packets above the base size are being lost as a smaller path MTU would lose them; back to {Size}-byte datagrams"

@@ -35,10 +35,13 @@ source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder
 - **Zero-copy frames**: sources push frames in GPU memory (Direct3D 12 and 11 textures, DMA-BUFs,
   IOSurfaces) or system memory, and the pipeline converts only where an encoder or sink cannot take them.
 - **Real links**: SCReAM congestion control (RFC 8298, RFC 8888), a pacer, sequence-aware frame assembly,
-  NACK/RTX and FlexFEC, Opus in-band FEC and concealment, ICE restart and hot-standby mobility, IPv6-first
-  candidates, TURN over UDP, TCP and TLS with a relay-only policy, and SRTP with AES-GCM (AES-CM for
-  legacy peers) and replay protection. Rate control plans for the source's measured frame rate, and a
-  receiver that falls behind resyncs at a keyframe instead of building latency.
+  NACK/RTX and FlexFEC, Opus in-band FEC and concealment, IPv6-first candidates, TURN over UDP, TCP and
+  TLS with a relay-only policy, and SRTP with AES-GCM (AES-CM for legacy peers) and replay protection.
+  Rate control plans for the source's measured frame rate, and a receiver that falls behind resyncs at a
+  keyframe instead of building latency.
+- **Mobility**: a path that goes silent is left for a warm standby pair within seconds; a network change
+  re-checks every pair while media keeps flowing; congestion control starts over on new addresses and
+  keeps its state across NAT rebinding (RFC 9000 section 9.4).
 - **Lip sync**: capture times come from the producer where it reports them (V4L2, Media Foundation,
   AVFoundation, PipeWire) and travel as abs-capture-time; synced playout holds audio and video in one
   adaptive buffer and releases them by capture time. `TestSignalAnalyzer` measures the A/V offset and

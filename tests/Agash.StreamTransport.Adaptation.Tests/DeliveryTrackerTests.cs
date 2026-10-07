@@ -185,6 +185,27 @@ public sealed class DeliveryTrackerTests
         Assert.AreEqual(PacketOutcome.DeliveredLate, seen[2].Outcome);
     }
 
+    [TestMethod]
+    public void OnPathChanged_FeedbackAboutTheOldPathResolvesNothing()
+    {
+        DeliveryTracker tracker = Sent(3);
+        tracker.OnPathChanged();
+        tracker.OnSent(new SentPacket(4, 1200, 10 * Ms, TrafficClass.Video));
+        List<PacketObservation> observations = [];
+
+        TimeSpan? roundTrip = tracker.OnFeedback(
+            [Got(1), Missing(2), Got(3), Got(4)],
+            30 * Ms,
+            observations
+        );
+        tracker.OnTick(TimeSpan.FromSeconds(1), observations);
+
+        Assert.AreEqual(20 * Ms, roundTrip, "the round trip comes from the new path's packet alone.");
+        Assert.HasCount(1, observations);
+        Assert.AreEqual(4, observations[0].Packet.Id);
+        Assert.AreEqual(1, tracker.Count);
+    }
+
     private static DeliveryTracker Sent(int count)
     {
         DeliveryTracker tracker = new();

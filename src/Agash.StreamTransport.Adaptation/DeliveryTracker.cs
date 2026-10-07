@@ -158,6 +158,24 @@ public sealed class DeliveryTracker
         return roundTrip;
     }
 
+    /// <summary>
+    /// Forgets every packet and estimate for a new network path: what the old path delivered or lost must
+    /// not count toward the new one's congestion control or round trip (RFC 9000 section 9.4), so feedback
+    /// about those packets resolves nothing.
+    /// </summary>
+    public void OnPathChanged()
+    {
+        _packets.Clear();
+        _order.Clear();
+        _missing.Clear();
+        _unreported.Clear();
+        _rackSentAt = TimeSpan.MinValue;
+        _rackRoundTrip = TimeSpan.Zero;
+        _highestDelivered = long.MinValue;
+        _smoothedRoundTrip = TimeSpan.Zero;
+        ReorderingWindow = TimeSpan.Zero;
+    }
+
     /// <summary>Declares lost the missing packets whose reordering window has passed, without new feedback.</summary>
     /// <param name="now">Now, on the sender's monotonic clock.</param>
     /// <param name="observations">Where newly lost packets go.</param>

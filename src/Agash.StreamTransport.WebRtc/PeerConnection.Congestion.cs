@@ -1,5 +1,6 @@
 using System.Buffers;
 using Agash.StreamTransport.Adaptation;
+using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Srtp;
 
@@ -129,6 +130,42 @@ public sealed partial class PeerConnection
     }
 
     private TimeSpan Now => _time.GetElapsedTime(_origin);
+
+    // The last path media went over, to tell a move to new addresses from NAT rebinding.
+    private IcePath? _lastPath;
+
+    // RFC 9000 section 9.4: on new addresses the congestion controller and round-trip estimate start over,
+    // since the old path's capacity says nothing about the new one; only a port change (NAT rebinding)
+    // keeps them. The new pair's round trip, measured by its keep-alives while it stood by, seeds the
+    // controller, so its first window fits the path it is on. The pacer keeps its queue and NACK repairs
+    // what the switch lost.
+    private static bool SameAddresses(IcePath a, IcePath b) =>
+        a.Local.Address.Equals(b.Local.Address) && a.Remote.Address.Equals(b.Remote.Address);
+
+    private void RestartCongestionControl(IcePath path)
+    {
+        if (_controller is not { } controller)
+        {
+            return;
+        }
+
+        TimeSpan? roundTrip = _iceAgent?.SelectedRoundTrip;
+        CapacityEstimate estimate;
+        lock (_feedbackGate)
+        {
+            lock (_ccGate)
+            {
+                _delivery.OnPathChanged();
+                _sentIds.Clear();
+            }
+
+            controller.OnPathChanged(roundTrip, Now);
+            estimate = controller.Current;
+        }
+
+        LogCongestionRestarted(path.Remote, roundTrip ?? TimeSpan.Zero);
+        OnEstimate(estimate);
+    }
 
     // The pacer's gate: the controller's send window.
     private bool MayTransmit(int bytes)
