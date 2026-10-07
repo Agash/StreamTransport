@@ -4,8 +4,11 @@ namespace Agash.StreamTransport.Adaptation;
 /// Resolves what became of each sent packet from feedback, the same way for every transport. A packet
 /// reported missing is lost only when it stays missing for the reordering window after a later packet
 /// arrived; one that then arrives anyway was reordered, and the window grows to the delay it showed
-/// (SCReAMv2, draft-ietf-ccwg-rfc8298bis-screamv2-01 section 4.1.2, after RACK in RFC 8985). A packet is
-/// resolved once, however many overlapping reports cover it (RFC 8888 section 3.1).
+/// (SCReAMv2, draft-ietf-ccwg-rfc8298bis-screamv2-01 section 4.1.2, after RACK in RFC 8985). A packet no
+/// feedback mentions, such as the last one of a stream or one whose report was itself lost, is lost by
+/// RACK's time rule (RFC 8985 section 6.2): once a packet sent after it was delivered, and a round trip and
+/// the reordering window have passed since it was sent. A packet is resolved once, however many
+/// overlapping reports cover it (RFC 8888 section 3.1).
 /// </summary>
 /// <remarks>Not thread-safe: the transport feeds it from one place.</remarks>
 public sealed class DeliveryTracker
@@ -18,6 +21,14 @@ public sealed class DeliveryTracker
     private readonly Dictionary<long, Entry> _packets = [];
     private readonly Queue<long> _order = new();
     private readonly List<long> _missing = [];
+
+    // Packets in sending order that no feedback has mentioned yet, for RACK's time rule.
+    private readonly Queue<long> _unreported = new();
+
+    // RACK.xmit_ts and RACK.rtt: when the latest-sent delivered packet was sent, and how long from then until
+    // the feedback saying so arrived, the receiver's feedback delay included.
+    private TimeSpan _rackSentAt = TimeSpan.MinValue;
+    private TimeSpan _rackRoundTrip;
     private long _highestDelivered = long.MinValue;
     private TimeSpan _decayedAt;
     private TimeSpan _smoothedRoundTrip;
@@ -42,6 +53,7 @@ public sealed class DeliveryTracker
     {
         _packets[packet.Id] = new Entry(packet, State.InFlight, default);
         _order.Enqueue(packet.Id);
+        _unreported.Enqueue(packet.Id);
         while (
             _order.TryPeek(out long oldest)
             && (
@@ -104,6 +116,12 @@ public sealed class DeliveryTracker
 
             _packets[report.Id] = entry with { State = State.Delivered };
             _highestDelivered = Math.Max(_highestDelivered, report.Id);
+            if (entry.Packet.SentAt >= _rackSentAt)
+            {
+                _rackSentAt = entry.Packet.SentAt;
+                _rackRoundTrip = now - entry.Packet.SentAt;
+            }
+
             observations.Add(
                 new PacketObservation(entry.Packet, outcome, report.ArrivedAt, report.Ecn)
             );
@@ -146,6 +164,8 @@ public sealed class DeliveryTracker
 
     private void DetectLosses(TimeSpan now, List<PacketObservation> observations)
     {
+        DetectUnreportedLosses(now, observations);
+
         int kept = 0;
         for (int i = 0; i < _missing.Count; i++)
         {
@@ -174,6 +194,37 @@ public sealed class DeliveryTracker
         }
 
         _missing.RemoveRange(kept, _missing.Count - kept);
+    }
+
+    // RFC 8985 section 6.2, step 5: a packet sent before the latest-sent delivered one is lost once
+    // RACK.rtt and the reordering window have passed since it was sent. RACK's window is at least a quarter
+    // of the round trip (section 6.2, step 4). Packets wait in sending order, so the first that is not
+    // yet due ends the scan.
+    private void DetectUnreportedLosses(TimeSpan now, List<PacketObservation> observations)
+    {
+        TimeSpan window = Max(ReorderingWindow, _smoothedRoundTrip / 4);
+        while (_unreported.TryPeek(out long id))
+        {
+            if (!_packets.TryGetValue(id, out Entry entry) || entry.State != State.InFlight)
+            {
+                _ = _unreported.Dequeue();
+                continue;
+            }
+
+            if (
+                entry.Packet.SentAt > _rackSentAt
+                || now < entry.Packet.SentAt + _rackRoundTrip + window
+            )
+            {
+                return;
+            }
+
+            _ = _unreported.Dequeue();
+            _packets[id] = entry with { State = State.Lost, Since = now };
+            observations.Add(
+                new PacketObservation(entry.Packet, PacketOutcome.Lost, null, EcnCodepoint.NotEct)
+            );
+        }
     }
 
     private void Decay(TimeSpan now)

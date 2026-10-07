@@ -125,6 +125,64 @@ public sealed class DeliveryTrackerTests
         Assert.IsEmpty(seen);
     }
 
+    // RFC 8985 section 6.2: a packet no report mentions, sent before one that was delivered, is lost once
+    // RACK.rtt and the reordering window have passed since it was sent.
+    [TestMethod]
+    public void UnreportedPacket_SentBeforeADeliveredOne_IsLostOnceDue()
+    {
+        DeliveryTracker tracker = new();
+        tracker.OnSent(new SentPacket(1, 1200, 5 * Ms, TrafficClass.Video));
+        tracker.OnSent(new SentPacket(2, 1200, 10 * Ms, TrafficClass.Video));
+        List<PacketObservation> seen = [];
+
+        // Packet 2 is reported at 60 ms: RACK.rtt is 50 ms, the round trip less the 10 ms hold 40 ms, and the
+        // window a quarter of that, so packet 1 is due at 5 + 50 + 10 = 65 ms.
+        _ = tracker.OnFeedback(
+            [new PacketReport(2, true, null, 10 * Ms, EcnCodepoint.NotEct)],
+            60 * Ms,
+            seen
+        );
+        Assert.HasCount(1, seen);
+        tracker.OnTick(64 * Ms, seen);
+        Assert.HasCount(1, seen, "not due before RACK.rtt and the window");
+
+        tracker.OnTick(65 * Ms, seen);
+        Assert.HasCount(2, seen);
+        Assert.AreEqual(1, seen[1].Packet.Id);
+        Assert.AreEqual(PacketOutcome.Lost, seen[1].Outcome);
+    }
+
+    [TestMethod]
+    public void UnreportedPacket_SentAfterTheLatestDelivered_IsNotLost()
+    {
+        DeliveryTracker tracker = new();
+        tracker.OnSent(new SentPacket(1, 1200, 0 * Ms, TrafficClass.Video));
+        tracker.OnSent(new SentPacket(2, 1200, 10 * Ms, TrafficClass.Video));
+        List<PacketObservation> seen = [];
+
+        _ = tracker.OnFeedback([Got(1)], 40 * Ms, seen);
+        tracker.OnTick(1000 * Ms, seen);
+
+        Assert.HasCount(1, seen);
+        Assert.AreEqual(1, seen[0].Packet.Id);
+    }
+
+    [TestMethod]
+    public void UnreportedPacketDeclaredLost_ThatArrivesAfterAll_IsDeliveredLate()
+    {
+        DeliveryTracker tracker = new();
+        tracker.OnSent(new SentPacket(1, 1200, 0 * Ms, TrafficClass.Video));
+        tracker.OnSent(new SentPacket(2, 1200, 10 * Ms, TrafficClass.Video));
+        List<PacketObservation> seen = [];
+        _ = tracker.OnFeedback([Got(2)], 40 * Ms, seen);
+        tracker.OnTick(200 * Ms, seen);
+
+        _ = tracker.OnFeedback([Got(1)], 210 * Ms, seen);
+
+        Assert.AreEqual(PacketOutcome.Lost, seen[1].Outcome);
+        Assert.AreEqual(PacketOutcome.DeliveredLate, seen[2].Outcome);
+    }
+
     private static DeliveryTracker Sent(int count)
     {
         DeliveryTracker tracker = new();
