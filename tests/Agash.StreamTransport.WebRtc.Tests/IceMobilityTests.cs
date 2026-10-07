@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Agash.StreamTransport.WebRtc.Ice;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
@@ -214,6 +215,118 @@ public sealed class IceMobilityTests
         Assert.AreEqual(late + Timings.Ta, a.Machine.NextTimeout);
     }
 
+    [TestMethod]
+    public void NetworkEvent_KeepsMediaOnTheSelectedPair_WhileEveryPairIsRechecked()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        var selected = a.Machine.Selected;
+        int statesBefore = a.States.Count;
+
+        // An address change that left the path working, such as an IPv6 privacy address rotating.
+        a.Machine.TriggerRecovery();
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(3));
+
+        Assert.AreEqual(sent, fromA, "every datagram is sent and arrives across the re-check.");
+        Assert.AreEqual(sent, fromB);
+        Assert.AreEqual(selected, a.Machine.Selected);
+        Assert.AreEqual(statesBefore, a.States.Count, "the state never leaves Connected.");
+        Assert.IsTrue(b.Connected);
+    }
+
+    [TestMethod]
+    public void SilentPathDeath_FailsOverWithinSeconds_AndTheControlledSideFollows()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        _ = board.Stream(TimeSpan.FromSeconds(1));
+        IPAddress dead = a.SelectedAddress!;
+
+        // The path dies with no interface event, as in a cellular dead zone: only the silence shows it.
+        board.Cut(dead);
+        TimeSpan cutAt = board.Now;
+        while (
+            (a.SelectedAddress!.Equals(dead) || IsOnPeerOf(b, dead))
+            && board.Now - cutAt < Timings.ConsentTimeout
+        )
+        {
+            _ = board.Stream(TimeSpan.FromMilliseconds(100));
+        }
+
+        // Silence for the receiving timeout, the damping delay, then a round of fast pings on the
+        // alternates: seconds, where consent alone takes thirty.
+        TimeSpan failover = board.Now - cutAt;
+        Assert.IsLessThan(
+            Timings.ReceivingTimeout + Timings.SwitchingDelay + TimeSpan.FromSeconds(2),
+            failover,
+            $"both sides move off the dead path in seconds; took {failover}."
+        );
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(sent, fromA, "media flows over the new path.");
+        Assert.AreEqual(sent, fromB);
+        Assert.IsTrue(a.Connected && b.Connected);
+    }
+
+    [TestMethod]
+    public void PreferredPathReturning_TakesTheMediaBack()
+    {
+        IceSwitchboard board = new();
+        var v6 = IPAddress.Parse("2001:db8::1");
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [v6, IPAddress.Parse("192.0.2.1")],
+            [IPAddress.Parse("2001:db8::2"), IPAddress.Parse("192.0.2.2")]
+        );
+        Assert.AreEqual(v6, a.SelectedAddress, "IPv6 ranks first.");
+
+        board.Cut(v6);
+        _ = board.Stream(TimeSpan.FromSeconds(8));
+        Assert.AreEqual(AddressFamily.InterNetwork, a.SelectedAddress!.AddressFamily);
+
+        board.Uncut(v6);
+        _ = board.Stream(Timings.StandbyPingInterval + TimeSpan.FromSeconds(5));
+        Assert.AreEqual(v6, a.SelectedAddress, "media returns to the higher-priority path.");
+        Assert.AreEqual(AddressFamily.InterNetworkV6, b.SelectedAddress!.AddressFamily);
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(sent, fromA);
+        Assert.AreEqual(sent, fromB);
+    }
+
+    [TestMethod]
+    public void OneWayMedia_StaysOnTheSelectedPair()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        var selectedA = a.Machine.Selected;
+        var selectedB = b.Machine.Selected;
+
+        // A publisher with no media coming back: the selected pair sees only its keep-alives.
+        var step = TimeSpan.FromMilliseconds(20);
+        for (TimeSpan elapsed = TimeSpan.Zero; elapsed < TimeSpan.FromMinutes(2); elapsed += step)
+        {
+            Assert.IsTrue(board.SendData(a));
+            board.Run(step);
+        }
+
+        Assert.AreEqual(selectedA, a.Machine.Selected);
+        Assert.AreEqual(selectedB, b.Machine.Selected);
+    }
+
+    private static bool IsOnPeerOf(IceSwitchboard.Peer peer, IPAddress address) =>
+        peer.Machine.Selected?.Remote.Address.Equals(address) == true;
+
     // Connects a pair and lets hot-standby keep-alives validate the alternates.
     private static (IceSwitchboard.Peer A, IceSwitchboard.Peer B) Connect(
         IceSwitchboard board,
@@ -230,7 +343,7 @@ public sealed class IceMobilityTests
             board.RunUntil(() => a.Connected && b.Connected, TimeSpan.FromSeconds(10)),
             "the machines connect within ten seconds"
         );
-        board.Run(Timings.ConsentInterval * 2);
+        board.Run(Timings.StandbyPingInterval * 2);
         return (a, b);
     }
 }

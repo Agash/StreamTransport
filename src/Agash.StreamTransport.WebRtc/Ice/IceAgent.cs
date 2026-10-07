@@ -294,9 +294,10 @@ public sealed partial class IceAgent : IAsyncDisposable
     }
 
     /// <summary>
-    /// Re-probes all candidate pairs and re-nominates, on consent loss or a network change, so the agent
-    /// fails over to whatever path now works. The DTLS-SRTP session above is bound to the peer's
-    /// certificate, so its keys and rollover counter carry across the switch.
+    /// Re-checks every candidate pair at once, for a network change, while media keeps flowing on the
+    /// selected pair; the agent moves only when another pair is valid and ranks higher. The DTLS-SRTP
+    /// session above is bound to the peer's certificate, so its keys and rollover counter carry across a
+    /// switch.
     /// </summary>
     public void TriggerRecovery()
     {
@@ -638,6 +639,13 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
             else
             {
+                // Data shows the pair it came over receiving, which is how a silent path is noticed in
+                // a receiving timeout and how the controlled side follows the controlling side's switch.
+                lock (_gate)
+                {
+                    _machine.NoteDataReceived(local.Handle, result.RemoteEndPoint, Now);
+                }
+
                 // DTLS or SRTP, in the reused buffer: the handler runs before the next receive. A handler
                 // that throws loses its packet, never the socket: an ended loop leaves the path deaf to
                 // consent while sending carries on, until ICE declares it dead.

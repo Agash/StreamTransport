@@ -9,29 +9,51 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 public readonly record struct IceReceiveResult(int Length, IPEndPoint RemoteEndPoint, byte Ecn = 0);
 
 /// <summary>
-/// ICE check/consent timing (RFC 8445 Appendix B.1 pacing + RFC 7675 consent). <see cref="Default"/> is the
-/// production setting; tests use short values to exercise consent loss / failover without real-time waits, and
-/// a profile could tighten consent for a mobile link.
+/// ICE timing: check pacing (RFC 8445 appendix B.1), liveness, keep-alive cadence and consent (RFC 7675).
+/// The defaults are libwebrtc's; a mobile profile shortens <see cref="ReceivingTimeout"/> so a dead path
+/// is left sooner, and tests shorten everything to run failover without real-time waits.
 /// </summary>
-/// <param name="Ta">Connectivity-check pacing interval.</param>
-/// <param name="CheckRto">Per-check retransmit timeout.</param>
-/// <param name="ConsentInterval">How often consent (and hot-standby keep-warm) pings are sent.</param>
-/// <param name="ConsentTimeout">How long without a response before the selected pair is declared dead.</param>
-public sealed record IceTimings(
-    TimeSpan Ta,
-    TimeSpan CheckRto,
-    TimeSpan ConsentInterval,
-    TimeSpan ConsentTimeout
-)
+public sealed record IceTimings
 {
-    /// <summary>The production timing (RFC defaults): 50 ms pacing, 500 ms RTO, 5 s consent, 30 s timeout.</summary>
-    public static IceTimings Default { get; } =
-        new(
-            TimeSpan.FromMilliseconds(50),
-            TimeSpan.FromMilliseconds(500),
-            TimeSpan.FromSeconds(5),
-            TimeSpan.FromSeconds(30)
-        );
+    /// <summary>The production timing.</summary>
+    public static IceTimings Default { get; } = new();
+
+    /// <summary>The pacing between connectivity checks: one per interval. 50 ms.</summary>
+    public TimeSpan Ta { get; init; } = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>The retransmission timeout of a connectivity check. 500 ms.</summary>
+    public TimeSpan CheckRto { get; init; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// How long a pair may go without receiving anything, media or checks, before it counts as not
+    /// receiving: the selected pair is then weak, every valid pair is pinged fast, and the agent moves to
+    /// one that is receiving. 2.5 s.
+    /// </summary>
+    public TimeSpan ReceivingTimeout { get; init; } = TimeSpan.FromMilliseconds(2500);
+
+    /// <summary>How often the selected pair is pinged once its round trip is stable and it is strong. 2.5 s.</summary>
+    public TimeSpan StablePingInterval { get; init; } = TimeSpan.FromMilliseconds(2500);
+
+    /// <summary>
+    /// How often a valid pair is pinged while its round trip settles or while the selected pair is weak.
+    /// 900 ms.
+    /// </summary>
+    public TimeSpan WeakPingInterval { get; init; } = TimeSpan.FromMilliseconds(900);
+
+    /// <summary>
+    /// How often the valid pairs other than the selected one are pinged while the selected pair is strong,
+    /// so a failover finds them warm. 5 s.
+    /// </summary>
+    public TimeSpan StandbyPingInterval { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long two pairs' receiving states must have held before the agent switches to the one that is
+    /// receiving over a higher-ranked one that is not, against flapping. 1 s.
+    /// </summary>
+    public TimeSpan SwitchingDelay { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long without a response to its checks before the selected pair loses consent. 30 s.</summary>
+    public TimeSpan ConsentTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>

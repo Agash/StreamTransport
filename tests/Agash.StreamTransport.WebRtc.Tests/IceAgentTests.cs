@@ -42,7 +42,9 @@ public sealed class IceAgentTests
     {
         IceTimings quick = IceTimings.Default with
         {
-            ConsentInterval = TimeSpan.FromMilliseconds(100),
+            StablePingInterval = TimeSpan.FromMilliseconds(100),
+            WeakPingInterval = TimeSpan.FromMilliseconds(100),
+            StandbyPingInterval = TimeSpan.FromMilliseconds(100),
             ConsentTimeout = TimeSpan.FromMilliseconds(600),
         };
         await using var agents = Agents.Start(quick);

@@ -113,7 +113,37 @@ internal sealed class IceSwitchboard
         }
 
         IPEndPoint source = from.Endpoints[selected.Local];
-        return Passes(source, selected.Remote, [0x80]) && Owner(selected.Remote) is not null;
+        if (!Passes(source, selected.Remote, [0x80]) || Owner(selected.Remote) is not { } to)
+        {
+            return false;
+        }
+
+        to.Peer.Machine.NoteDataReceived(to.Handle, source, Now);
+        return true;
+    }
+
+    /// <summary>
+    /// Streams media both ways for a duration, a datagram from each peer every interval, as a call does;
+    /// returns how many of each peer's datagrams arrived.
+    /// </summary>
+    public (int Sent, int FromControlling, int FromControlled) Stream(
+        TimeSpan duration,
+        TimeSpan? interval = null
+    )
+    {
+        TimeSpan step = interval ?? TimeSpan.FromMilliseconds(20);
+        int sent = 0;
+        int a = 0;
+        int b = 0;
+        for (TimeSpan elapsed = TimeSpan.Zero; elapsed < duration; elapsed += step)
+        {
+            sent++;
+            a += SendData(_peers[0]) ? 1 : 0;
+            b += SendData(_peers[1]) ? 1 : 0;
+            Run(step);
+        }
+
+        return (sent, a, b);
     }
 
     // Moves time to the next timeout before the end and runs it; false when none is due by then.

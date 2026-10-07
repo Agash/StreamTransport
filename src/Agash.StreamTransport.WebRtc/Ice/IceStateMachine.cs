@@ -29,6 +29,19 @@ internal sealed partial class IceStateMachine
 {
     private const int MaxCheckTransmits = 7;
 
+    // A valid pair stops being writable after this many unanswered pings over at least WriteTimeout, as
+    // libwebrtc's ice_unwritable_min_checks and ice_unwritable_timeout.
+    private const int UnwritableChecks = 5;
+
+    // A pair's round trip is stable after this many samples with at most one ping outstanding, as
+    // libwebrtc's Connection::stable (RTT_RATIO + 1).
+    private const int StableRoundTrips = 4;
+
+    private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
+
+    // Equally ranked pairs switch only for this much less round trip, as libwebrtc's kMinImprovement.
+    private static readonly TimeSpan MinimumRoundTripImprovement = TimeSpan.FromMilliseconds(10);
+
     private readonly IceRole _role;
     private readonly IceTimings _timings;
     private readonly WebRtcMetrics _metrics;
@@ -51,6 +64,9 @@ internal sealed partial class IceStateMachine
     private byte[] _localPassword;
     private IceCredentials _remote;
     private CandidatePair? _selected;
+
+    // The pair the last data datagram came over, so the per-packet lookup is one comparison.
+    private CandidatePair? _lastData;
     private int _candidateIndex;
 
     public IceStateMachine(
@@ -218,7 +234,40 @@ internal sealed partial class IceStateMachine
         }
     }
 
-    /// <summary>Runs the checks, consent and hot standby that are due.</summary>
+    /// <summary>
+    /// Notes a media, DTLS or RTCP datagram that arrived on a local endpoint: the pair it came over is
+    /// receiving, and on the controlled side the pair with the newest data is the one the controlling
+    /// agent sends on.
+    /// </summary>
+    /// <param name="local">The endpoint's handle.</param>
+    /// <param name="source">Where it came from.</param>
+    /// <param name="now">The time.</param>
+    public void NoteDataReceived(int local, IPEndPoint source, TimeSpan now)
+    {
+        if (
+            _lastData is { } last
+            && last.Local.Handle == local
+            && last.Remote.Endpoint.Equals(source)
+        )
+        {
+            last.LastReceived = now;
+            last.LastDataReceived = now;
+            return;
+        }
+
+        foreach (CandidatePair pair in _pairs)
+        {
+            if (pair.Local.Handle == local && pair.Remote.Endpoint.Equals(source))
+            {
+                pair.LastReceived = now;
+                pair.LastDataReceived = now;
+                _lastData = pair;
+                return;
+            }
+        }
+    }
+
+    /// <summary>Runs the checks, keep-alives, consent and path switches that are due.</summary>
     /// <param name="now">The time.</param>
     public void HandleTimeout(TimeSpan now)
     {
@@ -235,28 +284,33 @@ internal sealed partial class IceStateMachine
         }
 
         SendNextCheck(now);
+        SendNextKeepAlive(now);
         MaintainConsent(now);
-        MaintainHotStandby(now);
+        SwitchIfBetter(now);
     }
 
     /// <summary>
-    /// Re-probes every pair and re-nominates, for a network change or lost consent. The DTLS-SRTP
-    /// session above is untouched: it is bound to the peer, not the path.
+    /// Re-checks every pair at once, for a network change: valid pairs get a check now and failed ones are
+    /// checked again. The selected pair keeps carrying media meanwhile; the agent moves off it only when
+    /// another pair is valid and ranks higher, as libwebrtc does on a network event, so a change that
+    /// left the path working (an IPv6 privacy address rotating, another interface coming up) costs
+    /// nothing. The DTLS-SRTP session above is bound to the peer, not the path.
     /// </summary>
     public void TriggerRecovery()
     {
-        _selected = null;
         foreach (CandidatePair pair in _pairs)
         {
-            pair.State = PairState.Waiting;
-            pair.Nominated = false;
-            pair.NominationCheck = false;
-            pair.NominatedByPeer = false;
-            pair.TriggeredCheck = false;
-            pair.Transmits = 0;
+            if (pair.State == PairState.Succeeded)
+            {
+                pair.TriggeredCheck = true;
+            }
+            else
+            {
+                pair.State = PairState.Waiting;
+                pair.Transmits = 0;
+            }
         }
 
-        SetState(IceConnectionState.Checking);
         LogRecovery();
     }
 
@@ -270,6 +324,7 @@ internal sealed partial class IceStateMachine
         LocalCredentials = credentials;
         _localPassword = Encoding.UTF8.GetBytes(credentials.Password);
         _selected = null;
+        _lastData = null;
         _inFlight.Clear();
         _pairs.Clear();
         _locals.Clear();
@@ -337,21 +392,19 @@ internal sealed partial class IceStateMachine
 
         CandidatePair pair = PairForPeerReflexive(local, source);
 
-        // An authenticated request proves the path alive in the receive direction now, whether or not our
-        // own check was lost; consent then rides out loss that one direction's checks alone would not.
-        pair.LastResponse = now;
+        // An authenticated request shows the pair receiving. Consent stays with responses to our own
+        // checks (RFC 7675): a request shows only that the peer's packets reach us.
+        pair.LastReceived = now;
 
-        // A nomination can arrive before our own check on the pair succeeded; the controlling agent does
-        // not repeat it, so it is remembered until that check succeeds (RFC 8445 section 7.3.1.5).
+        // A nomination can arrive before our own check on the pair succeeded, so it is remembered until
+        // that check succeeds (RFC 8445 section 7.3.1.5). A nomination of another pair once one is
+        // selected is the controlling agent moving: it ranks the pair above unnominated ones.
         if (useCandidate && _role == IceRole.Controlled)
         {
+            pair.NominatedByPeer = true;
             if (pair.State == PairState.Succeeded)
             {
                 Nominate(pair, now);
-            }
-            else
-            {
-                pair.NominatedByPeer = true;
             }
         }
 
@@ -390,6 +443,8 @@ internal sealed partial class IceStateMachine
 
         pair.State = PairState.Succeeded;
         pair.LastResponse = now;
+        pair.LastReceived = now;
+        pair.Unanswered = 0;
         pair.NoteRoundTrip(now - check.SentAt);
         LogPairSucceeded(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
         if (pair.NominationCheck || (pair.NominatedByPeer && _role == IceRole.Controlled))
@@ -529,71 +584,156 @@ internal sealed partial class IceStateMachine
         return null;
     }
 
-    // Consent is tracked on the selected pair: hot-standby pings on the alternates also bring responses,
-    // so one timer across all pairs would never see the selected path die.
-    private void MaintainConsent(TimeSpan now)
+    // Pings one valid pair whose keep-alive is due, the one waiting longest, at libwebrtc's cadence: the
+    // selected pair every StablePingInterval once strong and stable, otherwise every WeakPingInterval;
+    // the others every StandbyPingInterval, or every WeakPingInterval while the selected pair is weak, so
+    // a failover finds them receiving. Responses also keep consent on the selected pair (RFC 7675).
+    private void SendNextKeepAlive(TimeSpan now)
     {
-        if (_selected is not { } selected)
+        bool weak = IsWeak(now);
+        CandidatePair? due = null;
+        foreach (CandidatePair pair in _pairs)
         {
-            return;
-        }
-
-        if (Since(selected.LastResponse, now) > _timings.ConsentTimeout)
-        {
-            LogConsentLost(selected.Remote.Endpoint);
-            _metrics.ConsentLost.Add(1);
-
-            // A pre-warmed alternate takes over in one round trip; without one, every pair is re-probed.
-            if (BestWarmAlternate(now, selected) is { } warm)
+            if (pair.State != PairState.Succeeded)
             {
-                _selected = warm;
-                warm.Nominated = true;
-                LogSwitched(warm.Local.Candidate.Endpoint, warm.Remote.Endpoint);
-                SetState(IceConnectionState.Connected);
+                continue;
+            }
+
+            TimeSpan interval;
+            if (ReferenceEquals(pair, _selected))
+            {
+                interval =
+                    !weak && IsStable(pair)
+                        ? _timings.StablePingInterval
+                        : _timings.WeakPingInterval;
             }
             else
             {
-                TriggerRecovery();
+                interval = weak ? _timings.WeakPingInterval : _timings.StandbyPingInterval;
             }
 
+            if (
+                Since(pair.LastSent, now) >= interval
+                && (due is null || pair.LastSent < due.LastSent)
+            )
+            {
+                due = pair;
+            }
+        }
+
+        if (due is not null)
+        {
+            due.LastSent = now;
+            SendBindingCheck(due, now);
+        }
+    }
+
+    // Consent is the selected pair's: past its timeout with no response to our checks, sending on it
+    // stops (RFC 7675 section 5.1). The best valid alternate with consent takes over; without one, every
+    // pair is checked again.
+    private void MaintainConsent(TimeSpan now)
+    {
+        if (
+            _selected is not { } selected
+            || Since(selected.LastResponse, now) <= _timings.ConsentTimeout
+        )
+        {
             return;
         }
 
-        if (Since(selected.LastSent, now) > _timings.ConsentInterval)
+        LogConsentLost(selected.Remote.Endpoint);
+        _metrics.ConsentLost.Add(1);
+        _selected = null;
+        selected.NominationCheck = false;
+        if (
+            Best(now) is { } next
+            && IsWritable(next, now)
+            && Since(next.LastResponse, now) <= _timings.ConsentTimeout
+        )
         {
-            selected.LastSent = now;
-            SendBindingCheck(selected, now);
+            Switch(next, now);
+            return;
         }
+
+        foreach (CandidatePair pair in _pairs)
+        {
+            pair.State = PairState.Waiting;
+            pair.Nominated = false;
+            pair.NominationCheck = false;
+            pair.NominatedByPeer = false;
+            pair.TriggeredCheck = false;
+            pair.Transmits = 0;
+        }
+
+        SetState(IceConnectionState.Checking);
+        LogRecovery();
     }
 
-    // Keeps the other valid pairs warm at the consent cadence, so a failover promotes one in a round trip.
-    private void MaintainHotStandby(TimeSpan now)
+    // Moves the selection to the best valid pair when it ranks above the selected one, as libwebrtc's
+    // ShouldSwitchConnection: writable first, then receiving (held for SwitchingDelay on both sides), on
+    // the controlled side the controlling agent's nomination and then where its data arrives, then
+    // priority; equal pairs switch for a clearly lower round trip.
+    private void SwitchIfBetter(TimeSpan now)
     {
         foreach (CandidatePair pair in _pairs)
         {
-            if (
-                !ReferenceEquals(pair, _selected)
-                && pair.State == PairState.Succeeded
-                && Since(pair.LastSent, now) > _timings.ConsentInterval
-            )
+            bool receiving = IsReceiving(pair, now);
+            if (receiving != pair.WasReceiving)
             {
-                pair.LastSent = now;
-                SendBindingCheck(pair, now);
+                pair.WasReceiving = receiving;
+                pair.ReceivingChangedAt = now;
             }
+        }
+
+        if (
+            _selected is not { } selected
+            || Best(now) is not { } best
+            || ReferenceEquals(best, selected)
+            || !IsWritable(best, now)
+        )
+        {
+            return;
+        }
+
+        int comparison = Compare(selected, best, now, damped: true);
+        if (
+            comparison < 0
+            || (
+                comparison == 0
+                && best.RoundTrip is { } candidate
+                && selected.RoundTrip is { } current
+                && candidate <= current - MinimumRoundTripImprovement
+            )
+        )
+        {
+            Switch(best, now);
         }
     }
 
-    // The highest-priority valid alternate that answered within the consent window.
-    private CandidatePair? BestWarmAlternate(TimeSpan now, CandidatePair exclude)
+    // The highest-ranked valid pair, the lower round trip among equals.
+    private CandidatePair? Best(TimeSpan now)
     {
         CandidatePair? best = null;
         foreach (CandidatePair pair in _pairs)
         {
+            if (pair.State != PairState.Succeeded)
+            {
+                continue;
+            }
+
+            if (best is null)
+            {
+                best = pair;
+                continue;
+            }
+
+            int comparison = Compare(pair, best, now, damped: false);
             if (
-                !ReferenceEquals(pair, exclude)
-                && pair.State == PairState.Succeeded
-                && Since(pair.LastResponse, now) <= _timings.ConsentTimeout
-                && (best is null || pair.Priority > best.Priority)
+                comparison > 0
+                || (
+                    comparison == 0
+                    && (pair.RoundTrip ?? TimeSpan.MaxValue) < (best.RoundTrip ?? TimeSpan.MaxValue)
+                )
             )
             {
                 best = pair;
@@ -602,6 +742,92 @@ internal sealed partial class IceStateMachine
 
         return best;
     }
+
+    // Positive when a ranks above b. Damped, a pair that is receiving outranks one that is not only once
+    // both have held their receiving state for SwitchingDelay, so a pair that just went quiet or just
+    // came back does not flip the selection.
+    private int Compare(CandidatePair a, CandidatePair b, TimeSpan now, bool damped)
+    {
+        bool aWritable = IsWritable(a, now);
+        if (aWritable != IsWritable(b, now))
+        {
+            return aWritable ? 1 : -1;
+        }
+
+        bool aReceiving = IsReceiving(a, now);
+        if (
+            aReceiving != IsReceiving(b, now)
+            && (
+                !damped
+                || (
+                    Since(a.ReceivingChangedAt, now) >= _timings.SwitchingDelay
+                    && Since(b.ReceivingChangedAt, now) >= _timings.SwitchingDelay
+                )
+            )
+        )
+        {
+            return aReceiving ? 1 : -1;
+        }
+
+        if (_role == IceRole.Controlled)
+        {
+            if (a.NominatedByPeer != b.NominatedByPeer)
+            {
+                return a.NominatedByPeer ? 1 : -1;
+            }
+
+            int data = (a.LastDataReceived ?? TimeSpan.MinValue).CompareTo(
+                b.LastDataReceived ?? TimeSpan.MinValue
+            );
+            if (data != 0)
+            {
+                return data;
+            }
+        }
+
+        return a.Priority.CompareTo(b.Priority);
+    }
+
+    private void Switch(CandidatePair pair, TimeSpan now)
+    {
+        if (_selected is { } previous)
+        {
+            previous.NominationCheck = false;
+        }
+
+        _selected = pair;
+        pair.Nominated = true;
+        pair.LastSent ??= now;
+
+        // The controlling agent nominates the new pair at once, so the controlled agent follows it.
+        if (_role == IceRole.Controlling)
+        {
+            pair.NominationCheck = true;
+            pair.TriggeredCheck = true;
+        }
+
+        LogSwitched(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
+        _metrics.SelectedPaths.Add(
+            1,
+            WebRtcMetrics.LocalKind(pair.Local.Candidate.Kind),
+            WebRtcMetrics.RemoteKind(pair.Remote.Kind),
+            WebRtcMetrics.Family(pair.Remote.Endpoint.AddressFamily)
+        );
+        SetState(IceConnectionState.Connected);
+    }
+
+    private bool IsWeak(TimeSpan now) =>
+        _selected is not { } selected || !IsWritable(selected, now) || !IsReceiving(selected, now);
+
+    private bool IsReceiving(CandidatePair pair, TimeSpan now) =>
+        Since(pair.LastReceived, now) <= _timings.ReceivingTimeout;
+
+    private static bool IsWritable(CandidatePair pair, TimeSpan now) =>
+        pair.State == PairState.Succeeded
+        && !(pair.Unanswered >= UnwritableChecks && Since(pair.LastResponse, now) > WriteTimeout);
+
+    private static bool IsStable(CandidatePair pair) =>
+        pair.RoundTripSamples >= StableRoundTrips && pair.Unanswered <= 1;
 
     private void SendBindingCheck(CandidatePair pair, TimeSpan now)
     {
@@ -639,13 +865,19 @@ internal sealed partial class IceStateMachine
                 : StunAttributeType.IceControlled,
             tieBreaker
         );
-        if (_role == IceRole.Controlling && pair.NominationCheck)
+        // The controlling agent nominates on every check of the selected pair (libwebrtc's semi-aggressive
+        // mode), so a controlled agent that missed the first nomination after a switch still sees one.
+        if (
+            _role == IceRole.Controlling
+            && (pair.NominationCheck || ReferenceEquals(pair, _selected))
+        )
         {
             writer.AddAttribute(StunAttributeType.UseCandidate, default);
         }
 
         writer.AddMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password));
         writer.AddFingerprint();
+        pair.Unanswered++;
         _inFlight[Convert.ToHexString(transaction)] = (pair, now);
         _transmits.Enqueue(
             new IceTransmit(pair.Local.Handle, pair.Remote.Endpoint, buffer[..writer.Length])
@@ -699,14 +931,14 @@ internal sealed partial class IceStateMachine
     [LoggerMessage(
         EventId = 1135,
         Level = LogLevel.Information,
-        Message = "ICE recovery: re-probing candidate pairs (SRTP session preserved)"
+        Message = "ICE re-checking candidate pairs (SRTP session preserved)"
     )]
     private partial void LogRecovery();
 
     [LoggerMessage(
         EventId = 1136,
         Level = LogLevel.Information,
-        Message = "ICE switched to warm pair {Local} -> {Remote} (SRTP session preserved)"
+        Message = "ICE switched to pair {Local} -> {Remote} (SRTP session preserved)"
     )]
     private partial void LogSwitched(IPEndPoint local, IPEndPoint remote);
 
@@ -748,14 +980,32 @@ internal sealed partial class IceStateMachine
 
         public TimeSpan? LastSent { get; set; }
 
+        // The last response to one of our checks: writability and consent.
         public TimeSpan? LastResponse { get; set; }
+
+        // The last anything received over the pair, checks or data: whether it is receiving.
+        public TimeSpan? LastReceived { get; set; }
+
+        public TimeSpan? LastDataReceived { get; set; }
+
+        public bool WasReceiving { get; set; }
+
+        public TimeSpan? ReceivingChangedAt { get; set; }
+
+        // Checks sent since the last response.
+        public int Unanswered { get; set; }
+
+        public int RoundTripSamples { get; private set; }
 
         // The pair's smoothed round trip from its checks, as libwebrtc's Connection keeps it: each sample
         // weighs one to the estimate's three.
         public TimeSpan? RoundTrip { get; private set; }
 
-        public void NoteRoundTrip(TimeSpan sample) =>
+        public void NoteRoundTrip(TimeSpan sample)
+        {
             RoundTrip = RoundTrip is { } smoothed ? ((smoothed * 3) + sample) / 4 : sample;
+            RoundTripSamples++;
+        }
 
         public int Transmits { get; set; }
     }
