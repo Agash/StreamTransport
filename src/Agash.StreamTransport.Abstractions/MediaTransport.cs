@@ -206,6 +206,12 @@ public record MediaTransportOptions
     /// retransmission round trip at the cost of repair traffic inside the same budget.
     /// </summary>
     public bool ForwardErrorCorrection { get; init; }
+
+    /// <summary>
+    /// Whether repairs (retransmissions, FEC) travel over a second path on another interface when one is
+    /// up, so a loss burst on one link is repaired over the other: a field device with two modems.
+    /// </summary>
+    public bool RepairOverSecondPath { get; init; }
 }
 
 /// <summary>

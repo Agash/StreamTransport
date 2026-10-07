@@ -114,6 +114,14 @@ public sealed class PeerConnectionOptions
     /// round trip and the media's frame size.
     /// </summary>
     public RecoveryPolicyOptions Recovery { get; init; } = new();
+
+    /// <summary>
+    /// Send retransmissions and FEC repairs over a second valid path, on another interface than the
+    /// media's, when one is up: a loss burst on one modem is repaired over the other. Those packets stay
+    /// out of the media path's congestion control, as a second path's do in multipath QUIC. Off by
+    /// default; the IRL profile turns it on.
+    /// </summary>
+    public bool RepairOverStandby { get; init; }
 }
 
 /// <summary>The aggregate connection state of a <see cref="PeerConnection"/> (ICE + DTLS).</summary>

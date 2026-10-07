@@ -704,6 +704,23 @@ public sealed partial class PeerConnection : IAsyncDisposable
         StampPacerExit(packet.Buffer, header.Ssrc, header.SequenceNumber);
         int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
         long now = NowMicros();
+        if (
+            _options.RepairOverStandby
+            && packet.Class is TrafficClass.Retransmission or TrafficClass.Repair
+            && agent.HasStandby
+        )
+        {
+            return SendOnStandbyAsync(
+                agent,
+                packet,
+                protectedLength,
+                header,
+                payloadLength,
+                now,
+                cancellationToken
+            );
+        }
+
         EcnCodepoint ecn = RecordSent(
             header.Ssrc,
             header.SequenceNumber,
@@ -724,6 +741,32 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         return agent.SendAsync(packet.Buffer.AsMemory(0, protectedLength), ecn, cancellationToken);
+    }
+
+    // A repair on the standby path: counted for reports and metrics, kept out of the media path's
+    // congestion control and feedback, and sent on the media path after all if the standby went away.
+    private async ValueTask SendOnStandbyAsync(
+        Ice.IceAgent agent,
+        PacedPacket packet,
+        int protectedLength,
+        RtpHeader header,
+        int payloadLength,
+        long now,
+        CancellationToken cancellationToken
+    )
+    {
+        RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
+        _metrics.StandbyRepairs.Add(1);
+        if (packet.Class == TrafficClass.Retransmission)
+        {
+            Interlocked.Increment(ref _rtxPacketsSent);
+        }
+
+        ReadOnlyMemory<byte> data = packet.Buffer.AsMemory(0, protectedLength);
+        if (!await agent.TrySendOnStandbyAsync(data, cancellationToken).ConfigureAwait(false))
+        {
+            await agent.SendAsync(data, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>

@@ -48,6 +48,7 @@ public sealed partial class IceAgent : IAsyncDisposable
 
     // The selected pair as one object, so a reader never sees one selection's socket with another's peer.
     private Selection? _selection;
+    private Selection? _standby;
     private readonly WebRtcMetrics _metrics;
 
     // Every socket has its own receive loop, and the old path and a warm standby both carry packets
@@ -292,6 +293,33 @@ public sealed partial class IceAgent : IAsyncDisposable
             .Socket.Socket.SendAsync(data, selection.Remote, ecn, cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Sends a datagram over the standby pair, a valid pair on another local interface than the selected
+    /// one, so repairs travel a path independent of the media's; false, and nothing sent, when there is
+    /// none.
+    /// </summary>
+    /// <param name="data">The datagram.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>Whether it was sent on a standby pair.</returns>
+    public async ValueTask<bool> TrySendOnStandbyAsync(
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (Volatile.Read(ref _standby) is not { } standby)
+        {
+            return false;
+        }
+
+        await standby
+            .Socket.Socket.SendAsync(data, standby.Remote, EcnCodepoint.NotEct, cancellationToken)
+            .ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>Whether a standby pair on another interface is ready for repairs.</summary>
+    public bool HasStandby => Volatile.Read(ref _standby) is not null;
 
     /// <summary>
     /// Re-checks every candidate pair at once, for a network change, while media keeps flowing on the
@@ -739,6 +767,18 @@ public sealed partial class IceAgent : IAsyncDisposable
                 !ReferenceEquals(previous?.Socket, next?.Socket)
                 || !Equals(previous?.Remote, next?.Remote);
             Volatile.Write(ref _selection, next);
+            Volatile.Write(
+                ref _standby,
+                _machine.Standby(Now) is { } standby
+                && _sockets.TryGetValue(standby.Local, out LocalSocket? other)
+                    ? new Selection(
+                        other,
+                        standby.Remote,
+                        IceCandidateKind.Host,
+                        IceCandidateKind.Host
+                    )
+                    : null
+            );
         }
 
         if (pathChanged)

@@ -365,6 +365,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             IceTransportPolicy = _options.IceTransportPolicy,
             IncludeLoopback = _options.IncludeLoopbackCandidates,
             LocalAddressPreferences = _options.LocalAddressPreferences,
+            RepairOverStandby = _options.RepairOverSecondPath,
         };
     }
 
