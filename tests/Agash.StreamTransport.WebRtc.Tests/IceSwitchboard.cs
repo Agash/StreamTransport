@@ -23,6 +23,9 @@ internal sealed class IceSwitchboard
 
     public TimeSpan Now { get; private set; }
 
+    /// <summary>How many connectivity checks (binding requests) have been delivered.</summary>
+    public int ChecksDelivered { get; private set; }
+
     /// <summary>A controlling and a controlled machine on the given addresses, trickling to each other.</summary>
     public (Peer Controlling, Peer Controlled) Pair(
         IPAddress[] controlling,
@@ -245,6 +248,11 @@ internal sealed class IceSwitchboard
 
         if (StunMessageReader.TryParse(transmit.Data, out StunMessageReader stun))
         {
+            if (stun.Class == StunMessageClass.Request)
+            {
+                ChecksDelivered++;
+            }
+
             to.Peer.Machine.HandleStun(to.Handle, source, stun, Now);
         }
     }

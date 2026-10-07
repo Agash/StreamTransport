@@ -408,6 +408,15 @@ internal sealed partial class IceStateMachine
             }
         }
 
+        // A triggered check answers a request on a pair not yet valid (RFC 8445 section 7.3.1.4); on a valid
+        // pair nothing further is done, as libwebrtc checks only pairs that are not writable. Answering
+        // every request with a check would bounce checks between the agents at the pacing rate and leave
+        // no room for the other pairs' checks.
+        if (pair.State == PairState.Succeeded)
+        {
+            return;
+        }
+
         if (pair.State is PairState.Frozen or PairState.Failed)
         {
             pair.State = PairState.Waiting;

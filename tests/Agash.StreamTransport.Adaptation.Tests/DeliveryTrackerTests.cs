@@ -200,7 +200,11 @@ public sealed class DeliveryTrackerTests
         );
         tracker.OnTick(TimeSpan.FromSeconds(1), observations);
 
-        Assert.AreEqual(20 * Ms, roundTrip, "the round trip comes from the new path's packet alone.");
+        Assert.AreEqual(
+            20 * Ms,
+            roundTrip,
+            "the round trip comes from the new path's packet alone."
+        );
         Assert.HasCount(1, observations);
         Assert.AreEqual(4, observations[0].Packet.Id);
         Assert.AreEqual(1, tracker.Count);

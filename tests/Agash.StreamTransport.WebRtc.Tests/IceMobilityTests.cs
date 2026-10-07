@@ -324,6 +324,21 @@ public sealed class IceMobilityTests
         Assert.AreEqual(selectedB, b.Machine.Selected);
     }
 
+    [TestMethod]
+    public void Connected_ChecksAtTheKeepAliveCadence_NotThePacingRate()
+    {
+        IceSwitchboard board = new();
+        _ = Connect(board, [IPAddress.Parse("10.0.0.1")], [IPAddress.Parse("10.0.0.2")]);
+        int before = board.ChecksDelivered;
+
+        _ = board.Stream(TimeSpan.FromMinutes(1));
+
+        // Each side pings the selected pair every 2.5 s once its round trip is stable: about 48 checks a
+        // minute. A check answering every request would bounce at the 50 ms pacing rate, about 2400.
+        int checks = board.ChecksDelivered - before;
+        Assert.IsLessThan(80, checks, $"{checks} checks in a quiet minute.");
+    }
+
     private static bool IsOnPeerOf(IceSwitchboard.Peer peer, IPAddress address) =>
         peer.Machine.Selected?.Remote.Address.Equals(address) == true;
 
