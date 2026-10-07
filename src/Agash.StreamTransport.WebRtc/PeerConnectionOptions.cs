@@ -1,4 +1,5 @@
 using System.Net;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
@@ -108,8 +109,11 @@ public sealed class PeerConnectionOptions
     /// </summary>
     public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
 
-    /// <summary>Media packets protected by one FlexFEC repair packet (1-15).</summary>
-    public int FecGroupSize { get; init; } = 10;
+    /// <summary>
+    /// How loss repair is planned when FlexFEC is negotiated: the FEC group size follows the path's loss,
+    /// round trip and the media's frame size.
+    /// </summary>
+    public RecoveryPolicyOptions Recovery { get; init; } = new();
 }
 
 /// <summary>The aggregate connection state of a <see cref="PeerConnection"/> (ICE + DTLS).</summary>
