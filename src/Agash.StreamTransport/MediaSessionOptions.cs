@@ -96,8 +96,12 @@ public sealed record MediaSessionOptions
     /// <summary>The packet loss audio plans redundancy for, in percent.</summary>
     public int AudioExpectedLossPercent { get; init; } = 10;
 
-    /// <summary>How the receiver releases frames.</summary>
-    public PlayoutMode Playout { get; init; } = PlayoutMode.OnArrival;
+    /// <summary>
+    /// How the receiver releases frames: synced by capture time by default, so audio and video lip-sync
+    /// whatever their paths' latencies, as libwebrtc always syncs them; <see cref="PlayoutMode.OnArrival"/>
+    /// for a monitor where the lowest latency matters more than sync.
+    /// </summary>
+    public PlayoutMode Playout { get; init; } = PlayoutMode.Synced;
 
     /// <summary>The shortest playout buffer in synced playout.</summary>
     public TimeSpan MinPlayoutDelay { get; init; } = TimeSpan.FromMilliseconds(40);

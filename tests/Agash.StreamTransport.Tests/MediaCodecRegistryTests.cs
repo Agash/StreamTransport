@@ -126,7 +126,7 @@ public sealed class MediaCodecRegistryTests
             EncodeTuning.ScreenContent,
             MediaSessionOptions.For(MediaProfile.ScreenShare).VideoTuning
         );
-        Assert.AreEqual(PlayoutMode.OnArrival, new MediaSessionOptions().Playout);
+        Assert.AreEqual(PlayoutMode.Synced, new MediaSessionOptions().Playout);
     }
 
     private static VideoEncoderConfiguration Configuration() =>
