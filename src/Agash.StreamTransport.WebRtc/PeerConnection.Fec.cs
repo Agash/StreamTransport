@@ -1,7 +1,9 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
+using Agash.StreamTransport.WebRtc.Srtp;
 
 namespace Agash.StreamTransport.WebRtc;
 
@@ -13,7 +15,7 @@ namespace Agash.StreamTransport.WebRtc;
 /// </summary>
 public sealed partial class PeerConnection
 {
-    private readonly List<FecSourcePacket> _fecSendWindow = [];
+    private readonly FlexFecAccumulator _fecAccumulator = new();
     private readonly Lock _fecGate = new();
     private readonly Dictionary<ushort, FecSourcePacket> _fecRecvCache = [];
     private readonly Queue<ushort> _fecRecvOrder = [];
@@ -76,10 +78,11 @@ public sealed partial class PeerConnection
         return new FecSourcePacket(seq, headerBits, pt, ts, cleartextRtp[12..].ToArray());
     }
 
-    // Send side: accumulate the protected media packet; return a repair body to send once a group is complete
-    // (the caller sends it after the media packet, on the same chain, so SRTP protect is never concurrent).
-    // Every protected packet counts toward the frame statistics the policy plans from.
-    private byte[]? AccumulateFec(ReadOnlySpan<byte> cleartextRtp)
+    // Send side: fold the protected media packet into the group's parity, in place; once the group is
+    // complete, the repair RTP packet, written straight from the parity into a pooled buffer, for the
+    // caller to queue after the media packet. Every protected packet counts toward the frame statistics
+    // the policy plans from.
+    private PacedPacket? AccumulateFec(ReadOnlySpan<byte> cleartextRtp, FecSender sender)
     {
         _ = Interlocked.Increment(ref _protectedPackets);
         if ((cleartextRtp[1] & 0x80) != 0)
@@ -92,19 +95,34 @@ public sealed partial class PeerConnection
         {
             if (group <= 0)
             {
-                _fecSendWindow.Clear();
+                _fecAccumulator.Reset();
                 return null;
             }
 
-            _fecSendWindow.Add(ToFecSource(cleartextRtp));
-            if (_fecSendWindow.Count < Math.Min(group, FlexFec.MaxProtected))
+            _fecAccumulator.Add(cleartextRtp);
+            if (
+                !_fecAccumulator.TryComplete(
+                    Math.Min(group, FlexFec.MaxProtected),
+                    out ReadOnlySpan<byte> body
+                )
+            )
             {
                 return null;
             }
 
-            byte[] repair = FlexFec.BuildRepair(_fecSendWindow);
-            _fecSendWindow.Clear();
-            return repair;
+            byte[] repair = ArrayPool<byte>.Shared.Rent(
+                RtpPacket.FixedHeaderLength + body.Length + SrtpSession.MaxProtectionOverhead
+            );
+            int length = RtpPacket.Write(
+                repair,
+                false,
+                sender.PayloadType,
+                NextSequence(sender.FecSsrc),
+                0,
+                sender.FecSsrc,
+                body
+            );
+            return new PacedPacket(repair, length, TrafficClass.Repair);
         }
     }
 
