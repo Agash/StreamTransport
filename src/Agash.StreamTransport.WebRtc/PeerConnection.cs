@@ -590,10 +590,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
 
         // FlexFEC protects the video stream: the cleartext is what FEC XORs.
-        FecSender? fecSender = Volatile.Read(ref _fec).Send;
-        byte[]? fecRepair =
-            fecSender is { } protecting && ssrc == protecting.ProtectedSsrc
-                ? AccumulateFec(packet)
+        PacedPacket? fecRepair =
+            Volatile.Read(ref _fec).Send is { } protecting && ssrc == protecting.ProtectedSsrc
+                ? AccumulateFec(packet, protecting)
                 : null;
 
         // Kept for a NACK-driven RTX retransmission.
@@ -611,21 +610,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         );
 
         // The repair rides its own SSRC behind the group it protects, and is not itself protected.
-        if (fecRepair is not null && fecSender is { } fecTo)
+        if (fecRepair is { } repair)
         {
-            byte[] repair = ArrayPool<byte>.Shared.Rent(
-                RtpPacket.FixedHeaderLength + fecRepair.Length + SrtpSession.MaxProtectionOverhead
-            );
-            int repairLength = RtpPacket.Write(
-                repair,
-                false,
-                fecTo.PayloadType,
-                NextSequence(fecTo.FecSsrc),
-                0,
-                fecTo.FecSsrc,
-                fecRepair
-            );
-            _pacer.Enqueue(new PacedPacket(repair, repairLength, TrafficClass.Repair));
+            _pacer.Enqueue(repair);
         }
 
         return true;
