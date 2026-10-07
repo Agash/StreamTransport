@@ -16,8 +16,7 @@ the device cannot do it, chosen by a capability probe, never the default. Status
   fallback rebuilt per frame (Z9).
 - Metal: in place: the kernel writes the IOSurface's plane textures.
 - Still copying, to fix toward this goal: Windows 1080p transcode 1088/1152 alignment (Z10), decoded
-  frames into PipeWire sink buffers (Z23), the FlexFEC receive cache (F23 receive side; the send side
-  accumulates in place).
+  frames into PipeWire sink buffers (Z23), nothing else on the FlexFEC path (F23 done).
 
 ## Where we are (2026-10-07)
 
@@ -150,7 +149,7 @@ From an external brief, every item checked against the code at `f2e589a` and the
 | A10 | x-alpha is advertised from the application's offer, not derived from the chosen encoder/decoder capability (WebRtcMediaTransport ~428) [V partially]; Layer must be negotiated only when encoder and decoder really do it | not a defect [V]: MediaSession.AlphaWays offers Layer only when the registry has an encoder (CanEncodeAlphaLayer) or decoder (CanDecodeAlphaLayer) of it, and encoder/decoder selection filters on EncodesAlphaLayer/DecodesAlphaLayer when Layer is negotiated (MediaCodecRegistry 109, 142, 216). The real gap is A9 (VideoToolbox hardware decode) |
 | A11 | QSV HEVC alpha_encode exists in FFmpeg (Windows, D3D11 RGBA) but no matching hardware decode; defer until a decoder exposes the layer [report] | deferred |
 | C1 | Codec roadmap: VVC/H.266 (RFC 9328 RTP payload; FFmpeg 9 native vvc decoder, libvvenc encoder; check realtime viability in software and alpha via AUX_ALPHA/H.274), AV1 complete (RTP spec, SVC), AV2 prep (ALPHA_AUX). Compare and decide with measurements | todo: research |
-| F23 | FlexFEC copies each protected packet's payload (ToFecSource .ToArray()) and each recovered packet; keep a reference into the pooled send buffer for the group's lifetime instead | send side done: FlexFecAccumulator XORs each protected packet into one running parity buffer (vectorized) and the repair RTP packet is written straight from it into a pooled buffer: no per-packet copy or allocation; byte-identical to BuildRepair (tests). Receive side still copies each protected packet into its 256-packet cache (receive buffers are reused); a fixed ring of pooled slots would remove the allocations, todo |
+| F23 | FlexFEC copied each protected packet's payload on both sides | done: send side accumulates parity in place (2f102e5); receive side keeps the peer's last 256 protected packets in a fixed ring of reused 1500-byte slots indexed by sequence modulo 256, no allocation per packet (one copy remains, since receive buffers are reused) |
 | F15 | `WasapiTests.SinkToLoopbackSource_CarriesTheToneWithCaptureTimes` depends on the machine's output volume: it reads the tone back through the default output's loopback and fails when the output is muted or low (0.0007 RMS seen 2026-10-07). Read the endpoint volume and mute state and make the test inconclusive when the loopback cannot carry the tone [S] | open |
 | F16 | Path MTU: PTB messages (ICMP Packet Too Big) are not used; RFC 8899 4.6 makes them optional and they would need validation against the quoted packet. The relayed-pair maximum reserves the worst TURN framing (52 bytes); a pair on ChannelData could use 48 more [S] | open |
 | T17 | DSCP: not set anywhere; orthogonal to ECN, an optimisation only [S] | deferred (after T11) |
