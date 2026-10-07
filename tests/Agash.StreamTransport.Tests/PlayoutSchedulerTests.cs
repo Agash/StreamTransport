@@ -17,62 +17,126 @@ public sealed class PlayoutSchedulerTests
         Assert.IsFalse(timeline.IsAnchored);
 
         // Captured at sender 5 s, arriving at local 6 s: the offset is 1 s.
-        MediaTime first = timeline.Release(Sender(5_000), Local(6_000));
+        MediaTime first = timeline.Release(PlayoutStream.Audio, Sender(5_000), Local(6_000));
         Assert.IsTrue(timeline.IsAnchored);
         Assert.AreEqual(Local(6_000) + Fixed, first);
 
         // The other stream's frame of the same instant arrives 30 ms later and releases with it.
-        MediaTime second = timeline.Release(Sender(5_000), Local(6_030));
+        MediaTime second = timeline.Release(PlayoutStream.Video, Sender(5_000), Local(6_030));
         Assert.AreEqual(first.Nanoseconds, second.Nanoseconds, 1_000_000);
     }
 
+    // Video runs 100 ms behind audio on every frame: that is its path, not jitter. Audio is held back by it,
+    // so frames captured together release together, and the buffer is the lag plus the margin.
     [TestMethod]
-    public void Timeline_LateTransient_DoesNotRaiseTheOffsetButAFasterPathLowersIt()
+    public void Timeline_SystematicVideoLag_HoldsAudioBackWithoutCountingAsJitter()
     {
-        PlayoutTimeline timeline = new(Fixed, Fixed, TimeSpan.Zero);
-        _ = timeline.Release(Sender(5_000), Local(6_000));
+        PlayoutTimeline timeline = Adaptive();
+        (MediaTime Audio, MediaTime Video) last = default;
+        for (int i = 0; i < 90; i++)
+        {
+            long captured = 5_000 + (i * 33);
+            MediaTime audio = timeline.Release(
+                PlayoutStream.Audio,
+                Sender(captured),
+                Local(captured + 1_000)
+            );
+            MediaTime video = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_100)
+            );
+            last = (audio, video);
+        }
 
-        // 200 ms late: the minimum offset keeps the next normal frame on 1 s.
-        _ = timeline.Release(Sender(5_100), Local(6_300));
-        MediaTime normal = timeline.Release(Sender(5_200), Local(6_200));
-        Assert.AreEqual((Local(6_200) + Fixed).Nanoseconds, normal.Nanoseconds, 1_000_000);
-
-        // A path 60 ms faster is taken at once.
-        _ = timeline.Release(Sender(5_300), Local(6_240));
-        MediaTime lower = timeline.Release(Sender(5_400), Local(6_340));
-        Assert.AreEqual((Local(6_340) + Fixed).Nanoseconds, lower.Nanoseconds, 1_000_000);
+        Assert.AreEqual(120, timeline.CurrentDelay.TotalMilliseconds, 1, "the lag and the margin");
+        Assert.AreEqual(last.Audio.Nanoseconds, last.Video.Nanoseconds, 1_000_000);
     }
 
+    // Encoders opening and keyframes bursting make the first frames late; they do not size the buffer.
     [TestMethod]
-    public void Timeline_Jitter_GrowsTheBufferWithinItsBounds()
+    public void Timeline_StartupSpike_DoesNotSizeTheBuffer()
     {
-        PlayoutTimeline timeline = new(
-            TimeSpan.FromMilliseconds(40),
-            TimeSpan.FromMilliseconds(300),
-            TimeSpan.FromMilliseconds(20)
-        );
-        _ = timeline.Release(Sender(5_000), Local(6_000));
-        Assert.AreEqual(
-            TimeSpan.FromMilliseconds(40),
-            timeline.CurrentDelay,
-            "a clean link sits at the floor"
-        );
+        PlayoutTimeline timeline = Adaptive();
+        for (int i = 0; i < 90; i++)
+        {
+            long captured = 5_000 + (i * 33);
+            long late = i < 10 ? 300 : 0;
+            _ = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_000 + late)
+            );
+        }
 
-        _ = timeline.Release(Sender(5_100), Local(6_200));
-        Assert.AreEqual(
-            120,
-            timeline.CurrentDelay.TotalMilliseconds,
-            0.1,
-            "100 ms of jitter plus the margin"
-        );
+        Assert.AreEqual(20, timeline.TargetDelay.TotalMilliseconds, 1, "the margin alone");
+    }
 
-        _ = timeline.Release(Sender(5_200), Local(6_700));
+    // Half the frames 50 ms late: the 95th percentile covers them; a lone huge spike is clamped, not trusted.
+    [TestMethod]
+    public void Timeline_Jitter_IsCoveredAtItsPercentile_AndAnOutlierIsClamped()
+    {
+        PlayoutTimeline timeline = Adaptive();
+        for (int i = 0; i < 120; i++)
+        {
+            long captured = 5_000 + (i * 33);
+            long late = i % 2 == 0 ? 50 : 0;
+            _ = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_000 + late)
+            );
+        }
+
+        Assert.AreEqual(70, timeline.TargetDelay.TotalMilliseconds, 1, "the jitter and the margin");
+
+        // A frame captured five seconds ago arrives now, among the others.
+        long next = 5_000 + (120 * 33);
+        _ = timeline.Release(PlayoutStream.Video, Sender(next - 5_000), Local(next + 1_000));
         Assert.AreEqual(
-            TimeSpan.FromMilliseconds(300),
-            timeline.CurrentDelay,
-            "capped at the maximum"
+            70,
+            timeline.TargetDelay.TotalMilliseconds,
+            1,
+            "one spike does not move the percentile"
         );
     }
+
+    // The buffer shrinks at most 100 ms a second, so playout speeds up instead of skipping.
+    [TestMethod]
+    public void Timeline_Delay_ShrinksAtMost100MillisecondsASecond()
+    {
+        PlayoutTimeline timeline = Adaptive();
+        long captured = 5_000;
+        for (int i = 0; i < 90; i++, captured += 33)
+        {
+            long late = i >= 30 && i % 2 == 0 ? 300 : 0;
+            _ = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_000 + late)
+            );
+        }
+
+        double high = timeline.CurrentDelay.TotalMilliseconds;
+        Assert.IsGreaterThan(250, high);
+
+        // The jitter ends; two seconds on, the window has forgotten it, and the delay has come down by at most
+        // a hundred milliseconds for each second.
+        for (int i = 0; i < 90; i++, captured += 33)
+        {
+            _ = timeline.Release(PlayoutStream.Video, Sender(captured), Local(captured + 1_000));
+        }
+
+        double seconds = 90 * 0.033;
+        Assert.IsGreaterThanOrEqualTo(
+            high - (100 * seconds) - 1,
+            timeline.CurrentDelay.TotalMilliseconds
+        );
+        Assert.IsLessThan(high, timeline.CurrentDelay.TotalMilliseconds);
+    }
+
+    private static PlayoutTimeline Adaptive() =>
+        new(TimeSpan.Zero, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(20));
 
     [TestMethod]
     public async Task Scheduler_ReleasesInCaptureOrderWhenDue()
@@ -85,9 +149,17 @@ public sealed class PlayoutSchedulerTests
         );
         var start = NtpTime.From(time.GetUtcNow());
 
-        scheduler.Schedule(start + TimeSpan.FromMilliseconds(20), played.Entry(2));
-        scheduler.Schedule(start, played.Entry(0));
-        scheduler.Schedule(start + TimeSpan.FromMilliseconds(10), played.Entry(1));
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(20),
+            played.Entry(2)
+        );
+        scheduler.Schedule(PlayoutStream.Video, start, played.Entry(0));
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(10),
+            played.Entry(1)
+        );
 
         time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
         await played.WaitForAsync(3);
@@ -104,7 +176,7 @@ public sealed class PlayoutSchedulerTests
             new MediaClock(time)
         );
 
-        scheduler.Schedule(NtpTime.From(time.GetUtcNow()), played.Entry(0));
+        scheduler.Schedule(PlayoutStream.Video, NtpTime.From(time.GetUtcNow()), played.Entry(0));
         time.Advance(Fixed - TimeSpan.FromMilliseconds(1));
         time.Advance(TimeSpan.FromMilliseconds(1));
         await played.WaitForAsync(1);
@@ -123,8 +195,13 @@ public sealed class PlayoutSchedulerTests
         );
         var now = NtpTime.From(time.GetUtcNow());
 
-        scheduler.Schedule(now, played.Entry(1), TimeSpan.FromMilliseconds(50));
-        scheduler.Schedule(now, played.Entry(0));
+        scheduler.Schedule(
+            PlayoutStream.Audio,
+            now,
+            played.Entry(1),
+            TimeSpan.FromMilliseconds(50)
+        );
+        scheduler.Schedule(PlayoutStream.Video, now, played.Entry(0));
         time.Advance(Fixed);
         await played.WaitForAsync(1);
         time.Advance(TimeSpan.FromMilliseconds(50));
@@ -144,7 +221,7 @@ public sealed class PlayoutSchedulerTests
             new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
             new MediaClock(time)
         );
-        scheduler.Schedule(NtpTime.From(time.GetUtcNow()), entry);
+        scheduler.Schedule(PlayoutStream.Video, NtpTime.From(time.GetUtcNow()), entry);
 
         await scheduler.DisposeAsync();
 

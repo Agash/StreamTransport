@@ -77,7 +77,11 @@ internal sealed class Playout : IAsyncDisposable
     {
         if (_scheduler is { } scheduler && capture is { } at)
         {
-            scheduler.Schedule(at, new VideoEntry(frame.Retain(), sink, at, _sync, presented));
+            scheduler.Schedule(
+                PlayoutStream.Video,
+                at,
+                new VideoEntry(frame.Retain(), sink, at, _sync, presented)
+            );
             _metrics.PlayoutDelay.Record(scheduler.CurrentDelay.TotalSeconds);
         }
         else
@@ -101,6 +105,7 @@ internal sealed class Playout : IAsyncDisposable
         if (_scheduler is { } scheduler && capture is { } at)
         {
             scheduler.Schedule(
+                PlayoutStream.Audio,
                 at,
                 new AudioEntry(frame.Retain(), sink, at, _sync),
                 AudioOutputOffset

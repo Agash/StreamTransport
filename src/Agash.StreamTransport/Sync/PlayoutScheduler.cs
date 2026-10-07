@@ -58,14 +58,20 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
     /// Holds an entry until the frame captured at a sender instant is due, shifted by an extra delay
     /// (the difference between the output paths' own latencies, which may be negative).
     /// </summary>
+    /// <param name="stream">The entry's stream.</param>
     /// <param name="capture">The sender's capture instant.</param>
     /// <param name="entry">The entry, which the scheduler now owns.</param>
     /// <param name="extraDelay">How much later than its slot the entry plays.</param>
-    public void Schedule(NtpTime capture, IPlayoutEntry entry, TimeSpan extraDelay = default)
+    public void Schedule(
+        PlayoutStream stream,
+        NtpTime capture,
+        IPlayoutEntry entry,
+        TimeSpan extraDelay = default
+    )
     {
         lock (_gate)
         {
-            MediaTime release = _timeline.Release(capture, _clock.Now) + extraDelay;
+            MediaTime release = _timeline.Release(stream, capture, _clock.Now) + extraDelay;
             _queue.Enqueue(entry, release);
         }
 
