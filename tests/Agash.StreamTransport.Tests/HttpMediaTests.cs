@@ -26,6 +26,71 @@ public sealed class HttpMediaTests
 
     public TestContext TestContext { get; set; } = null!;
 
+    // A video sink that takes 100 ms to show a frame: the session plays audio 100 ms later to match, from
+    // the sink's own OutputLatency, with nothing set by the application.
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task Whip_VideoSinkLatency_DelaysAudioToMatch()
+    {
+        TestSignalAnalyzer analyzer = new();
+        await using WebApplication app = await StartAsync(web =>
+            web.MapWhip(
+                "/whip",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(
+                            new MediaEndpoints
+                            {
+                                VideoSink = analyzer.WrapVideo(new LatentVideoSink()),
+                                AudioSink = analyzer.WrapAudio(),
+                            },
+                            Loopback()
+                        )
+                    )
+            )
+        );
+        TestSignalGenerator generator = new();
+        using IVideoInput video = await new TestSignalVideoInputProvider(generator).OpenAsync(
+            new VideoInputInfo("test", "signal", "Test signal", MediaInputKind.Generated, []),
+            new VideoInputRequest { Size = new VideoSize(640, 360), FrameRate = 30 },
+            CancellationToken.None
+        );
+        using IAudioInput audio = await new TestSignalAudioInputProvider(generator).OpenAsync(
+            new AudioInputInfo("test", "signal", "Test signal", MediaInputKind.Generated),
+            CancellationToken.None
+        );
+        HttpMediaSession publishing = await WhipClient.PublishAsync(
+            app.Services.GetRequiredService<IMediaSessionFactory>(),
+            new Uri(Address(app), "/whip"),
+            new MediaEndpoints { VideoSource = video, AudioSource = audio },
+            Loopback()
+        );
+        await using (publishing)
+        {
+            await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
+            while (analyzer.Measure().Pairs < 1)
+            {
+                await Task.Delay(200);
+            }
+
+            analyzer.Reset();
+            while (analyzer.Measure().Pairs < 3)
+            {
+                await Task.Delay(200);
+            }
+        }
+
+        TestSignalMeasurement measured = analyzer.Measure();
+        TestContext.WriteLine(measured.ToString());
+        Assert.IsLessThan(
+            40,
+            Math.Abs(
+                measured.MeanOffset.TotalMilliseconds - LatentVideoSink.Latency.TotalMilliseconds
+            ),
+            measured.ToString()
+        );
+    }
+
     [TestMethod]
     [Timeout(60_000)]
     public async Task Whip_PublishedTestSignal_ArrivesAndIsInSync()
@@ -473,4 +538,17 @@ public sealed class HttpMediaTests
                 .Features.Get<IServerAddressesFeature>()!
                 .Addresses.First()
         );
+
+    // A video sink that shows frames 100 ms after it takes them, as a compositor or display does.
+    private sealed class LatentVideoSink : IVideoSink
+    {
+        public static readonly TimeSpan Latency = TimeSpan.FromMilliseconds(100);
+
+        public VideoConstraints Constraints { get; } =
+            VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420);
+
+        public TimeSpan? OutputLatency => Latency;
+
+        public void OnFrame(in VideoFrame frame) { }
+    }
 }

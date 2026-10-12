@@ -81,6 +81,15 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         _transport.CapacityChanged += OnCapacity;
         _transport.KeyframeRequested += OnKeyframeRequested;
         _transport.CircuitBreakerChanged += OnCircuitBreaker;
+        if (_endpoints.AudioSink is not null || _endpoints.VideoSink is not null)
+        {
+            _outputLatency = services.Clock.TimeProvider.CreateTimer(
+                static state => ((MediaSession)state!).ApplyAudioOutputOffset(),
+                this,
+                TimeSpan.Zero,
+                OutputLatencyInterval
+            );
+        }
         services.Metrics.SessionsActive.Add(1, StreamTransportMetrics.Role(role));
     }
 
@@ -117,10 +126,33 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
             _playout.AvSyncOffset
         );
 
-    public TimeSpan AudioOutputOffset
+    public TimeSpan? AudioOutputOffset
     {
-        get => _playout.AudioOutputOffset;
-        set => _playout.AudioOutputOffset = value;
+        get;
+        set
+        {
+            field = value;
+            ApplyAudioOutputOffset();
+        }
+    }
+    private readonly ITimer? _outputLatency;
+
+    private static readonly TimeSpan OutputLatencyInterval = TimeSpan.FromSeconds(1);
+
+    // The offset the playout uses: the application's, or the video sink's output latency less the audio
+    // sink's. Sinks report theirs once running and as their buffers change, so it is read again every
+    // second; a change under a millisecond is left alone, so playout does not jitter with the sinks'
+    // buffer levels.
+    private void ApplyAudioOutputOffset()
+    {
+        TimeSpan offset =
+            AudioOutputOffset
+            ?? (_endpoints.VideoSink?.OutputLatency ?? TimeSpan.Zero)
+                - (_endpoints.AudioSink?.OutputLatency ?? TimeSpan.Zero);
+        if ((offset - _playout.AudioOutputOffset).Duration() >= TimeSpan.FromMilliseconds(1))
+        {
+            _playout.AudioOutputOffset = offset;
+        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken = default)
@@ -162,6 +194,10 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         }
 
         _services.Metrics.SessionsActive.Add(-1, StreamTransportMetrics.Role(_role));
+        if (_outputLatency is not null)
+        {
+            await _outputLatency.DisposeAsync().ConfigureAwait(false);
+        }
         if (_videoSend is not null)
         {
             await _videoSend.DisposeAsync().ConfigureAwait(false);

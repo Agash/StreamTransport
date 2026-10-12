@@ -62,7 +62,7 @@ public sealed partial class CoreAudioSink : IAudioSink, IDisposable
     /// How long audio takes from this sink to the speaker: what a session's audio output offset is
     /// measured against.
     /// </summary>
-    public TimeSpan OutputLatency =>
+    public TimeSpan? OutputLatency =>
         TimeSpan.FromSeconds(_engine.OutputNode.PresentationLatency + _engine.OutputNode.Latency);
 
     /// <inheritdoc/>

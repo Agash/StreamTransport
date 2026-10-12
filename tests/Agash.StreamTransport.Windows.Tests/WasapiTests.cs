@@ -36,7 +36,8 @@ public sealed class WasapiTests
         TimeSpan latency;
         try
         {
-            latency = await sink.OutputLatency.WaitAsync(TimeSpan.FromSeconds(5));
+            await sink.Started.WaitAsync(TimeSpan.FromSeconds(5));
+            latency = sink.OutputLatency!.Value;
         }
         catch (COMException exception)
         {

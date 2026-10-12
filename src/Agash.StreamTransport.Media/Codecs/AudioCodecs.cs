@@ -153,6 +153,13 @@ public interface IAudioLossRecovery
 /// <summary>A consumer of audio that states the PCM it accepts.</summary>
 public interface IAudioSink : IAudioFrameConsumer
 {
+    /// <summary>
+    /// How long audio takes from this sink to the listener (the device's buffer and its own latency), when
+    /// the sink knows; null when it does not or has not started. A session plays audio and video so they
+    /// reach the viewer together from this and the video sink's.
+    /// </summary>
+    TimeSpan? OutputLatency => null;
+
     /// <summary>The PCM it takes as it is.</summary>
     AudioConstraints Constraints { get; }
 }

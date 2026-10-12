@@ -231,6 +231,8 @@ public sealed class TestSignalAnalyzer
         public VideoConstraints Constraints { get; } =
             inner?.Constraints ?? VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420);
 
+        public TimeSpan? OutputLatency => inner?.OutputLatency;
+
         public void OnFrame(in VideoFrame frame)
         {
             analyzer.OnVideo(in frame);
@@ -242,6 +244,8 @@ public sealed class TestSignalAnalyzer
     {
         public AudioConstraints Constraints { get; } =
             inner?.Constraints ?? new AudioConstraints([48_000], [SampleFormat.F32], 2);
+
+        public TimeSpan? OutputLatency => inner?.OutputLatency;
 
         public void OnFrame(in AudioFrame frame)
         {

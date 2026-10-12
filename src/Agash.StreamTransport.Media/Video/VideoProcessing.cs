@@ -118,6 +118,12 @@ public interface IVideoProcessorFactory
 /// </summary>
 public interface IVideoSink : IVideoFrameConsumer
 {
+    /// <summary>
+    /// How long a frame takes from this sink to the viewer (the compositor or application reading it),
+    /// when the sink knows; null when it does not.
+    /// </summary>
+    TimeSpan? OutputLatency => null;
+
     /// <summary>The storages, formats and GPU it accepts.</summary>
     VideoConstraints Constraints { get; }
 

@@ -89,7 +89,7 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
     /// How much later received audio plays than its synced slot, as <see cref="IMediaSession.AudioOutputOffset"/>;
     /// applied to the current session and every later one.
     /// </summary>
-    public TimeSpan AudioOutputOffset
+    public TimeSpan? AudioOutputOffset
     {
         get;
         set

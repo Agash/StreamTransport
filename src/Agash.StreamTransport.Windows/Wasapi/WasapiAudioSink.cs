@@ -43,7 +43,10 @@ public sealed partial class WasapiAudioSink : IAudioSink, IDisposable
     /// How long audio takes from this sink to the speaker, once the device has started: what a session's
     /// audio output offset is measured against.
     /// </summary>
-    public Task<TimeSpan> OutputLatency => _started.Task;
+    public TimeSpan? OutputLatency { get; private set; }
+
+    /// <summary>Completes once the device has started; faults when there is no output device.</summary>
+    public Task Started => _started.Task;
 
     /// <inheritdoc/>
     public void OnFrame(in AudioFrame frame)
@@ -80,6 +83,7 @@ public sealed partial class WasapiAudioSink : IAudioSink, IDisposable
             {
                 Fill(client, render);
                 client.Start();
+                OutputLatency = client.Latency;
                 _ = _started.TrySetResult(client.Latency);
                 WaitHandle[] waits = [client.Ready, _stop];
                 while (WaitHandle.WaitAny(waits) == 0)

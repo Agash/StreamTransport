@@ -93,9 +93,10 @@ public interface IMediaSession : IAsyncDisposable
 
     /// <summary>
     /// How much later received audio plays than its synced slot: the video output path's latency less
-    /// the audio output's, so the two reach the viewer together. Negative plays audio earlier.
+    /// the audio output's, so the two reach the viewer together. Negative plays audio earlier. Null, the
+    /// default, takes it from the sinks' <c>OutputLatency</c> as they report it; a value overrides them.
     /// </summary>
-    TimeSpan AudioOutputOffset { get; set; }
+    TimeSpan? AudioOutputOffset { get; set; }
 
     /// <summary>Starts negotiating over the session's signaling channel.</summary>
     /// <param name="cancellationToken">Cancels starting.</param>

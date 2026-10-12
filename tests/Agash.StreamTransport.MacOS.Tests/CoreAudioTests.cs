@@ -27,7 +27,9 @@ public sealed class CoreAudioTests
         using (sink)
         {
             Assert.IsTrue(
-                sink.OutputLatency >= TimeSpan.Zero && sink.OutputLatency < TimeSpan.FromSeconds(1),
+                sink.OutputLatency is { } latency
+                    && latency >= TimeSpan.Zero
+                    && latency < TimeSpan.FromSeconds(1),
                 $"Latency {sink.OutputLatency}."
             );
             using PeriodicTimer period = new(TimeSpan.FromMilliseconds(10));
