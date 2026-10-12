@@ -14,11 +14,13 @@ public sealed class GpuInputTests
 {
     private const int FrameCount = 20;
 
+    // Padding stands for a decoder's surface: taller than the picture, which sits at its top-left.
     public static IEnumerable<object[]> Cases =>
         from row in Backends.EncoderCodecs
         from storage in new[] { VideoStorageKind.D3D12, VideoStorageKind.D3D11 }
         where Backends.Encodes(row.Backend, storage)
-        select new object[] { row.Backend, row.Codec, storage };
+        from padding in storage == VideoStorageKind.D3D12 ? new[] { 0, 8 } : [0]
+        select new object[] { row.Backend, row.Codec, storage, padding };
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
@@ -27,7 +29,8 @@ public sealed class GpuInputTests
     public void Encode_DirectXSurface_DecodesToThePicturesSent(
         EncoderBackend backend,
         VideoCodecId codec,
-        VideoStorageKind storage
+        VideoStorageKind storage,
+        int padding
     )
     {
         FFmpegVideoEncoderFactory factory = new(backend);
@@ -58,7 +61,7 @@ public sealed class GpuInputTests
             storage == VideoStorageKind.D3D12 ? FF.PixelFormat.D3D12 : FF.PixelFormat.D3D11,
             FF.PixelFormat.Nv12,
             Pictures.Width,
-            Pictures.Height
+            Pictures.Height + padding
         );
 
         using IVideoEncoder encoder = factory.Create(
@@ -74,8 +77,8 @@ public sealed class GpuInputTests
         using FF.Frame surface = new();
         for (int i = 0; i < FrameCount; i++)
         {
-            staging.AllocateVideo(Pictures.Width, Pictures.Height, FF.PixelFormat.Nv12);
-            staging.CopyImageFrom(Pictures.Make(PixelFormat.Nv12, i));
+            staging.AllocateVideo(Pictures.Width, Pictures.Height + padding, FF.PixelFormat.Nv12);
+            staging.CopyImageFrom(Padded(Pictures.Make(PixelFormat.Nv12, i), padding));
             surface.Reset();
             surfaces.Upload(staging, surface);
             VideoStorage image =
@@ -93,7 +96,11 @@ public sealed class GpuInputTests
                         : throw new AssertFailedException("The upload made no D3D11 texture.");
             VideoFrame frame = new(
                 image,
-                new VideoFormat(PixelFormat.Nv12, Pictures.Width, Pictures.Height),
+                new VideoFormat(
+                    PixelFormat.Nv12,
+                    new VideoSize(Pictures.Width, Pictures.Height + padding),
+                    new VideoRect(0, 0, Pictures.Width, Pictures.Height)
+                ),
                 Pictures.Timestamp(i),
                 retainer: new SurfaceRetainer(surface)
             );
@@ -113,5 +120,22 @@ public sealed class GpuInputTests
                 $"Frame {i} decodes to other content than the surface held."
             );
         }
+    }
+
+    // An NV12 picture with rows of mid grey below each plane.
+    private static byte[] Padded(byte[] picture, int padding)
+    {
+        if (padding == 0)
+        {
+            return picture;
+        }
+
+        int luma = Pictures.Width * Pictures.Height;
+        int paddedLuma = Pictures.Width * (Pictures.Height + padding);
+        byte[] padded = new byte[paddedLuma * 3 / 2];
+        Array.Fill(padded, (byte)128);
+        picture.AsSpan(0, luma).CopyTo(padded);
+        picture.AsSpan(luma).CopyTo(padded.AsSpan(paddedLuma));
+        return padded;
     }
 }

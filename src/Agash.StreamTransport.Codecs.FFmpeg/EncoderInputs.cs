@@ -187,9 +187,10 @@ internal sealed class D3D12Input : EncoderInput
 
     public override FF.HardwareDevice Device => _device;
 
-    // A texture of exactly the picture is read in place; a larger one (a decoder pads its surfaces) or a
-    // slice of an array is first copied on the GPU, since the encoder reads whole single textures.
-    // Either way the encoder is ordered after the producer on the GPU.
+    // A single texture whose picture starts at its top-left corner is read in place, a decoder's surface
+    // padded to its block size included: the encoder reads the picture's size from the corner. A slice
+    // of an array is first copied on the GPU, since the encoder reads whole single textures. Either way
+    // the encoder is ordered after the producer on the GPU.
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
     {
         if (!frame.Storage.TryGetValue(out D3D12Image image))
@@ -197,7 +198,14 @@ internal sealed class D3D12Input : EncoderInput
             throw new ArgumentException("The frame is not a Direct3D 12 resource.", nameof(frame));
         }
 
-        bool inPlace = image.Subresource == 0 && frame.Format.CodedSize == _size;
+        if (frame.Format.VisibleRect.X != 0 || frame.Format.VisibleRect.Y != 0)
+        {
+            throw new NotSupportedException(
+                "A Direct3D 12 picture is read from its texture's top-left corner; this one is offset."
+            );
+        }
+
+        bool inPlace = image.Subresource == 0;
         D3D12Sync sync = image.Sync;
         if (inPlace && sync.Fence != 0 && sync.ProducerQueue == 0)
         {

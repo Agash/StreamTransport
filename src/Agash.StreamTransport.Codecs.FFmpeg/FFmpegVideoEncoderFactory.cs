@@ -463,7 +463,12 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                 : FF.HardwareDevice.Create(type, adapter);
             if (!DriverEncodes(device, codec.Id))
             {
-                LogProbeFailed(_logger, codec.Name, $"the {type} driver has no encoder for it", null);
+                LogProbeFailed(
+                    _logger,
+                    codec.Name,
+                    $"the {type} driver has no encoder for it",
+                    null
+                );
                 return [];
             }
 
