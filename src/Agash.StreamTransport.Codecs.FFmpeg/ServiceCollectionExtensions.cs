@@ -29,29 +29,24 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddSingleton<Registered>();
-        FFmpegCodecOptions Options(IServiceProvider provider)
+        FFmpegCodecOptions resolved = options ?? new FFmpegCodecOptions();
+
+        // The container's logging, meters and clock; FFmpeg's own log routed once per container.
+        ILoggerFactory? Loggers(IServiceProvider provider)
         {
-            // What the caller set, and the container's logging, meters and clock for what it left out.
-            FFmpegCodecOptions resolved = new()
-            {
-                LoggerFactory = options?.LoggerFactory ?? provider.GetService<ILoggerFactory>(),
-                MeterFactory = options?.MeterFactory ?? provider.GetService<IMeterFactory>(),
-                TimeProvider =
-                    options is { TimeProvider: var time } && time != TimeProvider.System
-                        ? time
-                        : provider.GetService<TimeProvider>() ?? TimeProvider.System,
-                EncoderOptions = options?.EncoderOptions ?? [],
-                RouteFFmpegLog = options?.RouteFFmpegLog ?? true,
-            };
-            provider.GetRequiredService<Registered>().RouteLog(resolved);
-            return resolved;
+            ILoggerFactory? loggers = provider.GetService<ILoggerFactory>();
+            provider.GetRequiredService<Registered>().RouteLog(resolved, loggers);
+            return loggers;
         }
 
         foreach (EncoderBackend backend in Enum.GetValues<EncoderBackend>())
         {
             services.AddSingleton<IVideoEncoderFactory>(provider => new FFmpegVideoEncoderFactory(
                 backend,
-                Options(provider)
+                resolved,
+                Loggers(provider),
+                provider.GetService<IMeterFactory>(),
+                provider.GetService<TimeProvider>()
             ));
         }
 
@@ -59,7 +54,10 @@ public static class ServiceCollectionExtensions
         {
             services.AddSingleton<IVideoDecoderFactory>(provider => new FFmpegVideoDecoderFactory(
                 backend,
-                Options(provider)
+                resolved,
+                Loggers(provider),
+                provider.GetService<IMeterFactory>(),
+                provider.GetService<TimeProvider>()
             ));
         }
 
@@ -79,9 +77,9 @@ public static class ServiceCollectionExtensions
         private IDisposable? _route;
         private bool _disposed;
 
-        public void RouteLog(FFmpegCodecOptions options)
+        public void RouteLog(FFmpegCodecOptions options, ILoggerFactory? loggers)
         {
-            if (!options.RouteFFmpegLog || options.LoggerFactory is not { } factory)
+            if (!options.RouteFFmpegLog || loggers is not { } factory)
             {
                 return;
             }

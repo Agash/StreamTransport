@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Diagnostics.Metrics;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,18 +35,32 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     private readonly DecoderSpec _spec;
     private readonly FFmpegCodecOptions _options;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly TimeProvider _time;
     private readonly FFmpegCodecMetrics _metrics;
     private readonly ILogger _logger;
 
     /// <summary>A factory for one backend.</summary>
     /// <param name="backend">The backend.</param>
     /// <param name="options">Shared options; defaults when null.</param>
-    public FFmpegVideoDecoderFactory(DecoderBackend backend, FFmpegCodecOptions? options = null)
+    /// <param name="loggerFactory">Logging; none when null.</param>
+    /// <param name="meterFactory">
+    /// Where the metrics' meter comes from (<see cref="FFmpegCodecDiagnostics.MeterName"/>); one meter shared
+    /// by every factory made without one when null.
+    /// </param>
+    /// <param name="timeProvider">The clock encoder opens are timed on; the system's when null.</param>
+    public FFmpegVideoDecoderFactory(
+        DecoderBackend backend,
+        FFmpegCodecOptions? options = null,
+        ILoggerFactory? loggerFactory = null,
+        IMeterFactory? meterFactory = null,
+        TimeProvider? timeProvider = null
+    )
     {
         _spec = DecoderCatalog.Get(backend);
         _options = options ?? new FFmpegCodecOptions();
-        _loggerFactory = _options.LoggerFactory ?? NullLoggerFactory.Instance;
-        _metrics = _options.MeterFactory is { } meters
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _time = timeProvider ?? TimeProvider.System;
+        _metrics = meterFactory is { } meters
             ? new FFmpegCodecMetrics(meters)
             : FFmpegCodecMetrics.Shared;
         _logger = _loggerFactory.CreateLogger<FFmpegVideoDecoderFactory>();
@@ -80,14 +95,26 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     /// <summary>A factory for every backend this platform has, most preferred first.</summary>
     /// <param name="options">Shared options; defaults when null.</param>
     /// <returns>The factories.</returns>
+    /// <param name="loggerFactory">Logging; none when null.</param>
+    /// <param name="meterFactory">Where the metrics' meter comes from; a shared one when null.</param>
+    /// <param name="timeProvider">The clock; the system's when null.</param>
     public static ImmutableArray<FFmpegVideoDecoderFactory> CreateAll(
-        FFmpegCodecOptions? options = null
+        FFmpegCodecOptions? options = null,
+        ILoggerFactory? loggerFactory = null,
+        IMeterFactory? meterFactory = null,
+        TimeProvider? timeProvider = null
     ) =>
         [
             .. DecoderCatalog
                 .All.Where(static spec => spec.Rank > 0)
                 .OrderByDescending(static spec => spec.Rank)
-                .Select(spec => new FFmpegVideoDecoderFactory(spec.Backend, options)),
+                .Select(spec => new FFmpegVideoDecoderFactory(
+                    spec.Backend,
+                    options,
+                    loggerFactory,
+                    meterFactory,
+                    timeProvider
+                )),
         ];
 
     /// <inheritdoc/>
