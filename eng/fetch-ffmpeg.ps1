@@ -20,13 +20,13 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $dest = Join-Path $root 'native/ffmpeg'
 
-$release = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27'
-$build = 'ffmpeg-n9.0.1-11-ge47273f4d9'
+$release = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08'
+$build = 'ffmpeg-n9.0.2-17-g2a571b6068'
 $sources = @{
-    'win-x64'     = @("$build-win64-lgpl-shared-9.0.zip", '83a824f0729a69d143c9865125bb86988a11dd388325f0033711045522068aa0')
-    'win-arm64'   = @("$build-winarm64-lgpl-shared-9.0.zip", 'e6a65bd651db8817a7e76382a82db0fa28da45c6a0b512f1f65078d3d48cdfff')
-    'linux-x64'   = @("$build-linux64-lgpl-shared-9.0.tar.xz", 'ec8dc218c3495af574be2c894de74c5f3f1f1b86cc8a95739d220b88887024fa')
-    'linux-arm64' = @("$build-linuxarm64-lgpl-shared-9.0.tar.xz", 'c663f93322183c99d2b954969d11a287582ff69e39bde50d018b18ece27589cf')
+    'win-x64'     = @("$build-win64-lgpl-shared-9.0.zip", '7157177b8a6cb2174c1650ba8c71b363f2c78cba5330f88c4c02cf5b2b880646')
+    'win-arm64'   = @("$build-winarm64-lgpl-shared-9.0.zip", 'f3133abf5c2b6ae45bd428d480cf830a9fbda3a3866dc249110e85f99f13b8ce')
+    'linux-x64'   = @("$build-linux64-lgpl-shared-9.0.tar.xz", '7a1ba2af36e5beeb98151e766a903b1d115f2206a86571f17f873cd7292c424f')
+    'linux-arm64' = @("$build-linuxarm64-lgpl-shared-9.0.tar.xz", '1aa02c59afe06dea2602b40517a5cb75c0ff6d524f217b5aea1f0ca07977cd51')
 }
 
 $patterns = @{
