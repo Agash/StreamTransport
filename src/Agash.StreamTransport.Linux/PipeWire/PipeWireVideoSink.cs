@@ -74,6 +74,12 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<PipeWireVideoSink>();
     }
 
+    /// <summary>
+    /// How long a frame takes from this node to its consumer: the delay PipeWire reports for the stream,
+    /// once it is running. What the consumer adds after (OBS compositing, the display) is not counted.
+    /// </summary>
+    public TimeSpan? OutputLatency => Volatile.Read(ref _output)?.Time?.Delay;
+
     /// <inheritdoc/>
     /// <remarks>DMA-BUF frames in BGRA, RGBA or NV12 in rows; memory frames in any of the four.</remarks>
     public VideoConstraints Constraints { get; } =

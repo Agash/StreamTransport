@@ -59,6 +59,8 @@ public sealed class PipeWireLoopbackTests
         using VideoFrameLease kept = await keeper.Kept;
         Assert.AreEqual(new VideoFormat(format, Width, Height), kept.Frame.Format);
         CollectionAssert.AreEqual(pixels, Packed(kept.Frame, format));
+        Assert.IsNotNull(sink.OutputLatency, "a running sink knows its delay to the consumer");
+        Assert.IsLessThan(TimeSpan.FromSeconds(1), sink.OutputLatency.Value);
     }
 
     [TestMethod]
