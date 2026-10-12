@@ -9,6 +9,7 @@ namespace Agash.StreamTransport.Streams;
 internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsumer, IDisposable
 {
     private readonly IAudioEncoder _encoder;
+    private readonly IAudioFrameConsumer _input;
     private int _framesSent;
     private readonly EncodedAudioSink _send;
     private readonly StreamTransportMetrics _metrics;
@@ -36,10 +37,21 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
         _send = send;
         _metrics = metrics;
         _codec = format.Codec;
+
+        // A source the encoder does not take as it is goes through a converter to the nearest format it
+        // does: a 44.1 kHz microphone into 48 kHz Opus.
+        AudioFormat input = source.Format;
+        AudioConverter? converter = null;
+        if (registry.QueryAudioEncoder(format) is { } info && !info.Input.Accepts(input))
+        {
+            converter = new AudioConverter(input, AudioConverter.Target(input, info.Input));
+            input = converter.Output;
+        }
+
         _encoder = registry.TryCreateAudioEncoder(
             new AudioEncoderConfiguration(
                 format,
-                source.Format,
+                input,
                 options.AudioBitsPerSecond,
                 Content: options.AudioContent,
                 ExpectedLossPercent: options.AudioExpectedLossPercent
@@ -48,8 +60,10 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
         )
             ? encoder
             : throw new InvalidOperationException(
-                $"No registered encoder encodes {format.Codec} from {source.Format}."
+                $"No registered encoder encodes {format.Codec} from {input}."
             );
+        IAudioFrameConsumer encode = new EncoderInput(this);
+        _input = converter?.Feeding(encode) ?? encode;
         try
         {
             _connection = source.Connect(this);
@@ -68,7 +82,7 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
         {
             if (!_disposed)
             {
-                _encoder.Encode(in frame, this);
+                _input.OnFrame(in frame);
             }
         }
     }
@@ -82,6 +96,12 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
         _send(in frame);
         Interlocked.Increment(ref _framesSent);
         _metrics.AudioFramesSent.Add(1, StreamTransportMetrics.Codec(_codec));
+    }
+
+    // Frames as the encoder takes them.
+    private sealed class EncoderInput(AudioSendStream stream) : IAudioFrameConsumer
+    {
+        public void OnFrame(in AudioFrame frame) => stream._encoder.Encode(in frame, stream);
     }
 
     /// <inheritdoc/>

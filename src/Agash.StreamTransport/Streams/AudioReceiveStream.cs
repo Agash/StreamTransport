@@ -18,6 +18,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
 
     private readonly AudioCodecFormat _format;
     private readonly IAudioSink _sink;
+    private readonly IAudioFrameConsumer _toSink;
     private readonly IAudioDecoder _decoder;
     private readonly Playout _playout;
     private readonly StreamTransportMetrics _metrics;
@@ -63,13 +64,13 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
         _decoder = registry.TryCreateAudioDecoder(format, out IAudioDecoder? decoder)
             ? decoder
             : throw new InvalidOperationException($"No registered decoder decodes {format.Codec}.");
-        if (!sink.Constraints.Accepts(_decoder.Output))
-        {
-            _decoder.Dispose();
-            throw new InvalidOperationException(
-                $"The {format.Codec} decoder produces {_decoder.Output}, which the audio sink does not take."
-            );
-        }
+        // A sink that does not take the decoder's PCM as it is gets it converted to the nearest it does.
+        _toSink = sink.Constraints.Accepts(_decoder.Output)
+            ? sink
+            : new AudioConverter(
+                _decoder.Output,
+                AudioConverter.Target(_decoder.Output, sink.Constraints)
+            ).Feeding(sink);
 
         _worker = Task.Run(() => RunAsync(_stop.Token));
     }
@@ -110,7 +111,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
         );
         Interlocked.Increment(ref _framesDecoded);
         _metrics.AudioFramesDecoded.Add(1, StreamTransportMetrics.Codec(_format.Codec));
-        _playout.Audio(in frame, _playing, _sink);
+        _playout.Audio(in frame, _playing, _toSink);
     }
 
     /// <inheritdoc/>

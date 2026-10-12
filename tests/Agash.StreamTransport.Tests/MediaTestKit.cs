@@ -166,10 +166,10 @@ internal sealed class GradientSource(TimeSpan interval) : IVideoSource
     }
 }
 
-// A 1 kHz tone pushed in 10 ms chunks from a timer.
-internal sealed class ToneSource : IAudioSource
+// A 1 kHz tone pushed in 10 ms chunks from a timer, stereo at 48 kHz unless told otherwise.
+internal sealed class ToneSource(int rate = 48_000, int channels = 2) : IAudioSource
 {
-    public AudioFormat Format { get; } = new(SampleFormat.F32, 48_000, 2);
+    public AudioFormat Format { get; } = new(SampleFormat.F32, rate, channels);
 
     public IDisposable Connect(IAudioFrameConsumer consumer) => new Pusher(consumer, Format);
 
@@ -202,21 +202,26 @@ internal sealed class ToneSource : IAudioSource
             CancellationToken cancellationToken
         )
         {
-            const int Samples = 480;
+            int samples = format.SampleRate / 100;
             using PeriodicTimer timer = new(TimeSpan.FromMilliseconds(10));
-            float[] values = new float[Samples * format.Channels];
+            float[] values = new float[samples * format.Channels];
             MediaTime start = MediaClock.System.Now;
             for (long chunk = 0; await timer.WaitForNextTickAsync(cancellationToken); chunk++)
             {
-                for (int s = 0; s < Samples; s++)
+                for (int s = 0; s < samples; s++)
                 {
                     float value =
-                        0.5f * MathF.Sin(2 * MathF.PI * 1000 * (((chunk * Samples) + s) / 48_000f));
-                    values[(s * 2) + 0] = value;
-                    values[(s * 2) + 1] = value;
+                        0.5f
+                        * MathF.Sin(
+                            2
+                                * MathF.PI
+                                * 1000
+                                * (((chunk * samples) + s) / (float)format.SampleRate)
+                        );
+                    values.AsSpan(s * format.Channels, format.Channels).Fill(value);
                 }
 
-                MediaTime at = start + new ClockRate(format.SampleRate).ToTimeSpan(chunk * Samples);
+                MediaTime at = start + new ClockRate(format.SampleRate).ToTimeSpan(chunk * samples);
                 consumer.OnFrame(
                     new AudioFrame(
                         MemoryMarshal.AsBytes(values.AsSpan()),
@@ -287,8 +292,10 @@ internal sealed class RecordingVideoSink : IVideoSink
     }
 }
 
-// Counts the audio that arrives and measures its level.
-internal sealed class RecordingAudioSink(int target) : IAudioSink
+// Counts the audio that arrives and measures its level and pitch, taking 48 kHz stereo unless told
+// otherwise.
+internal sealed class RecordingAudioSink(int target, int rate = 48_000, int channels = 2)
+    : IAudioSink
 {
     private readonly TaskCompletionSource _reached = new(
         TaskCreationOptions.RunContinuationsAsynchronously
@@ -296,8 +303,12 @@ internal sealed class RecordingAudioSink(int target) : IAudioSink
     private int _frames;
     private double _sumSquares;
     private long _samples;
+    private long _crossings;
+    private float _previous;
 
-    public AudioConstraints Constraints { get; } = new([48_000], [SampleFormat.F32], 2);
+    public AudioConstraints Constraints { get; } = new([rate], [SampleFormat.F32], channels);
+
+    public AudioFormat? LastFormat { get; private set; }
 
     public Task Reached => _reached.Task;
 
@@ -305,12 +316,27 @@ internal sealed class RecordingAudioSink(int target) : IAudioSink
 
     public double Rms => _samples == 0 ? 0 : Math.Sqrt(_sumSquares / _samples);
 
+    // The pitch from upward zero crossings of the first channel, at the rate the sink takes.
+    public double Frequency =>
+        _samples == 0 ? 0 : _crossings * (double)rate / (_samples / (double)channels);
+
     public void OnFrame(in AudioFrame frame)
     {
-        foreach (float value in MemoryMarshal.Cast<byte, float>(frame.Samples))
+        LastFormat = frame.Format;
+        ReadOnlySpan<float> values = MemoryMarshal.Cast<byte, float>(frame.Samples);
+        for (int i = 0; i < values.Length; i++)
         {
-            _sumSquares += value * value;
+            _sumSquares += values[i] * values[i];
             _samples++;
+            if (i % frame.Format.Channels == 0)
+            {
+                if (_previous < 0 && values[i] >= 0)
+                {
+                    _crossings++;
+                }
+
+                _previous = values[i];
+            }
         }
 
         if (Interlocked.Increment(ref _frames) >= target)

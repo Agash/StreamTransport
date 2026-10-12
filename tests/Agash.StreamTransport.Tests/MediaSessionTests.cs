@@ -71,6 +71,50 @@ public sealed class MediaSessionTests
         }
     }
 
+    // A 44.1 kHz mono source into 48 kHz Opus, played to a sink that takes only 44.1 kHz stereo: both
+    // ends convert, and the tone keeps its level and its pitch.
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task Session_AudioAtRatesTheCodecDoesNotTake_IsConvertedBothWays()
+    {
+        await using ServiceProvider services = MediaServices.Create();
+        IMediaSessionFactory factory = services.GetRequiredService<IMediaSessionFactory>();
+        MediaSessionOptions options = MediaServices.Loopback(new MediaSessionOptions());
+        RecordingAudioSink audio = new(target: 100, rate: 44_100, channels: 2);
+        (LoopbackSignaling offer, LoopbackSignaling answer) = LoopbackSignaling.Pair();
+        await using (offer)
+        await using (answer)
+        {
+            await using IMediaSession sender = factory.Create(
+                offer,
+                MediaSessionRole.Offerer,
+                new MediaEndpoints { AudioSource = new ToneSource(rate: 44_100, channels: 1) },
+                options
+            );
+            await using IMediaSession receiver = factory.Create(
+                answer,
+                MediaSessionRole.Answerer,
+                new MediaEndpoints { AudioSink = audio },
+                options
+            );
+
+            await receiver.StartAsync();
+            await sender.StartAsync();
+            await Task.WhenAll(sender.Connected, receiver.Connected)
+                .WaitAsync(TimeSpan.FromSeconds(20));
+            await audio.Reached.WaitAsync(TimeSpan.FromSeconds(20));
+
+            Assert.AreEqual(new AudioFormat(SampleFormat.F32, 44_100, 2), audio.LastFormat);
+            Assert.AreEqual(0.354, audio.Rms, 0.1, "a half-scale sine keeps its level");
+            Assert.AreEqual(
+                1000,
+                audio.Frequency,
+                25,
+                "the tone keeps its pitch through both rates"
+            );
+        }
+    }
+
     [TestMethod]
     [Timeout(60_000)]
     public async Task Session_AudioSourceThatCannotStart_StillSendsVideo()
