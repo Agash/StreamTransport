@@ -176,13 +176,24 @@ internal sealed unsafe partial class VulkanEngine
             stages[i] = VkPipelineStageFlags.AllCommands;
         }
 
-        VkSemaphore timeline = _timeline;
+        // The engine's timeline, then the points the batch was asked to signal on others' timelines.
+        int signals = 1 + slot.Signals.Count;
+        VkSemaphore* signalSemaphores = stackalloc VkSemaphore[signals];
+        ulong* signalValues = stackalloc ulong[signals];
+        signalSemaphores[0] = _timeline;
+        signalValues[0] = value;
+        for (int i = 1; i < signals; i++)
+        {
+            signalSemaphores[i] = slot.Signals[i - 1].Semaphore;
+            signalValues[i] = slot.Signals[i - 1].Value;
+        }
+
         VkTimelineSemaphoreSubmitInfo values = new()
         {
             waitSemaphoreValueCount = (uint)waits,
             pWaitSemaphoreValues = waitValues,
-            signalSemaphoreValueCount = 1,
-            pSignalSemaphoreValues = &value,
+            signalSemaphoreValueCount = (uint)signals,
+            pSignalSemaphoreValues = signalValues,
         };
         VkCommandBuffer commands = slot.Commands;
         VkSubmitInfo submit = new()
@@ -193,16 +204,20 @@ internal sealed unsafe partial class VulkanEngine
             pWaitDstStageMask = stages,
             commandBufferCount = 1,
             pCommandBuffers = &commands,
-            signalSemaphoreCount = 1,
-            pSignalSemaphores = &timeline,
+            signalSemaphoreCount = (uint)signals,
+            pSignalSemaphores = signalSemaphores,
         };
         Api.vkQueueSubmit(_queue, 1, &submit, VkFence.Null).CheckResult();
         slot.Value = value;
 
-        // Semaphores imported for this batch's waits are destroyed once it has run.
-        if (waits > 0)
+        // Semaphores imported for this batch's waits and signals are destroyed once it has run.
+        if (waits > 0 || slot.Signals.Count > 0)
         {
-            VkSemaphore[] imported = [.. slot.Waits.Select(wait => wait.Semaphore)];
+            VkSemaphore[] imported =
+            [
+                .. slot.Waits.Select(wait => wait.Semaphore),
+                .. slot.Signals.Select(signal => signal.Semaphore),
+            ];
             slot.Releases.Add(() =>
             {
                 foreach (VkSemaphore semaphore in imported)
@@ -213,6 +228,7 @@ internal sealed unsafe partial class VulkanEngine
         }
 
         slot.Waits.Clear();
+        slot.Signals.Clear();
         if (slot.Releases.Count > 0)
         {
             Action[] releases = [.. slot.Releases];
@@ -364,6 +380,16 @@ internal sealed unsafe partial class VulkanEngine
             return true;
         }
 
+        /// <summary>
+        /// Makes the batch signal a picture's acquire point when it has run: for a target that carries a
+        /// sync point, such as a PipeWire buffer under explicit sync, whose consumer waits on that point
+        /// on its own GPU instead of anyone waiting here.
+        /// </summary>
+        public void Signal(in DrmSyncTimeline target) =>
+            Current.Signals.Add(
+                (_engine.ImportTimeline(target.AcquireSyncobj), target.AcquirePoint)
+            );
+
         /// <summary>Lets go of something once the GPU has run the batch.</summary>
         public void Then(Action release) => Current.Releases.Add(release);
 
@@ -418,6 +444,8 @@ internal sealed unsafe partial class VulkanEngine
         public ulong Value { get; set; }
 
         public List<(VkSemaphore Semaphore, ulong Value)> Waits { get; } = [];
+
+        public List<(VkSemaphore Semaphore, ulong Value)> Signals { get; } = [];
 
         public List<Action> Releases { get; } = [];
     }

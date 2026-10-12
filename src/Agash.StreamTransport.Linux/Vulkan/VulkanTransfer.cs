@@ -78,8 +78,9 @@ internal static unsafe class VulkanTransfer
     }
 
     /// <summary>
-    /// Copies a DMA-BUF picture, plane by plane, into images of the same format and size on the GPU,
-    /// and waits until the copy has finished: what fills a consumer's buffer.
+    /// Copies a DMA-BUF picture, plane by plane, into images of the same format and size on the GPU:
+    /// what fills a consumer's buffer. With <paramref name="signal"/> the copy signals that point when it
+    /// has run and nothing waits; without, this waits until the copy has finished.
     /// </summary>
     /// <param name="engine">The GPU.</param>
     /// <param name="source">The picture.</param>
@@ -87,13 +88,15 @@ internal static unsafe class VulkanTransfer
     /// <param name="width">Its width.</param>
     /// <param name="height">Its height.</param>
     /// <param name="destination">One image per plane.</param>
+    /// <param name="signal">The destination's acquire point, when its consumer waits on one.</param>
     public static void Copy(
         VulkanEngine engine,
         in DmaBufImage source,
         PixelFormat format,
         int width,
         int height,
-        ReadOnlySpan<VulkanImage> destination
+        ReadOnlySpan<VulkanImage> destination,
+        DrmSyncTimeline? signal = null
     )
     {
         int planes = format == PixelFormat.Nv12 ? 2 : 1;
@@ -155,7 +158,26 @@ internal static unsafe class VulkanTransfer
             }
 
             Recording.Release(engine, batch.Commands, destination);
-            batch.SubmitAndWait();
+            if (signal is { } ready)
+            {
+                // The consumer waits for the copy on its GPU: nothing waits here, and the sources stay
+                // imported until the copy has run.
+                batch.Signal(in ready);
+                ImportCache.Lease[] kept = [.. leases[..held]];
+                held = 0;
+                batch.Then(() =>
+                {
+                    foreach (ImportCache.Lease lease in kept)
+                    {
+                        lease.Dispose();
+                    }
+                });
+                _ = batch.Submit();
+            }
+            else
+            {
+                batch.SubmitAndWait();
+            }
         }
         finally
         {

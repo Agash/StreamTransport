@@ -52,6 +52,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     private bool _gpu;
     private VulkanEngine? _engine;
     private VulkanImage[]? _lent;
+    private DrmSyncTimeline? _lentSync;
     private bool _disposed;
 
     /// <summary>A PipeWire video node.</summary>
@@ -227,8 +228,13 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                     return VideoRenderResult.Unavailable;
                 }
 
-                // Drawn holding the lock, so the buffer's images cannot be released meanwhile.
-                VideoTarget target = new(new VideoStorage(Describe(images)), format);
+                // Drawn holding the lock, so the buffer's images cannot be released meanwhile. Under
+                // explicit sync the target carries the frame's acquire point, which the drawing signals.
+                DrmSyncTimeline? ready = frame.Acquire is { } acquire
+                    ? new DrmSyncTimeline(acquire.Fd, acquire.Point, -1, 0)
+                    : null;
+                VideoTarget target = new(new VideoStorage(Describe(images, ready)), format);
+                _lentSync = ready;
                 _lent = images;
                 try
                 {
@@ -240,10 +246,11 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 finally
                 {
                     _lent = null;
+                    _lentSync = null;
                 }
             }
 
-            frame.Publish();
+            frame.Publish(signalAcquire: frame.Acquire is null);
             return VideoRenderResult.Rendered;
         }
     }
@@ -301,14 +308,23 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 output.ReleaseDmaBuf += ReleaseShared;
 
                 // A consumer that cannot import a shared buffer gets frames read back into memory.
+                // Explicit sync where the machine has it: the GPU work drawing a frame signals the
+                // buffer's acquire point and the consumer waits for it on its own GPU, so no thread here
+                // waits; a consumer that does not take explicit sync gets frames finished first.
                 output.HostMemoryFallback = true;
-                output.ConnectDmaBuf([
-                    new DmaBufDeviceOffer(
-                        Drm(_engine.Identity),
-                        PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
-                        [(long)VulkanEngine.LinearModifier]
-                    ),
-                ]);
+                DmaBufDeviceOffer offer = new(
+                    Drm(_engine.Identity),
+                    PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
+                    [(long)VulkanEngine.LinearModifier]
+                );
+                if (PipeWireVideoOutput.ExplicitSyncAvailable)
+                {
+                    output.ConnectDmaBufSync([offer]);
+                }
+                else
+                {
+                    output.ConnectDmaBuf([offer]);
+                }
             }
             else
             {
@@ -406,7 +422,8 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             _format.PixelFormat,
             frame.Format.CodedSize.Width,
             frame.Format.CodedSize.Height,
-            _lent!
+            _lent!,
+            _lentSync
         );
         return true;
     }
@@ -420,7 +437,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     }
 
     // A buffer's images as DMA-BUF storage on the sink's GPU.
-    private DmaBufImage Describe(VulkanImage[] images)
+    private DmaBufImage Describe(VulkanImage[] images, DrmSyncTimeline? ready = null)
     {
         Span<DmaBufPlane> planes = stackalloc DmaBufPlane[images.Length];
         for (int i = 0; i < images.Length; i++)
@@ -432,7 +449,8 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             planes,
             DrmFourcc.Of(_format.PixelFormat),
             VulkanEngine.LinearModifier,
-            _engine!.Identity
+            _engine!.Identity,
+            ready
         );
     }
 

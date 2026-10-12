@@ -299,7 +299,6 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             || !frame.Storage.TryGetValue(out DmaBufImage image)
             || image.Sync is not null
             || !target.Storage.TryGetValue(out DmaBufImage into)
-            || into.Sync is not null
             || into.Device != _engine.Identity
             || into.PlaneCount != 1
             || into.Modifier != VulkanEngine.LinearModifier
@@ -315,7 +314,8 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             ObjectDisposedException.ThrowIf(_disposed, this);
 
             // Written through an RGBA view whatever the memory order, as into a surface of its own.
-            // The target names no sync point, so the drawing has finished when this returns.
+            // A target with a sync point has it signalled by the batch, and its consumer waits on its
+            // GPU; one without has finished when this returns.
             ImportCache.Lease lease = _engine.Imports.Import(
                 into[0],
                 into.Modifier,
@@ -326,12 +326,22 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             );
             using VulkanEngine.Batch batch = _engine.Begin();
             batch.Then(lease.Dispose);
-            if (!batch.WaitFor(in image) || !batch.WaitFor(in into, write: true))
+            if (
+                !batch.WaitFor(in image)
+                || (into.Sync is null && !batch.WaitFor(in into, write: true))
+            )
             {
                 throw new TimeoutException("The producer's GPU did not finish writing the frame.");
             }
 
             ToRgb(in batch, image, frame.Format, frame.Color, lease.Image);
+            if (into.Sync is { } ready)
+            {
+                batch.Signal(in ready);
+                _submitted = batch.Submit();
+                return true;
+            }
+
             _submitted = batch.Submit();
             _engine.Wait(_submitted);
             return true;
