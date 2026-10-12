@@ -337,6 +337,9 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             ToRgb(in batch, image, frame.Format, frame.Color, lease.Image);
             if (into.Sync is { } ready)
             {
+                // Nothing waits, so the input is held until the drawing has read it.
+                VideoFrameLease input = frame.Retain();
+                batch.Then(input.Dispose);
                 batch.Signal(in ready);
                 _submitted = batch.Submit();
                 return true;

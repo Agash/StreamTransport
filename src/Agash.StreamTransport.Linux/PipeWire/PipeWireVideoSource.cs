@@ -143,7 +143,10 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IDisposable
             ? Offer()
             : null;
 
-        PipeWireVideoCapture capture = new(_context, _options.NodeName);
+        // Explicit sync where the producer agrees, waited for on the GPU that reads the frame: the
+        // capture hands frames on at once with their acquire point, and lets the buffer go only when the
+        // frame is let go, which GPU readers do once their work has run.
+        PipeWireVideoCapture capture = new(_context, _options.NodeName) { WaitAcquireOnGpu = true };
         capture.FrameReady += Deliver;
         _retainer = new BufferRetainer(capture);
         try
@@ -156,6 +159,7 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IDisposable
                 preferredWidth: _options.PreferredSize.Width,
                 preferredHeight: _options.PreferredSize.Height,
                 preferredFrameRate: _options.PreferredFrameRate,
+                requestExplicitSync: offer is not null,
                 deviceOffers: offer is { } o ? [o] : default
             );
         }
@@ -275,10 +279,13 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IDisposable
             );
         }
 
-        // Any explicit acquire point was waited on by the capture before the frame was handed over.
+        // Under explicit sync the frame carries its acquire point, which readers wait for on their GPU.
+        DrmSyncTimeline? ready = frame.SyncTimeline is { AcquireFd: >= 0 } timeline
+            ? new DrmSyncTimeline(timeline.AcquireFd, timeline.AcquirePoint, -1, 0)
+            : null;
         VideoFrame video = new(
             new VideoStorage(
-                new DmaBufImage(planes, frame.DrmFourcc, frame.Modifier, _engine!.Identity)
+                new DmaBufImage(planes, frame.DrmFourcc, frame.Modifier, _engine!.Identity, ready)
             ),
             new VideoFormat(format, frame.Width, frame.Height),
             Timestamp(in frame),

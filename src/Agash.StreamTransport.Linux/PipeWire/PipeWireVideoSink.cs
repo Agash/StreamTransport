@@ -423,7 +423,8 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             frame.Format.CodedSize.Width,
             frame.Format.CodedSize.Height,
             _lent!,
-            _lentSync
+            _lentSync,
+            _lentSync is null ? null : frame.Retain()
         );
         return true;
     }

@@ -89,6 +89,10 @@ internal static unsafe class VulkanTransfer
     /// <param name="height">Its height.</param>
     /// <param name="destination">One image per plane.</param>
     /// <param name="signal">The destination's acquire point, when its consumer waits on one.</param>
+    /// <param name="keep">
+    /// What holds the source picture, let go once the copy has run; with <paramref name="signal"/>
+    /// nothing waits, so the source must stay readable until then.
+    /// </param>
     public static void Copy(
         VulkanEngine engine,
         in DmaBufImage source,
@@ -96,7 +100,8 @@ internal static unsafe class VulkanTransfer
         int width,
         int height,
         ReadOnlySpan<VulkanImage> destination,
-        DrmSyncTimeline? signal = null
+        DrmSyncTimeline? signal = null,
+        IDisposable? keep = null
     )
     {
         int planes = format == PixelFormat.Nv12 ? 2 : 1;
@@ -171,6 +176,8 @@ internal static unsafe class VulkanTransfer
                     {
                         lease.Dispose();
                     }
+
+                    keep?.Dispose();
                 });
                 _ = batch.Submit();
             }
