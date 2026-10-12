@@ -404,12 +404,8 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         VkImageView lumaView = luma.View(VkFormat.R8Unorm);
         VkImageView chromaView = chroma.View(VkFormat.R8G8Unorm);
         ComputeKernel kernel = _engine.RgbToYuv;
-        VkDescriptorSet set = _engine.AllocateSet(kernel.SetLayout);
-        batch.Then(() =>
-        {
-            _engine.FreeSet(set);
-            Destroy(sourceView, lumaView, chromaView);
-        });
+        VkDescriptorSet set = kernel.RentSet();
+        batch.Then(() => kernel.ReturnSet(set));
         {
             VkDescriptorImageInfo* images = stackalloc VkDescriptorImageInfo[3];
             images[0] = new VkDescriptorImageInfo
@@ -513,12 +509,8 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         // Written through an RGBA view whatever the memory order; the kernel swaps for BGRA.
         VkImageView rgbView = rgb.View(VkFormat.R8G8B8A8Unorm);
         ComputeKernel kernel = _engine.YuvToRgb;
-        VkDescriptorSet set = _engine.AllocateSet(kernel.SetLayout);
-        batch.Then(() =>
-        {
-            _engine.FreeSet(set);
-            Destroy(lumaView, chromaView, rgbView);
-        });
+        VkDescriptorSet set = kernel.RentSet();
+        batch.Then(() => kernel.ReturnSet(set));
         {
             VkDescriptorImageInfo* images = stackalloc VkDescriptorImageInfo[3];
             images[0] = new VkDescriptorImageInfo
@@ -585,14 +577,6 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             parameters
         );
         api.vkCmdDispatch(commands, (uint)((threadsX + 7) / 8), (uint)((threadsY + 7) / 8), 1);
-    }
-
-    private void Destroy(params ReadOnlySpan<VkImageView> views)
-    {
-        foreach (VkImageView view in views)
-        {
-            _engine.Api.vkDestroyImageView(view, null);
-        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

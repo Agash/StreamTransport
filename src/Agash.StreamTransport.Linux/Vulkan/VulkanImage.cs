@@ -16,6 +16,8 @@ internal sealed unsafe partial class VulkanImage : IDisposable
 {
     private readonly VulkanEngine _engine;
     private readonly SharedImage _shared;
+    private readonly List<(VkFormat Format, VkImageView View)> _views = [];
+    private readonly Lock _viewsGate = new();
     private int _disposed;
 
     private VulkanImage(
@@ -291,25 +293,52 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         }
     }
 
-    /// <summary>A view of the plane in a format of the same texel size.</summary>
+    /// <summary>
+    /// A view of the plane in a format of the same texel size, made on first use and kept with the
+    /// image: pooled and imported planes come back every few frames, each read through one or two
+    /// formats.
+    /// </summary>
     public VkImageView View(VkFormat format)
     {
-        VkImageViewCreateInfo info = new()
+        lock (_viewsGate)
         {
-            image = Image,
-            viewType = VkImageViewType.Image2D,
-            format = format,
-            subresourceRange = new VkImageSubresourceRange(Aspect, 0, 1, 0, 1),
-        };
-        VkImageView view;
-        _engine.Api.vkCreateImageView(&info, null, &view).CheckResult();
-        return view;
+            foreach ((VkFormat made, VkImageView kept) in _views)
+            {
+                if (made == format)
+                {
+                    return kept;
+                }
+            }
+
+            VkImageViewCreateInfo info = new()
+            {
+                image = Image,
+                viewType = VkImageViewType.Image2D,
+                format = format,
+                subresourceRange = new VkImageSubresourceRange(Aspect, 0, 1, 0, 1),
+            };
+            VkImageView view;
+            _engine.Api.vkCreateImageView(&info, null, &view).CheckResult();
+            _views.Add((format, view));
+            return view;
+        }
     }
 
+    // Called once the GPU is done with the image, like the image's own destruction.
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
+            lock (_viewsGate)
+            {
+                foreach ((_, VkImageView view) in _views)
+                {
+                    _engine.Api.vkDestroyImageView(view, null);
+                }
+
+                _views.Clear();
+            }
+
             _shared.Release();
         }
     }
