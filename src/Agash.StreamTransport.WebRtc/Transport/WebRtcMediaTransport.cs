@@ -190,7 +190,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     public long SentBytes(TrafficClass trafficClass) => _connection?.SentBytes(trafficClass) ?? 0;
 
-    public bool TrySendVideo(in EncodedVideoFrame frame, NtpTime capture, FrameSendTiming? timing)
+    public bool TrySendVideo(in EncodedVideoFrame frame, NtpTime? capture, FrameSendTiming? timing)
     {
         if (_videoWriter is not { } writer || _connection is not { } connection)
         {
@@ -201,7 +201,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         return writer.Write(connection, frame.Data, frame.Timestamp, capture, timing);
     }
 
-    public bool TrySendAudio(in EncodedAudioFrame frame, NtpTime capture) =>
+    public bool TrySendAudio(in EncodedAudioFrame frame, NtpTime? capture) =>
         _audioWriter is { } writer
         && _connection is { } connection
         && writer.Write(connection, frame.Data, frame.Timestamp, capture);

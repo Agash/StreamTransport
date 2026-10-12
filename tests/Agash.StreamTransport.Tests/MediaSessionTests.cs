@@ -115,6 +115,43 @@ public sealed class MediaSessionTests
         }
     }
 
+    // A source whose times were only observed sends no capture time (abs-capture-time cannot say so); the
+    // receiver aligns it from the sender's reports and plays it all the same.
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task Session_ObservedAudio_PlaysWithoutACaptureTime()
+    {
+        await using ServiceProvider services = MediaServices.Create();
+        IMediaSessionFactory factory = services.GetRequiredService<IMediaSessionFactory>();
+        MediaSessionOptions options = MediaServices.Loopback(new MediaSessionOptions());
+        RecordingAudioSink audio = new(target: 100);
+        (LoopbackSignaling offer, LoopbackSignaling answer) = LoopbackSignaling.Pair();
+        await using (offer)
+        await using (answer)
+        {
+            await using IMediaSession sender = factory.Create(
+                offer,
+                MediaSessionRole.Offerer,
+                new MediaEndpoints { AudioSource = new ToneSource(observed: true) },
+                options
+            );
+            await using IMediaSession receiver = factory.Create(
+                answer,
+                MediaSessionRole.Answerer,
+                new MediaEndpoints { AudioSink = audio },
+                options
+            );
+
+            await receiver.StartAsync();
+            await sender.StartAsync();
+            await Task.WhenAll(sender.Connected, receiver.Connected)
+                .WaitAsync(TimeSpan.FromSeconds(20));
+            await audio.Reached.WaitAsync(TimeSpan.FromSeconds(20));
+
+            Assert.AreEqual(0.354, audio.Rms, 0.1, "a half-scale sine keeps its level");
+        }
+    }
+
     [TestMethod]
     [Timeout(60_000)]
     public async Task Session_AudioSourceThatCannotStart_StillSendsVideo()

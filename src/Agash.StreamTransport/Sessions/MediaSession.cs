@@ -445,10 +445,15 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
     }
 
     private void SendVideo(in EncodedVideoFrame frame, FrameSendTiming? timing) =>
-        _ = _transport.TrySendVideo(in frame, _captureClock.ToNtp(frame.Timestamp.Origin), timing);
+        _ = _transport.TrySendVideo(in frame, CaptureTime(frame.Timestamp), timing);
 
     private void SendAudio(in EncodedAudioFrame frame) =>
-        _ = _transport.TrySendAudio(in frame, _captureClock.ToNtp(frame.Timestamp.Origin));
+        _ = _transport.TrySendAudio(in frame, CaptureTime(frame.Timestamp));
+
+    // Only a capture time travels as one: abs-capture-time has no way to say a time was merely observed,
+    // and a receiver lip-syncing on an observation would trust it as much as a capture.
+    private NtpTime? CaptureTime(MediaTimestamp timestamp) =>
+        timestamp.Kind == TimestampKind.Capture ? _captureClock.ToNtp(timestamp.Origin) : null;
 
     // The ways this side can carry alpha for a codec, most preferred first. A sender lists them when its
     // options ask for alpha: the codec's alpha layer first when that is preferred and an encoder codes it,

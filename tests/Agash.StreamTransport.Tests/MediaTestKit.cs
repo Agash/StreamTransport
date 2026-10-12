@@ -166,20 +166,23 @@ internal sealed class GradientSource(TimeSpan interval) : IVideoSource
     }
 }
 
-// A 1 kHz tone pushed in 10 ms chunks from a timer, stereo at 48 kHz unless told otherwise.
-internal sealed class ToneSource(int rate = 48_000, int channels = 2) : IAudioSource
+// A 1 kHz tone pushed in 10 ms chunks from a timer, stereo at 48 kHz unless told otherwise, stamped with
+// capture times or, when observed, with times it was only observed at.
+internal sealed class ToneSource(int rate = 48_000, int channels = 2, bool observed = false)
+    : IAudioSource
 {
     public AudioFormat Format { get; } = new(SampleFormat.F32, rate, channels);
 
-    public IDisposable Connect(IAudioFrameConsumer consumer) => new Pusher(consumer, Format);
+    public IDisposable Connect(IAudioFrameConsumer consumer) =>
+        new Pusher(consumer, Format, observed);
 
     private sealed class Pusher : IDisposable
     {
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _loop;
 
-        public Pusher(IAudioFrameConsumer consumer, AudioFormat format) =>
-            _loop = Task.Run(() => RunAsync(consumer, format, _stop.Token));
+        public Pusher(IAudioFrameConsumer consumer, AudioFormat format, bool observed) =>
+            _loop = Task.Run(() => RunAsync(consumer, format, observed, _stop.Token));
 
         public void Dispose()
         {
@@ -199,6 +202,7 @@ internal sealed class ToneSource(int rate = 48_000, int channels = 2) : IAudioSo
         private static async Task RunAsync(
             IAudioFrameConsumer consumer,
             AudioFormat format,
+            bool observed,
             CancellationToken cancellationToken
         )
         {
@@ -226,7 +230,7 @@ internal sealed class ToneSource(int rate = 48_000, int channels = 2) : IAudioSo
                     new AudioFrame(
                         MemoryMarshal.AsBytes(values.AsSpan()),
                         format,
-                        MediaTimestamp.Captured(at)
+                        observed ? MediaTimestamp.Observed(at) : MediaTimestamp.Captured(at)
                     )
                 );
             }

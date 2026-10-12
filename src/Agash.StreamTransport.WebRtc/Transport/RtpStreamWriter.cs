@@ -8,7 +8,7 @@ namespace Agash.StreamTransport.WebRtc.Transport;
 /// <summary>
 /// Turns one stream's encoded frames into RTP on a connection: the payload format splits them, the RTP
 /// timestamp is the frame's origin on the stream's clock from a random start (RFC 3550), and the first
-/// packet of each frame carries its abs-capture-time.
+/// packet of each frame carries its abs-capture-time when the frame has a capture time.
 /// </summary>
 /// <remarks>
 /// Timestamps come from each frame's own time, not from adding up durations, so frames an encoder emits
@@ -35,7 +35,10 @@ internal sealed class RtpStreamWriter(
     /// <param name="connection">The connection.</param>
     /// <param name="frame">The encoded frame.</param>
     /// <param name="timestamp">When it was made.</param>
-    /// <param name="capture">When it was captured, on this side's wall clock.</param>
+    /// <param name="capture">
+    /// When it was captured, on this side's wall clock; null for a frame whose time was only observed,
+    /// which carries no abs-capture-time and no timing (its deltas are measured from the capture time).
+    /// </param>
     /// <param name="timing">
     /// Its encode timing when it is a timing frame: its last packet then carries the video-timing extension,
     /// with packetization finished now and the pacer exit stamped as it leaves, and its capture time.
@@ -45,7 +48,7 @@ internal sealed class RtpStreamWriter(
         PeerConnection connection,
         ReadOnlySpan<byte> frame,
         MediaTimestamp timestamp,
-        NtpTime capture,
+        NtpTime? capture,
         FrameSendTiming? timing = null
     )
     {
@@ -60,22 +63,23 @@ internal sealed class RtpStreamWriter(
             for (int i = 0; i < _payloads.Count; i++)
             {
                 RtpExtensionValues extensions =
-                    i == last && timing is { } timed
+                    capture is not { } captured ? default
+                    : i == last && timing is { } timed
                         ? new RtpExtensionValues(
-                            capture.Value,
+                            captured.Value,
                             new VideoTiming(
                                 (byte)timed.Reasons,
                                 VideoTiming.Delta(timed.EncodeStart),
                                 VideoTiming.Delta(timed.EncodeFinish),
                                 VideoTiming.Delta(
-                                    PeerConnection.NtpDifference(capture.Value, connection.NtpNow)
+                                    PeerConnection.NtpDifference(captured.Value, connection.NtpNow)
                                 ),
                                 0,
                                 0,
                                 0
                             )
                         )
-                    : i == 0 ? new RtpExtensionValues(capture.Value)
+                    : i == 0 ? new RtpExtensionValues(captured.Value)
                     : default;
                 sent &= connection.TrySendRtp(
                     payloadType,

@@ -266,16 +266,22 @@ public interface IMediaTransport : IAsyncDisposable
 
     /// <summary>Sends an encoded video frame; dropped when the transport cannot send yet.</summary>
     /// <param name="frame">The frame.</param>
-    /// <param name="capture">When it was captured, on this side's wall clock.</param>
+    /// <param name="capture">
+    /// When it was captured, on this side's wall clock; null when its time is only when it was observed,
+    /// which is then not passed off as a capture time and the receiver aligns the stream from its reports.
+    /// </param>
     /// <param name="timing">The frame's encode timing, when it is a timing frame.</param>
     /// <returns>Whether it was queued to send.</returns>
-    bool TrySendVideo(in EncodedVideoFrame frame, NtpTime capture, FrameSendTiming? timing);
+    bool TrySendVideo(in EncodedVideoFrame frame, NtpTime? capture, FrameSendTiming? timing);
 
     /// <summary>Sends an encoded audio packet; dropped when the transport cannot send yet.</summary>
     /// <param name="frame">The packet.</param>
-    /// <param name="capture">When its first sample was captured, on this side's wall clock.</param>
+    /// <param name="capture">
+    /// When its first sample was captured, on this side's wall clock; null when its time is only when it
+    /// was observed.
+    /// </param>
     /// <returns>Whether it was queued to send.</returns>
-    bool TrySendAudio(in EncodedAudioFrame frame, NtpTime capture);
+    bool TrySendAudio(in EncodedAudioFrame frame, NtpTime? capture);
 
     /// <summary>Asks the peer for a keyframe; requests in quick succession are combined.</summary>
     void RequestKeyframe();
