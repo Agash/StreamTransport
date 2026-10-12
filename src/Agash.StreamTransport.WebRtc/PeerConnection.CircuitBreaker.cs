@@ -3,8 +3,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.WebRtc;
 
-// RFC 8083 circuit breakers, one per stream this endpoint sends: any RTCP from the peer counts as feedback,
-// and the reception blocks about each stream feed its media-timeout and congestion checks. When any opens,
+// RFC 8083 circuit breakers, one per stream this endpoint sends: reports about any of this endpoint's
+// streams, or reduced-size RTCP, count as feedback (RtcpTimeoutFeedback), and the reception blocks about
+// each stream feed its media-timeout and congestion checks. When any opens,
 // media on the connection stops (section 4.5: the 5-tuple ceases) until the application resumes it; while
 // one is reduced, the capacity is capped at a tenth of the rate that tripped it.
 public sealed partial class PeerConnection

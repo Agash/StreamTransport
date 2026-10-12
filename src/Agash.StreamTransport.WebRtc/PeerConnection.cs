@@ -1003,7 +1003,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         ReadOnlySpan<byte> rtcp = span[..length];
-        BreakerOnFeedback();
+        if (RtcpTimeoutFeedback.Resets(rtcp, IsOwnSource))
+        {
+            BreakerOnFeedback();
+        }
 
         if (RtcpFeedback.ContainsPli(rtcp, out uint pliSsrc))
         {
