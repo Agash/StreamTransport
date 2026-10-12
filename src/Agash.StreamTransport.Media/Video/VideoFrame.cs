@@ -5,8 +5,9 @@ namespace Agash.StreamTransport.Media;
 
 /// <summary>
 /// A video frame, borrowed: valid only for the call it is passed to. Being a <c>ref struct</c>, it cannot
-/// be stored in a field, captured by a lambda or carried across an <c>await</c>. A consumer that needs
-/// the frame later calls <see cref="Retain"/>, which returns an owning <see cref="VideoFrameLease"/>.
+/// be stored in a field or captured by a lambda. Frames are handed out through synchronous calls, which
+/// cannot await; one an application builds over its own buffers lives as long as they do. A consumer that
+/// needs the frame later calls <see cref="Retain"/>, which returns an owning <see cref="VideoFrameLease"/>.
 /// </summary>
 public readonly ref struct VideoFrame
 {
