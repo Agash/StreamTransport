@@ -4,6 +4,8 @@ using System.Diagnostics.Metrics;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using static FFmpeg.Interop.D3D12VAExtensions;
+using static FFmpeg.Interop.VulkanExtensions;
 using FF = FFmpeg.Interop;
 
 namespace Agash.StreamTransport.Codecs.FFmpeg;
@@ -459,6 +461,12 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             using FF.HardwareDevice device = adapter is null
                 ? FF.HardwareDevice.Create(type)
                 : FF.HardwareDevice.Create(type, adapter);
+            if (!DriverEncodes(device, codec.Id))
+            {
+                LogProbeFailed(_logger, codec.Name, $"the {type} driver has no encoder for it", null);
+                return [];
+            }
+
             FF.HardwareFrameConstraints constraints = device.GetFrameConstraints();
             foreach (PixelFormat candidate in s_candidates)
             {
@@ -475,6 +483,19 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         }
 
         return formats.DrainToImmutable();
+    }
+
+    // The driver's own answer where its API has one, ahead of opening an encoder it cannot run.
+    private static bool DriverEncodes(FF.HardwareDevice device, FF.CodecId codec)
+    {
+        if (device.Type == FF.HardwareDeviceType.Vulkan)
+        {
+            return device.CanVulkanEncode(codec);
+        }
+
+        return device.Type != FF.HardwareDeviceType.D3D12VA
+            || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240)
+            || device.CanD3D12Encode(codec);
     }
 
     private VideoSize MaximumSize(FF.GpuAdapter? adapter)
