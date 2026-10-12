@@ -62,7 +62,9 @@ public sealed partial class CoreAudioSink : IAudioSink, IDisposable
     /// How long audio takes from this sink to the speaker: what a session's audio output offset is
     /// measured against.
     /// </summary>
-    public TimeSpan? OutputLatency =>
+    public TimeSpan? OutputLatency => Latency;
+
+    private TimeSpan Latency =>
         TimeSpan.FromSeconds(_engine.OutputNode.PresentationLatency + _engine.OutputNode.Latency);
 
     /// <inheritdoc/>
@@ -107,7 +109,7 @@ public sealed partial class CoreAudioSink : IAudioSink, IDisposable
             );
         }
 
-        LogStarted(OutputLatency);
+        LogStarted(Latency);
     }
 
     // The engine stops when the output device or its format changes; it starts again on the new one.
