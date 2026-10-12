@@ -282,7 +282,9 @@ internal sealed class DmaBufInput : EncoderInput
 // A DMA-BUF handed to a Vulkan Video encoder in place: its memory is imported as an image made for the
 // encoder's input, taken from its producer while the encoder reads it and given back once the encoder
 // has. Producers cycle a few buffers, so each buffer's import is kept while it keeps coming back. A buffer
-// whose layout this GPU cannot encode from is mapped into Vulkan and copied on the GPU instead.
+// whose layout this GPU cannot encode from is imported the same way as an image for reads, and copied on
+// the GPU into a surface of the encoder's pool: the copy waits for the producer, the encoder waits for the
+// copy, and the buffer goes back after both, all on the GPU.
 [SupportedOSPlatform("linux")]
 internal sealed class VulkanDmaBufInput : EncoderInput
 {
@@ -296,16 +298,21 @@ internal sealed class VulkanDmaBufInput : EncoderInput
     private readonly Dictionary<ImportKey, Import> _imports = [];
     private readonly Queue<(long Pts, Import Import)> _reading = new();
     private readonly Action<ulong> _copying;
+    private readonly Func<ulong, bool> _readsInPlace;
     private readonly Dictionary<ulong, bool> _inPlace = [];
-    private FF.HardwareFramePool? _mappings;
+    private FF.HardwareFramePool? _reads;
+    private FF.VulkanDmaBufImporter? _readImporter;
+    private FF.VulkanFrameCopier? _copier;
     private long _uses;
 
     // Takes ownership of the device; copying is told once for each modifier the GPU cannot read in place.
+    // readsInPlace overrides the GPU's answer, for exercising the copy on a GPU that never needs it.
     public VulkanDmaBufInput(
         FF.HardwareDevice device,
         PixelFormat format,
         VideoSize size,
-        Action<ulong> copying
+        Action<ulong> copying,
+        Func<ulong, bool>? readsInPlace = null
     )
     {
         _device = device;
@@ -319,6 +326,7 @@ internal sealed class VulkanDmaBufInput : EncoderInput
             size.Height
         );
         _importer = new FF.VulkanDmaBufImporter(_pool);
+        _readsInPlace = readsInPlace ?? _importer.Supports;
     }
 
     public override FF.PixelFormat ContextFormat => FF.PixelFormat.Vulkan;
@@ -338,7 +346,7 @@ internal sealed class VulkanDmaBufInput : EncoderInput
 
         if (!_inPlace.TryGetValue(image.Modifier, out bool inPlace))
         {
-            inPlace = _importer.Supports(image.Modifier);
+            inPlace = _readsInPlace(image.Modifier);
             _inPlace.Add(image.Modifier, inPlace);
             if (!inPlace)
             {
@@ -346,19 +354,13 @@ internal sealed class VulkanDmaBufInput : EncoderInput
             }
         }
 
-        if (!inPlace)
-        {
-            DmaBufs.WaitUntilWritten(in image);
-            Copy(picture, destination);
-            return;
-        }
-
+        // The modifier is part of the key, so a buffer is always imported by the same importer.
         var key = ImportKey.Of(image, picture);
         if (!_imports.TryGetValue(key, out Import? import))
         {
             Evict();
-            import = new Import();
-            _importer.Import(picture, _size.Width, _size.Height, import.Frame);
+            import = new Import(inPlace ? _importer : ReadImporter());
+            import.Importer.Import(picture, _size.Width, _size.Height, import.Frame);
             _imports.Add(key, import);
         }
 
@@ -369,7 +371,7 @@ internal sealed class VulkanDmaBufInput : EncoderInput
             FF.DrmSyncPoint? ready = null;
             if (image.Sync is { } sync)
             {
-                if (_importer.WaitsForSyncPoints)
+                if (import.Importer.WaitsForSyncPoints)
                 {
                     ready = new FF.DrmSyncPoint(sync.AcquireSyncobj, sync.AcquirePoint);
                 }
@@ -379,12 +381,21 @@ internal sealed class VulkanDmaBufInput : EncoderInput
                 }
             }
 
-            _importer.Acquire(import.Frame, ready);
+            import.Importer.Acquire(import.Frame, ready);
         }
 
         import.LastUse = ++_uses;
         _reading.Enqueue((pts, import));
-        destination.Reference(import.Frame);
+        if (inPlace)
+        {
+            destination.Reference(import.Frame);
+        }
+        else
+        {
+            _pool.GetFrame(destination);
+            _copier ??= new FF.VulkanFrameCopier(_device);
+            _ = _copier.Copy(import.Frame, destination);
+        }
     }
 
     public override void Read(long pts)
@@ -394,7 +405,7 @@ internal sealed class VulkanDmaBufInput : EncoderInput
             _ = _reading.Dequeue();
             if (--oldest.Import.Reading == 0)
             {
-                _importer.Release(oldest.Import.Frame);
+                oldest.Import.Importer.Release(oldest.Import.Frame);
             }
         }
     }
@@ -409,28 +420,36 @@ internal sealed class VulkanDmaBufInput : EncoderInput
         }
 
         _imports.Clear();
+        _copier?.Dispose();
         _importer.Dispose();
-        _mappings?.Dispose();
+        _readImporter?.Dispose();
+        _reads?.Dispose();
         _pool.Dispose();
         _device.Dispose();
     }
 
-    // FFmpeg maps the buffer into an image the GPU can copy from; the copy lands in a surface of the
-    // encoder's own pool, and finishes before the mapping goes.
-    private void Copy(FF.DrmPrimeImage picture, FF.Frame destination)
+    // Imports for buffers the encoder cannot read in place: images made for copying from, which take
+    // layouts an encoder's input does not.
+    private unsafe FF.VulkanDmaBufImporter ReadImporter()
     {
-        _mappings ??= FF.HardwareFramePool.Create(
+        if (_readImporter is { } importer)
+        {
+            return importer;
+        }
+
+        _reads = FF.HardwareFramePool.Create(
             _device,
             FF.PixelFormat.Vulkan,
             _pool.SoftwareFormat,
             _size.Width,
-            _size.Height
+            _size.Height,
+            configure: static pool =>
+                ((AVVulkanFramesContext*)pool.Context->hwctx)->usage =
+                    VkImageUsageFlagBits.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                    | VkImageUsageFlagBits.VK_IMAGE_USAGE_SAMPLED_BIT
         );
-        using var imported = FF.Frame.FromDrmPrime(picture, _size.Width, _size.Height);
-        using FF.Frame mapped = new();
-        imported.MapTo(_mappings, mapped, FF.HardwareMapAccess.Read);
-        _pool.GetFrame(destination);
-        mapped.CopyTo(destination);
+        _readImporter = new FF.VulkanDmaBufImporter(_reads);
+        return _readImporter;
     }
 
     // Drops the least recently used import no frame is reading, once the producer has shown more buffers
@@ -461,8 +480,10 @@ internal sealed class VulkanDmaBufInput : EncoderInput
         }
     }
 
-    private sealed class Import
+    private sealed class Import(FF.VulkanDmaBufImporter importer)
     {
+        public FF.VulkanDmaBufImporter Importer { get; } = importer;
+
         public FF.Frame Frame { get; } = new();
 
         // Frames sent to the encoder from this buffer that it has not finished reading.

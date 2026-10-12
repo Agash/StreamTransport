@@ -2,6 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>Agash.StreamTransport.Media</RootNamespace>
     <PackageId>Agash.StreamTransport.Media</PackageId>
     <Description>The media model StreamTransport's packages share: video and audio frames with their storage (CPU, Direct3D 12, Direct3D 11, IOSurface, DMA-BUF), colour, layout, device and synchronisation; borrowed views and owning leases; typed media time; and the encoder, decoder and source contracts. No dependencies beyond the BCL.</Description>

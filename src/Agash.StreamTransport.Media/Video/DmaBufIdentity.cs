@@ -9,7 +9,7 @@ namespace Agash.StreamTransport.Media;
 /// what the descriptors point at, the device and inode of the DMA-BUF.
 /// </summary>
 [SupportedOSPlatform("linux")]
-internal static unsafe partial class DmaBufIdentity
+public static unsafe partial class DmaBufIdentity
 {
     /// <summary>The DMA-BUF's device and inode.</summary>
     /// <param name="fd">A descriptor of the DMA-BUF.</param>
