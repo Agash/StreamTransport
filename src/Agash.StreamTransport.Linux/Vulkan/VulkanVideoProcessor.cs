@@ -468,31 +468,36 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
     {
         int width = format.CodedSize.Width;
         int height = format.CodedSize.Height;
-        ImportCache.Lease lumaLease = _engine.Imports.Import(
-            image[0],
-            image.Modifier,
-            VkFormat.R8Unorm,
-            width,
-            height,
-            VkImageUsageFlags.Storage
-        );
-        batch.Then(lumaLease.Dispose);
-        VulkanImage luma = lumaLease.Image;
-        ImportCache.Lease chromaLease = _engine.Imports.Import(
+
+        // One image with a view per plane, as the producer laid the picture out: separate images per
+        // plane are only valid for modifiers whose planes stand alone. A single-plane description is
+        // contiguous NV12, whose chroma follows the luma.
+        DmaBufImage picture =
             image.PlaneCount > 1
-                ? image[1]
-                : image[0] with
-                {
-                    Offset = image[0].Offset + (image[0].Stride * height),
-                },
-            image.Modifier,
-            VkFormat.R8G8Unorm,
-            (width + 1) / 2,
-            (height + 1) / 2,
+                ? image
+                : new DmaBufImage(
+                    [
+                        image[0],
+                        image[0] with
+                        {
+                            Offset = image[0].Offset + (image[0].Stride * height),
+                        },
+                    ],
+                    image.DrmFormat,
+                    image.Modifier,
+                    image.Device
+                );
+        ImportCache.Lease pictureLease = _engine.Imports.ImportPicture(
+            in picture,
+            [
+                (VkFormat.R8Unorm, width, height),
+                (VkFormat.R8G8Unorm, (width + 1) / 2, (height + 1) / 2),
+            ],
             VkImageUsageFlags.Storage
         );
-        batch.Then(chromaLease.Dispose);
-        VulkanImage chroma = chromaLease.Image;
+        batch.Then(pictureLease.Dispose);
+        VulkanImage luma = pictureLease.Planes[0];
+        VulkanImage chroma = pictureLease.Planes[1];
 
         VideoColor source =
             inputColour.Matrix == ColorMatrix.Unspecified

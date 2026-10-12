@@ -60,9 +60,49 @@ internal sealed unsafe partial class ImportCache
             _uses++;
             if (!_entries.TryGetValue(key, out Entry? entry))
             {
-                entry = new Entry(
-                    VulkanImage.Import(_engine, plane, modifier, format, width, height, usage)
-                );
+                entry = new Entry([
+                    VulkanImage.Import(_engine, plane, modifier, format, width, height, usage),
+                ]);
+                _entries[key] = entry;
+            }
+
+            entry.Holds++;
+            entry.LastUse = _uses;
+            DropIdle();
+            return new Lease(this, entry);
+        }
+    }
+
+    /// <summary>
+    /// An import of a multi-planar picture as one image with a view per plane, held until the lease is
+    /// disposed: valid for any modifier, tiled ones whose planes depend on each other included.
+    /// </summary>
+    public Lease ImportPicture(
+        in DmaBufImage picture,
+        ReadOnlySpan<(VkFormat Format, int Width, int Height)> planes,
+        VkImageUsageFlags usage
+    )
+    {
+        Key key = new(
+            DmaBufIdentity.Of(picture[0].Fd),
+            picture[0].Offset,
+            picture[0].Stride,
+            picture.Modifier,
+            planes[0].Format,
+            planes[0].Width,
+            planes[0].Height,
+            usage,
+            planes.Length,
+            picture.PlaneCount > 1 ? DmaBufIdentity.Of(picture[1].Fd) : default,
+            picture.PlaneCount > 1 ? picture[1].Offset : 0,
+            picture.PlaneCount > 1 ? picture[1].Stride : 0
+        );
+        lock (_gate)
+        {
+            _uses++;
+            if (!_entries.TryGetValue(key, out Entry? entry))
+            {
+                entry = new Entry(VulkanImage.ImportPicture(_engine, picture, planes, usage));
                 _entries[key] = entry;
             }
 
@@ -96,7 +136,10 @@ internal sealed unsafe partial class ImportCache
         foreach (Key key in idle ?? [])
         {
             _entries.Remove(key, out Entry? entry);
-            entry!.Image.Dispose();
+            foreach (VulkanImage image in entry!.Images)
+            {
+                image.Dispose();
+            }
         }
     }
 
@@ -108,12 +151,16 @@ internal sealed unsafe partial class ImportCache
         VkFormat Format,
         int Width,
         int Height,
-        VkImageUsageFlags Usage
+        VkImageUsageFlags Usage,
+        int Planes = 1,
+        (ulong Device, ulong Inode) Plane1Buffer = default,
+        int Plane1Offset = 0,
+        int Plane1Stride = 0
     );
 
-    internal sealed class Entry(VulkanImage image)
+    internal sealed class Entry(VulkanImage[] images)
     {
-        public VulkanImage Image { get; } = image;
+        public VulkanImage[] Images { get; } = images;
 
         public int Holds { get; set; }
 
@@ -132,7 +179,10 @@ internal sealed unsafe partial class ImportCache
             _entry = entry;
         }
 
-        public VulkanImage Image => _entry.Image;
+        public VulkanImage Image => _entry.Images[0];
+
+        /// <summary>A picture import's planes, one view each.</summary>
+        public VulkanImage[] Planes => _entry.Images;
 
         public void Dispose() => _cache.Release(_entry);
     }

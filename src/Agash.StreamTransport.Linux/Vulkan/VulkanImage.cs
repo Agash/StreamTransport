@@ -146,7 +146,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                 bound.CheckResult();
             }
 
-            SharedImage shared = new(engine, image, memory, exported: null, planes: 1);
+            SharedImage shared = new(engine, image, [memory], exported: null, planes: 1);
             image = VkImage.Null;
             return new VulkanImage(
                 engine,
@@ -166,6 +166,200 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                 api.vkDestroyImage(image, null);
             }
         }
+    }
+
+    /// <summary>
+    /// Imports a multi-planar picture of a producer's DMA-BUF as one image, with each plane's layout as
+    /// the producer laid it out, and hands out a view per plane in the plane's own format. Valid for every
+    /// modifier, including tiled ones whose planes depend on each other, where importing the planes as
+    /// separate images is not. Planes on different descriptors are bound disjoint, each to its own memory.
+    /// Descriptors are duplicated: Vulkan takes ownership of what it imports.
+    /// </summary>
+    /// <param name="engine">The GPU.</param>
+    /// <param name="picture">The picture: one DMA-BUF plane per image plane.</param>
+    /// <param name="planes">Each plane's texel format and size, as the shaders see it.</param>
+    /// <param name="usage">How the planes are used here.</param>
+    /// <returns>The planes, which share the image until the last is disposed.</returns>
+    public static VulkanImage[] ImportPicture(
+        VulkanEngine engine,
+        in DmaBufImage picture,
+        ReadOnlySpan<(VkFormat Format, int Width, int Height)> planes,
+        VkImageUsageFlags usage
+    )
+    {
+        if (picture.PlaneCount != planes.Length)
+        {
+            throw new ArgumentException(
+                $"The picture has {picture.PlaneCount} planes; {planes.Length} were described.",
+                nameof(picture)
+            );
+        }
+
+        VkDeviceApi api = engine.Api;
+        VkFormat format = MultiPlanar(planes);
+        bool disjoint = false;
+        VkSubresourceLayout* layouts = stackalloc VkSubresourceLayout[planes.Length];
+        for (int i = 0; i < planes.Length; i++)
+        {
+            layouts[i] = new VkSubresourceLayout
+            {
+                offset = (ulong)picture[i].Offset,
+                rowPitch = (ulong)picture[i].Stride,
+            };
+            disjoint |=
+                i > 0 && DmaBufIdentity.Of(picture[i].Fd) != DmaBufIdentity.Of(picture[0].Fd);
+        }
+
+        VkImageDrmFormatModifierExplicitCreateInfoEXT explicitModifier = new()
+        {
+            drmFormatModifier = picture.Modifier,
+            drmFormatModifierPlaneCount = (uint)planes.Length,
+            pPlaneLayouts = layouts,
+        };
+        VkExternalMemoryImageCreateInfo external = new()
+        {
+            pNext = &explicitModifier,
+            handleTypes = VkExternalMemoryHandleTypeFlags.DmaBufEXT,
+        };
+        VkFormat* viewFormats = stackalloc VkFormat[planes.Length + 1];
+        viewFormats[0] = format;
+        for (int i = 0; i < planes.Length; i++)
+        {
+            viewFormats[i + 1] = planes[i].Format;
+        }
+
+        VkImage image = CreatePlanarImage(
+            api,
+            &external,
+            format,
+            new ReadOnlySpan<VkFormat>(viewFormats, planes.Length + 1),
+            planes[0].Width,
+            planes[0].Height,
+            usage,
+            disjoint
+        );
+        var memories = new VkDeviceMemory[disjoint ? planes.Length : 1];
+        try
+        {
+            if (disjoint)
+            {
+                VkBindImageMemoryInfo* binds = stackalloc VkBindImageMemoryInfo[planes.Length];
+                VkBindImagePlaneMemoryInfo* planeBinds =
+                    stackalloc VkBindImagePlaneMemoryInfo[planes.Length];
+                for (int i = 0; i < planes.Length; i++)
+                {
+                    VkImagePlaneMemoryRequirementsInfo planeInfo = new()
+                    {
+                        planeAspect = MemoryPlane(i),
+                    };
+                    VkImageMemoryRequirementsInfo2 info = new()
+                    {
+                        pNext = &planeInfo,
+                        image = image,
+                    };
+                    VkMemoryRequirements2 requirements = new();
+                    api.vkGetImageMemoryRequirements2(&info, &requirements);
+                    memories[i] = ImportMemory(
+                        engine,
+                        picture[i].Fd,
+                        requirements.memoryRequirements,
+                        dedicated: VkImage.Null
+                    );
+                    planeBinds[i] = new VkBindImagePlaneMemoryInfo { planeAspect = MemoryPlane(i) };
+                    binds[i] = new VkBindImageMemoryInfo
+                    {
+                        pNext = &planeBinds[i],
+                        image = image,
+                        memory = memories[i],
+                    };
+                }
+
+                api.vkBindImageMemory2((uint)planes.Length, binds).CheckResult();
+            }
+            else
+            {
+                VkMemoryRequirements requirements;
+                api.vkGetImageMemoryRequirements(image, &requirements);
+                memories[0] = ImportMemory(engine, picture[0].Fd, requirements, dedicated: image);
+                api.vkBindImageMemory(image, memories[0], 0).CheckResult();
+            }
+
+            SharedImage shared = new(engine, image, memories, exported: null, planes.Length);
+            image = VkImage.Null;
+            Array.Clear(memories);
+            var result = new VulkanImage[planes.Length];
+            for (int i = 0; i < planes.Length; i++)
+            {
+                result[i] = new VulkanImage(
+                    engine,
+                    shared,
+                    PlaneAspect(i),
+                    planes[i].Format,
+                    planes[i].Width,
+                    planes[i].Height,
+                    picture[i],
+                    picture.Modifier
+                );
+            }
+
+            return result;
+        }
+        finally
+        {
+            foreach (VkDeviceMemory memory in memories)
+            {
+                if (memory != VkDeviceMemory.Null)
+                {
+                    api.vkFreeMemory(memory, null);
+                }
+            }
+
+            if (image != VkImage.Null)
+            {
+                api.vkDestroyImage(image, null);
+            }
+        }
+    }
+
+    // Imports a descriptor's memory for an image, or for one plane of a disjoint image.
+    private static VkDeviceMemory ImportMemory(
+        VulkanEngine engine,
+        int descriptor,
+        VkMemoryRequirements requirements,
+        VkImage dedicated
+    )
+    {
+        VkDeviceApi api = engine.Api;
+        int fd = Dup(descriptor);
+        VkMemoryFdPropertiesKHR fdProperties = new();
+        api.vkGetMemoryFdPropertiesKHR(VkExternalMemoryHandleTypeFlags.DmaBufEXT, fd, &fdProperties)
+            .CheckResult();
+        VkMemoryDedicatedAllocateInfo dedication = new() { image = dedicated };
+        VkImportMemoryFdInfoKHR import = new()
+        {
+            pNext = dedicated != VkImage.Null ? &dedication : null,
+            handleType = VkExternalMemoryHandleTypeFlags.DmaBufEXT,
+            fd = fd,
+        };
+        VkMemoryAllocateInfo allocate = new()
+        {
+            pNext = &import,
+            allocationSize = requirements.size,
+            memoryTypeIndex = engine.MemoryType(
+                requirements.memoryTypeBits & fdProperties.memoryTypeBits,
+                0
+            ),
+        };
+        VkDeviceMemory memory;
+        VkResult allocated = api.vkAllocateMemory(&allocate, null, &memory);
+        if (allocated != VkResult.Success)
+        {
+            // Vulkan took the descriptor only if the import succeeded.
+            _ = Close(fd);
+            allocated.CheckResult();
+        }
+
+        return memory;
     }
 
     /// <summary>
@@ -215,7 +409,8 @@ internal sealed unsafe partial class VulkanImage : IDisposable
                     new ReadOnlySpan<VkFormat>(viewFormats, planes.Length + 1),
                     planes[0].Width,
                     planes[0].Height,
-                    usage
+                    usage,
+                    disjoint: false
                 );
         VkDeviceMemory memory = default;
         SharedImage? shared = null;
@@ -252,7 +447,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             shared = new SharedImage(
                 engine,
                 image,
-                memory,
+                [memory],
                 new SafeFileHandle(fd, ownsHandle: true),
                 planes.Length
             );
@@ -421,7 +616,8 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         ReadOnlySpan<VkFormat> viewFormats,
         int width,
         int height,
-        VkImageUsageFlags usage
+        VkImageUsageFlags usage,
+        bool disjoint
     )
     {
         fixed (VkFormat* formats = viewFormats)
@@ -435,7 +631,9 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             return Create(
                 api,
                 &list,
-                VkImageCreateFlags.MutableFormat | VkImageCreateFlags.ExtendedUsage,
+                VkImageCreateFlags.MutableFormat
+                    | VkImageCreateFlags.ExtendedUsage
+                    | (disjoint ? VkImageCreateFlags.Disjoint : 0),
                 format,
                 width,
                 height,
@@ -495,7 +693,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
     private sealed class SharedImage(
         VulkanEngine engine,
         VkImage image,
-        VkDeviceMemory memory,
+        VkDeviceMemory[] memories,
         SafeFileHandle? exported,
         int planes
     )
@@ -511,7 +709,11 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             if (Interlocked.Decrement(ref _planes) == 0)
             {
                 engine.Api.vkDestroyImage(Image, null);
-                engine.Api.vkFreeMemory(memory, null);
+                foreach (VkDeviceMemory memory in memories)
+                {
+                    engine.Api.vkFreeMemory(memory, null);
+                }
+
                 Exported?.Dispose();
             }
         }
