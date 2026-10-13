@@ -125,10 +125,12 @@ public sealed class PacerTests
         Assert.IsLessThanOrEqualTo(PacingQueue.MaxQueueDelay, sent[^1].At);
     }
 
+    // At 10 Mbit/s five milliseconds of saved budget would be six packets, which would reach an L4S
+    // queue back to back; a frame after idle time starts paced instead.
     [TestMethod]
-    public void Queue_IdleTimeSavesOnlyAShortBurst()
+    public void Queue_IdleTimeSavesOnlyOnePacket()
     {
-        PacingQueue queue = new() { BitsPerSecond = 800_000 };
+        PacingQueue queue = new() { BitsPerSecond = 10_000_000 };
         queue.Enqueue(Packet(TrafficClass.Video, 1000), TimeSpan.Zero);
         _ = Run(queue, TimeSpan.Zero);
 

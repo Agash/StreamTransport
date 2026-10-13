@@ -8,9 +8,11 @@ internal readonly record struct PacingStep(PacedPacket? Packet, TimeSpan? Wait);
 /// <summary>
 /// The pacing decisions, apart from threads and clocks: every call is given the time, so tests step it
 /// directly. Audio goes first and never waits, and may drive the budget negative. The other classes wait
-/// for one token bucket at the pacing rate, retransmissions first, then video, repair and probes; saved-up
-/// budget is capped at a short burst, and never below the packet waiting. A standing queue drains at
-/// whatever rate empties it within <see cref="MaxQueueDelay"/>.
+/// for one token bucket at the pacing rate, retransmissions first, then video, repair and probes. While
+/// packets wait, budget a late wake-up saved is capped at a short burst, and never below the packet
+/// waiting; budget saved while nothing waited is one packet's worth, so a frame starts paced instead of
+/// with a burst, which an L4S queue marks at a millisecond. A standing queue drains at whatever rate
+/// empties it within <see cref="MaxQueueDelay"/>.
 /// </summary>
 internal sealed class PacingQueue
 {
@@ -73,8 +75,17 @@ internal sealed class PacingQueue
             return;
         }
 
+        int cost = Cost(packet);
+        if (_pacedBytes == 0 && BitsPerSecond > 0)
+        {
+            // Nothing was waiting: the time since the last refill was idle, not a late wake-up.
+            double elapsed = Math.Max((now - _lastRefill).TotalSeconds, 0);
+            _budgetBytes = Math.Min(_budgetBytes + (elapsed * BitsPerSecond / 8.0), cost);
+            _lastRefill = now;
+        }
+
         _paced[(int)packet.Class - 1].Enqueue((packet, now));
-        _pacedBytes += Cost(packet);
+        _pacedBytes += cost;
     }
 
     /// <summary>The next step at a time; a packet it returns is taken off the queue.</summary>
