@@ -117,6 +117,10 @@ internal sealed class FFmpegVideoProcessor(
 
     // The intermediate picture of a side-by-side pack or unpack.
     private readonly FF.Frame _work = new();
+
+    // The colour half of a packed frame: a reference to the source narrowed to the left half, which starts
+    // where the frame does, so the conversion reads no chroma from the alpha half beside it.
+    private readonly FF.Frame _colourHalf = new();
     private readonly Lock _gate = new();
     private bool _delivering;
     private bool _disposed;
@@ -193,6 +197,7 @@ internal sealed class FFmpegVideoProcessor(
             _source.Dispose();
             _output.Dispose();
             _work.Dispose();
+            _colourHalf.Dispose();
         }
     }
 
@@ -270,16 +275,21 @@ internal sealed class FFmpegVideoProcessor(
         }
     }
 
-    // The left half's colour converted whole, with alpha read back from the right half's luma.
+    // The left half's colour converted on its own, with alpha read back from the right half's luma.
+    // Converting the whole packed frame would filter the colour's last chroma column with the alpha half's
+    // neutral chroma.
     private void Unpack(VideoStreamDescription output, VideoColor target)
     {
         int width = output.Size.Width;
         int height = output.Size.Height;
-        _work.Width = width * 2;
+        _colourHalf.Reference(_source);
+        _colourHalf.Width = width;
+        _work.Width = width;
         _work.Height = height;
         _work.PixelFormat = Formats.ToFFmpeg(output.PixelFormat);
         SetColor(_work, target);
-        _scaler.Scale(_source, _work);
+        _scaler.Scale(_colourHalf, _work);
+        _colourHalf.Reset();
 
         _output.AllocateVideo(width, height, Formats.ToFFmpeg(output.PixelFormat));
         SetColor(_output, target);
@@ -338,8 +348,11 @@ internal sealed class FFmpegVideoProcessor(
     private static byte FromLuma(byte luma, bool full) =>
         full ? luma : (byte)Math.Clamp((((luma - 16) * 255) + 109) / 219, 0, 255);
 
+    // Chroma is left-sited everywhere in StreamTransport, as the codecs assume and the GPU processors
+    // write and read it; swscale sites the conversion by it.
     private static void SetColor(FF.Frame frame, VideoColor color)
     {
+        frame.ChromaLocation = FF.ChromaLocation.Left;
         frame.ColorSpace = Formats.ToFFmpeg(color.Matrix);
         frame.ColorRange = Formats.ToFFmpeg(color.Range);
         frame.ColorPrimaries = Formats.ToFFmpeg(color.Primaries);
