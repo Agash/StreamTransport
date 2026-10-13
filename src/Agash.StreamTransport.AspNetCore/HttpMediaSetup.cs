@@ -15,7 +15,6 @@ using WebRtcSdp = Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.AspNetCore;
 
-
 /// <summary>What a session made for an HTTP offer sends and receives, and how it is set up.</summary>
 /// <param name="Endpoints">
 /// For WHIP ingest, the sinks the publisher's media goes to; for WHEP playback, the sources the player
@@ -39,4 +38,3 @@ public delegate ValueTask<HttpMediaSetup?> HttpMediaHandler(
     HttpContext context,
     CancellationToken cancellationToken
 );
-

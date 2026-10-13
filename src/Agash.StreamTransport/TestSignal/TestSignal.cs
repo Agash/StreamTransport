@@ -342,7 +342,7 @@ internal sealed class TestSignalVideoInput : IVideoInput
                 MediaTime time = _generator.Clock.Now;
                 Span<byte> luma = picture.AsSpan(0, size.Width * size.Height);
                 _generator.Draw(luma, picture.AsSpan(luma.Length), size, time, period);
-                VideoFrame frame = new(
+                var frame = VideoFrame.FromPlanes(
                     new VideoFormat(PixelFormat.Nv12, size.Width, size.Height),
                     MediaTimestamp.Captured(time),
                     luma,

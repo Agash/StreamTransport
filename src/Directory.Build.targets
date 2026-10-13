@@ -1,12 +1,14 @@
 <Project>
-  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))" Condition="Exists('$(MSBuildThisFileDirectory)../Directory.Build.targets')" />
+  <Import
+    Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))"
+    Condition="Exists('$(MSBuildThisFileDirectory)../Directory.Build.targets')"
+  />
 
   <!-- Every packable project tracks its public surface: a change shows in PublicAPI.Unshipped.txt,
        so it is reviewed, and the package is validated when packed. -->
   <PropertyGroup Condition="'$(IsPackable)' == 'true'">
     <EnablePackageValidation>true</EnablePackageValidation>
     <!-- VideoFrame and RtpPacket offer sibling overloads that each carry optional parameters. -->
-    <NoWarn>$(NoWarn);RS0026;RS0027</NoWarn>
   </PropertyGroup>
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
     <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />

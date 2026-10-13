@@ -439,7 +439,7 @@ internal sealed unsafe class D3D12VideoProcessor(
                         (int)(footprints[1].Footprint.RowPitch * rows[1])
                     )
                     : default;
-            VideoFrame result = new(
+            var result = VideoFrame.FromPlanes(
                 new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
                 frame.Timestamp,
                 luma,

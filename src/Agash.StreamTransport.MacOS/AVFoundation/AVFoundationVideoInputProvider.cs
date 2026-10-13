@@ -395,7 +395,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         {
             int lumaStride = (int)buffer.GetBytesPerRowOfPlane(0);
             int chromaStride = (int)buffer.GetBytesPerRowOfPlane(1);
-            return new VideoFrame(
+            return VideoFrame.FromPlanes(
                 format,
                 timestamp,
                 new ReadOnlySpan<byte>((void*)buffer.GetBaseAddress(0), lumaStride * height),
@@ -411,7 +411,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
         }
 
         int stride = (int)buffer.BytesPerRow;
-        return new VideoFrame(
+        return VideoFrame.FromPlanes(
             format,
             timestamp,
             new ReadOnlySpan<byte>((void*)buffer.BaseAddress, stride * height),

@@ -30,7 +30,7 @@ internal sealed class LoopbackSignaling : ISignalingChannel
 
     public event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
-    public Task SendAsync(
+    public Task SendDescriptionAsync(
         SessionDescription description,
         CancellationToken cancellationToken = default
     )
@@ -39,7 +39,10 @@ internal sealed class LoopbackSignaling : ISignalingChannel
         return Task.CompletedTask;
     }
 
-    public Task SendAsync(IceCandidateInit candidate, CancellationToken cancellationToken = default)
+    public Task SendCandidateAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    )
     {
         Peer!._inbox.Writer.TryWrite(candidate);
         return Task.CompletedTask;

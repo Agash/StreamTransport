@@ -16,7 +16,7 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 /// (RFC 8656, reached over UDP, TCP or TLS), runs STUN connectivity checks against trickled remote
 /// candidates, nominates, and keeps consent (RFC 7675) on the selected pair and warm alternates.
 /// Non-STUN datagrams on its sockets (DTLS, SRTP) are surfaced through <see cref="DataReceived"/>;
-/// outbound media goes through <see cref="SendAsync(ReadOnlyMemory{byte}, CancellationToken)"/>.
+/// outbound media goes through <see cref="SendAsync"/>.
 /// </summary>
 /// <remarks>
 /// The protocol is an <see cref="IceStateMachine"/>; this drives it: it owns the sockets and their
@@ -312,24 +312,12 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// must not fault while ICE re-nominates.
     /// </summary>
     /// <param name="data">The datagram.</param>
-    /// <param name="cancellationToken">Cancels the send.</param>
-    /// <returns>A task that completes when the datagram is handed to the socket.</returns>
-    public ValueTask SendAsync(
-        ReadOnlyMemory<byte> data,
-        CancellationToken cancellationToken = default
-    ) => SendAsync(data, EcnCodepoint.NotEct, cancellationToken);
-
-    /// <summary>
-    /// Sends a media datagram over the selected pair carrying an ECN codepoint; dropped while no pair is
-    /// selected, as <see cref="SendAsync(ReadOnlyMemory{byte}, CancellationToken)"/> is.
-    /// </summary>
-    /// <param name="data">The datagram.</param>
-    /// <param name="ecn">The ECN codepoint.</param>
+    /// <param name="ecn">The ECN codepoint it carries; none by default.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns>A task that completes when the datagram is handed to the socket.</returns>
     public async ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
-        EcnCodepoint ecn,
+        EcnCodepoint ecn = EcnCodepoint.NotEct,
         CancellationToken cancellationToken = default
     )
     {

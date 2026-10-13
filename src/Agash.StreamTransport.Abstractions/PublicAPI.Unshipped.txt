@@ -1,23 +1,4 @@
 #nullable enable
-~override Agash.StreamTransport.FrameSendTiming.Equals(object obj) -> bool
-~override Agash.StreamTransport.FrameSendTiming.ToString() -> string
-~override Agash.StreamTransport.IceCandidateInit.Equals(object obj) -> bool
-~override Agash.StreamTransport.IceCandidateInit.ToString() -> string
-~override Agash.StreamTransport.MediaRoute.Equals(object obj) -> bool
-~override Agash.StreamTransport.MediaRoute.ToString() -> string
-~override Agash.StreamTransport.PeerId.Equals(object obj) -> bool
-~override Agash.StreamTransport.PeerInfo.Equals(object obj) -> bool
-~override Agash.StreamTransport.PeerInfo.ToString() -> string
-~override Agash.StreamTransport.PlayoutDelayRange.Equals(object obj) -> bool
-~override Agash.StreamTransport.PlayoutDelayRange.ToString() -> string
-~override Agash.StreamTransport.RoomCode.Equals(object obj) -> bool
-~override Agash.StreamTransport.SessionDescription.Equals(object obj) -> bool
-~override Agash.StreamTransport.SessionDescription.ToString() -> string
-~override Agash.StreamTransport.TransportStatistics.Equals(object obj) -> bool
-~override Agash.StreamTransport.TransportStatistics.ToString() -> string
-~override Agash.StreamTransport.VideoReceiveTiming.Equals(object obj) -> bool
-~override Agash.StreamTransport.VideoReceiveTiming.ToString() -> string
-abstract Agash.StreamTransport.SignalingMessage.<Clone>$() -> Agash.StreamTransport.SignalingMessage!
 Agash.StreamTransport.AudioOffer
 Agash.StreamTransport.AudioOffer.<Clone>$() -> Agash.StreamTransport.AudioOffer!
 Agash.StreamTransport.AudioOffer.AudioOffer(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!> Codecs, bool Sends, bool Receives) -> void
@@ -54,42 +35,6 @@ Agash.StreamTransport.HelloMessage.Role.get -> Agash.StreamTransport.PeerRole
 Agash.StreamTransport.HelloMessage.Role.init -> void
 Agash.StreamTransport.HelloMessage.Room.get -> Agash.StreamTransport.RoomCode
 Agash.StreamTransport.HelloMessage.Room.init -> void
-Agash.StreamTransport.IceCandidateInit
-Agash.StreamTransport.IceCandidateInit.Candidate.get -> string!
-Agash.StreamTransport.IceCandidateInit.Candidate.init -> void
-Agash.StreamTransport.IceCandidateInit.Deconstruct(out string! Candidate, out string? SdpMid, out int? SdpMLineIndex) -> void
-Agash.StreamTransport.IceCandidateInit.Equals(Agash.StreamTransport.IceCandidateInit other) -> bool
-Agash.StreamTransport.IceCandidateInit.IceCandidateInit() -> void
-Agash.StreamTransport.IceCandidateInit.IceCandidateInit(string! Candidate, string? SdpMid, int? SdpMLineIndex) -> void
-Agash.StreamTransport.IceCandidateInit.SdpMid.get -> string?
-Agash.StreamTransport.IceCandidateInit.SdpMid.init -> void
-Agash.StreamTransport.IceCandidateInit.SdpMLineIndex.get -> int?
-Agash.StreamTransport.IceCandidateInit.SdpMLineIndex.init -> void
-Agash.StreamTransport.IceMessage
-Agash.StreamTransport.IceMessage.Candidate.get -> string!
-Agash.StreamTransport.IceMessage.Candidate.init -> void
-Agash.StreamTransport.IceMessage.Deconstruct(out string! Candidate, out string? SdpMid, out int? SdpMLineIndex, out Agash.StreamTransport.PeerId? From, out Agash.StreamTransport.PeerId? To) -> void
-Agash.StreamTransport.IceMessage.Equals(Agash.StreamTransport.IceMessage? other) -> bool
-Agash.StreamTransport.IceMessage.From.get -> Agash.StreamTransport.PeerId?
-Agash.StreamTransport.IceMessage.From.init -> void
-Agash.StreamTransport.IceMessage.IceMessage(string! Candidate, string? SdpMid, int? SdpMLineIndex, Agash.StreamTransport.PeerId? From = null, Agash.StreamTransport.PeerId? To = null) -> void
-Agash.StreamTransport.IceMessage.SdpMid.get -> string?
-Agash.StreamTransport.IceMessage.SdpMid.init -> void
-Agash.StreamTransport.IceMessage.SdpMLineIndex.get -> int?
-Agash.StreamTransport.IceMessage.SdpMLineIndex.init -> void
-Agash.StreamTransport.IceMessage.To.get -> Agash.StreamTransport.PeerId?
-Agash.StreamTransport.IceMessage.To.init -> void
-Agash.StreamTransport.IceServer
-Agash.StreamTransport.IceServer.<Clone>$() -> Agash.StreamTransport.IceServer!
-Agash.StreamTransport.IceServer.Credential.get -> string?
-Agash.StreamTransport.IceServer.Credential.init -> void
-Agash.StreamTransport.IceServer.Deconstruct(out System.Collections.Generic.IReadOnlyList<string!>! Urls, out string? Username, out string? Credential) -> void
-Agash.StreamTransport.IceServer.Equals(Agash.StreamTransport.IceServer? other) -> bool
-Agash.StreamTransport.IceServer.IceServer(System.Collections.Generic.IReadOnlyList<string!>! Urls, string? Username = null, string? Credential = null) -> void
-Agash.StreamTransport.IceServer.Urls.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Agash.StreamTransport.IceServer.Urls.init -> void
-Agash.StreamTransport.IceServer.Username.get -> string?
-Agash.StreamTransport.IceServer.Username.init -> void
 Agash.StreamTransport.IDuplexSignalingTransport
 Agash.StreamTransport.IDuplexSignalingTransport.MessageReceived -> System.Func<Agash.StreamTransport.SignalingMessage!, System.Threading.Tasks.Task!>?
 Agash.StreamTransport.IDuplexSignalingTransport.RunAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
@@ -129,8 +74,8 @@ Agash.StreamTransport.IReceivedMediaConsumer.OnVideoFrame(Agash.StreamTransport.
 Agash.StreamTransport.ISignalingChannel
 Agash.StreamTransport.ISignalingChannel.DescriptionReceived -> System.Func<Agash.StreamTransport.SessionDescription, System.Threading.Tasks.Task!>?
 Agash.StreamTransport.ISignalingChannel.IceCandidateReceived -> System.Func<Agash.StreamTransport.IceCandidateInit, System.Threading.Tasks.Task!>?
-Agash.StreamTransport.ISignalingChannel.SendAsync(Agash.StreamTransport.IceCandidateInit candidate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Agash.StreamTransport.ISignalingChannel.SendAsync(Agash.StreamTransport.SessionDescription description, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.ISignalingChannel.SendCandidateAsync(Agash.StreamTransport.IceCandidateInit candidate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.ISignalingChannel.SendDescriptionAsync(Agash.StreamTransport.SessionDescription description, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.ISignalingChannel.SupportsTrickle.get -> bool
 Agash.StreamTransport.ISignalingPeerTransport
 Agash.StreamTransport.ISignalingPeerTransport.SendAsync(Agash.StreamTransport.SignalingMessage! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
@@ -140,6 +85,42 @@ Agash.StreamTransport.ISignalingRouter.CreateRoom() -> Agash.StreamTransport.Roo
 Agash.StreamTransport.ISignalingSession
 Agash.StreamTransport.ISignalingSession.PeerId.get -> Agash.StreamTransport.PeerId?
 Agash.StreamTransport.ISignalingSession.ReceiveAsync(Agash.StreamTransport.SignalingMessage! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.IceCandidateInit
+Agash.StreamTransport.IceCandidateInit.Candidate.get -> string!
+Agash.StreamTransport.IceCandidateInit.Candidate.init -> void
+Agash.StreamTransport.IceCandidateInit.Deconstruct(out string! Candidate, out string? SdpMid, out int? SdpMLineIndex) -> void
+Agash.StreamTransport.IceCandidateInit.Equals(Agash.StreamTransport.IceCandidateInit other) -> bool
+Agash.StreamTransport.IceCandidateInit.IceCandidateInit() -> void
+Agash.StreamTransport.IceCandidateInit.IceCandidateInit(string! Candidate, string? SdpMid, int? SdpMLineIndex) -> void
+Agash.StreamTransport.IceCandidateInit.SdpMLineIndex.get -> int?
+Agash.StreamTransport.IceCandidateInit.SdpMLineIndex.init -> void
+Agash.StreamTransport.IceCandidateInit.SdpMid.get -> string?
+Agash.StreamTransport.IceCandidateInit.SdpMid.init -> void
+Agash.StreamTransport.IceMessage
+Agash.StreamTransport.IceMessage.Candidate.get -> string!
+Agash.StreamTransport.IceMessage.Candidate.init -> void
+Agash.StreamTransport.IceMessage.Deconstruct(out string! Candidate, out string? SdpMid, out int? SdpMLineIndex, out Agash.StreamTransport.PeerId? From, out Agash.StreamTransport.PeerId? To) -> void
+Agash.StreamTransport.IceMessage.Equals(Agash.StreamTransport.IceMessage? other) -> bool
+Agash.StreamTransport.IceMessage.From.get -> Agash.StreamTransport.PeerId?
+Agash.StreamTransport.IceMessage.From.init -> void
+Agash.StreamTransport.IceMessage.IceMessage(string! Candidate, string? SdpMid, int? SdpMLineIndex, Agash.StreamTransport.PeerId? From = null, Agash.StreamTransport.PeerId? To = null) -> void
+Agash.StreamTransport.IceMessage.SdpMLineIndex.get -> int?
+Agash.StreamTransport.IceMessage.SdpMLineIndex.init -> void
+Agash.StreamTransport.IceMessage.SdpMid.get -> string?
+Agash.StreamTransport.IceMessage.SdpMid.init -> void
+Agash.StreamTransport.IceMessage.To.get -> Agash.StreamTransport.PeerId?
+Agash.StreamTransport.IceMessage.To.init -> void
+Agash.StreamTransport.IceServer
+Agash.StreamTransport.IceServer.<Clone>$() -> Agash.StreamTransport.IceServer!
+Agash.StreamTransport.IceServer.Credential.get -> string?
+Agash.StreamTransport.IceServer.Credential.init -> void
+Agash.StreamTransport.IceServer.Deconstruct(out System.Collections.Generic.IReadOnlyList<string!>! Urls, out string? Username, out string? Credential) -> void
+Agash.StreamTransport.IceServer.Equals(Agash.StreamTransport.IceServer? other) -> bool
+Agash.StreamTransport.IceServer.IceServer(System.Collections.Generic.IReadOnlyList<string!>! Urls, string? Username = null, string? Credential = null) -> void
+Agash.StreamTransport.IceServer.Urls.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.IceServer.Urls.init -> void
+Agash.StreamTransport.IceServer.Username.get -> string?
+Agash.StreamTransport.IceServer.Username.init -> void
 Agash.StreamTransport.MediaOffer
 Agash.StreamTransport.MediaOffer.<Clone>$() -> Agash.StreamTransport.MediaOffer!
 Agash.StreamTransport.MediaOffer.Audio.get -> Agash.StreamTransport.AudioOffer?
@@ -393,6 +374,7 @@ Agash.StreamTransport.WelcomeMessage.PeerId.init -> void
 Agash.StreamTransport.WelcomeMessage.RoomState.get -> Agash.StreamTransport.RoomState!
 Agash.StreamTransport.WelcomeMessage.RoomState.init -> void
 Agash.StreamTransport.WelcomeMessage.WelcomeMessage(Agash.StreamTransport.PeerId PeerId, Agash.StreamTransport.RoomState! RoomState) -> void
+abstract Agash.StreamTransport.SignalingMessage.<Clone>$() -> Agash.StreamTransport.SignalingMessage!
 const Agash.StreamTransport.SignalingProtocol.Version = 1 -> int
 override Agash.StreamTransport.AudioOffer.Equals(object? obj) -> bool
 override Agash.StreamTransport.AudioOffer.GetHashCode() -> int
@@ -525,8 +507,8 @@ static Agash.StreamTransport.SessionDescription.operator !=(Agash.StreamTranspor
 static Agash.StreamTransport.SessionDescription.operator ==(Agash.StreamTransport.SessionDescription left, Agash.StreamTransport.SessionDescription right) -> bool
 static Agash.StreamTransport.SignalingErrorMessage.operator !=(Agash.StreamTransport.SignalingErrorMessage? left, Agash.StreamTransport.SignalingErrorMessage? right) -> bool
 static Agash.StreamTransport.SignalingErrorMessage.operator ==(Agash.StreamTransport.SignalingErrorMessage? left, Agash.StreamTransport.SignalingErrorMessage? right) -> bool
-static Agash.StreamTransport.SignalingJson.Deserialize(string! json) -> Agash.StreamTransport.SignalingMessage?
 static Agash.StreamTransport.SignalingJson.Deserialize(System.ReadOnlySpan<byte> utf8Json) -> Agash.StreamTransport.SignalingMessage?
+static Agash.StreamTransport.SignalingJson.Deserialize(string! json) -> Agash.StreamTransport.SignalingMessage?
 static Agash.StreamTransport.SignalingJson.Serialize(Agash.StreamTransport.SignalingMessage! message) -> string!
 static Agash.StreamTransport.SignalingJson.SerializeToUtf8Bytes(Agash.StreamTransport.SignalingMessage! message) -> byte[]!
 static Agash.StreamTransport.SignalingMessage.operator !=(Agash.StreamTransport.SignalingMessage? left, Agash.StreamTransport.SignalingMessage? right) -> bool
@@ -548,3 +530,21 @@ virtual Agash.StreamTransport.MediaTransportOptions.PrintMembers(System.Text.Str
 virtual Agash.StreamTransport.SignalingMessage.EqualityContract.get -> System.Type!
 virtual Agash.StreamTransport.SignalingMessage.Equals(Agash.StreamTransport.SignalingMessage? other) -> bool
 virtual Agash.StreamTransport.SignalingMessage.PrintMembers(System.Text.StringBuilder! builder) -> bool
+~override Agash.StreamTransport.FrameSendTiming.Equals(object obj) -> bool
+~override Agash.StreamTransport.FrameSendTiming.ToString() -> string
+~override Agash.StreamTransport.IceCandidateInit.Equals(object obj) -> bool
+~override Agash.StreamTransport.IceCandidateInit.ToString() -> string
+~override Agash.StreamTransport.MediaRoute.Equals(object obj) -> bool
+~override Agash.StreamTransport.MediaRoute.ToString() -> string
+~override Agash.StreamTransport.PeerId.Equals(object obj) -> bool
+~override Agash.StreamTransport.PeerInfo.Equals(object obj) -> bool
+~override Agash.StreamTransport.PeerInfo.ToString() -> string
+~override Agash.StreamTransport.PlayoutDelayRange.Equals(object obj) -> bool
+~override Agash.StreamTransport.PlayoutDelayRange.ToString() -> string
+~override Agash.StreamTransport.RoomCode.Equals(object obj) -> bool
+~override Agash.StreamTransport.SessionDescription.Equals(object obj) -> bool
+~override Agash.StreamTransport.SessionDescription.ToString() -> string
+~override Agash.StreamTransport.TransportStatistics.Equals(object obj) -> bool
+~override Agash.StreamTransport.TransportStatistics.ToString() -> string
+~override Agash.StreamTransport.VideoReceiveTiming.Equals(object obj) -> bool
+~override Agash.StreamTransport.VideoReceiveTiming.ToString() -> string

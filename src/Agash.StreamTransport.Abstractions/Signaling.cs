@@ -37,10 +37,16 @@ public readonly record struct IceCandidateInit(
 public interface ISignalingChannel : IAsyncDisposable
 {
     /// <summary>Send a session description (offer or answer) to the remote peer.</summary>
-    Task SendAsync(SessionDescription description, CancellationToken cancellationToken = default);
+    Task SendDescriptionAsync(
+        SessionDescription description,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Send a local ICE candidate to the remote peer.</summary>
-    Task SendAsync(IceCandidateInit candidate, CancellationToken cancellationToken = default);
+    Task SendCandidateAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    );
 
     /// <summary>Raised when a session description arrives from the remote peer.</summary>
     event Func<SessionDescription, Task>? DescriptionReceived;

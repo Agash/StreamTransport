@@ -589,7 +589,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 + payload.Length
                 + SrtpSession.MaxProtectionOverhead
         );
-        int rtpLength = RtpPacket.Write(
+        int rtpLength = RtpPacket.WriteWithTimingOffset(
             buffer,
             marker,
             payloadType,
@@ -661,7 +661,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             Interlocked.Increment(ref _keyframeRequestsSent);
             await agent
-                .SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken)
+                .SendAsync(
+                    buffer.AsMemory(0, protectedLength),
+                    cancellationToken: cancellationToken
+                )
                 .ConfigureAwait(false);
         }
         finally
@@ -786,7 +789,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         ReadOnlyMemory<byte> data = packet.Buffer.AsMemory(0, protectedLength);
         if (!await agent.TrySendOnStandbyAsync(data, cancellationToken).ConfigureAwait(false))
         {
-            await agent.SendAsync(data, cancellationToken).ConfigureAwait(false);
+            await agent.SendAsync(data, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
     }
 

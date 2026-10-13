@@ -218,7 +218,7 @@ internal sealed partial class HttpSdpChannel(
 
     public Task Answered => _answered.Task;
 
-    public async Task SendAsync(
+    public async Task SendDescriptionAsync(
         SessionDescription description,
         CancellationToken cancellationToken = default
     )
@@ -354,7 +354,7 @@ internal sealed partial class HttpSdpChannel(
     }
 
     // A candidate gathered after the offer: trickled once the resource exists, with any others waiting.
-    public async Task SendAsync(
+    public async Task SendCandidateAsync(
         IceCandidateInit candidate,
         CancellationToken cancellationToken = default
     )

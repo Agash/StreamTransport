@@ -26,7 +26,7 @@ internal static class FFmpegFrames
                 )
                 : default;
 
-        return new VideoFrame(
+        return VideoFrame.FromPlanes(
             format,
             timestamp,
             Plane(0),

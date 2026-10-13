@@ -298,7 +298,7 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IDisposable
     private void DeliverMapped(in PipeWireFrame frame, PixelFormat format)
     {
         int count = PlaneLayout.PlaneCount(format);
-        VideoFrame video = new(
+        var video = VideoFrame.FromPlanes(
             new VideoFormat(format, frame.Width, frame.Height),
             Timestamp(in frame),
             frame.GetHostPlane(0),

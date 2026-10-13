@@ -184,7 +184,7 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
     private static VideoFrameLease CopyOf(in VideoFrame frame)
     {
         // A copy into pooled memory; the decoder reuses its frame for the next picture.
-        VideoFrame plain = new(
+        var plain = VideoFrame.FromPlanes(
             frame.Format,
             frame.Timestamp,
             frame.GetPlane(0),

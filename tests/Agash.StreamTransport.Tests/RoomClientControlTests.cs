@@ -21,12 +21,12 @@ public sealed class RoomClientControlTests
         await using var pubLink = new InMemoryClientLink(router);
         await using var subLink = new InMemoryClientLink(router);
 
-        await using RoomClient publisher = await RoomClient.ConnectAsync(
+        await using RoomClient publisher = await RoomClient.JoinAsync(
             pubLink,
             Room,
             PeerRole.Publisher
         );
-        await using RoomClient subscriber = await RoomClient.ConnectAsync(
+        await using RoomClient subscriber = await RoomClient.JoinAsync(
             subLink,
             Room,
             PeerRole.Subscriber
@@ -57,12 +57,12 @@ public sealed class RoomClientControlTests
         await using (var pubLink = new InMemoryClientLink(router))
         await using (var subLink = new InMemoryClientLink(router))
         {
-            await using RoomClient publisher = await RoomClient.ConnectAsync(
+            await using RoomClient publisher = await RoomClient.JoinAsync(
                 pubLink,
                 Room,
                 PeerRole.Publisher
             );
-            await using RoomClient subscriber = await RoomClient.ConnectAsync(
+            await using RoomClient subscriber = await RoomClient.JoinAsync(
                 subLink,
                 Room,
                 PeerRole.Subscriber
@@ -95,12 +95,12 @@ public sealed class RoomClientControlTests
         await using var pubLink = new InMemoryClientLink(router);
         await using var subLink = new InMemoryClientLink(router);
 
-        await using RoomClient publisher = await RoomClient.ConnectAsync(
+        await using RoomClient publisher = await RoomClient.JoinAsync(
             pubLink,
             Room,
             PeerRole.Publisher
         );
-        await using RoomClient subscriber = await RoomClient.ConnectAsync(
+        await using RoomClient subscriber = await RoomClient.JoinAsync(
             subLink,
             Room,
             PeerRole.Subscriber

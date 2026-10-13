@@ -55,7 +55,7 @@ public sealed class RoomClient : IMediaRoom
     /// <summary>
     /// Connect to a relay's WebSocket signaling endpoint, join <paramref name="room"/> as
     /// <paramref name="role"/>, and complete the welcome handshake. Convenience over
-    /// <see cref="ConnectAsync(IDuplexSignalingTransport, RoomCode, PeerRole, CancellationToken)"/> for the
+    /// <see cref="JoinAsync"/> for the
     /// common case; the client owns and closes the socket.
     /// </summary>
     public static async Task<RoomClient> ConnectAsync(
@@ -87,7 +87,7 @@ public sealed class RoomClient : IMediaRoom
     /// link - for example plugging in a SignalR connection. The caller owns the transport's
     /// lifetime; disposing this client does not dispose the supplied transport.
     /// </summary>
-    public static Task<RoomClient> ConnectAsync(
+    public static Task<RoomClient> JoinAsync(
         IDuplexSignalingTransport transport,
         RoomCode room,
         PeerRole role,
@@ -306,7 +306,7 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         }
     }
 
-    public Task SendAsync(
+    public Task SendDescriptionAsync(
         SessionDescription description,
         CancellationToken cancellationToken = default
     ) =>
@@ -317,7 +317,7 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
             )
             .AsTask();
 
-    public Task SendAsync(
+    public Task SendCandidateAsync(
         IceCandidateInit candidate,
         CancellationToken cancellationToken = default
     ) =>

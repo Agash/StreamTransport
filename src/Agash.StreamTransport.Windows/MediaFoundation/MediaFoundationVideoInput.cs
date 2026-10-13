@@ -276,7 +276,7 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
         ReadOnlySpan<byte> all = new(scan0, length);
         VideoFrame frame = _format.PixelFormat switch
         {
-            PixelFormat.Nv12 => new VideoFrame(
+            PixelFormat.Nv12 => VideoFrame.FromPlanes(
                 _format,
                 timestamp,
                 all[..(pitch * height)],
@@ -285,7 +285,7 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
                 pitch,
                 color: _color
             ),
-            PixelFormat.I420 => new VideoFrame(
+            PixelFormat.I420 => VideoFrame.FromPlanes(
                 _format,
                 timestamp,
                 all[..(pitch * height)],
@@ -296,7 +296,7 @@ internal sealed unsafe partial class MediaFoundationVideoInput : IVideoInput
                 pitch / 2,
                 color: _color
             ),
-            _ => new VideoFrame(_format, timestamp, all, pitch, color: _color),
+            _ => VideoFrame.FromPlanes(_format, timestamp, all, pitch, color: _color),
         };
         foreach (IVideoFrameConsumer consumer in _consumers)
         {

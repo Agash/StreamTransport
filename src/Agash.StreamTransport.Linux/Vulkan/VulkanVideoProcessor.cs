@@ -275,7 +275,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         bool nv12 = described.PixelFormat == PixelFormat.Nv12;
         byte[] first = VulkanTransfer.Download(_engine, output.Planes[0], nv12 ? 1 : 4);
         byte[] second = nv12 ? VulkanTransfer.Download(_engine, output.Planes[1], 2) : [];
-        VideoFrame result = new(
+        var result = VideoFrame.FromPlanes(
             new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
             frame.Timestamp,
             first,

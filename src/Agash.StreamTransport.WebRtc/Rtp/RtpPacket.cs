@@ -37,7 +37,7 @@ public static class RtpPacket
         RtpExtensionMap? map = null,
         RtpExtensionValues extensions = default
     ) =>
-        Write(
+        WriteWithTimingOffset(
             destination,
             marker,
             payloadType,
@@ -65,7 +65,7 @@ public static class RtpPacket
     /// <param name="extensions">The extension values.</param>
     /// <param name="videoTimingAt">Where the video-timing value starts in the packet, or -1.</param>
     /// <returns>The packet's length.</returns>
-    public static int Write(
+    public static int WriteWithTimingOffset(
         Span<byte> destination,
         bool marker,
         byte payloadType,

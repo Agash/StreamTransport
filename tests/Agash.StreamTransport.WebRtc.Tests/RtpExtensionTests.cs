@@ -50,7 +50,7 @@ public sealed class RtpExtensionTests
     {
         byte[] buffer = new byte[256];
 
-        _ = RtpPacket.Write(
+        _ = RtpPacket.WriteWithTimingOffset(
             buffer,
             true,
             96,

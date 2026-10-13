@@ -338,7 +338,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             return await _answer.Task.WaitAsync(limit, cancellationToken).ConfigureAwait(false);
         }
 
-        public Task SendAsync(
+        public Task SendDescriptionAsync(
             SessionDescription description,
             CancellationToken cancellationToken = default
         )
@@ -353,7 +353,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
             return Task.CompletedTask;
         }
 
-        public Task SendAsync(
+        public Task SendCandidateAsync(
             IceCandidateInit candidate,
             CancellationToken cancellationToken = default
         ) => Task.CompletedTask;

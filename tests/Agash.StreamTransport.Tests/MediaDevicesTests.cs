@@ -281,7 +281,7 @@ public sealed class TestSignalTests
         IVideoSink sink = analyzer.WrapVideo();
         VideoSize size = new(640, 360);
         byte[] picture = [.. Enumerable.Repeat((byte)128, size.Width * size.Height * 3 / 2)];
-        VideoFrame frame = new(
+        var frame = VideoFrame.FromPlanes(
             new VideoFormat(PixelFormat.Nv12, size.Width, size.Height),
             MediaTimestamp.Captured(new MediaTime(0)),
             picture.AsSpan(0, size.Width * size.Height),

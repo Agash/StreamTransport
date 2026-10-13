@@ -306,7 +306,7 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
 
     private void DeliverMapped(IVideoFrameConsumer consumer, Slot slot, MediaTimestamp timestamp)
     {
-        VideoFrame frame = new(
+        var frame = VideoFrame.FromPlanes(
             _format,
             timestamp,
             Plane(slot, 0),

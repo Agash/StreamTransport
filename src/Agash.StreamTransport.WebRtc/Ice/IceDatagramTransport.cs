@@ -36,5 +36,5 @@ internal sealed class IceDatagramTransport(IceAgent agent) : IDatagramTransport
     public ValueTask SendAsync(
         ReadOnlyMemory<byte> datagram,
         CancellationToken cancellationToken
-    ) => agent.SendAsync(datagram, cancellationToken);
+    ) => agent.SendAsync(datagram, cancellationToken: cancellationToken);
 }

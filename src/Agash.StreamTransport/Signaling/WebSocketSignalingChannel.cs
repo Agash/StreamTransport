@@ -26,7 +26,7 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
     public event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
     /// <inheritdoc/>
-    public Task SendAsync(
+    public Task SendDescriptionAsync(
         SessionDescription description,
         CancellationToken cancellationToken = default
     ) =>
@@ -40,7 +40,7 @@ public sealed class WebSocketSignalingChannel : ISignalingChannel
         );
 
     /// <inheritdoc/>
-    public Task SendAsync(
+    public Task SendCandidateAsync(
         IceCandidateInit candidate,
         CancellationToken cancellationToken = default
     ) =>

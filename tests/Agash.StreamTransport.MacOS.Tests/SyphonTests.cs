@@ -45,7 +45,7 @@ public sealed class SyphonTests
                 else
                 {
                     sink.OnFrame(
-                        new VideoFrame(
+                        VideoFrame.FromPlanes(
                             new VideoFormat(PixelFormat.Bgra, Width, Height),
                             MediaTimestamp.Captured(new MediaTime(1)),
                             pixels,
@@ -150,7 +150,7 @@ public sealed class SyphonTests
 
         Assert.ThrowsExactly<ArgumentException>(() =>
             sink.OnFrame(
-                new VideoFrame(
+                VideoFrame.FromPlanes(
                     new VideoFormat(PixelFormat.Nv12, 2, 2),
                     MediaTimestamp.Captured(new MediaTime(1)),
                     new byte[4],

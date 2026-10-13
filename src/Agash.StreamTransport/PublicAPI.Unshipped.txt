@@ -1,9 +1,4 @@
 #nullable enable
-~override Agash.StreamTransport.MediaSessionStatistics.Equals(object obj) -> bool
-~override Agash.StreamTransport.MediaSessionStatistics.ToString() -> string
-~override Agash.StreamTransport.PublishedSession.Equals(object obj) -> bool
-~override Agash.StreamTransport.PublishedSession.ToString() -> string
-~override Agash.StreamTransport.TestSignal.TestSignalMeasurement.Equals(object obj) -> bool
 Agash.StreamTransport.Http.HttpMediaSession
 Agash.StreamTransport.Http.HttpMediaSession.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.Http.HttpMediaSession.Resource.get -> System.Uri?
@@ -16,10 +11,10 @@ Agash.StreamTransport.Http.HttpSignalingOptions.Equals(Agash.StreamTransport.Htt
 Agash.StreamTransport.Http.HttpSignalingOptions.HttpClient.get -> System.Net.Http.HttpClient?
 Agash.StreamTransport.Http.HttpSignalingOptions.HttpClient.init -> void
 Agash.StreamTransport.Http.HttpSignalingOptions.HttpSignalingOptions() -> void
-Agash.StreamTransport.Http.HttpSignalingOptions.Timeout.get -> System.TimeSpan
-Agash.StreamTransport.Http.HttpSignalingOptions.Timeout.init -> void
 Agash.StreamTransport.Http.HttpSignalingOptions.TimeProvider.get -> System.TimeProvider?
 Agash.StreamTransport.Http.HttpSignalingOptions.TimeProvider.init -> void
+Agash.StreamTransport.Http.HttpSignalingOptions.Timeout.get -> System.TimeSpan
+Agash.StreamTransport.Http.HttpSignalingOptions.Timeout.init -> void
 Agash.StreamTransport.Http.IceServerLinks
 Agash.StreamTransport.Http.TrickleIceFragment
 Agash.StreamTransport.Http.TrickleIceFragment.<Clone>$() -> Agash.StreamTransport.Http.TrickleIceFragment!
@@ -199,7 +194,6 @@ Agash.StreamTransport.RoomClient.Peers.get -> System.Collections.Generic.IReadOn
 Agash.StreamTransport.RoomClient.Self.get -> Agash.StreamTransport.PeerId
 Agash.StreamTransport.RoomClient.SendControlAsync(string! topic, string! payload, Agash.StreamTransport.PeerId? to = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.RoomClient.State.get -> Agash.StreamTransport.RoomState!
-Microsoft.Extensions.DependencyInjection.StreamTransportServiceCollectionExtensions
 Agash.StreamTransport.Sessions.MediaSessionFactory
 Agash.StreamTransport.Sessions.MediaSessionFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options) -> Agash.StreamTransport.IMediaSession!
 Agash.StreamTransport.Sessions.MediaSessionFactory.Dispose() -> void
@@ -300,9 +294,10 @@ Agash.StreamTransport.WebSocketSignalingChannel.DescriptionReceived -> System.Fu
 Agash.StreamTransport.WebSocketSignalingChannel.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebSocketSignalingChannel.IceCandidateReceived -> System.Func<Agash.StreamTransport.IceCandidateInit, System.Threading.Tasks.Task!>?
 Agash.StreamTransport.WebSocketSignalingChannel.RunAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Agash.StreamTransport.WebSocketSignalingChannel.SendAsync(Agash.StreamTransport.IceCandidateInit candidate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-Agash.StreamTransport.WebSocketSignalingChannel.SendAsync(Agash.StreamTransport.SessionDescription description, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.WebSocketSignalingChannel.SendCandidateAsync(Agash.StreamTransport.IceCandidateInit candidate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.WebSocketSignalingChannel.SendDescriptionAsync(Agash.StreamTransport.SessionDescription description, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.WebSocketSignalingChannel.WebSocketSignalingChannel(System.Net.WebSockets.WebSocket! socket) -> void
+Microsoft.Extensions.DependencyInjection.StreamTransportServiceCollectionExtensions
 const Agash.StreamTransport.Http.TrickleIceFragment.DefaultMediaLine = "audio 9 RTP/AVP 0" -> string!
 const Agash.StreamTransport.Http.TrickleIceFragment.MediaType = "application/trickle-ice-sdpfrag" -> string!
 const Agash.StreamTransport.StreamTransportDiagnostics.ActivitySourceName = "Agash.StreamTransport" -> string!
@@ -334,9 +329,9 @@ static Agash.StreamTransport.Http.IceServerLinks.Format(System.Collections.Gener
 static Agash.StreamTransport.Http.IceServerLinks.Parse(System.Collections.Generic.IEnumerable<string!>! values) -> System.Collections.Generic.List<Agash.StreamTransport.IceServer!>!
 static Agash.StreamTransport.Http.TrickleIceFragment.ForFirstSection(string! sdp, System.Collections.Generic.IReadOnlyList<string!>! candidates) -> Agash.StreamTransport.Http.TrickleIceFragment!
 static Agash.StreamTransport.Http.TrickleIceFragment.FromFirstSection(string! sdp) -> Agash.StreamTransport.Http.TrickleIceFragment!
+static Agash.StreamTransport.Http.TrickleIceFragment.TryParse(string! body, out Agash.StreamTransport.Http.TrickleIceFragment! fragment) -> bool
 static Agash.StreamTransport.Http.TrickleIceFragment.operator !=(Agash.StreamTransport.Http.TrickleIceFragment? left, Agash.StreamTransport.Http.TrickleIceFragment? right) -> bool
 static Agash.StreamTransport.Http.TrickleIceFragment.operator ==(Agash.StreamTransport.Http.TrickleIceFragment? left, Agash.StreamTransport.Http.TrickleIceFragment? right) -> bool
-static Agash.StreamTransport.Http.TrickleIceFragment.TryParse(string! body, out Agash.StreamTransport.Http.TrickleIceFragment! fragment) -> bool
 static Agash.StreamTransport.Http.WhepClient.PlayAsync(Agash.StreamTransport.IMediaSessionFactory! sessions, System.Uri! endpoint, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options, Agash.StreamTransport.Http.HttpSignalingOptions? signaling = null, Microsoft.Extensions.Logging.ILogger? logger = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Http.HttpMediaSession!>!
 static Agash.StreamTransport.Http.WhipClient.PublishAsync(Agash.StreamTransport.IMediaSessionFactory! sessions, System.Uri! endpoint, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options, Agash.StreamTransport.Http.HttpSignalingOptions? signaling = null, Microsoft.Extensions.Logging.ILogger? logger = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Http.HttpMediaSession!>!
 static Agash.StreamTransport.MediaEndpoints.operator !=(Agash.StreamTransport.MediaEndpoints? left, Agash.StreamTransport.MediaEndpoints? right) -> bool
@@ -348,9 +343,8 @@ static Agash.StreamTransport.MediaSessionStatistics.operator !=(Agash.StreamTran
 static Agash.StreamTransport.MediaSessionStatistics.operator ==(Agash.StreamTransport.MediaSessionStatistics left, Agash.StreamTransport.MediaSessionStatistics right) -> bool
 static Agash.StreamTransport.PublishedSession.operator !=(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
 static Agash.StreamTransport.PublishedSession.operator ==(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
-static Agash.StreamTransport.RoomClient.ConnectAsync(Agash.StreamTransport.IDuplexSignalingTransport! transport, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
 static Agash.StreamTransport.RoomClient.ConnectAsync(System.Uri! relayWebSocketUrl, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
-static Microsoft.Extensions.DependencyInjection.StreamTransportServiceCollectionExtensions.AddStreamTransport(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Agash.StreamTransport.RoomClient.JoinAsync(Agash.StreamTransport.IDuplexSignalingTransport! transport, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
 static Agash.StreamTransport.TestSignal.TestSignalGenerator.Fill(System.Span<float> samples, int channels, int sampleRate, long firstSample) -> void
 static Agash.StreamTransport.TestSignal.TestSignalGenerator.TryReadBarcode(System.ReadOnlySpan<byte> luma, int stride, Agash.StreamTransport.Media.VideoSize size, System.DateTimeOffset near, out System.DateTimeOffset sent) -> bool
 static Agash.StreamTransport.TestSignal.TestSignalMeasurement.operator !=(Agash.StreamTransport.TestSignal.TestSignalMeasurement left, Agash.StreamTransport.TestSignal.TestSignalMeasurement right) -> bool
@@ -358,5 +352,11 @@ static Agash.StreamTransport.TestSignal.TestSignalMeasurement.operator ==(Agash.
 static Agash.StreamTransport.VideoFrameTimingReport.operator !=(Agash.StreamTransport.VideoFrameTimingReport? left, Agash.StreamTransport.VideoFrameTimingReport? right) -> bool
 static Agash.StreamTransport.VideoFrameTimingReport.operator ==(Agash.StreamTransport.VideoFrameTimingReport? left, Agash.StreamTransport.VideoFrameTimingReport? right) -> bool
 static Agash.StreamTransport.VideoRouteExtensions.Route(this Agash.StreamTransport.MediaCodecRegistry! registry, Agash.StreamTransport.Media.IVideoSource! source, Agash.StreamTransport.Media.IVideoSink! sink) -> System.IDisposable!
+static Microsoft.Extensions.DependencyInjection.StreamTransportServiceCollectionExtensions.AddStreamTransport(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static readonly Agash.StreamTransport.TestSignal.TestSignalAnalyzer.MaxLatency -> System.TimeSpan
 static readonly Agash.StreamTransport.TestSignal.TestSignalGenerator.ClickLength -> System.TimeSpan
+~override Agash.StreamTransport.MediaSessionStatistics.Equals(object obj) -> bool
+~override Agash.StreamTransport.MediaSessionStatistics.ToString() -> string
+~override Agash.StreamTransport.PublishedSession.Equals(object obj) -> bool
+~override Agash.StreamTransport.PublishedSession.ToString() -> string
+~override Agash.StreamTransport.TestSignal.TestSignalMeasurement.Equals(object obj) -> bool

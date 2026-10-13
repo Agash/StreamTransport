@@ -116,7 +116,7 @@ public sealed class TrickleIceTests
             answers.Add(d);
             return Task.CompletedTask;
         };
-        await channel.SendAsync(
+        await channel.SendDescriptionAsync(
             new SessionDescription(SdpKind.Offer, Offer),
             TestContext.CancellationToken
         );
@@ -128,11 +128,11 @@ public sealed class TrickleIceTests
                 "RestartPasswordRestartPa",
                 StringComparison.Ordinal
             );
-        await channel.SendAsync(
+        await channel.SendDescriptionAsync(
             new SessionDescription(SdpKind.Offer, restartOffer),
             TestContext.CancellationToken
         );
-        await channel.SendAsync(
+        await channel.SendCandidateAsync(
             new IceCandidateInit(Cellular, "0", 0),
             TestContext.CancellationToken
         );
@@ -165,17 +165,17 @@ public sealed class TrickleIceTests
         await using HttpSdpChannel channel = Channel(server);
 
         // Gathered before the server answered: held until the resource exists.
-        await channel.SendAsync(
+        await channel.SendCandidateAsync(
             new IceCandidateInit(Cellular, "0", 0),
             TestContext.CancellationToken
         );
         Assert.IsEmpty(server.Patches);
 
-        await channel.SendAsync(
+        await channel.SendDescriptionAsync(
             new SessionDescription(SdpKind.Offer, Offer),
             TestContext.CancellationToken
         );
-        await channel.SendAsync(
+        await channel.SendCandidateAsync(
             new IceCandidateInit(Reflexive, "0", 0),
             TestContext.CancellationToken
         );
@@ -199,16 +199,16 @@ public sealed class TrickleIceTests
     {
         RecordingHandler server = new(HttpStatusCode.MethodNotAllowed);
         await using HttpSdpChannel channel = Channel(server);
-        await channel.SendAsync(
+        await channel.SendDescriptionAsync(
             new SessionDescription(SdpKind.Offer, Offer),
             TestContext.CancellationToken
         );
 
-        await channel.SendAsync(
+        await channel.SendCandidateAsync(
             new IceCandidateInit(Cellular, "0", 0),
             TestContext.CancellationToken
         );
-        await channel.SendAsync(
+        await channel.SendCandidateAsync(
             new IceCandidateInit(Reflexive, "0", 0),
             TestContext.CancellationToken
         );
@@ -232,7 +232,7 @@ public sealed class TrickleIceTests
             NullLogger.Instance
         );
 
-        await channel.SendAsync(
+        await channel.SendDescriptionAsync(
             new SessionDescription(SdpKind.Offer, Offer),
             TestContext.CancellationToken
         );

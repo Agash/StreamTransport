@@ -88,7 +88,8 @@ public readonly ref struct VideoFrame
     /// <param name="orientation">How to turn the buffer upright.</param>
     /// <param name="duration">How long the frame is shown; zero when unknown.</param>
     /// <param name="retainer">How to keep the frame past the call; null to copy it.</param>
-    public VideoFrame(
+    /// <returns>The frame over the planes.</returns>
+    public static VideoFrame FromPlanes(
         VideoFormat format,
         MediaTimestamp timestamp,
         ReadOnlySpan<byte> plane0,
@@ -103,6 +104,39 @@ public readonly ref struct VideoFrame
         VideoOrientation orientation = default,
         TimeSpan duration = default,
         IVideoFrameRetainer? retainer = null
+    ) =>
+        new(
+            format,
+            timestamp,
+            plane0,
+            stride0,
+            plane1,
+            stride1,
+            plane2,
+            stride2,
+            plane3,
+            stride3,
+            color,
+            orientation,
+            duration,
+            retainer
+        );
+
+    private VideoFrame(
+        VideoFormat format,
+        MediaTimestamp timestamp,
+        ReadOnlySpan<byte> plane0,
+        int stride0,
+        ReadOnlySpan<byte> plane1,
+        int stride1,
+        ReadOnlySpan<byte> plane2,
+        int stride2,
+        ReadOnlySpan<byte> plane3,
+        int stride3,
+        VideoColor color,
+        VideoOrientation orientation,
+        TimeSpan duration,
+        IVideoFrameRetainer? retainer
     )
     {
         int count = PlaneLayout.PlaneCount(format.PixelFormat);
@@ -318,7 +352,7 @@ public abstract class VideoFrameLease : IDisposable
             }
 
             PlaneLayout planes = image.Planes;
-            return new VideoFrame(
+            return VideoFrame.FromPlanes(
                 Format,
                 Timestamp,
                 GetPlane(0),

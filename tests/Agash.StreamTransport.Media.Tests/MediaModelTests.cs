@@ -130,7 +130,7 @@ public sealed class VideoFrameTests
         // NV12 4x2 with padded rows: luma stride 8, chroma stride 6, each plane its own buffer.
         byte[] luma = [.. Enumerable.Range(0, 16).Select(static i => (byte)i)];
         byte[] chroma = [.. Enumerable.Range(100, 6).Select(static i => (byte)i)];
-        VideoFrame frame = new(
+        var frame = VideoFrame.FromPlanes(
             new VideoFormat(PixelFormat.Nv12, 4, 2),
             MediaTimestamp.Captured(new MediaTime(9)),
             luma,
@@ -156,7 +156,7 @@ public sealed class VideoFrameTests
     [TestMethod]
     public void Construct_PlanesMissingForTheFormat_IsRefused() =>
         _ = Assert.ThrowsExactly<ArgumentException>(static () =>
-            new VideoFrame(
+            VideoFrame.FromPlanes(
                 new VideoFormat(PixelFormat.I420, 2, 2),
                 MediaTimestamp.Captured(MediaTime.Zero),
                 new byte[4],

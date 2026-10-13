@@ -661,7 +661,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         try
         {
             await _signaling
-                .SendAsync(
+                .SendCandidateAsync(
                     new IceCandidateInit(
                         candidate.ToSdp(),
                         candidate.ComponentId.ToString(CultureInfo.InvariantCulture),
@@ -697,7 +697,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         }
 
         await _signaling
-            .SendAsync(
+            .SendDescriptionAsync(
                 new SessionDescription(kind, SdpWriter.Write(description)),
                 cancellationToken
             )

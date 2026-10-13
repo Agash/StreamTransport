@@ -28,8 +28,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.Restart(Agash.StreamTransport.WebRtc.I
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPath.get -> Agash.StreamTransport.WebRtc.Ice.IcePath?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPathChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IcePath?>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedRoundTrip.get -> System.TimeSpan?
-Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.EcnCodepoint ecn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.EcnCodepoint ecn = Agash.StreamTransport.Adaptation.EcnCodepoint.NotEct, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteCredentials(Agash.StreamTransport.WebRtc.Ice.IceCredentials remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteOptions(Agash.StreamTransport.WebRtc.Ice.IceOptions remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.Start() -> void
@@ -1018,7 +1017,7 @@ static Agash.StreamTransport.WebRtc.Rtp.RtpHeader.operator ==(Agash.StreamTransp
 static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.TryParse(System.ReadOnlySpan<byte> packet, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap! map, out Agash.StreamTransport.WebRtc.Rtp.RtpHeader header, out System.ReadOnlySpan<byte> payload) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtp.RtpHeader header, out System.ReadOnlySpan<byte> payload) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.Write(System.Span<byte> destination, bool marker, byte payloadType, ushort sequenceNumber, uint timestamp, uint ssrc, System.ReadOnlySpan<byte> payload, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? map = null, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues extensions = default(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues)) -> int
-static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.Write(System.Span<byte> destination, bool marker, byte payloadType, ushort sequenceNumber, uint timestamp, uint ssrc, System.ReadOnlySpan<byte> payload, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? map, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues extensions, out int videoTimingAt) -> int
+static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.WriteWithTimingOffset(System.Span<byte> destination, bool marker, byte payloadType, ushort sequenceNumber, uint timestamp, uint ssrc, System.ReadOnlySpan<byte> payload, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? map, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues extensions, out int videoTimingAt) -> int
 static Agash.StreamTransport.WebRtc.Rtp.Rtx.For(int payloadType, int repairs, int clockRate = 90000) -> Agash.StreamTransport.WebRtc.Sdp.SdpCodec
 static Agash.StreamTransport.WebRtc.Rtp.Rtx.IsRtx(Agash.StreamTransport.WebRtc.Sdp.SdpCodec codec) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.Rtx.Repairs(Agash.StreamTransport.WebRtc.Sdp.SdpCodec codec) -> int?
