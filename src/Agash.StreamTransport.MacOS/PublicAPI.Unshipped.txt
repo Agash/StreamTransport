@@ -1,1 +1,60 @@
 #nullable enable
+Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider
+Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.AVFoundationVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink.CoreAudioSink(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink.Dispose() -> void
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.MacOS.Audio.CoreAudioSource
+Agash.StreamTransport.MacOS.Audio.CoreAudioSource.Connect(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> System.IDisposable!
+Agash.StreamTransport.MacOS.Audio.CoreAudioSource.CoreAudioSource(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.Audio.CoreAudioSource.Dispose() -> void
+Agash.StreamTransport.MacOS.Audio.CoreAudioSource.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.MacOS.CoreAudioInputProvider
+Agash.StreamTransport.MacOS.CoreAudioInputProvider.CoreAudioInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.CoreAudioInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>
+Agash.StreamTransport.MacOS.CoreAudioInputProvider.Name.get -> string!
+Agash.StreamTransport.MacOS.CoreAudioInputProvider.OpenAsync(Agash.StreamTransport.Media.AudioInputInfo! input, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioInput!>
+Agash.StreamTransport.MacOS.CoreAudioInputProvider.Rank.get -> int
+Agash.StreamTransport.MacOS.CoreAudioOutputProvider
+Agash.StreamTransport.MacOS.CoreAudioOutputProvider.CoreAudioOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.CoreAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.MacOS.CoreAudioOutputProvider.Name.get -> string!
+Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory
+Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory.Create(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.IVideoProcessor!
+Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory.MetalVideoProcessorFactory(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.VideoProcessorInfo?
+Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory.Rank.get -> int
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.Description.get -> Syphon.NET.SyphonServerDescription!
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.Dispose() -> void
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.HasClients.get -> bool
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.Name.get -> string!
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.OnFrame(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.Render<TState>(Agash.StreamTransport.Media.VideoFormat format, scoped in TState state, Agash.StreamTransport.Media.VideoTargetRenderer<TState>! render) -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSink.SyphonVideoSink(string! name, Agash.StreamTransport.Media.GpuIdentity? device = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSource
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSource.Connect(Agash.StreamTransport.Media.IVideoFrameConsumer! consumer, Agash.StreamTransport.Media.VideoConstraints! constraints) -> System.IDisposable!
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSource.Dispose() -> void
+Agash.StreamTransport.MacOS.Syphon.SyphonVideoSource.SyphonVideoSource(Syphon.NET.SyphonServerDescription! server, Agash.StreamTransport.Media.GpuIdentity? device = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider.Dispose() -> void
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.MacOS.SyphonVideoInputProvider.SyphonVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.SyphonVideoOutputProvider
+Agash.StreamTransport.MacOS.SyphonVideoOutputProvider.CreateAsync(string! name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoOutput!>
+Agash.StreamTransport.MacOS.SyphonVideoOutputProvider.Name.get -> string!
+Agash.StreamTransport.MacOS.SyphonVideoOutputProvider.SyphonVideoOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Microsoft.Extensions.DependencyInjection.StreamTransportMacOSServiceCollectionExtensions
+static Microsoft.Extensions.DependencyInjection.StreamTransportMacOSServiceCollectionExtensions.AddMacOSMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static readonly Agash.StreamTransport.MacOS.Audio.CoreAudioSink.Format -> Agash.StreamTransport.Media.AudioFormat

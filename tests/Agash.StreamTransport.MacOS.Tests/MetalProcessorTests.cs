@@ -183,7 +183,7 @@ public sealed class MetalProcessorTests
     public void Upload_BgraInMemory_ArrivesUnchangedOnTheGpu()
     {
         byte[] pixels = Picture();
-        VideoFrame frame = new(
+        var frame = VideoFrame.FromPlanes(
             new VideoFormat(PixelFormat.Bgra, Width, Height),
             MediaTimestamp.Captured(new MediaTime(42)),
             pixels,
@@ -210,7 +210,7 @@ public sealed class MetalProcessorTests
     public void Upload_Nv12InMemory_IsConvertedOnTheGpu()
     {
         byte[] picture = [.. Enumerable.Repeat((byte)128, Width * Height * 3 / 2)];
-        VideoFrame frame = new(
+        var frame = VideoFrame.FromPlanes(
             new VideoFormat(PixelFormat.Nv12, Width, Height),
             MediaTimestamp.Captured(new MediaTime(7)),
             picture.AsSpan(0, Width * Height),

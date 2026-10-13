@@ -557,7 +557,7 @@ internal sealed unsafe partial class MetalVideoProcessor : IVideoProcessor, IVid
             (nint second, int secondStride) = nv12
                 ? (surface.GetBaseAddress(1), (int)surface.GetBytesPerRow(1))
                 : (0, 0);
-            VideoFrame result = new(
+            var result = VideoFrame.FromPlanes(
                 new VideoFormat(described.PixelFormat, described.Size.Width, height),
                 frame.Timestamp,
                 new ReadOnlySpan<byte>((void*)first, firstStride * height),
