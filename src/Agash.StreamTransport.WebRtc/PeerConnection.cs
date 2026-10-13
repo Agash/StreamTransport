@@ -491,6 +491,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
+        _iceAgent?.SetRemoteOptions(first.IceOptions);
 
         foreach (
             string ignored in description
@@ -840,6 +841,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             SdpMediaDescription first =
                 remote.Media.FirstOrDefault(static m => !m.Rejected) ?? remote.Media[0];
             agent.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
+            agent.SetRemoteOptions(first.IceOptions);
         }
 
         lock (_gate)
@@ -933,6 +935,24 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 if (Interlocked.Exchange(ref _dtlsStarted, 1) == 0)
                 {
                     _ = RunDtlsHandshakeAsync();
+                }
+                else if (State == PeerConnectionState.Disconnected)
+                {
+                    SetState(PeerConnectionState.Connected);
+                }
+
+                break;
+            case IceConnectionState.Disconnected:
+                if (State == PeerConnectionState.Connected)
+                {
+                    SetState(PeerConnectionState.Disconnected);
+                }
+
+                // An agent that cannot move by itself needs a restart to leave a path that went quiet.
+                if (!_restarting && _iceAgent is { CanMovePath: false })
+                {
+                    LogConnectivityLost(_logger);
+                    ConnectivityLost?.Invoke();
                 }
 
                 break;
@@ -1274,6 +1294,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Direction = direction,
             Codecs = codecs,
             IceUfrag = _localIceCredentials.UsernameFragment,
+            IceOptions = IceOptions.Supported,
             IcePwd = _localIceCredentials.Password,
             Fingerprint = _certificate.Fingerprint,
             Setup = setup,
@@ -1439,8 +1460,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        Volatile.Write(ref _state, (int)state);
-        if (state == PeerConnectionState.Connected)
+        int previous = Interlocked.Exchange(ref _state, (int)state);
+        if (
+            state == PeerConnectionState.Connected
+            && previous != (int)PeerConnectionState.Disconnected
+        )
         {
             StartCongestionTimers();
         }

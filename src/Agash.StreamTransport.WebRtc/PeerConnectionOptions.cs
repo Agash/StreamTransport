@@ -150,4 +150,7 @@ public enum PeerConnectionState
 
     /// <summary>Closed.</summary>
     Closed,
+
+    /// <summary>Established, but the selected path stopped receiving; connectivity may come back.</summary>
+    Disconnected,
 }

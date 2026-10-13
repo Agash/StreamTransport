@@ -151,7 +151,7 @@ public sealed class WhipMobilityTests
     private static readonly IceTimings QuickConsent = IceTimings.Default with
     {
         ConsentTimeout = TimeSpan.FromMilliseconds(1500),
-        StablePingInterval = TimeSpan.FromMilliseconds(200),
+        ConsentInterval = TimeSpan.FromMilliseconds(200),
         WeakPingInterval = TimeSpan.FromMilliseconds(200),
         ReceivingTimeout = TimeSpan.FromMilliseconds(500),
     };

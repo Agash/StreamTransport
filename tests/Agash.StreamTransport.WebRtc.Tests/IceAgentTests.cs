@@ -42,7 +42,7 @@ public sealed class IceAgentTests
     {
         IceTimings quick = IceTimings.Default with
         {
-            StablePingInterval = TimeSpan.FromMilliseconds(100),
+            ConsentInterval = TimeSpan.FromMilliseconds(100),
             WeakPingInterval = TimeSpan.FromMilliseconds(100),
             StandbyPingInterval = TimeSpan.FromMilliseconds(100),
             ConsentTimeout = TimeSpan.FromMilliseconds(600),
@@ -366,6 +366,8 @@ public sealed class IceAgentTests
             agents.B.LocalCandidateGathered += agents.A.AddRemoteCandidate;
             agents.A.SetRemoteCredentials(credentialsB);
             agents.B.SetRemoteCredentials(credentialsA);
+            agents.A.SetRemoteOptions(IceOptions.Supported);
+            agents.B.SetRemoteOptions(IceOptions.Supported);
             agents.A.DataReceived += (data, _, _) =>
                 agents._receivedByA.Writer.TryWrite(data.ToArray());
             agents.B.DataReceived += (data, _, _) =>

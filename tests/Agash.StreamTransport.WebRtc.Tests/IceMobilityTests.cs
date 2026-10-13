@@ -110,9 +110,13 @@ public sealed class IceMobilityTests
             ),
             $"the machine should switch off the cut path {original}; still on {a.SelectedAddress}."
         );
+        // Disconnected while the cut path is silent (the W3C state), Connected again on the alternate; never
+        // back to checking.
+        IceConnectionState[] states = [.. a.States.Skip(statesBefore)];
         Assert.IsTrue(
-            a.States.Skip(statesBefore).All(s => s == IceConnectionState.Connected),
-            $"it stays Connected across the switch: {string.Join(", ", a.States.Skip(statesBefore))}."
+            states.All(s => s is IceConnectionState.Connected or IceConnectionState.Disconnected)
+                && a.Machine.State == IceConnectionState.Connected,
+            $"it stays established across the switch: {string.Join(", ", states)}."
         );
         Assert.IsTrue(board.SendData(a), "data flows over the warm alternate after the switch.");
         Assert.IsTrue(board.RunUntil(() => board.SendData(b), Timings.ConsentTimeout * 2));
@@ -145,7 +149,8 @@ public sealed class IceMobilityTests
             board.Run(step);
         }
 
-        // Consent checks in both directions refresh it, so sporadic loss never lets it lapse, and a
+        // Consent checks go once each, 4 to 6 s apart (RFC 7675 section 5.1), so about half of them fail on
+        // this link; one answered within every 30 s keeps consent, which the seeded switchboard gives, and a
         // clear majority of datagrams still arrives.
         Assert.AreEqual(IceConnectionState.Connected, a.Machine.State);
         Assert.IsGreaterThan(
@@ -170,7 +175,7 @@ public sealed class IceMobilityTests
 
         board.Cut(address);
         Assert.IsTrue(
-            board.RunUntil(() => !a.Connected, Timings.ConsentTimeout * 2),
+            board.RunUntil(() => a.Machine.Selected is null, Timings.ConsentTimeout * 2),
             "consent lapses on a dead path."
         );
 

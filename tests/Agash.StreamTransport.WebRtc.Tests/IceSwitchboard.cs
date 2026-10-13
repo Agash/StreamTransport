@@ -48,19 +48,25 @@ internal sealed class IceSwitchboard
         Exchange();
     }
 
-    /// <summary>A controlling and a controlled machine on the given addresses, trickling to each other.</summary>
+    /// <summary>
+    /// A controlling and a controlled machine on the given addresses, trickling to each other, both
+    /// signalling what this stack does (renomination included) unless told otherwise.
+    /// </summary>
     public (Peer Controlling, Peer Controlled) Pair(
         IPAddress[] controlling,
         IPAddress[] controlled,
         IceTimings? timings = null,
         IceRole firstRole = IceRole.Controlling,
-        IceRole secondRole = IceRole.Controlled
+        IceRole secondRole = IceRole.Controlled,
+        IceOptions options = IceOptions.Supported
     )
     {
         Peer a = Add(firstRole, controlling, timings ?? IceTimings.Default);
         Peer b = Add(secondRole, controlled, timings ?? IceTimings.Default);
         a.Machine.SetRemoteCredentials(b.Machine.LocalCredentials);
         b.Machine.SetRemoteCredentials(a.Machine.LocalCredentials);
+        a.Machine.SetRemoteOptions(options);
+        b.Machine.SetRemoteOptions(options);
         a.Remote = b;
         b.Remote = a;
         a.Machine.Start(Now);
@@ -221,7 +227,13 @@ internal sealed class IceSwitchboard
     private Peer Add(IceRole role, IPAddress[] addresses, IceTimings timings)
     {
         Peer peer = new(
-            new IceStateMachine(IceCredentials.Generate(), role, timings, NullLogger.Instance)
+            new IceStateMachine(
+                IceCredentials.Generate(),
+                role,
+                timings,
+                NullLogger.Instance,
+                random: new Random(_peers.Count + 1)
+            )
         );
         Bind(peer, addresses);
         _peers.Add(peer);

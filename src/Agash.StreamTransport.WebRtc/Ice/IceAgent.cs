@@ -128,6 +128,21 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// <summary>The current connection state.</summary>
     public IceConnectionState State => (IceConnectionState)Volatile.Read(ref _state);
 
+    /// <summary>
+    /// Whether the agent can move media to another pair on its own; when false (the peer does not do
+    /// renomination and a pair was nominated), leaving the selected pair takes an ICE restart.
+    /// </summary>
+    public bool CanMovePath
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _machine.CanMovePath;
+            }
+        }
+    }
+
     /// <summary>The selected candidate pair's local and remote endpoints, or null while none is selected.</summary>
     public IcePath? SelectedPath =>
         Volatile.Read(ref _selection) is { } selection
@@ -176,6 +191,18 @@ public sealed partial class IceAgent : IAsyncDisposable
         lock (_gate)
         {
             _machine.SetRemoteCredentials(remote);
+        }
+    }
+
+    /// <summary>
+    /// Sets the ICE options the peer signals (its <c>a=ice-options</c>); renomination needs both sides.
+    /// </summary>
+    /// <param name="remote">The peer's options.</param>
+    public void SetRemoteOptions(IceOptions remote)
+    {
+        lock (_gate)
+        {
+            _machine.SetRemoteOptions(remote);
         }
     }
 

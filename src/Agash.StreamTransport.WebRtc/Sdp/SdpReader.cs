@@ -27,6 +27,7 @@ public static class SdpReader
         bool iceLite = false;
         List<IceCandidate> sessionCandidates = [];
         List<string> sessionIgnored = [];
+        IceOptions sessionIceOptions = IceOptions.None;
         List<SdpExtension> sessionExtensions = [];
         bool sessionAllowMixed = false;
 
@@ -55,6 +56,20 @@ public static class SdpReader
             if (line == "a=ice-lite")
             {
                 iceLite = true;
+                continue;
+            }
+
+            if (TryValue(line, "a=ice-options:", out string iceOptions))
+            {
+                if (current is null)
+                {
+                    sessionIceOptions = IceOptionsText.Parse(iceOptions);
+                }
+                else
+                {
+                    current.IceOptions = IceOptionsText.Parse(iceOptions);
+                }
+
                 continue;
             }
 
@@ -144,6 +159,7 @@ public static class SdpReader
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
                     IgnoredCandidates = [.. sessionIgnored, .. m.IgnoredCandidates],
+                    IceOptions = m.IceOptions ?? sessionIceOptions,
                     EndOfCandidates = m.EndOfCandidates,
                 }
             );
@@ -314,6 +330,8 @@ public static class SdpReader
         public List<IceCandidate> Candidates { get; } = [];
 
         public List<string> IgnoredCandidates { get; } = [];
+
+        public IceOptions? IceOptions { get; set; }
         public bool EndOfCandidates { get; private set; }
 
         public static MediaBuilder? FromMLine(string line)

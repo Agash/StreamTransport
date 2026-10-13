@@ -184,6 +184,9 @@ public sealed record SdpMediaDescription
     /// </summary>
     public IReadOnlyList<string> IgnoredCandidates { get; init; } = [];
 
+    /// <summary>The ICE options the section signals (<c>a=ice-options</c>), at session or media level.</summary>
+    public Ice.IceOptions IceOptions { get; init; } = Ice.IceOptions.Trickle;
+
     /// <summary>Whether the section says no more candidates follow (<c>a=end-of-candidates</c>).</summary>
     public bool EndOfCandidates { get; init; }
 }

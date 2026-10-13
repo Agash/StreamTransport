@@ -35,7 +35,6 @@ internal sealed partial class IceStateMachine
 
     // A pair's round trip is stable after this many samples with at most one ping outstanding, as
     // libwebrtc's Connection::stable (RTT_RATIO + 1).
-    private const int StableRoundTrips = 4;
 
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
 
@@ -73,6 +72,14 @@ internal sealed partial class IceStateMachine
     // When the agent last started checking with nothing selected, for the failure timeout; and when the
     // peer last trickled a candidate, so failed pairs fail the agent only once it has gone quiet.
     private TimeSpan? _checkingSince;
+    private bool _renomination;
+    private readonly Random _random;
+
+    // Whether the selected pair was weak at the last look, and when it last became so.
+    private bool _weak;
+    private TimeSpan? _weakAt;
+    private bool _nominationDone;
+    private uint _nominationNumber;
     private TimeSpan _remoteCandidateAt;
     private int _remoteCandidatesSeen;
     private bool _started;
@@ -86,10 +93,12 @@ internal sealed partial class IceStateMachine
         IceRole role,
         IceTimings timings,
         ILogger logger,
-        WebRtcMetrics? metrics = null
+        WebRtcMetrics? metrics = null,
+        Random? random = null
     )
     {
         _metrics = metrics ?? WebRtcMetrics.Shared;
+        _random = random ?? Random.Shared;
         LocalCredentials = local;
         _localPassword = Encoding.UTF8.GetBytes(local.Password);
         Role = role;
@@ -132,6 +141,30 @@ internal sealed partial class IceStateMachine
     /// </summary>
     /// <param name="remote">The peer's credentials.</param>
     public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
+
+    /// <summary>
+    /// Sets the peer's ICE options. With renomination on both sides the controlling agent may nominate
+    /// another pair at any time; without it a pair is nominated once, and moving takes an ICE restart
+    /// (RFC 8445 section 8.1.1).
+    /// </summary>
+    /// <param name="remote">The peer's options.</param>
+    public void SetRemoteOptions(IceOptions remote) =>
+        _renomination = remote.HasFlag(IceOptions.Renomination);
+
+    /// <summary>
+    /// Whether the agent can move media to another pair on its own: as the controlled agent it follows the
+    /// controlling one; as the controlling agent before its first nomination or with renomination. When
+    /// false, leaving the selected pair takes an ICE restart.
+    /// </summary>
+    public bool CanMovePath => MayNominate;
+
+    // Whether this agent may nominate now: always as the controlled agent, which never does; as the
+    // controlling one before its first nomination succeeded, or at any time with renomination.
+    private bool MayNominate => Role == IceRole.Controlled || _renomination || !_nominationDone;
+
+    // Numbers each nomination, so a controlled agent with renomination takes the latest whatever the order
+    // its checks arrive in.
+    private uint NextNomination() => _nominationNumber = (_nominationNumber % 0xFFFFFF) + 1;
 
     /// <summary>
     /// The best valid pair on another local endpoint than the selected one, writable and answering its
@@ -271,7 +304,7 @@ internal sealed partial class IceStateMachine
         if (_selected is { } selected && ReferenceEquals(selected.Local, local))
         {
             _selected = null;
-            if (Best(now) is { } next && IsWritable(next, now))
+            if (MayNominate && Best(now) is { } next && IsWritable(next, now))
             {
                 Switch(next, now);
             }
@@ -428,6 +461,7 @@ internal sealed partial class IceStateMachine
         _localPassword = Encoding.UTF8.GetBytes(credentials.Password);
         _selected = null;
         _lastData = null;
+        _nominationDone = false;
         _inFlight.Clear();
         _pairs.Clear();
         _locals.Clear();
@@ -509,8 +543,13 @@ internal sealed partial class IceStateMachine
         TimeSpan now
     )
     {
-        // USERNAME is localUfrag:remoteUfrag, MESSAGE-INTEGRITY keyed by our password.
-        if (!stun.VerifyMessageIntegrity(_localPassword))
+        // USERNAME is localUfrag:remoteUfrag, MESSAGE-INTEGRITY keyed by our password (RFC 8445 section
+        // 7.3): a request for another session, such as one from before a restart, is not answered.
+        if (
+            !stun.TryFindAttribute(StunAttributeType.Username, out ReadOnlySpan<byte> username)
+            || !IsOurUsername(username)
+            || !stun.VerifyMessageIntegrity(_localPassword)
+        )
         {
             return;
         }
@@ -534,7 +573,14 @@ internal sealed partial class IceStateMachine
         writer.AddFingerprint();
         _transmits.Enqueue(new IceTransmit(local.Handle, source, response[..writer.Length]));
 
-        CandidatePair pair = PairForPeerReflexive(local, source);
+        // RFC 8445 section 7.3.1.3: a peer-reflexive candidate takes the priority its request carries.
+        CandidatePair pair = PairForPeerReflexive(
+            local,
+            source,
+            stun.TryGetUInt32(StunAttributeType.Priority, out uint requestPriority)
+                ? requestPriority
+                : null
+        );
 
         // An authenticated request shows the pair receiving. Consent stays with responses to our own
         // checks (RFC 7675): a request shows only that the peer's packets reach us.
@@ -547,6 +593,11 @@ internal sealed partial class IceStateMachine
         {
             pair.NominatedByPeer = true;
             pair.LastNominated = now;
+            if (stun.TryGetUInt32(StunAttributeType.Nomination, out uint nomination))
+            {
+                pair.RemoteNomination = Math.Max(pair.RemoteNomination, nomination & 0xFFFFFF);
+            }
+
             if (pair.State == PairState.Succeeded)
             {
                 Nominate(pair, now);
@@ -557,7 +608,8 @@ internal sealed partial class IceStateMachine
         // pair nothing further is done, as libwebrtc checks only pairs that are not writable. Answering
         // every request with a check would bounce checks between the agents at the pacing rate and leave
         // no room for the other pairs' checks.
-        if (pair.State == PairState.Succeeded)
+        // A pair whose consent lapsed is not checked again under these credentials (RFC 7675 section 5.1).
+        if (pair.State == PairState.Succeeded || pair.ConsentLost)
         {
             return;
         }
@@ -699,6 +751,13 @@ internal sealed partial class IceStateMachine
 
         CandidatePair pair = check.Pair;
 
+        // RFC 7675 section 5.1: an answer after consent expired does not re-establish it.
+        if (pair.ConsentLost)
+        {
+            _ = _inFlight.Remove(transaction);
+            return;
+        }
+
         // RFC 8445 section 7.2.5.2.1: the response comes from where the check went, to where it left from;
         // one that does not is discarded, and the check may still be answered. Its MESSAGE-INTEGRITY is
         // keyed by the responder's password.
@@ -733,10 +792,11 @@ internal sealed partial class IceStateMachine
                 pair.NominationCheck = false;
             }
         }
-        else if (Role == IceRole.Controlling && _selected is null)
+        else if (Role == IceRole.Controlling && _selected is null && MayNominate)
         {
             // Regular nomination: the first valid pair, the highest-priority one checked, is nominated.
             pair.NominationCheck = true;
+            pair.NominationNumber = NextNomination();
             pair.TriggeredCheck = true;
         }
     }
@@ -780,6 +840,7 @@ internal sealed partial class IceStateMachine
         pair.Nominated = true;
         pair.LastResponse = now;
         _selected = pair;
+        _nominationDone |= Role == IceRole.Controlling;
         LogSelectedPair(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
         _metrics.SelectedPaths.Add(
             1,
@@ -790,7 +851,11 @@ internal sealed partial class IceStateMachine
         SetState(IceConnectionState.Connected);
     }
 
-    private CandidatePair PairForPeerReflexive(LocalEndpoint local, IPEndPoint source)
+    private CandidatePair PairForPeerReflexive(
+        LocalEndpoint local,
+        IPEndPoint source,
+        uint? requestPriority = null
+    )
     {
         foreach (CandidatePair existing in _pairs)
         {
@@ -800,12 +865,14 @@ internal sealed partial class IceStateMachine
             }
         }
 
-        uint priority = IceCandidate.ComputePriority(
-            IceCandidateKind.PeerReflexive,
-            source.Address,
-            IceCandidate.RtpComponent,
-            _candidateIndex++
-        );
+        uint priority =
+            requestPriority
+            ?? IceCandidate.ComputePriority(
+                IceCandidateKind.PeerReflexive,
+                source.Address,
+                IceCandidate.RtpComponent,
+                _candidateIndex++
+            );
         IceCandidate reflexive = new(
             Foundation(IceCandidateKind.PeerReflexive, source.Address),
             IceCandidate.RtpComponent,
@@ -866,10 +933,11 @@ internal sealed partial class IceStateMachine
         return null;
     }
 
-    // Pings one valid pair whose keep-alive is due, the one waiting longest, at libwebrtc's cadence: the
-    // selected pair every StablePingInterval once strong and stable, otherwise every WeakPingInterval;
-    // the others every StandbyPingInterval, or every WeakPingInterval while the selected pair is weak, so
-    // a failover finds them receiving. Responses also keep consent on the selected pair (RFC 7675).
+    // Checks one valid pair whose check is due, the one waiting longest. The selected pair carries media, so
+    // its checks are consent checks, every ConsentInterval randomised as RFC 7675 section 5.1 requires,
+    // never faster; its liveness is the media arriving. The others carry none and are checked every
+    // StandbyPingInterval, or every WeakPingInterval while the selected pair is weak, so a failover finds
+    // them receiving.
     private void SendNextKeepAlive(TimeSpan now)
     {
         bool weak = IsWeak(now);
@@ -884,10 +952,8 @@ internal sealed partial class IceStateMachine
             TimeSpan interval;
             if (ReferenceEquals(pair, _selected))
             {
-                interval =
-                    !weak && IsStable(pair)
-                        ? _timings.StablePingInterval
-                        : _timings.WeakPingInterval;
+                pair.ConsentPeriod ??= ConsentPeriod();
+                interval = pair.ConsentPeriod.Value;
             }
             else
             {
@@ -906,9 +972,13 @@ internal sealed partial class IceStateMachine
         if (due is not null)
         {
             due.LastSent = now;
+            due.ConsentPeriod = null;
             SendBindingCheck(due, now);
         }
     }
+
+    private TimeSpan ConsentPeriod() =>
+        _timings.ConsentInterval * (0.8 + (0.4 * _random.NextDouble()));
 
     // Consent is the selected pair's: past its timeout with no response to our checks, sending on it
     // stops (RFC 7675 section 5.1). The best valid alternate with consent takes over; without one, every
@@ -943,7 +1013,8 @@ internal sealed partial class IceStateMachine
         _metrics.ConsentLost.Add(1);
         _selected = null;
         if (
-            Best(now) is { } next
+            MayNominate
+            && Best(now) is { } next
             && IsWritable(next, now)
             && Since(next.LastResponse, now) <= _timings.ConsentTimeout
         )
@@ -983,6 +1054,21 @@ internal sealed partial class IceStateMachine
     // priority; equal pairs switch for a clearly lower round trip.
     private void SwitchIfBetter(TimeSpan now)
     {
+        bool weak = IsWeak(now);
+        if (weak && !_weak)
+        {
+            _weakAt = now;
+        }
+
+        _weak = weak;
+        if (
+            _selected is not null
+            && State is IceConnectionState.Connected or IceConnectionState.Disconnected
+        )
+        {
+            SetState(weak ? IceConnectionState.Disconnected : IceConnectionState.Connected);
+        }
+
         foreach (CandidatePair pair in _pairs)
         {
             bool receiving = IsReceiving(pair, now);
@@ -995,6 +1081,7 @@ internal sealed partial class IceStateMachine
 
         if (
             _selected is not { } selected
+            || (Role == IceRole.Controlling && !MayNominate)
             || Best(now) is not { } best
             || ReferenceEquals(best, selected)
             || !IsWritable(best, now)
@@ -1084,6 +1171,13 @@ internal sealed partial class IceStateMachine
                 return a.NominatedByPeer ? 1 : -1;
             }
 
+            // With renomination the highest number wins, a number over none (draft-thatcher-ice-renomination
+            // section 4); without it, the latest nomination.
+            if (a.RemoteNomination != b.RemoteNomination)
+            {
+                return a.RemoteNomination.CompareTo(b.RemoteNomination);
+            }
+
             // The controlling agent nominates its selected pair on every check of it, so the most recent
             // nomination is where it sends media; data decides only between pairs nominated alike, since
             // repairs may arrive on a second path.
@@ -1122,6 +1216,7 @@ internal sealed partial class IceStateMachine
         if (Role == IceRole.Controlling)
         {
             pair.NominationCheck = true;
+            pair.NominationNumber = NextNomination();
             pair.TriggeredCheck = true;
         }
 
@@ -1138,15 +1233,43 @@ internal sealed partial class IceStateMachine
     private bool IsWeak(TimeSpan now) =>
         _selected is not { } selected || !IsWritable(selected, now) || !IsReceiving(selected, now);
 
-    private bool IsReceiving(CandidatePair pair, TimeSpan now) =>
-        Since(pair.LastReceived, now) <= _timings.ReceivingTimeout;
+    // A pair media arrives on is receiving while something arrived within ReceivingTimeout, so a silent
+    // path is left in seconds. One without media hears only answers to its checks, spaced by the consent
+    // or standby cadence, so it gets that cadence, at its longest, plus the same margin; except while the
+    // selected pair is weak, when the others are checked fast and must answer within ReceivingTimeout to
+    // count. An answer from before the selected pair last went weak counts no longer than that either, and a
+    // check left unanswered for ReceivingTimeout outweighs an older answer, so a failover never lands on a
+    // pair that died with the selected one.
+    private bool IsReceiving(CandidatePair pair, TimeSpan now)
+    {
+        if (pair.Unanswered > 0 && Since(pair.UnansweredSince, now) > _timings.ReceivingTimeout)
+        {
+            return false;
+        }
+
+        TimeSpan idle =
+            TimeSpan.FromTicks(
+                Math.Max((_timings.ConsentInterval * 1.2).Ticks, _timings.StandbyPingInterval.Ticks)
+            ) + _timings.ReceivingTimeout;
+        bool carriesMedia = Since(pair.LastDataReceived, now) <= idle;
+        bool probing = !ReferenceEquals(pair, _selected) && IsWeak(now);
+        bool stale = pair.LastReceived < _weakAt;
+        TimeSpan window = carriesMedia || probing || stale ? _timings.ReceivingTimeout : idle;
+        return Since(pair.LastReceived, now) <= window;
+    }
 
     private static bool IsWritable(CandidatePair pair, TimeSpan now) =>
         pair.State == PairState.Succeeded
         && !(pair.Unanswered >= UnwritableChecks && Since(pair.LastResponse, now) > WriteTimeout);
 
-    private static bool IsStable(CandidatePair pair) =>
-        pair.RoundTripSamples >= StableRoundTrips && pair.Unanswered <= 1;
+    // A request's USERNAME starts with our username fragment and a colon (RFC 8445 section 7.2.2).
+    private bool IsOurUsername(ReadOnlySpan<byte> username)
+    {
+        string ours = LocalCredentials.UsernameFragment;
+        return username.Length > ours.Length
+            && username[ours.Length] == (byte)':'
+            && Encoding.UTF8.GetString(username[..ours.Length]) == ours;
+    }
 
     private void SendBindingCheck(CandidatePair pair, TimeSpan now)
     {
@@ -1189,15 +1312,29 @@ internal sealed partial class IceStateMachine
         // pair is selected no other is nominated: a controlled agent follows every nomination it sees.
         if (
             Role == IceRole.Controlling
-            && (_selected is null ? pair.NominationCheck : ReferenceEquals(pair, _selected))
+            && (
+                _selected is null
+                    ? pair.NominationCheck && MayNominate
+                    : ReferenceEquals(pair, _selected)
+            )
         )
         {
             writer.AddAttribute(StunAttributeType.UseCandidate, default);
+            if (_renomination)
+            {
+                Span<byte> number = stackalloc byte[4];
+                BinaryPrimitives.WriteUInt32BigEndian(number, pair.NominationNumber);
+                writer.AddAttribute(StunAttributeType.Nomination, number);
+            }
         }
 
         writer.AddMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password));
         writer.AddFingerprint();
-        pair.Unanswered++;
+        if (pair.Unanswered++ == 0)
+        {
+            pair.UnansweredSince = now;
+        }
+
         _inFlight[Convert.ToHexString(transaction)] = (pair, now);
         _transmits.Enqueue(
             new IceTransmit(pair.Local.Handle, pair.Remote.Endpoint, buffer[..writer.Length])
@@ -1274,7 +1411,9 @@ internal sealed partial class IceStateMachine
             _pairs.Count > 0
             && _pairs.TrueForAll(static p => p.State == PairState.Failed)
             && now - _remoteCandidateAt >= _timings.ReceivingTimeout;
-        if (exhausted || now - _checkingSince.Value >= _timings.FailureTimeout)
+        // RFC 8863 section 4: not before the PAC timer, even with every pair failed, as a peer's checks may
+        // still reveal a peer-reflexive candidate.
+        if (now - _checkingSince.Value >= _timings.FailureTimeout)
         {
             LogFailed(_pairs.Count, exhausted);
             SetState(IceConnectionState.Failed);
@@ -1398,12 +1537,23 @@ internal sealed partial class IceStateMachine
         // When the controlling agent last nominated the pair (USE-CANDIDATE).
         public TimeSpan? LastNominated { get; set; }
 
+        // The highest NOMINATION number the controlling agent sent for the pair; zero for none.
+        public uint RemoteNomination { get; set; }
+
+        // The number this agent nominates the pair with, as the controlling agent with renomination.
+        public uint NominationNumber { get; set; }
+
+        // The current consent period of the selected pair, drawn once a check.
+        public TimeSpan? ConsentPeriod { get; set; }
+
         public bool WasReceiving { get; set; }
 
         public TimeSpan? ReceivingChangedAt { get; set; }
 
-        // Checks sent since the last response.
+        // Checks sent since the last response, and when the first of them went.
         public int Unanswered { get; set; }
+
+        public TimeSpan? UnansweredSince { get; set; }
 
         public int RoundTripSamples { get; private set; }
 

@@ -31,12 +31,16 @@ public sealed record IceTimings
     /// </summary>
     public TimeSpan ReceivingTimeout { get; init; } = TimeSpan.FromMilliseconds(2500);
 
-    /// <summary>How often the selected pair is pinged once its round trip is stable and it is strong. 2.5 s.</summary>
-    public TimeSpan StablePingInterval { get; init; } = TimeSpan.FromMilliseconds(2500);
+    /// <summary>
+    /// How often the selected pair, the one media goes on, is checked for consent: each period drawn from
+    /// 0.8 to 1.2 times this (RFC 7675 section 5.1, which sets 5 s and forbids less than 4 s). Its liveness
+    /// comes from the media and RTCP arriving on it; checks only renew consent. 5 s.
+    /// </summary>
+    public TimeSpan ConsentInterval { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// How often a valid pair is pinged while its round trip settles or while the selected pair is weak.
-    /// 900 ms.
+    /// How often the other valid pairs, which carry no media, are checked while the selected pair is weak,
+    /// so a failover finds them receiving. 900 ms.
     /// </summary>
     public TimeSpan WeakPingInterval { get; init; } = TimeSpan.FromMilliseconds(900);
 
@@ -56,11 +60,12 @@ public sealed record IceTimings
     public TimeSpan ConsentTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// How long checks may run with no pair selected before the agent gives up and reports
-    /// <see cref="IceConnectionState.Failed"/>: a peer that is unreachable, or that never sends its
-    /// candidates or its description. 30 s.
+    /// How long checks run with no pair selected before the agent reports
+    /// <see cref="IceConnectionState.Failed"/>, even once every pair has failed: RFC 8863's PAC timer, the
+    /// time a peer's checks need to reveal a peer-reflexive candidate. 39.5 s, a check transaction with
+    /// all its retransmissions.
     /// </summary>
-    public TimeSpan FailureTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    public TimeSpan FailureTimeout { get; init; } = TimeSpan.FromSeconds(39.5);
 }
 
 /// <summary>

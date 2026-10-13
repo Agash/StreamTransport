@@ -103,6 +103,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             null or PeerConnectionState.New => TransportState.New,
             PeerConnectionState.Connecting => TransportState.Connecting,
             PeerConnectionState.Connected => TransportState.Connected,
+            PeerConnectionState.Disconnected => TransportState.Disconnected,
             PeerConnectionState.Failed => TransportState.Failed,
             _ => TransportState.Closed,
         };

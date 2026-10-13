@@ -115,4 +115,7 @@ public enum StunAttributeType : ushort
 
     /// <summary>ICE-CONTROLLING - tie-breaker for the controlling role (RFC 8445 §7.1.3).</summary>
     IceControlling = 0x802A,
+
+    /// <summary>NOMINATION - the number of a renomination (draft-thatcher-ice-renomination section 4).</summary>
+    Nomination = 0xC001,
 }

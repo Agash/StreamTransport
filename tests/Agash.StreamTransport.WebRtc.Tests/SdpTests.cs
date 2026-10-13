@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc;
+using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Dtls.Core;
 
@@ -132,26 +133,45 @@ public sealed class SdpTests
     {
         const string Mdns =
             "candidate:1 1 udp 2122260223 5f2c3a8e-1b2d-4c5e-9f00-0123456789ab.local 54321 typ host";
-        string sdp = SdpWriter.Write(SampleOffer()).Replace(
-            "a=mid:0\r\n",
-            $"a=mid:0\r\na={Mdns}\r\n",
-            StringComparison.Ordinal
-        );
+        string sdp = SdpWriter
+            .Write(SampleOffer())
+            .Replace("a=mid:0\r\n", $"a=mid:0\r\na={Mdns}\r\n", StringComparison.Ordinal);
 
         Assert.IsTrue(SdpReader.TryParse(sdp, out SdpDescription read));
         CollectionAssert.AreEqual(new[] { Mdns }, read.Media[0].IgnoredCandidates.ToArray());
         Assert.IsFalse(read.Media[0].Candidates.Any(static c => c.Endpoint.Port == 54321));
     }
 
+    // RFC 8839 section 5.6: ice-options at session level apply to every section; a media-level line wins.
+    [TestMethod]
+    public void IceOptions_AreReadAtSessionOrMediaLevel_AndWritten()
+    {
+        string written = SdpWriter.Write(
+            SampleOffer() with
+            {
+                Media = [SampleOffer().Media[0] with { IceOptions = IceOptions.Supported }],
+            }
+        );
+        StringAssert.Contains(written, "a=ice-options:trickle ice2 renomination");
+
+        string sessionLevel = written
+            .Replace("a=ice-options:trickle ice2 renomination\r\n", "", StringComparison.Ordinal)
+            .Replace("m=", "a=ice-options:ice2 renomination\r\nm=", StringComparison.Ordinal);
+        Assert.IsTrue(SdpReader.TryParse(sessionLevel, out SdpDescription read));
+        Assert.AreEqual(IceOptions.Ice2 | IceOptions.Renomination, read.Media[0].IceOptions);
+    }
+
     // RFC 3551 section 6: a static payload type needs no a=rtpmap.
     [TestMethod]
     public void Parse_StaticPayloadTypeWithoutRtpmap_IsKept()
     {
-        string sdp = SdpWriter.Write(SampleOffer()).Replace(
-            "m=audio 9 UDP/TLS/RTP/SAVPF 111",
-            "m=audio 9 UDP/TLS/RTP/SAVPF 111 0",
-            StringComparison.Ordinal
-        );
+        string sdp = SdpWriter
+            .Write(SampleOffer())
+            .Replace(
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+                "m=audio 9 UDP/TLS/RTP/SAVPF 111 0",
+                StringComparison.Ordinal
+            );
 
         Assert.IsTrue(SdpReader.TryParse(sdp, out SdpDescription read));
         SdpCodec pcmu = read.Media[0].Codecs.Single(static c => c.PayloadType == 0);

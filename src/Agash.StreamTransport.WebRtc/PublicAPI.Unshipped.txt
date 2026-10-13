@@ -1,60 +1,22 @@
 #nullable enable
-~override Agash.StreamTransport.WebRtc.Ice.IceCandidate.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Ice.IceCandidate.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Ice.IceCredentials.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Ice.IceCredentials.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Ice.IcePath.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Ice.IcePath.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.AssembledFrame.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.AssembledFrame.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Sdp.SdpCodec.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Sdp.SdpCodec.ToString() -> string
-~override Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.Sdp.SdpExtension.ToString() -> string
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.NalUnitPacketizer.WriteAggregationHeader(System.Span<byte> header, System.ReadOnlySpan<byte> run) -> void
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.NalUnitPacketizer.WriteFragmentHeader(System.Span<byte> header, System.ReadOnlySpan<byte> nalHeader, bool first, bool last) -> void
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.ClockRate.get -> int
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.CreateDepacketizer() -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.IRtpDepacketizer!
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.CreatePacketizer() -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.IRtpPacketizer!
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.EncodingName.get -> string!
-abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Kind.get -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind
 Agash.StreamTransport.WebRtc.Ice.EcnSupport
 Agash.StreamTransport.WebRtc.Ice.EcnSupport.None = 0 -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
 Agash.StreamTransport.WebRtc.Ice.EcnSupport.ReadOnly = 2 -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
 Agash.StreamTransport.WebRtc.Ice.EcnSupport.SetOnly = 1 -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
 Agash.StreamTransport.WebRtc.Ice.EcnSupport.SetRead = 3 -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
+Agash.StreamTransport.WebRtc.Ice.IIceSocket
+Agash.StreamTransport.WebRtc.Ice.IIceSocket.LocalEndPoint.get -> System.Net.IPEndPoint!
+Agash.StreamTransport.WebRtc.Ice.IIceSocket.ReceiveAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.WebRtc.Ice.IceReceiveResult>
+Agash.StreamTransport.WebRtc.Ice.IIceSocket.SendAsync(System.ReadOnlyMemory<byte> data, System.Net.IPEndPoint! destination, Agash.StreamTransport.Adaptation.EcnCodepoint ecn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory
+Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.Ecn.get -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
+Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.GetLocalAddresses(bool includeLoopback) -> System.Collections.Generic.IEnumerable<System.Net.IPAddress!>!
+Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.TryBind(System.Net.IPAddress! address, out Agash.StreamTransport.WebRtc.Ice.IIceSocket! socket) -> bool
 Agash.StreamTransport.WebRtc.Ice.IceAgent
 Agash.StreamTransport.WebRtc.Ice.IceAgent.AddRemoteCandidate(Agash.StreamTransport.WebRtc.Ice.IceCandidate candidate) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.AddStunServer(System.Net.IPEndPoint! server) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.AddTurnServer(Agash.StreamTransport.WebRtc.Turn.TurnServer! server) -> void
+Agash.StreamTransport.WebRtc.Ice.IceAgent.CanMovePath.get -> bool
 Agash.StreamTransport.WebRtc.Ice.IceAgent.DataReceived -> System.Action<System.Memory<byte>, System.Net.IPEndPoint!, byte>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.HasStandby.get -> bool
@@ -68,6 +30,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedRoundTrip.get -> System.TimeSp
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.EcnCodepoint ecn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteCredentials(Agash.StreamTransport.WebRtc.Ice.IceCredentials remote) -> void
+Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteOptions(Agash.StreamTransport.WebRtc.Ice.IceOptions remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.Start() -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.State.get -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceAgent.StateChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IceConnectionState>?
@@ -89,6 +52,7 @@ Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceConnectionState.Checking = 1 -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceConnectionState.Closed = 4 -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceConnectionState.Connected = 2 -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
+Agash.StreamTransport.WebRtc.Ice.IceConnectionState.Disconnected = 5 -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceConnectionState.Failed = 3 -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceConnectionState.New = 0 -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceCredentials
@@ -100,6 +64,12 @@ Agash.StreamTransport.WebRtc.Ice.IceCredentials.Password.get -> string!
 Agash.StreamTransport.WebRtc.Ice.IceCredentials.Password.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceCredentials.UsernameFragment.get -> string!
 Agash.StreamTransport.WebRtc.Ice.IceCredentials.UsernameFragment.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceOptions
+Agash.StreamTransport.WebRtc.Ice.IceOptions.Ice2 = 2 -> Agash.StreamTransport.WebRtc.Ice.IceOptions
+Agash.StreamTransport.WebRtc.Ice.IceOptions.None = 0 -> Agash.StreamTransport.WebRtc.Ice.IceOptions
+Agash.StreamTransport.WebRtc.Ice.IceOptions.Renomination = 4 -> Agash.StreamTransport.WebRtc.Ice.IceOptions
+Agash.StreamTransport.WebRtc.Ice.IceOptions.Supported = Agash.StreamTransport.WebRtc.Ice.IceOptions.Trickle | Agash.StreamTransport.WebRtc.Ice.IceOptions.Ice2 | Agash.StreamTransport.WebRtc.Ice.IceOptions.Renomination -> Agash.StreamTransport.WebRtc.Ice.IceOptions
+Agash.StreamTransport.WebRtc.Ice.IceOptions.Trickle = 1 -> Agash.StreamTransport.WebRtc.Ice.IceOptions
 Agash.StreamTransport.WebRtc.Ice.IcePath
 Agash.StreamTransport.WebRtc.Ice.IcePath.Deconstruct(out System.Net.IPEndPoint! Local, out System.Net.IPEndPoint! Remote, out Agash.StreamTransport.WebRtc.IceCandidateKind LocalKind, out Agash.StreamTransport.WebRtc.IceCandidateKind RemoteKind) -> void
 Agash.StreamTransport.WebRtc.Ice.IcePath.Equals(Agash.StreamTransport.WebRtc.Ice.IcePath other) -> bool
@@ -129,6 +99,8 @@ Agash.StreamTransport.WebRtc.Ice.IceTimings
 Agash.StreamTransport.WebRtc.Ice.IceTimings.<Clone>$() -> Agash.StreamTransport.WebRtc.Ice.IceTimings!
 Agash.StreamTransport.WebRtc.Ice.IceTimings.CheckRto.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.Ice.IceTimings.CheckRto.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceTimings.ConsentInterval.get -> System.TimeSpan
+Agash.StreamTransport.WebRtc.Ice.IceTimings.ConsentInterval.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings.ConsentTimeout.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.Ice.IceTimings.ConsentTimeout.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings.Equals(Agash.StreamTransport.WebRtc.Ice.IceTimings? other) -> bool
@@ -137,8 +109,6 @@ Agash.StreamTransport.WebRtc.Ice.IceTimings.FailureTimeout.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings.IceTimings() -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings.ReceivingTimeout.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.Ice.IceTimings.ReceivingTimeout.init -> void
-Agash.StreamTransport.WebRtc.Ice.IceTimings.StablePingInterval.get -> System.TimeSpan
-Agash.StreamTransport.WebRtc.Ice.IceTimings.StablePingInterval.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings.StandbyPingInterval.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.Ice.IceTimings.StandbyPingInterval.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings.SwitchingDelay.get -> System.TimeSpan
@@ -150,14 +120,6 @@ Agash.StreamTransport.WebRtc.Ice.IceTimings.WeakPingInterval.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy
 Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy.All = 0 -> Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy
 Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy.Relay = 1 -> Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy
-Agash.StreamTransport.WebRtc.Ice.IIceSocket
-Agash.StreamTransport.WebRtc.Ice.IIceSocket.LocalEndPoint.get -> System.Net.IPEndPoint!
-Agash.StreamTransport.WebRtc.Ice.IIceSocket.ReceiveAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.WebRtc.Ice.IceReceiveResult>
-Agash.StreamTransport.WebRtc.Ice.IIceSocket.SendAsync(System.ReadOnlyMemory<byte> data, System.Net.IPEndPoint! destination, Agash.StreamTransport.Adaptation.EcnCodepoint ecn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory
-Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.Ecn.get -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
-Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.GetLocalAddresses(bool includeLoopback) -> System.Collections.Generic.IEnumerable<System.Net.IPAddress!>!
-Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.TryBind(System.Net.IPAddress! address, out Agash.StreamTransport.WebRtc.Ice.IIceSocket! socket) -> bool
 Agash.StreamTransport.WebRtc.Ice.LocalAddressFilter
 Agash.StreamTransport.WebRtc.Ice.UdpIceSocketFactory
 Agash.StreamTransport.WebRtc.Ice.UdpIceSocketFactory.Ecn.get -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
@@ -279,6 +241,7 @@ Agash.StreamTransport.WebRtc.PeerConnectionState
 Agash.StreamTransport.WebRtc.PeerConnectionState.Closed = 4 -> Agash.StreamTransport.WebRtc.PeerConnectionState
 Agash.StreamTransport.WebRtc.PeerConnectionState.Connected = 2 -> Agash.StreamTransport.WebRtc.PeerConnectionState
 Agash.StreamTransport.WebRtc.PeerConnectionState.Connecting = 1 -> Agash.StreamTransport.WebRtc.PeerConnectionState
+Agash.StreamTransport.WebRtc.PeerConnectionState.Disconnected = 5 -> Agash.StreamTransport.WebRtc.PeerConnectionState
 Agash.StreamTransport.WebRtc.PeerConnectionState.Failed = 3 -> Agash.StreamTransport.WebRtc.PeerConnectionState
 Agash.StreamTransport.WebRtc.PeerConnectionState.New = 0 -> Agash.StreamTransport.WebRtc.PeerConnectionState
 Agash.StreamTransport.WebRtc.RtcCertificate
@@ -453,8 +416,8 @@ Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.OpusPayloadFormat
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Matches(Agash.StreamTransport.WebRtc.Sdp.SdpCodec codec) -> bool
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtpPayloadFormat() -> void
-Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.ToSdpCodec(int payloadType, string? formatParameters) -> Agash.StreamTransport.WebRtc.Sdp.SdpCodec
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.ToSdpCodec(int payloadType) -> Agash.StreamTransport.WebRtc.Sdp.SdpCodec
+Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.ToSdpCodec(int payloadType, string? formatParameters) -> Agash.StreamTransport.WebRtc.Sdp.SdpCodec
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry.Formats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat!>
 Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry.RtpPayloadFormatRegistry(System.Collections.Generic.IEnumerable<Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat!>! formats) -> void
@@ -673,10 +636,14 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.FecSsrc.get -> uint?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.FecSsrc.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprint.get -> Dtls.Core.DtlsFingerprint
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprint.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceOptions.get -> Agash.StreamTransport.WebRtc.Ice.IceOptions
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceOptions.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IcePwd.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IcePwd.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceUfrag.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceUfrag.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IgnoredCandidates.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IgnoredCandidates.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Kind.get -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Kind.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.MediaStreamId.get -> string?
@@ -706,8 +673,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind.Audio = 0 -> Agash.StreamTransport
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind.Video = 1 -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind
 Agash.StreamTransport.WebRtc.Sdp.SdpReader
 Agash.StreamTransport.WebRtc.Sdp.SdpSetup
-Agash.StreamTransport.WebRtc.Sdp.SdpSetup.Active = 1 -> Agash.StreamTransport.WebRtc.Sdp.SdpSetup
 Agash.StreamTransport.WebRtc.Sdp.SdpSetup.ActPass = 0 -> Agash.StreamTransport.WebRtc.Sdp.SdpSetup
+Agash.StreamTransport.WebRtc.Sdp.SdpSetup.Active = 1 -> Agash.StreamTransport.WebRtc.Sdp.SdpSetup
 Agash.StreamTransport.WebRtc.Sdp.SdpSetup.Passive = 2 -> Agash.StreamTransport.WebRtc.Sdp.SdpSetup
 Agash.StreamTransport.WebRtc.Sdp.SdpType
 Agash.StreamTransport.WebRtc.Sdp.SdpType.Answer = 1 -> Agash.StreamTransport.WebRtc.Sdp.SdpType
@@ -716,9 +683,9 @@ Agash.StreamTransport.WebRtc.Sdp.SdpWriter
 Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.Dispose() -> void
-Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectionOverhead.get -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectRtcp(System.Span<byte> packet, int length) -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectRtp(System.Span<byte> packet, int length) -> int
+Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectionOverhead.get -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.SrtpSession(Dtls.Core.SrtpKeyingMaterial! keying, bool isDtlsClient) -> void
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.TryProtectRtp(System.Span<byte> packet, int length, out int protectedLength) -> bool
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.UnprotectRtcp(System.Span<byte> packet, int length, out int plaintextLength) -> bool
@@ -735,6 +702,7 @@ Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Lifetime = 13 -> Agash.Strea
 Agash.StreamTransport.WebRtc.Stun.StunAttributeType.MappedAddress = 1 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
 Agash.StreamTransport.WebRtc.Stun.StunAttributeType.MessageIntegrity = 8 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
 Agash.StreamTransport.WebRtc.Stun.StunAttributeType.MessageIntegritySha256 = 28 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
+Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Nomination = 49153 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
 Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Nonce = 21 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
 Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Priority = 36 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
 Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Realm = 20 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
@@ -814,8 +782,8 @@ Agash.StreamTransport.WebRtc.Turn.TurnException
 Agash.StreamTransport.WebRtc.Turn.TurnException.Code.get -> int
 Agash.StreamTransport.WebRtc.Turn.TurnException.TurnException() -> void
 Agash.StreamTransport.WebRtc.Turn.TurnException.TurnException(int code, string! message) -> void
-Agash.StreamTransport.WebRtc.Turn.TurnException.TurnException(string! message, System.Exception! innerException) -> void
 Agash.StreamTransport.WebRtc.Turn.TurnException.TurnException(string! message) -> void
+Agash.StreamTransport.WebRtc.Turn.TurnException.TurnException(string! message, System.Exception! innerException) -> void
 Agash.StreamTransport.WebRtc.Turn.TurnServer
 Agash.StreamTransport.WebRtc.Turn.TurnServer.<Clone>$() -> Agash.StreamTransport.WebRtc.Turn.TurnServer!
 Agash.StreamTransport.WebRtc.Turn.TurnServer.CertificateValidation.get -> System.Net.Security.RemoteCertificateValidationCallback?
@@ -838,6 +806,13 @@ Agash.StreamTransport.WebRtc.Turn.TurnTransport.Tcp = 1 -> Agash.StreamTransport
 Agash.StreamTransport.WebRtc.Turn.TurnTransport.Tls = 2 -> Agash.StreamTransport.WebRtc.Turn.TurnTransport
 Agash.StreamTransport.WebRtc.Turn.TurnTransport.Udp = 0 -> Agash.StreamTransport.WebRtc.Turn.TurnTransport
 Agash.StreamTransport.WebRtc.WebRtcDiagnostics
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.NalUnitPacketizer.WriteAggregationHeader(System.Span<byte> header, System.ReadOnlySpan<byte> run) -> void
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.NalUnitPacketizer.WriteFragmentHeader(System.Span<byte> header, System.ReadOnlySpan<byte> nalHeader, bool first, bool last) -> void
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.ClockRate.get -> int
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.CreateDepacketizer() -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.IRtpDepacketizer!
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.CreatePacketizer() -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.IRtpPacketizer!
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.EncodingName.get -> string!
+abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Kind.get -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind
 const Agash.StreamTransport.WebRtc.Ice.IceCandidate.RtpComponent = 1 -> int
 const Agash.StreamTransport.WebRtc.Rtcp.Ccfb.ArrivalTimeOverRange = 8190 -> ushort
 const Agash.StreamTransport.WebRtc.Rtcp.Ccfb.ArrivalTimeUnknown = 8191 -> ushort
@@ -961,9 +936,9 @@ override sealed Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.Eq
 static Agash.StreamTransport.WebRtc.Ice.IceCandidate.CanReach(System.Net.IPAddress! local, System.Net.IPAddress! remote) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IceCandidate.ComputePairPriority(uint controllingPriority, uint controlledPriority) -> ulong
 static Agash.StreamTransport.WebRtc.Ice.IceCandidate.ComputePriority(Agash.StreamTransport.WebRtc.IceCandidateKind kind, System.Net.IPAddress! address, int componentId, int index = 0) -> uint
+static Agash.StreamTransport.WebRtc.Ice.IceCandidate.TryParse(string! value, out Agash.StreamTransport.WebRtc.Ice.IceCandidate candidate) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IceCandidate.operator !=(Agash.StreamTransport.WebRtc.Ice.IceCandidate left, Agash.StreamTransport.WebRtc.Ice.IceCandidate right) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IceCandidate.operator ==(Agash.StreamTransport.WebRtc.Ice.IceCandidate left, Agash.StreamTransport.WebRtc.Ice.IceCandidate right) -> bool
-static Agash.StreamTransport.WebRtc.Ice.IceCandidate.TryParse(string! value, out Agash.StreamTransport.WebRtc.Ice.IceCandidate candidate) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IceCredentials.CheckUsername(string! remoteUfrag, string! localUfrag) -> string!
 static Agash.StreamTransport.WebRtc.Ice.IceCredentials.Generate() -> Agash.StreamTransport.WebRtc.Ice.IceCredentials
 static Agash.StreamTransport.WebRtc.Ice.IceCredentials.operator !=(Agash.StreamTransport.WebRtc.Ice.IceCredentials left, Agash.StreamTransport.WebRtc.Ice.IceCredentials right) -> bool
@@ -994,14 +969,14 @@ static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildNack(System.Span<byte
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildPli(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.ContainsPli(System.ReadOnlySpan<byte> packet, out uint mediaSsrc) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryParseNack(System.ReadOnlySpan<byte> packet, out uint mediaSsrc, System.Collections.Generic.List<ushort>! lost) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport report) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.operator !=(Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.operator ==(Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport right) -> bool
-static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport report) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.operator !=(Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.operator ==(Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock right) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport report) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.operator !=(Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.operator ==(Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport right) -> bool
-static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport report) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.CnameLength(int sources, string! cname) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.WriteCname(System.Span<byte> destination, System.ReadOnlySpan<uint> sources, string! cname) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.WriteGoodbye(System.Span<byte> destination, System.ReadOnlySpan<uint> sources) -> int
@@ -1071,9 +1046,9 @@ static Agash.StreamTransport.WebRtc.Stun.StunHeader.EncodeType(Agash.StreamTrans
 static Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryParse(System.ReadOnlySpan<byte> datagram, out Agash.StreamTransport.WebRtc.Stun.StunMessageReader reader) -> bool
 static Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.operator !=(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? left, Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? right) -> bool
 static Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.operator ==(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? left, Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? right) -> bool
+static Agash.StreamTransport.WebRtc.Turn.TurnServer.TryParse(string! uri, string! username, string! credential, out Agash.StreamTransport.WebRtc.Turn.TurnServer! server) -> bool
 static Agash.StreamTransport.WebRtc.Turn.TurnServer.operator !=(Agash.StreamTransport.WebRtc.Turn.TurnServer? left, Agash.StreamTransport.WebRtc.Turn.TurnServer? right) -> bool
 static Agash.StreamTransport.WebRtc.Turn.TurnServer.operator ==(Agash.StreamTransport.WebRtc.Turn.TurnServer? left, Agash.StreamTransport.WebRtc.Turn.TurnServer? right) -> bool
-static Agash.StreamTransport.WebRtc.Turn.TurnServer.TryParse(string! uri, string! username, string! credential, out Agash.StreamTransport.WebRtc.Turn.TurnServer! server) -> bool
 static readonly Agash.StreamTransport.WebRtc.Ice.IceAgent.RestartOverlap -> System.TimeSpan
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.AreCompatible(string? local, string? remote) -> bool
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Channels.get -> int?
@@ -1081,5 +1056,43 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.FormatP
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Inspect(System.ReadOnlySpan<byte> payload) -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadTraits
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.KeyframeRequires.get -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadTraits
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFeedback.get -> System.Collections.Immutable.ImmutableArray<string!>
-Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IgnoredCandidates.get -> System.Collections.Generic.IReadOnlyList<string!>!
-Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IgnoredCandidates.init -> void
+~override Agash.StreamTransport.WebRtc.Ice.IceCandidate.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Ice.IceCandidate.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Ice.IceCredentials.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Ice.IceCredentials.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Ice.IcePath.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Ice.IcePath.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.AssembledFrame.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.AssembledFrame.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Sdp.SdpCodec.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Sdp.SdpCodec.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Sdp.SdpExtension.ToString() -> string

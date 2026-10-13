@@ -9,8 +9,10 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 [TestClass]
 public sealed class IceFailureTests
 {
+    // RFC 8863 section 4: every pair failing does not end it before the PAC timer, since the peer's own
+    // checks may still reveal a peer-reflexive candidate.
     [TestMethod]
-    public void UnreachablePeer_FailsOnceEveryCheckHasFailedAndTheCandidatesStop()
+    public void UnreachablePeer_FailsAtThePacTimerNotBefore()
     {
         IceStateMachine machine = Machine(out List<IceConnectionState> states);
         Assert.IsTrue(
@@ -23,11 +25,8 @@ public sealed class IceFailureTests
 
         TimeSpan failedAt = RunUntilFailed(machine, states, TimeSpan.FromSeconds(60));
 
-        Assert.IsLessThan(
-            IceTimings.Default.FailureTimeout,
-            failedAt,
-            "the failed checks end it before the timeout"
-        );
+        Assert.AreEqual(IceTimings.Default.FailureTimeout.TotalSeconds, failedAt.TotalSeconds, 0.2);
+        Assert.AreEqual(39.5, IceTimings.Default.FailureTimeout.TotalSeconds);
     }
 
     [TestMethod]
