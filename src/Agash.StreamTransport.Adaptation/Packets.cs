@@ -39,6 +39,12 @@ public enum PacketOutcome
     /// cover such delays.
     /// </summary>
     DeliveredLate,
+
+    /// <summary>
+    /// No feedback mentioned it, though a packet sent after it was delivered and a round trip has passed:
+    /// the report covering it was lost. Neither delivered nor lost; a later report may still resolve it.
+    /// </summary>
+    Unreported,
 }
 
 /// <summary>A sent packet's outcome, resolved from feedback.</summary>

@@ -127,10 +127,11 @@ public sealed class DeliveryTrackerTests
         Assert.IsEmpty(seen);
     }
 
-    // RFC 8985 section 6.2: a packet no report mentions, sent before one that was delivered, is lost once
-    // RACK.rtt and the reordering window have passed since it was sent.
+    // RFC 8985 section 6.2's time rule: a packet no report mentions, sent before one that was delivered,
+    // is judged once RACK.rtt and the reordering window have passed since it was sent. Reports cover
+    // contiguous ranges, so its report was lost: unreported, which is no loss.
     [TestMethod]
-    public void UnreportedPacket_SentBeforeADeliveredOne_IsLostOnceDue()
+    public void UnreportedPacket_SentBeforeADeliveredOne_IsUnreportedOnceDue()
     {
         DeliveryTracker tracker = new();
         tracker.OnSent(new SentPacket(1, 1200, 5 * Ms, TrafficClass.Video));
@@ -151,7 +152,7 @@ public sealed class DeliveryTrackerTests
         tracker.OnTick(68 * Ms, seen);
         Assert.HasCount(2, seen);
         Assert.AreEqual(1, seen[1].Packet.Id);
-        Assert.AreEqual(PacketOutcome.Lost, seen[1].Outcome);
+        Assert.AreEqual(PacketOutcome.Unreported, seen[1].Outcome);
     }
 
     [TestMethod]
@@ -170,7 +171,7 @@ public sealed class DeliveryTrackerTests
     }
 
     [TestMethod]
-    public void UnreportedPacketDeclaredLost_ThatArrivesAfterAll_IsDeliveredLate()
+    public void UnreportedPacket_ALaterReportResolves()
     {
         DeliveryTracker tracker = new();
         tracker.OnSent(new SentPacket(1, 1200, 0 * Ms, TrafficClass.Video));
@@ -181,8 +182,9 @@ public sealed class DeliveryTrackerTests
 
         _ = tracker.OnFeedback([Got(1)], 210 * Ms, seen);
 
-        Assert.AreEqual(PacketOutcome.Lost, seen[1].Outcome);
-        Assert.AreEqual(PacketOutcome.DeliveredLate, seen[2].Outcome);
+        Assert.AreEqual(PacketOutcome.Unreported, seen[1].Outcome);
+        Assert.AreEqual(PacketOutcome.Delivered, seen[2].Outcome);
+        Assert.AreEqual(TimeSpan.Zero, tracker.ReorderingWindow, "a lost report is no reordering");
     }
 
     [TestMethod]

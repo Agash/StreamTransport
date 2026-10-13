@@ -4,10 +4,11 @@ namespace Agash.StreamTransport.Adaptation;
 /// Resolves what became of each sent packet from feedback, the same way for every transport. A packet
 /// reported missing is lost only when it stays missing for the reordering window after a later packet
 /// arrived (SCReAMv2, draft-ietf-ccwg-rfc8298bis-screamv2-01 section 4.1.2, after RACK in RFC 8985). A
-/// packet no feedback mentions, such as the last one of a stream or one whose report was itself lost or
-/// overtaken by a later report, is lost by RACK's time rule (RFC 8985 section 6.2): once a packet sent
-/// after it was delivered, and a round trip and the reordering window have passed since it was sent. A
-/// packet is resolved once, however many overlapping reports cover it (RFC 8888 section 3.1).
+/// packet no feedback mentions once RACK's time rule would judge it (RFC 8985 section 6.2: a packet sent
+/// after it was delivered, and a round trip and the reordering window passed since it was sent) is
+/// <see cref="PacketOutcome.Unreported"/>, not lost: feedback reports contiguous ranges, so a packet
+/// skipped behind a delivered one means its report was lost, as libwebrtc also reads it. A packet is
+/// resolved once, however many overlapping reports cover it (RFC 8888 section 3.1).
 /// </summary>
 /// <remarks>
 /// A packet declared lost that arrives anyway shows the window was too short, and it adapts as RACK's
@@ -116,7 +117,7 @@ public sealed class DeliveryTracker
 
             if (!report.Received)
             {
-                if (entry.State == State.InFlight)
+                if (entry.State is State.InFlight or State.Unreported)
                 {
                     _packets[report.Id] = entry with { State = State.Missing, Since = now };
                     _missing.Add(report.Id);
@@ -219,7 +220,7 @@ public sealed class DeliveryTracker
 
     private void DetectLosses(TimeSpan now, List<PacketObservation> observations)
     {
-        DetectUnreportedLosses(now, observations);
+        DetectUnreported(now, observations);
 
         int kept = 0;
         for (int i = 0; i < _missing.Count; i++)
@@ -259,11 +260,11 @@ public sealed class DeliveryTracker
         _missing.RemoveRange(kept, _missing.Count - kept);
     }
 
-    // RFC 8985 section 6.2, step 5: a packet sent before the latest-sent delivered one is lost once
-    // RACK.rtt and the reordering window have passed since it was sent. RACK's window is at least a quarter
-    // of the round trip (section 6.2, step 4). Packets wait in sending order, so the first that is not
-    // yet due ends the scan.
-    private void DetectUnreportedLosses(TimeSpan now, List<PacketObservation> observations)
+    // RFC 8985 section 6.2, step 5: a packet sent before the latest-sent delivered one is due once RACK.rtt
+    // and the reordering window have passed since it was sent. RACK's window is at least a quarter of the
+    // round trip (section 6.2, step 4). Packets wait in sending order, so the first that is not yet due
+    // ends the scan. One no feedback mentioned by then is unreported.
+    private void DetectUnreported(TimeSpan now, List<PacketObservation> observations)
     {
         TimeSpan window = Allowance(withFloor: true);
         while (_unreported.TryPeek(out long id))
@@ -283,10 +284,14 @@ public sealed class DeliveryTracker
             }
 
             _ = _unreported.Dequeue();
-            NoteLoss(now);
-            _packets[id] = entry with { State = State.Lost, Since = now, Window = window };
+            _packets[id] = entry with { State = State.Unreported, Since = now };
             observations.Add(
-                new PacketObservation(entry.Packet, PacketOutcome.Lost, null, EcnCodepoint.NotEct)
+                new PacketObservation(
+                    entry.Packet,
+                    PacketOutcome.Unreported,
+                    null,
+                    EcnCodepoint.NotEct
+                )
             );
         }
     }
@@ -351,6 +356,7 @@ public sealed class DeliveryTracker
         InFlight,
         Missing,
         Lost,
+        Unreported,
         Delivered,
     }
 

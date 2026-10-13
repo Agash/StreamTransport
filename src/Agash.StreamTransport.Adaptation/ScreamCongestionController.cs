@@ -276,6 +276,11 @@ public sealed partial class ScreamCongestionController : ICongestionController
         long highest = _highestAcked;
         foreach (PacketObservation observation in observations)
         {
+            if (observation.Outcome == PacketOutcome.Unreported)
+            {
+                continue;
+            }
+
             bool lost = observation.Outcome == PacketOutcome.Lost;
 
             // A path MTU probe lost to its size is no sign of congestion (RFC 8899 section 3, item 7); it

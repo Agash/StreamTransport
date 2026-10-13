@@ -243,9 +243,21 @@ public sealed partial class PeerConnection
         foreach (PacketObservation observation in observations)
         {
             SentPacket packet = observation.Packet;
-            if (observation.Outcome == PacketOutcome.Lost)
+
+            // A probe nobody reported is tried again like a lost one; other unreported packets say nothing.
+            if (
+                observation.Outcome == PacketOutcome.Lost
+                || (
+                    observation.Outcome == PacketOutcome.Unreported
+                    && packet.Class == TrafficClass.Probe
+                )
+            )
             {
                 search.OnLost(packet.Id, packet.Size, now);
+            }
+            else if (observation.Outcome == PacketOutcome.Unreported)
+            {
+                continue;
             }
             else
             {

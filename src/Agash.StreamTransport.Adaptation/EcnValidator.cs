@@ -111,6 +111,11 @@ public sealed class EcnValidator(TimeSpan? retryInterval = null)
 
         foreach (PacketObservation observation in observations)
         {
+            if (observation.Outcome == PacketOutcome.Unreported)
+            {
+                continue;
+            }
+
             bool marked = _marked.Remove(observation.Packet.Id, out EcnCodepoint sent);
             if (observation.Outcome == PacketOutcome.Lost)
             {

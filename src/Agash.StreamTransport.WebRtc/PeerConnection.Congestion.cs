@@ -633,7 +633,10 @@ public sealed partial class PeerConnection
         int lost = 0;
         foreach (PacketObservation observation in _observations)
         {
-            if (observation.Packet.Class != TrafficClass.Probe)
+            if (
+                observation.Packet.Class != TrafficClass.Probe
+                && observation.Outcome != PacketOutcome.Unreported
+            )
             {
                 resolved++;
                 lost += observation.Outcome == PacketOutcome.Lost ? 1 : 0;

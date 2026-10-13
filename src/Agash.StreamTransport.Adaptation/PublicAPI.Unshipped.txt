@@ -339,3 +339,4 @@ static Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.operator !=(Agash.
 static Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.operator ==(Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? left, Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? right) -> bool
 static Agash.StreamTransport.Adaptation.SentPacket.operator !=(Agash.StreamTransport.Adaptation.SentPacket left, Agash.StreamTransport.Adaptation.SentPacket right) -> bool
 static Agash.StreamTransport.Adaptation.SentPacket.operator ==(Agash.StreamTransport.Adaptation.SentPacket left, Agash.StreamTransport.Adaptation.SentPacket right) -> bool
+Agash.StreamTransport.Adaptation.PacketOutcome.Unreported = 3 -> Agash.StreamTransport.Adaptation.PacketOutcome
