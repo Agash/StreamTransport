@@ -33,6 +33,10 @@ public static class SdpReader
 
         var media = new List<MediaBuilder>();
         MediaBuilder? current = null;
+        bool skipping = false;
+        long sessionId = 0;
+        long sessionVersion = 0;
+        List<string>? bundleGroup = null;
 
         foreach (string raw in sdp.Split('\n'))
         {
@@ -50,6 +54,41 @@ public static class SdpReader
                     media.Add(current);
                 }
 
+                // A section this reader cannot read keeps its attributes: they must not reach the session.
+                skipping = current is null;
+                continue;
+            }
+
+            if (skipping)
+            {
+                continue;
+            }
+
+            if (current is null && TryValue(line, "o=", out string origin))
+            {
+                string[] fields = origin.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (fields.Length >= 3)
+                {
+                    _ = long.TryParse(
+                        fields[1],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out sessionId
+                    );
+                    _ = long.TryParse(
+                        fields[2],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out sessionVersion
+                    );
+                }
+
+                continue;
+            }
+
+            if (current is null && TryValue(line, "a=group:BUNDLE", out string group))
+            {
+                bundleGroup = [.. group.Split(' ', StringSplitOptions.RemoveEmptyEntries)];
                 continue;
             }
 
@@ -139,7 +178,12 @@ public static class SdpReader
                     Kind = m.Kind,
                     Mid = m.Mid ?? result.Count.ToString(CultureInfo.InvariantCulture),
                     Direction = m.Direction,
-                    Rejected = m.Rejected,
+                    // RFC 9143 section 6: port 0 with bundle-only is a bundled section, not a rejected one.
+                    Rejected = m.PortZero && !m.BundleOnly,
+                    BundleOnly = m.BundleOnly,
+                    Protocol = m.Protocol,
+                    Formats = m.Formats,
+                    RtcpMuxOnly = m.RtcpMuxOnly,
                     Codecs = m.BuildCodecs(),
                     IceUfrag = m.IceUfrag ?? sessionUfrag,
                     IcePwd = m.IcePwd ?? sessionPwd,
@@ -165,7 +209,14 @@ public static class SdpReader
             );
         }
 
-        description = new SdpDescription { Media = result, IceLite = iceLite };
+        description = new SdpDescription
+        {
+            Media = result,
+            IceLite = iceLite,
+            BundleGroup = bundleGroup,
+            SessionId = sessionId,
+            SessionVersion = sessionVersion,
+        };
         return true;
     }
 
@@ -326,7 +377,11 @@ public static class SdpReader
         public uint? RtxSsrc { get; private set; }
 
         public uint? FecSsrc { get; private set; }
-        public bool Rejected { get; init; }
+        public bool PortZero { get; init; }
+        public bool BundleOnly { get; private set; }
+        public bool RtcpMuxOnly { get; private set; }
+        public string Protocol { get; init; } = "";
+        public IReadOnlyList<string> Formats { get; init; } = [];
         public List<IceCandidate> Candidates { get; } = [];
 
         public List<string> IgnoredCandidates { get; } = [];
@@ -350,7 +405,13 @@ public static class SdpReader
                 _ => SdpMediaKind.Application,
             };
 
-            var builder = new MediaBuilder { Kind = kind, Rejected = parts[1] == "0" };
+            var builder = new MediaBuilder
+            {
+                Kind = kind,
+                PortZero = parts[1] == "0",
+                Protocol = parts[2],
+                Formats = parts.Length > 3 ? parts[3..] : [],
+            };
             for (int i = 3; i < parts.Length; i++)
             {
                 if (
@@ -385,7 +446,8 @@ public static class SdpReader
             }
             else if (TryValue(line, "a=fingerprint:", out string f))
             {
-                Fingerprint = ParseFingerprint(f);
+                // One with a hash this reader does not know leaves a known one standing.
+                Fingerprint = ParseFingerprint(f) ?? Fingerprint;
             }
             else if (TryValue(line, "a=setup:", out string s))
             {
@@ -399,6 +461,14 @@ public static class SdpReader
             else if (line == "a=rtcp-mux")
             {
                 RtcpMux = true;
+            }
+            else if (line == "a=rtcp-mux-only")
+            {
+                RtcpMuxOnly = true;
+            }
+            else if (line == "a=bundle-only")
+            {
+                BundleOnly = true;
             }
             else if (line == "a=rtcp-rsize")
             {

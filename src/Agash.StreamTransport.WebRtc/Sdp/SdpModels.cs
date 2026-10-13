@@ -110,6 +110,30 @@ public sealed record SdpMediaDescription
     public bool RtcpMux { get; init; } = true;
 
     /// <summary>
+    /// Whether RTCP may only share the RTP port (<c>a=rtcp-mux-only</c>, RFC 8858); an offer's attribute,
+    /// never written in an answer (section 4.3).
+    /// </summary>
+    public bool RtcpMuxOnly { get; init; }
+
+    /// <summary>
+    /// The transport protocol of the <c>m=</c> line; an answer repeats the offer's (RFC 3264 section 6).
+    /// </summary>
+    public string Protocol { get; init; } = "UDP/TLS/RTP/SAVPF";
+
+    /// <summary>
+    /// The <c>m=</c> line's formats as written, for a section whose formats are not RTP payload types
+    /// (a data channel's <c>webrtc-datachannel</c>); empty for RTP sections, which list
+    /// <see cref="Codecs"/>.
+    /// </summary>
+    public IReadOnlyList<string> Formats { get; init; } = [];
+
+    /// <summary>
+    /// Whether the section is <c>a=bundle-only</c> (RFC 9143 section 6): port 0 without being rejected, to
+    /// be used only within the BUNDLE group.
+    /// </summary>
+    public bool BundleOnly { get; init; }
+
+    /// <summary>
     /// Whether RTCP may be sent as single feedback packets instead of compound reports (<c>a=rtcp-rsize</c>,
     /// RFC 5506); offered always, in effect when both sides list it.
     /// </summary>
@@ -208,6 +232,18 @@ public sealed record SdpDescription
 
     /// <summary>The session identifier for the <c>o=</c> line.</summary>
     public long SessionId { get; init; } = Random.Shared.NextInt64(1, long.MaxValue);
+
+    /// <summary>
+    /// The <c>o=</c> session version: the same session id across a connection's descriptions, the version
+    /// one higher each time the description changes (RFC 3264 section 8, RFC 8866 section 5.2).
+    /// </summary>
+    public long SessionVersion { get; init; } = 1;
+
+    /// <summary>
+    /// The mids of the BUNDLE group (<c>a=group:BUNDLE</c>, RFC 9143), offerer-tagged first; null when the
+    /// description has none. An answer has one only when the offer did (section 7.3).
+    /// </summary>
+    public IReadOnlyList<string>? BundleGroup { get; init; }
 
     /// <summary>Whether the peer runs ICE-lite (<c>a=ice-lite</c>), answering checks without making its own.</summary>
     public bool IceLite { get; init; }

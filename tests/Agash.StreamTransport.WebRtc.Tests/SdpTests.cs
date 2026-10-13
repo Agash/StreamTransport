@@ -17,12 +17,14 @@ public sealed class SdpTests
         );
         return new SdpDescription
         {
+            BundleGroup = ["0", "1"],
             Media =
             [
                 new SdpMediaDescription
                 {
                     Kind = SdpMediaKind.Audio,
                     Mid = "0",
+                    RtcpMuxOnly = true,
                     Codecs =
                     [
                         new SdpCodec(111, "opus", 48000, 2, "minptime=10;useinbandfec=1", []),
@@ -38,6 +40,7 @@ public sealed class SdpTests
                 {
                     Kind = SdpMediaKind.Video,
                     Mid = "1",
+                    RtcpMuxOnly = true,
                     Codecs =
                     [
                         new SdpCodec(
@@ -90,6 +93,7 @@ public sealed class SdpTests
         SdpDescription answer = offer with
         {
             Media = [offer.Media[0], offer.Media[1] with { Rejected = true, Codecs = [] }],
+            BundleGroup = ["0"],
         };
 
         string sdp = SdpWriter.Write(answer);

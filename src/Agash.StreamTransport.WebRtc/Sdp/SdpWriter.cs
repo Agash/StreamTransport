@@ -17,7 +17,7 @@ public static class SdpWriter
         sb.Append("v=0\r\n");
         sb.Append(
             CultureInfo.InvariantCulture,
-            $"o=- {description.SessionId} 2 IN IP4 127.0.0.1\r\n"
+            $"o=- {description.SessionId} {description.SessionVersion} IN IP4 127.0.0.1\r\n"
         );
         sb.Append("s=-\r\n");
         sb.Append("t=0 0\r\n");
@@ -26,12 +26,7 @@ public static class SdpWriter
             sb.Append("a=ice-lite\r\n");
         }
 
-        // RFC 9143 section 7.3: rejected sections leave the group.
-        string[] bundled =
-        [
-            .. description.Media.Where(static m => !m.Rejected).Select(static m => m.Mid),
-        ];
-        if (bundled.Length > 0)
+        if (description.BundleGroup is { Count: > 0 } bundled)
         {
             sb.Append("a=group:BUNDLE ").Append(string.Join(' ', bundled)).Append("\r\n");
         }
@@ -57,15 +52,23 @@ public static class SdpWriter
 
         sb.Append(
             CultureInfo.InvariantCulture,
-            $"m={kind} {(media.Rejected ? 0 : 9)} UDP/TLS/RTP/SAVPF"
+            $"m={kind} {(media.Rejected || media.BundleOnly ? 0 : 9)} {media.Protocol}"
         );
         foreach (SdpCodec codec in media.Codecs)
         {
             sb.Append(CultureInfo.InvariantCulture, $" {codec.PayloadType}");
         }
 
-        // RFC 8866 section 5.14: an m= line lists at least one format, a rejected one with nothing to list too.
         if (media.Codecs.Count == 0)
+        {
+            foreach (string format in media.Formats)
+            {
+                sb.Append(' ').Append(format);
+            }
+        }
+
+        // RFC 8866 section 5.14: an m= line lists at least one format, a rejected one with nothing to list too.
+        if (media.Codecs.Count == 0 && media.Formats.Count == 0)
         {
             sb.Append(" 0");
         }
@@ -73,11 +76,19 @@ public static class SdpWriter
         sb.Append("\r\n");
         sb.Append("c=IN IP4 0.0.0.0\r\n");
         sb.Append("a=rtcp:9 IN IP4 0.0.0.0\r\n");
-        // RFC 8858: RTCP only ever shares the port, which RFC 9725 section 4.4.1 asks of WHIP offers.
         if (media.RtcpMux)
         {
             sb.Append("a=rtcp-mux\r\n");
+        }
+
+        if (media.RtcpMuxOnly)
+        {
             sb.Append("a=rtcp-mux-only\r\n");
+        }
+
+        if (media.BundleOnly)
+        {
+            sb.Append("a=bundle-only\r\n");
         }
 
         if (media.RtcpReducedSize)

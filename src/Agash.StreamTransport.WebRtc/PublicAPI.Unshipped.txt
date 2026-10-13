@@ -574,6 +574,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpCodec.SdpCodec() -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpCodec.SdpCodec(int PayloadType, string! EncodingName, int ClockRate, int? Channels, string? FormatParameters, System.Collections.Generic.IReadOnlyList<string!>! RtcpFeedback) -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.<Clone>$() -> Agash.StreamTransport.WebRtc.Sdp.SdpDescription!
+Agash.StreamTransport.WebRtc.Sdp.SdpDescription.BundleGroup.get -> System.Collections.Generic.IReadOnlyList<string!>?
+Agash.StreamTransport.WebRtc.Sdp.SdpDescription.BundleGroup.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.Equals(Agash.StreamTransport.WebRtc.Sdp.SdpDescription? other) -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.IceLite.get -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.IceLite.init -> void
@@ -582,6 +584,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpDescription.Media.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SdpDescription() -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionId.get -> long
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionId.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionVersion.get -> long
+Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionVersion.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpDirection
 Agash.StreamTransport.WebRtc.Sdp.SdpDirection.Inactive = 3 -> Agash.StreamTransport.WebRtc.Sdp.SdpDirection
 Agash.StreamTransport.WebRtc.Sdp.SdpDirection.RecvOnly = 2 -> Agash.StreamTransport.WebRtc.Sdp.SdpDirection
@@ -613,6 +617,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Uri.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Uri.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.<Clone>$() -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.BundleOnly.get -> bool
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.BundleOnly.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Candidates.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.Ice.IceCandidate>!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Candidates.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Cname.get -> string?
@@ -636,6 +642,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.FecSsrc.get -> uint?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.FecSsrc.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprint.get -> Dtls.Core.DtlsFingerprint
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprint.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Formats.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Formats.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceOptions.get -> Agash.StreamTransport.WebRtc.Ice.IceOptions
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceOptions.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IcePwd.get -> string!
@@ -650,10 +658,14 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.MediaStreamId.get -> string
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.MediaStreamId.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Mid.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Mid.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Protocol.get -> string!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Protocol.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Rejected.get -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Rejected.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtcpMux.get -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtcpMux.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtcpMuxOnly.get -> bool
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtcpMuxOnly.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtcpReducedSize.get -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtcpReducedSize.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.RtxSsrc.get -> uint?

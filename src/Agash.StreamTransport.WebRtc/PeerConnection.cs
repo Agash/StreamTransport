@@ -59,6 +59,23 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private SrtpSession? _srtp;
     private SdpDescription? _remoteDescription;
     private DtlsRole _dtlsRole = DtlsRole.Client;
+
+    // RFC 3264 section 8: one o= session id for the connection, the version one higher per description.
+    private readonly long _sessionId = Random.Shared.NextInt64(1, long.MaxValue);
+    private long _sessionVersion;
+
+    private SdpDescription Describe(
+        List<SdpMediaDescription> media,
+        IReadOnlyList<string>? bundle
+    ) =>
+        new()
+        {
+            Media = media,
+            SessionId = _sessionId,
+            SessionVersion = Interlocked.Increment(ref _sessionVersion),
+            BundleGroup = bundle is { Count: > 0 } ? bundle : null,
+        };
+
     private DtlsFingerprint? _expectedRemoteFingerprint;
     private int _state = (int)PeerConnectionState.New;
 
@@ -192,7 +209,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             StartIce(IceRole.Controlling);
         }
 
-        return new SdpDescription { Media = media };
+        return Describe(
+            [.. media.Select(static m => m with { RtcpMuxOnly = true })],
+            [.. media.Select(static m => m.Mid)]
+        );
     }
 
     /// <summary>Creates the answer to a previously set remote offer, and starts gathering ICE candidates.</summary>
@@ -201,13 +221,41 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SdpDescription offer =
             _remoteDescription ?? throw new InvalidOperationException("No remote offer set.");
 
-        // We answer as DTLS client (a=setup:active) - the common WebRTC arrangement.
-        _dtlsRole = DtlsRole.Client;
+        // RFC 5763 section 5 and RFC 8842 section 5.3: the answer's role follows the offer's. JSEP offers
+        // actpass and this side takes the client; an offer that is active or passive leaves the other.
+        SdpSetup offered0 = (
+            offer.Media.FirstOrDefault(static m => !m.Rejected) ?? offer.Media[0]
+        ).Setup;
+        SdpSetup answerSetup = offered0 == SdpSetup.Active ? SdpSetup.Passive : SdpSetup.Active;
+        _dtlsRole = answerSetup == SdpSetup.Active ? DtlsRole.Client : DtlsRole.Server;
+
         var media = new List<SdpMediaDescription>(offer.Media.Count);
         var negotiated = new List<NegotiatedMediaInfo>(offer.Media.Count);
+        HashSet<SdpMediaKind> answeredKinds = [];
+        bool bundled = offer.BundleGroup is { Count: > 0 };
         foreach (SdpMediaDescription remote in offer.Media)
         {
             uint ssrc = LocalSsrcFor(remote.Mid, remote.Kind);
+
+            // Sections this endpoint does not run are rejected as offered (RFC 3264 section 6): one already
+            // rejected; one that is not RTP (a data channel); one without rtcp-mux, which JSEP's require
+            // policy refuses (RFC 9429 section 5.8, RFC 8834 section 4.5); a second of one kind, since
+            // sections must not share an SSRC (RFC 9143 section 9.2); and, with no BUNDLE group offered,
+            // every section after the first, as each would need a transport of its own.
+            string? refusal =
+                remote.Rejected ? "rejected in the offer"
+                : !remote.Protocol.Contains("RTP", StringComparison.Ordinal)
+                    ? $"not RTP ({remote.Protocol})"
+                : !remote.RtcpMux ? "offered without rtcp-mux"
+                : answeredKinds.Contains(remote.Kind) ? "a second section of its kind"
+                : !bundled && answeredKinds.Count > 0 ? "not bundled, and only one transport runs"
+                : null;
+            if (refusal is not null)
+            {
+                LogSectionRefused(_logger, remote.Kind, remote.Mid, refusal);
+                media.Add(Refuse(remote, answerSetup));
+                continue;
+            }
 
             // Answer with the offered codecs we also support (matched by encoding name + clock), keeping the
             // offerer's payload types and preference order and describing each with our own format
@@ -217,7 +265,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             List<SdpCodec> answered = [];
             foreach (SdpCodec rc in remote.Codecs)
             {
-                if (Rtx.IsRtx(rc))
+                // RFC 5761 section 4: with RTCP multiplexed, 64 to 95 are not payload types.
+                if (Rtx.IsRtx(rc) || rc.PayloadType is >= 64 and <= 95)
                 {
                     continue;
                 }
@@ -242,8 +291,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
                         )
                     )
                     {
+                        // RFC 4585 section 4.2: the answer adds no feedback the offer did not list.
                         offered.Add(rc);
-                        answered.Add(lc with { PayloadType = rc.PayloadType });
+                        answered.Add(
+                            lc with
+                            {
+                                PayloadType = rc.PayloadType,
+                                RtcpFeedback = AgreedFeedback(lc, rc),
+                            }
+                        );
                         break;
                     }
                 }
@@ -272,23 +328,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             if (answered.Count == 0)
             {
                 LogSectionRejected(_logger, remote.Kind, remote.Mid);
-                media.Add(
-                    BuildMediaSection(
-                        remote.Mid,
-                        remote.Kind,
-                        remote.Codecs,
-                        ssrc,
-                        SdpSetup.Active,
-                        SdpDirection.Inactive,
-                        rtxSsrc: null
-                    ) with
-                    {
-                        Rejected = true,
-                        Extensions = [],
-                    }
-                );
+                media.Add(Refuse(remote, answerSetup));
                 continue;
             }
+
+            _ = answeredKinds.Add(remote.Kind);
 
             bool repairs = answered.Exists(Rtx.IsRtx);
             bool protects = answered.Exists(FlexFec.IsFlexFec);
@@ -301,7 +345,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     remote.Kind,
                     answerCodecs,
                     ssrc,
-                    SdpSetup.Active,
+                    answerSetup,
                     Answer(remote.Direction, LocalDirectionFor(remote.Kind)),
                     repairs ? rtxSsrc : null,
                     protects ? LocalFecSsrcFor(remote.Mid, remote.Kind) : null
@@ -313,6 +357,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     TransportWideFeedback = AnswersTransportFeedback(remote),
                     Ecn = AnswerEcn(remote.Ecn),
                     Extensions = AnsweredExtensions(remote),
+                    Protocol = remote.Protocol,
+                    RtcpMux = true,
+                    RtcpMuxOnly = false,
                 }
             );
             negotiated.Add(
@@ -330,7 +377,76 @@ public sealed partial class PeerConnection : IAsyncDisposable
             StartIce(offer.IceLite ? IceRole.Controlling : IceRole.Controlled);
         }
 
-        return new SdpDescription { Media = media };
+        // RFC 9143 section 7.3: a BUNDLE group only when the offer had one, of the sections accepted.
+        return Describe(
+            media,
+            bundled
+                ?
+                [
+                    .. offer.BundleGroup!.Where(mid =>
+                        media.Exists(m => m.Mid == mid && !m.Rejected)
+                    ),
+                ]
+                : null
+        );
+    }
+
+    // A section refused as offered: port 0, its protocol and formats, nothing negotiated.
+    private SdpMediaDescription Refuse(SdpMediaDescription remote, SdpSetup setup) =>
+        BuildMediaSection(
+            remote.Mid,
+            remote.Kind,
+            remote.Codecs,
+            ssrc: 0,
+            setup,
+            SdpDirection.Inactive,
+            rtxSsrc: null
+        ) with
+        {
+            Rejected = true,
+            Extensions = [],
+            Protocol = remote.Protocol,
+            Formats = remote.Formats,
+            Codecs = remote.Protocol.Contains("RTP", StringComparison.Ordinal) ? remote.Codecs : [],
+        };
+
+    // The feedback both sides list for a codec pair, the wildcard included (RFC 4585 section 4.2).
+    private static IReadOnlyList<string> AgreedFeedback(SdpCodec local, SdpCodec remote) =>
+        [
+            .. (local.RtcpFeedback ?? []).Where(fb =>
+                (remote.RtcpFeedback ?? []).Contains(fb, StringComparer.OrdinalIgnoreCase)
+            ),
+        ];
+
+    // Whether a negotiated section of the kind agreed the feedback for one of its codecs.
+    private bool FeedbackAgreed(SdpMediaKind kind, string feedback)
+    {
+        foreach (NegotiatedMediaInfo section in NegotiatedMedia)
+        {
+            if (section.Kind != kind)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < section.Codecs.Count && i < section.RemoteCodecs.Count; i++)
+            {
+                if (
+                    (section.Codecs[i].RtcpFeedback ?? []).Contains(
+                        feedback,
+                        StringComparer.OrdinalIgnoreCase
+                    )
+                    && (section.RemoteCodecs[i].RtcpFeedback ?? []).Contains(
+                        feedback,
+                        StringComparer.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -650,6 +766,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
+        // RFC 4585 section 4.2: only feedback the description agreed is sent. PLI when agreed, else FIR
+        // (RFC 5104 section 4.3.1), else nothing: the peer cannot be asked.
+        bool pli = FeedbackAgreed(SdpMediaKind.Video, "nack pli");
+        if (!pli && !FeedbackAgreed(SdpMediaKind.Video, "ccm fir"))
+        {
+            LogKeyframeRequestNotAgreed(_logger, mediaSsrc);
+            return;
+        }
+
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
             FeedbackPrefixCapacity + 32 + SrtpSession.MaxRtcpProtectionOverhead
         );
@@ -657,7 +782,17 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             int prefix = WriteFeedbackPrefix(buffer);
             int length =
-                prefix + RtcpFeedback.BuildPli(buffer.AsSpan(prefix), _rtcpSenderSsrc, mediaSsrc);
+                prefix
+                + (
+                    pli
+                        ? RtcpFeedback.BuildPli(buffer.AsSpan(prefix), _rtcpSenderSsrc, mediaSsrc)
+                        : RtcpFeedback.BuildFir(
+                            buffer.AsSpan(prefix),
+                            _rtcpSenderSsrc,
+                            mediaSsrc,
+                            (byte)Interlocked.Increment(ref _firSequence)
+                        )
+                );
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             Interlocked.Increment(ref _keyframeRequestsSent);
             await agent
@@ -672,6 +807,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ArrayPool<byte>.Shared.Return(buffer);
         }
     }
+
+    // RFC 5104 section 4.3.1.1: the command sequence number, one higher per new request.
+    private int _firSequence;
 
     private ushort NextSequence(uint ssrc)
     {
@@ -1581,6 +1719,25 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "The {Kind} section {Mid} is rejected: the peers share no codec for it."
     )]
     private static partial void LogSectionRejected(ILogger logger, SdpMediaKind kind, string mid);
+
+    [LoggerMessage(
+        EventId = 1180,
+        Level = LogLevel.Warning,
+        Message = "The {Kind} section {Mid} is rejected: {Reason}"
+    )]
+    private static partial void LogSectionRefused(
+        ILogger logger,
+        SdpMediaKind kind,
+        string mid,
+        string reason
+    );
+
+    [LoggerMessage(
+        EventId = 1181,
+        Level = LogLevel.Information,
+        Message = "No keyframe request sent for {Ssrc}: the description agreed neither PLI nor FIR"
+    )]
+    private static partial void LogKeyframeRequestNotAgreed(ILogger logger, uint ssrc);
 
     [LoggerMessage(
         EventId = 1175,
