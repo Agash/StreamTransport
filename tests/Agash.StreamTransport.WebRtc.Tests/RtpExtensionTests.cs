@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Net;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 
@@ -8,6 +9,9 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 [TestClass]
 public sealed class RtpExtensionTests
 {
+    // Negotiation only: ICE starts with the offer and gathers here, never on the machine's interfaces.
+    private static readonly InMemoryIceNetwork OfflineNetwork = new();
+
     private static readonly RtpExtensionValues All = new(
         0x0123456789ABCDEFUL,
         new VideoTiming(VideoTiming.ByTimer | VideoTiming.BySize, 1, 5, 6, 9, 0, 0),
@@ -212,6 +216,7 @@ public sealed class RtpExtensionTests
         await using PeerConnection answerer = new(
             new PeerConnectionOptions
             {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
                 Media = [new MediaLine("0", SdpMediaKind.Video, 0xBBBB_0001, [H264])],
             },
             Certificate
@@ -246,6 +251,7 @@ public sealed class RtpExtensionTests
         await using PeerConnection offerer = new(
             new PeerConnectionOptions
             {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
                 Media = [new MediaLine("0", SdpMediaKind.Video, 0xAAAA_0001, [H264])],
             },
             Certificate

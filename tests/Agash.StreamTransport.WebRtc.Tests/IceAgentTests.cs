@@ -172,7 +172,11 @@ public sealed class IceAgentTests
         // restarted checks cannot succeed, and media still has to get through both ways.
         var fresh = IceCredentials.Generate();
         agents.A.Restart(fresh);
-        Assert.AreEqual(before, agents.A.SelectedPath?.Local, "the old path is still the one in use.");
+        Assert.AreEqual(
+            before,
+            agents.A.SelectedPath?.Local,
+            "the old path is still the one in use."
+        );
         byte[] payload = [0x12];
         await agents.A.SendAsync(payload);
         CollectionAssert.AreEqual(
@@ -187,7 +191,11 @@ public sealed class IceAgentTests
 
         agents.B.SetRemoteCredentials(fresh);
         await agents.AConnected.ReadAsync().AsTask().WaitAsync(Patience);
-        Assert.AreNotEqual(before, agents.A.SelectedPath?.Local, "the restart moved to new sockets.");
+        Assert.AreNotEqual(
+            before,
+            agents.A.SelectedPath?.Local,
+            "the restart moved to new sockets."
+        );
 
         // Data over the new pair ends the overlap, and the old socket closes.
         await agents.B.SendAsync(payload);

@@ -10,17 +10,19 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
 /// The full-stack end-to-end test: two <see cref="PeerConnection"/>s negotiate an offer/answer, trickle
-/// candidates, connect over loopback (ICE → DTLS-SRTP), and exchange an encrypted RTP packet. This
-/// exercises every layer built so far together - STUN, ICE, DTLS, SRTP, RTP, SDP.
+/// candidates, connect (ICE, then DTLS-SRTP), and exchange encrypted RTP. This exercises every layer
+/// together: STUN, ICE, DTLS, SRTP, RTP, SDP.
 /// </summary>
 /// <remarks>
-/// These bind real loopback UDP sockets and run full ICE/DTLS-SRTP handshakes. The DTLS handshake is blocking
-/// but runs on a dedicated (non-pool) thread, so it no longer starves the thread pool that delivers its inbound
-/// records - which means these run correctly alongside the parallel pool with no special isolation.
+/// They run on an <see cref="InMemoryIceNetwork"/>, so nothing binds the machine's interfaces and the
+/// tests run alongside each other in parallel. Real sockets are covered by the agent's loopback tests.
 /// </remarks>
 [TestClass]
 public sealed class PeerConnectionTests
 {
+    // Negotiation only: ICE starts with the offer and gathers here, never on the machine's interfaces.
+    private static readonly InMemoryIceNetwork OfflineNetwork = new();
+
     // Both peers may share one identity: each authenticates the other by the fingerprint it signalled.
     private static readonly RtcCertificate Certificate = RtcCertificate.Generate();
 
@@ -392,6 +394,7 @@ public sealed class PeerConnectionTests
         await using var offerer = new PeerConnection(
             new PeerConnectionOptions
             {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
                 Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xAAAA_0003, browser)],
             },
             Certificate
@@ -405,6 +408,7 @@ public sealed class PeerConnectionTests
         await using var answerer = new PeerConnection(
             new PeerConnectionOptions
             {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
                 Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0003, ours)],
             },
             Certificate
@@ -444,6 +448,7 @@ public sealed class PeerConnectionTests
         await using var offerer = new PeerConnection(
             new PeerConnectionOptions
             {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
                 Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xAAAA_0002, [offered])],
             },
             Certificate
@@ -451,6 +456,7 @@ public sealed class PeerConnectionTests
         await using var answerer = new PeerConnection(
             new PeerConnectionOptions
             {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
                 Media =
                 [
                     new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0002, [supported]),
@@ -487,10 +493,12 @@ public sealed class PeerConnectionTests
         var av1 = new SdpCodec(98, "AV1", 90000, null, null, ["nack", "nack pli"]);
         var offererOptions = new PeerConnectionOptions
         {
+            SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xAAAA_0001, [h265, av1])],
         };
         var answererOptions = new PeerConnectionOptions
         {
+            SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
             Media = [new MediaLine("0", SdpMediaKind.Video, LocalSsrc: 0xBBBB_0001, [h265])],
         };
 

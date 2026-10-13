@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Cryptography;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc;
@@ -11,6 +12,9 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 [TestClass]
 public sealed class DependencyInjectionTests
 {
+    // Negotiation only: ICE starts with the offer and gathers here, never on the machine's interfaces.
+    private static readonly InMemoryIceNetwork OfflineNetwork = new();
+
     [TestMethod]
     public async Task AddStreamTransportWebRtc_ResolvesFactoryAndCreatesPeerConnection()
     {
@@ -25,6 +29,7 @@ public sealed class DependencyInjectionTests
         var factory = provider.GetRequiredService<PeerConnectionFactory>();
         var options = new PeerConnectionOptions
         {
+            SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
             Media =
             [
                 new MediaLine(
