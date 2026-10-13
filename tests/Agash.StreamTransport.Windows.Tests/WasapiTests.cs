@@ -26,7 +26,8 @@ public sealed class WasapiTests
         CollectionAssert.AreEqual(new float[] { 7, 8, 9, 10 }, read[..4]);
     }
 
-    // Plays a quiet tone on the default output for a moment and hears it back through loopback.
+    // Plays a quiet tone on the default output for a moment and hears it back through loopback, at the
+    // level the output's volume leaves it. A muted output is unmuted for the test and muted again after.
     [TestMethod]
     [TestCategory("Integration")]
     [Timeout(20_000)]
@@ -49,6 +50,7 @@ public sealed class WasapiTests
             latency > TimeSpan.Zero && latency < TimeSpan.FromSeconds(1),
             $"Latency {latency}."
         );
+        using var volume = DefaultOutputVolume.Unmuted();
         using WasapiAudioSource source = new(WasapiEndpoint.DefaultOutputLoopback);
         Heard heard = new(samples: 48_000 / 4);
         using IDisposable connection = source.Connect(heard);
@@ -78,7 +80,14 @@ public sealed class WasapiTests
         }
 
         await heard.Done.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.IsGreaterThan(0.005, heard.Rms, "the tone came back");
+        // A 0.02 sine is 0.0141 RMS; half that after the volume leaves room for the mixer's limiter. An
+        // output that applies its volume in hardware hands loopback the full level, which passes too.
+        double expected = 0.02 / Math.Sqrt(2) * volume.Gain;
+        Assert.IsGreaterThan(
+            expected / 2,
+            heard.Rms,
+            $"the tone came back (output at {volume.LevelDecibels:0.0} dB)"
+        );
         Assert.AreEqual(TimestampKind.Capture, heard.Kind);
         Assert.IsTrue(heard.Monotonic, "capture times rise");
         // Loopback audio is stamped with when it plays at the device, which can be ahead of now by the

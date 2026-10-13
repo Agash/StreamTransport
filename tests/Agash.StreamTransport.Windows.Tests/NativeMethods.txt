@@ -12,3 +12,9 @@ CreateEvent
 WaitForSingleObject
 CloseHandle
 INFINITE
+CoCreateInstance
+CoInitializeEx
+MMDeviceEnumerator
+IMMDeviceEnumerator
+IMMDevice
+IAudioEndpointVolume
