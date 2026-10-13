@@ -40,9 +40,8 @@ public sealed class PipeWireAudioSink : IAudioSink, IDisposable
         try
         {
             _output.Connect(
-                options.TargetNodeId ?? PipeWireAudioOutput.AnyNode,
-                options.TargetObject,
-                autoConnect: options.AutoConnect
+                new PipeWireTarget(options.TargetNodeId, options.TargetObject),
+                new StreamOutputOptions { AutoConnect = options.AutoConnect }
             );
         }
         catch

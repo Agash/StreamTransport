@@ -317,21 +317,13 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                     PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
                     [(long)VulkanEngine.LinearModifier]
                 );
-                if (PipeWireVideoOutput.ExplicitSyncAvailable)
-                {
-                    output.ConnectDmaBufSync([offer]);
-                }
-                else
-                {
-                    output.ConnectDmaBuf([offer]);
-                }
+                output.ConnectDmaBuf([offer], PipeWireVideoOutput.ExplicitSyncAvailable);
             }
             else
             {
                 output.Connect(
-                    _options.TargetNodeId ?? PipeWireVideoOutput.AnyNode,
-                    autoConnect: _options.AutoConnect,
-                    driver: true
+                    new PipeWireTarget(_options.TargetNodeId, null),
+                    new StreamOutputOptions { AutoConnect = _options.AutoConnect, Driver = true }
                 );
             }
         }

@@ -152,15 +152,17 @@ public sealed partial class PipeWireVideoSource : IVideoSource, IDisposable
         try
         {
             capture.Connect(
-                _options.TargetNodeId ?? PipeWireVideoCapture.AnyNode,
-                [.. preferred],
-                _options.TargetObject,
-                stayWithTheSource: _options.StayWithTheSource,
-                preferredWidth: _options.PreferredSize.Width,
-                preferredHeight: _options.PreferredSize.Height,
-                preferredFrameRate: _options.PreferredFrameRate,
-                requestExplicitSync: offer is not null,
-                deviceOffers: offer is { } o ? [o] : default
+                new PipeWireTarget(_options.TargetNodeId, _options.TargetObject),
+                new VideoCaptureOptions
+                {
+                    PreferredFormats = [.. preferred],
+                    StayWithTheSource = _options.StayWithTheSource,
+                    PreferredWidth = _options.PreferredSize.Width,
+                    PreferredHeight = _options.PreferredSize.Height,
+                    PreferredFrameRate = _options.PreferredFrameRate,
+                    RequestExplicitSync = offer is not null,
+                    DeviceOffers = offer is { } o ? [o] : [],
+                }
             );
         }
         catch

@@ -93,12 +93,14 @@ public sealed partial class PipeWireAudioSource : IAudioSource, IDisposable
         try
         {
             capture.Connect(
-                _options.TargetNodeId ?? PipeWireAudioCapture.AnyNode,
-                Transport.SampleRate,
-                Transport.Channels,
-                AudioSampleFormat.F32Le,
-                _options.TargetObject,
-                autoConnect: _options.AutoConnect
+                new PipeWireTarget(_options.TargetNodeId, _options.TargetObject),
+                new AudioCaptureOptions
+                {
+                    SampleRate = Transport.SampleRate,
+                    Channels = Transport.Channels,
+                    Format = AudioSampleFormat.F32Le,
+                    AutoConnect = _options.AutoConnect,
+                }
             );
         }
         catch
