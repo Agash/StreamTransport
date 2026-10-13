@@ -216,6 +216,62 @@ public sealed class TrickleIceTests
         Assert.HasCount(1, server.Patches);
     }
 
+    // RFC 9725 section 4.5: a redirected offer goes to the new server with the bearer token, and the
+    // resource is resolved against it.
+    [TestMethod]
+    public async Task Client_FollowsARedirectToAnotherHost_WithTheToken()
+    {
+        RedirectingHandler server = new();
+        await using HttpSdpChannel channel = new(
+            new Uri("http://edge.example/whip/live"),
+            new HttpSignalingOptions
+            {
+                HttpClient = new HttpClient(server),
+                BearerToken = "secret",
+            },
+            NullLogger.Instance
+        );
+
+        await channel.SendAsync(
+            new SessionDescription(SdpKind.Offer, Offer),
+            TestContext.CancellationToken
+        );
+
+        Assert.AreEqual(new Uri("http://origin.example/whip/live/r1"), channel.Resource);
+        Assert.AreEqual("Bearer secret", server.OriginAuthorization);
+    }
+
+    private sealed class RedirectingHandler : HttpMessageHandler
+    {
+        public string? OriginAuthorization { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken
+        )
+        {
+            if (request.RequestUri!.Host == "edge.example")
+            {
+                HttpResponseMessage moved = new(HttpStatusCode.TemporaryRedirect);
+                moved.Headers.Location = new Uri("http://origin.example/whip/live");
+                return Task.FromResult(moved);
+            }
+
+            OriginAuthorization = request.Headers.Authorization?.ToString();
+            HttpResponseMessage created = new(HttpStatusCode.Created)
+            {
+                Content = new StringContent(
+                    "v=0\r\ns=-\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n"
+                        + "a=ice-ufrag:Ans1\r\na=ice-pwd:AnswerPasswordAnswerPassw\r\n",
+                    Encoding.UTF8,
+                    "application/sdp"
+                ),
+            };
+            created.Headers.Location = new Uri("/whip/live/r1", UriKind.Relative);
+            return Task.FromResult(created);
+        }
+    }
+
     private static HttpSdpChannel Channel(RecordingHandler server) =>
         new(
             new Uri("http://whip.example/whip/live"),

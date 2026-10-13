@@ -12,11 +12,18 @@ public sealed record HttpSignalingOptions
     /// <summary>The bearer token the server asks for, if any (RFC 9725 section 4.5).</summary>
     public string? BearerToken { get; init; }
 
-    /// <summary>The client to send requests with; a new one when null.</summary>
+    /// <summary>
+    /// The client to send requests with; a new one when null, which follows redirects itself so the bearer
+    /// token goes to the server a redirect names. A client of your own should not follow them automatically:
+    /// .NET drops the Authorization header on a redirect to another host.
+    /// </summary>
     public HttpClient? HttpClient { get; init; }
 
     /// <summary>How long the server may take to answer.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>The clock the timeouts run on; the system's when null.</summary>
+    public TimeProvider? TimeProvider { get; init; }
 }
 
 /// <summary>
@@ -103,7 +110,7 @@ public sealed class HttpMediaSession : IAsyncDisposable
     }
 }
 
-/// <summary>Publishes media to a WHIP endpoint (RFC 9725), as OBS, a streaming service or StreamWeaver hosts one.</summary>
+/// <summary>Publishes media to a WHIP endpoint (RFC 9725), as OBS or a streaming service hosts one.</summary>
 public static class WhipClient
 {
     /// <summary>Publishes the sources of <paramref name="endpoints"/> to a WHIP endpoint.</summary>
@@ -136,7 +143,7 @@ public static class WhipClient
         );
 }
 
-/// <summary>Plays media from a WHEP endpoint, as a streaming service or StreamWeaver hosts one.</summary>
+/// <summary>Plays media from a WHEP endpoint, as a streaming service hosts one.</summary>
 public static class WhepClient
 {
     /// <summary>Plays a WHEP endpoint into the sinks of <paramref name="endpoints"/>.</summary>
@@ -179,7 +186,14 @@ internal sealed partial class HttpSdpChannel(
 {
     private const string SdpMediaType = "application/sdp";
 
-    private readonly HttpClient _http = options.HttpClient ?? new HttpClient();
+    // Redirects are followed here: the handler's own following drops the bearer token across hosts.
+    private readonly HttpClient _http =
+        options.HttpClient ?? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false });
+    private readonly TimeProvider _time = options.TimeProvider ?? TimeProvider.System;
+    private const int MaxRedirects = 5;
+
+    // Where the offer goes: the endpoint, or where a redirect moved it (RFC 9725 section 4.5).
+    private Uri _endpoint = endpoint;
     private readonly bool _ownsClient = options.HttpClient is null;
     private readonly TaskCompletionSource _answered = new(
         TaskCreationOptions.RunContinuationsAsynchronously
@@ -222,18 +236,26 @@ internal sealed partial class HttpSdpChannel(
 
         try
         {
-            using HttpRequestMessage request = new(HttpMethod.Post, endpoint)
+            HttpRequestMessage Offer()
             {
-                Content = new StringContent(description.Sdp, Encoding.UTF8, SdpMediaType),
-            };
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue(SdpMediaType);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(SdpMediaType));
-            Authorize(request);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(options.Timeout);
-            using HttpResponseMessage response = await _http
-                .SendAsync(request, timeout.Token)
+                HttpRequestMessage request = new(HttpMethod.Post, _endpoint)
+                {
+                    Content = new StringContent(description.Sdp, Encoding.UTF8, SdpMediaType),
+                };
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue(SdpMediaType);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(SdpMediaType));
+                Authorize(request);
+                return request;
+            }
+
+            using CancellationTokenSource deadline = new(options.Timeout, _time);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadline.Token
+            );
+            HttpResponseMessage response = await SendFollowingRedirectsAsync(Offer, timeout.Token)
                 .ConfigureAwait(false);
+            using HttpResponseMessage answered = response;
             if (response.StatusCode != HttpStatusCode.Created)
             {
                 throw new HttpRequestException(
@@ -244,7 +266,7 @@ internal sealed partial class HttpSdpChannel(
             }
 
             Resource = response.Headers.Location is { } location
-                ? new Uri(endpoint, location)
+                ? new Uri(_endpoint, location)
                 : null;
             _offer = description.Sdp;
             _iceSession = response.Headers.ETag;
@@ -252,7 +274,7 @@ internal sealed partial class HttpSdpChannel(
                 .Content.ReadAsStringAsync(timeout.Token)
                 .ConfigureAwait(false);
             _answer = answer;
-            LogAnswered(endpoint, Resource);
+            LogAnswered(_endpoint, Resource);
             if (DescriptionReceived is { } received)
             {
                 await received(new SessionDescription(SdpKind.Answer, answer))
@@ -270,16 +292,48 @@ internal sealed partial class HttpSdpChannel(
         await TrickleAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    // RFC 9725 section 4.5: a 307 or 308 moves the offer to another URL, the bearer token with it, and later
+    // requests go there too.
+    private async Task<HttpResponseMessage> SendFollowingRedirectsAsync(
+        Func<HttpRequestMessage> request,
+        CancellationToken cancellationToken
+    )
+    {
+        for (int redirects = 0; ; redirects++)
+        {
+            using HttpRequestMessage message = request();
+            HttpResponseMessage response = await _http
+                .SendAsync(message, cancellationToken)
+                .ConfigureAwait(false);
+            if (
+                response.StatusCode
+                    is not (HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)
+                || response.Headers.Location is not { } location
+                || redirects == MaxRedirects
+            )
+            {
+                return response;
+            }
+
+            response.Dispose();
+            _endpoint = new Uri(_endpoint, location);
+            LogRedirected(_endpoint);
+        }
+    }
+
     // OPTIONS on the endpoint returns the ICE servers the server advertises (RFC 9725 section 4.6); a
     // server that answers nothing useful leaves the session with none.
     public async Task<List<IceServer>> DiscoverIceServersAsync(CancellationToken cancellationToken)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Options, endpoint);
+            using var request = new HttpRequestMessage(HttpMethod.Options, _endpoint);
             Authorize(request);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(options.Timeout);
+            using CancellationTokenSource deadline = new(options.Timeout, _time);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadline.Token
+            );
             using HttpResponseMessage response = await _http
                 .SendAsync(request, timeout.Token)
                 .ConfigureAwait(false);
@@ -289,12 +343,12 @@ internal sealed partial class HttpSdpChannel(
             )
                 ? IceServerLinks.Parse(links)
                 : [];
-            LogDiscovered(endpoint, servers.Count);
+            LogDiscovered(_endpoint, servers.Count);
             return servers;
         }
         catch (HttpRequestException exception)
         {
-            LogDiscoveryFailed(exception, endpoint);
+            LogDiscoveryFailed(exception, _endpoint);
             return [];
         }
     }
@@ -360,8 +414,11 @@ internal sealed partial class HttpSdpChannel(
             );
             request.Headers.IfMatch.Add(EntityTagHeaderValue.Any);
             Authorize(request);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(options.Timeout);
+            using CancellationTokenSource deadline = new(options.Timeout, _time);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadline.Token
+            );
             using HttpResponseMessage response = await _http
                 .SendAsync(request, timeout.Token)
                 .ConfigureAwait(false);
@@ -438,8 +495,11 @@ internal sealed partial class HttpSdpChannel(
             }
 
             Authorize(request);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(options.Timeout);
+            using CancellationTokenSource deadline = new(options.Timeout, _time);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadline.Token
+            );
             using HttpResponseMessage response = await _http
                 .SendAsync(request, timeout.Token)
                 .ConfigureAwait(false);
@@ -573,4 +633,7 @@ internal sealed partial class HttpSdpChannel(
         "Asking {Endpoint} for its ICE servers failed; gathering without them."
     )]
     private partial void LogDiscoveryFailed(Exception exception, Uri endpoint);
+
+    [LoggerMessage(2717, LogLevel.Information, "The server moved the session to {Endpoint}.")]
+    private partial void LogRedirected(Uri endpoint);
 }
