@@ -1,4 +1,4 @@
-namespace Agash.StreamTransport.WebRtc.Stun;
+namespace Agash.StreamTransport.Stun;
 
 /// <summary>
 /// Constants and the message-type bit-packing for the fixed 20-byte STUN header (RFC 8489 §5).

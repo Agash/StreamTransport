@@ -6,7 +6,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using Agash.StreamTransport.WebRtc.Stun;
+using Agash.StreamTransport.Stun;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 

@@ -690,69 +690,6 @@ Agash.StreamTransport.WebRtc.Srtp.SrtpSession.SrtpSession(Dtls.Core.SrtpKeyingMa
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.TryProtectRtp(System.Span<byte> packet, int length, out int protectedLength) -> bool
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.UnprotectRtcp(System.Span<byte> packet, int length, out int plaintextLength) -> bool
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.UnprotectRtp(System.Span<byte> packet, int length, out int plaintextLength) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.AlternateServer = 32803 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.ChannelNumber = 12 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Data = 19 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.ErrorCode = 9 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Fingerprint = 32808 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.IceControlled = 32809 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.IceControlling = 32810 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Lifetime = 13 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.MappedAddress = 1 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.MessageIntegrity = 8 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.MessageIntegritySha256 = 28 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Nomination = 49153 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Nonce = 21 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Priority = 36 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Realm = 20 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.RequestedAddressFamily = 23 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.RequestedTransport = 25 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Software = 32802 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.UnknownAttributes = 10 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.UseCandidate = 37 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.Username = 6 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.XorMappedAddress = 32 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.XorPeerAddress = 18 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunAttributeType.XorRelayedAddress = 22 -> Agash.StreamTransport.WebRtc.Stun.StunAttributeType
-Agash.StreamTransport.WebRtc.Stun.StunHeader
-Agash.StreamTransport.WebRtc.Stun.StunMessageClass
-Agash.StreamTransport.WebRtc.Stun.StunMessageClass.ErrorResponse = 3 -> Agash.StreamTransport.WebRtc.Stun.StunMessageClass
-Agash.StreamTransport.WebRtc.Stun.StunMessageClass.Indication = 1 -> Agash.StreamTransport.WebRtc.Stun.StunMessageClass
-Agash.StreamTransport.WebRtc.Stun.StunMessageClass.Request = 0 -> Agash.StreamTransport.WebRtc.Stun.StunMessageClass
-Agash.StreamTransport.WebRtc.Stun.StunMessageClass.SuccessResponse = 2 -> Agash.StreamTransport.WebRtc.Stun.StunMessageClass
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.Class.get -> Agash.StreamTransport.WebRtc.Stun.StunMessageClass
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.Method.get -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.Raw.get -> System.ReadOnlySpan<byte>
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.StunMessageReader() -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TransactionId.get -> System.ReadOnlySpan<byte>
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryFindAttribute(Agash.StreamTransport.WebRtc.Stun.StunAttributeType type, out System.ReadOnlySpan<byte> value) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryGetErrorCode(out int code) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryGetUInt32(Agash.StreamTransport.WebRtc.Stun.StunAttributeType type, out uint value) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryGetXorAddress(Agash.StreamTransport.WebRtc.Stun.StunAttributeType type, out System.Net.IPEndPoint! endpoint) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryGetXorMappedAddress(out System.Net.IPEndPoint! endpoint) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.VerifyFingerprint() -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageReader.VerifyMessageIntegrity(System.ReadOnlySpan<byte> key) -> bool
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddAttribute(Agash.StreamTransport.WebRtc.Stun.StunAttributeType type, scoped System.ReadOnlySpan<byte> value) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddErrorCode(int code, string! reason) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddFingerprint() -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddMessageIntegrity(System.ReadOnlySpan<byte> key) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddUInt32(Agash.StreamTransport.WebRtc.Stun.StunAttributeType type, uint value) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddXorAddress(Agash.StreamTransport.WebRtc.Stun.StunAttributeType type, System.Net.IPEndPoint! endpoint) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.AddXorMappedAddress(System.Net.IPEndPoint! endpoint) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.Length.get -> int
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.StunMessageWriter() -> void
-Agash.StreamTransport.WebRtc.Stun.StunMessageWriter.StunMessageWriter(System.Span<byte> buffer, Agash.StreamTransport.WebRtc.Stun.StunMessageClass messageClass, Agash.StreamTransport.WebRtc.Stun.StunMethod method, System.ReadOnlySpan<byte> transactionId) -> void
-Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.Allocate = 3 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.Binding = 1 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.ChannelBind = 9 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.CreatePermission = 8 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.Data = 7 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.Refresh = 4 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
-Agash.StreamTransport.WebRtc.Stun.StunMethod.Send = 6 -> Agash.StreamTransport.WebRtc.Stun.StunMethod
 Agash.StreamTransport.WebRtc.Transport.MobilityEngine
 Agash.StreamTransport.WebRtc.Transport.MobilityEngine.Dispose() -> void
 Agash.StreamTransport.WebRtc.Transport.MobilityEngine.MobilityEngine(Agash.StreamTransport.WebRtc.INetworkMonitor! monitor) -> void
@@ -842,10 +779,6 @@ const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpAuthentication
 const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpEncryption = 0 -> byte
 const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpSalt = 2 -> byte
 const Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ReplayWindowSize = 1024 -> int
-const Agash.StreamTransport.WebRtc.Stun.StunHeader.FingerprintXor = 1398035790 -> uint
-const Agash.StreamTransport.WebRtc.Stun.StunHeader.Length = 20 -> int
-const Agash.StreamTransport.WebRtc.Stun.StunHeader.MagicCookie = 554869826 -> uint
-const Agash.StreamTransport.WebRtc.Stun.StunHeader.TransactionIdLength = 12 -> int
 const Agash.StreamTransport.WebRtc.Turn.TurnServer.DefaultPort = 3478 -> int
 const Agash.StreamTransport.WebRtc.Turn.TurnServer.DefaultTlsPort = 5349 -> int
 const Agash.StreamTransport.WebRtc.WebRtcDiagnostics.ActivitySourceName = "Agash.StreamTransport.WebRtc" -> string!
@@ -1041,9 +974,6 @@ static Agash.StreamTransport.WebRtc.Sdp.SdpWriter.Write(Agash.StreamTransport.We
 static Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.Derive(System.ReadOnlySpan<byte> masterKey, System.ReadOnlySpan<byte> masterSalt, byte label, int outputLength) -> byte[]!
 static Agash.StreamTransport.WebRtc.Srtp.SrtpSession.MaxProtectionOverhead.get -> int
 static Agash.StreamTransport.WebRtc.Srtp.SrtpSession.MaxRtcpProtectionOverhead.get -> int
-static Agash.StreamTransport.WebRtc.Stun.StunHeader.DecodeType(ushort type) -> (Agash.StreamTransport.WebRtc.Stun.StunMessageClass Class, Agash.StreamTransport.WebRtc.Stun.StunMethod Method)
-static Agash.StreamTransport.WebRtc.Stun.StunHeader.EncodeType(Agash.StreamTransport.WebRtc.Stun.StunMessageClass messageClass, Agash.StreamTransport.WebRtc.Stun.StunMethod method) -> ushort
-static Agash.StreamTransport.WebRtc.Stun.StunMessageReader.TryParse(System.ReadOnlySpan<byte> datagram, out Agash.StreamTransport.WebRtc.Stun.StunMessageReader reader) -> bool
 static Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.operator !=(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? left, Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? right) -> bool
 static Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.operator ==(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? left, Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? right) -> bool
 static Agash.StreamTransport.WebRtc.Turn.TurnServer.TryParse(string! uri, string! username, string! credential, out Agash.StreamTransport.WebRtc.Turn.TurnServer! server) -> bool

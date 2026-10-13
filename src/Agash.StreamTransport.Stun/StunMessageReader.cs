@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
 
-namespace Agash.StreamTransport.WebRtc.Stun;
+namespace Agash.StreamTransport.Stun;
 
 /// <summary>
 /// A zero-allocation, parse-in-place reader over a received STUN datagram (RFC 8489 §5-6). The reader

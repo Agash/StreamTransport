@@ -1,4 +1,4 @@
-namespace Agash.StreamTransport.WebRtc.Stun;
+namespace Agash.StreamTransport.Stun;
 
 /// <summary>The class of a STUN message (RFC 8489 §5), encoded in two non-contiguous bits of the type field.</summary>
 public enum StunMessageClass

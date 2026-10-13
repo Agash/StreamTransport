@@ -9,7 +9,7 @@ using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
-using Agash.StreamTransport.WebRtc.Stun;
+using Agash.StreamTransport.Stun;
 using Agash.StreamTransport.WebRtc.Turn;
 using Dtls.Core;
 

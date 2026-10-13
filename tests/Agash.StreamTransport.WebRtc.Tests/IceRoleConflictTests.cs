@@ -1,6 +1,6 @@
 using System.Net;
 using Agash.StreamTransport.WebRtc.Ice;
-using Agash.StreamTransport.WebRtc.Stun;
+using Agash.StreamTransport.Stun;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 

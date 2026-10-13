@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.Threading;
-using Agash.StreamTransport.WebRtc.Stun;
+using Agash.StreamTransport.Stun;
 using Agash.StreamTransport.WebRtc.Turn;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;

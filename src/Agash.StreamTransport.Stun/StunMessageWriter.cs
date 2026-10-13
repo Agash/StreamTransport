@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 
-namespace Agash.StreamTransport.WebRtc.Stun;
+namespace Agash.StreamTransport.Stun;
 
 /// <summary>
 /// Builds a STUN message in place into a caller-supplied buffer (RFC 8489 §5-6), allocation-free. Write

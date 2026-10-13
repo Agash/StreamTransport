@@ -1,4 +1,4 @@
-namespace Agash.StreamTransport.WebRtc.Stun;
+namespace Agash.StreamTransport.Stun;
 
 /// <summary>
 /// The CRC-32 (IEEE 802.3, reflected, polynomial <c>0xEDB88320</c>) used by the STUN FINGERPRINT

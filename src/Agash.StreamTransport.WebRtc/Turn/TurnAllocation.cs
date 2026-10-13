@@ -6,7 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
-using Agash.StreamTransport.WebRtc.Stun;
+using Agash.StreamTransport.Stun;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.WebRtc.Turn;
