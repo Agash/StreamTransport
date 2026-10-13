@@ -143,6 +143,21 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// How often the selected path was shown to carry packets both ways: each answer to a check on the
+    /// selected pair, and each newly selected pair. A rise after a failure shows the path works again.
+    /// </summary>
+    public long PathConfirmations
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _machine.PathConfirmations;
+            }
+        }
+    }
+
     /// <summary>The selected candidate pair's local and remote endpoints, or null while none is selected.</summary>
     public IcePath? SelectedPath =>
         Volatile.Read(ref _selection) is { } selection

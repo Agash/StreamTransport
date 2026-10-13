@@ -7,7 +7,10 @@ namespace Agash.StreamTransport.WebRtc;
 // streams, or reduced-size RTCP, count as feedback (RtcpTimeoutFeedback), and the reception blocks about
 // each stream feed its media-timeout and congestion checks. When any opens,
 // media on the connection stops (section 4.5: the 5-tuple ceases) until the application resumes it; while
-// one is reduced, the capacity is capped at a tenth of the rate that tripped it.
+// one is reduced, the capacity is capped at a tenth of the rate that tripped it. A breaker opened by a
+// path failure (media or feedback timeout) resumes on its own once ICE shows the path carries packets both
+// ways again, an answered consent check or a new pair: section 4.5 allows a restart on information that
+// the problem has passed, no sooner than the time it took to trip.
 public sealed partial class PeerConnection
 {
     private readonly Lock _breakerGate = new();
@@ -48,6 +51,27 @@ public sealed partial class PeerConnection
     }
 
     private bool TransmissionCeased => CircuitBreakerState == CircuitBreakerState.Open;
+
+    // Why the breaker opened, and the ICE path confirmations then.
+    private CircuitBreakerReason _openReason;
+    private long _confirmationsAtOpen;
+
+    private void ResumeIfPathConfirmed()
+    {
+        if (
+            CircuitBreakerState != CircuitBreakerState.Open
+            || _openReason
+                is not (CircuitBreakerReason.MediaTimeout or CircuitBreakerReason.FeedbackTimeout)
+            || _iceAgent is not { } agent
+            || agent.PathConfirmations <= _confirmationsAtOpen
+            || !TryResumeTransmission()
+        )
+        {
+            return;
+        }
+
+        LogResumedOnPath(_logger);
+    }
 
     private void BreakerOnSent(uint ssrc, int bytes)
     {
@@ -132,6 +156,7 @@ public sealed partial class PeerConnection
         }
 
         UpdateBreakerState(reason);
+        ResumeIfPathConfirmed();
     }
 
     // The connection takes its streams' worst state.
@@ -156,6 +181,12 @@ public sealed partial class PeerConnection
         }
 
         CircuitBreakerState = state;
+        if (state == CircuitBreakerState.Open)
+        {
+            _openReason = reason;
+            _confirmationsAtOpen = _iceAgent?.PathConfirmations ?? 0;
+        }
+
         LogCircuitBreaker(_logger, state, reason);
         CircuitBreakerChanged?.Invoke(state, reason);
     }
@@ -210,4 +241,11 @@ public sealed partial class PeerConnection
         CircuitBreakerState state,
         CircuitBreakerReason reason
     );
+
+    [LoggerMessage(
+        EventId = 1179,
+        Level = LogLevel.Information,
+        Message = "Media resumed: ICE shows the path carries packets both ways again"
+    )]
+    private static partial void LogResumedOnPath(ILogger logger);
 }

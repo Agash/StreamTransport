@@ -23,6 +23,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.HasStandby.get -> bool
 Agash.StreamTransport.WebRtc.Ice.IceAgent.IceAgent(Agash.StreamTransport.WebRtc.Ice.IceCredentials localCredentials, Agash.StreamTransport.WebRtc.IceRole role, bool includeLoopback = false, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.WebRtc.Ice.IceAgent!>? logger = null, Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory? socketFactory = null, Agash.StreamTransport.WebRtc.Ice.IceTimings? timings = null, System.TimeProvider? timeProvider = null, Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy transportPolicy = Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy.All, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.LocalCandidateGathered -> System.Action<Agash.StreamTransport.WebRtc.Ice.IceCandidate>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.LocalCredentials.get -> Agash.StreamTransport.WebRtc.Ice.IceCredentials
+Agash.StreamTransport.WebRtc.Ice.IceAgent.PathConfirmations.get -> long
 Agash.StreamTransport.WebRtc.Ice.IceAgent.Restart(Agash.StreamTransport.WebRtc.Ice.IceCredentials newLocalCredentials) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPath.get -> Agash.StreamTransport.WebRtc.Ice.IcePath?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPathChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IcePath?>?

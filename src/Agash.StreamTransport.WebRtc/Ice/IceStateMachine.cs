@@ -158,6 +158,12 @@ internal sealed partial class IceStateMachine
     /// </summary>
     public bool CanMovePath => MayNominate;
 
+    /// <summary>
+    /// How often the selected path was shown to carry packets both ways: each answer to a check on the
+    /// selected pair, and each newly selected pair.
+    /// </summary>
+    public long PathConfirmations { get; private set; }
+
     // Whether this agent may nominate now: always as the controlled agent, which never does; as the
     // controlling one before its first nomination succeeded, or at any time with renomination.
     private bool MayNominate => Role == IceRole.Controlled || _renomination || !_nominationDone;
@@ -774,6 +780,10 @@ internal sealed partial class IceStateMachine
         }
 
         _ = _inFlight.Remove(transaction);
+        if (ReferenceEquals(pair, _selected))
+        {
+            PathConfirmations++;
+        }
 
         pair.State = PairState.Succeeded;
         pair.LastResponse = now;
@@ -840,6 +850,7 @@ internal sealed partial class IceStateMachine
         pair.Nominated = true;
         pair.LastResponse = now;
         _selected = pair;
+        PathConfirmations++;
         _nominationDone |= Role == IceRole.Controlling;
         LogSelectedPair(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
         _metrics.SelectedPaths.Add(
@@ -1209,6 +1220,7 @@ internal sealed partial class IceStateMachine
         }
 
         _selected = pair;
+        PathConfirmations++;
         pair.Nominated = true;
         pair.LastSent ??= now;
 
