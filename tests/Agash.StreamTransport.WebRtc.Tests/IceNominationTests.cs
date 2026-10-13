@@ -126,6 +126,21 @@ public sealed class IceNominationTests
         Assert.IsFalse(peer.Answers().Any());
     }
 
+    // RFC 8489 sections 9.1.3 and 6.3.1: no MESSAGE-INTEGRITY is a 400, a bad USERNAME a 401, an unknown
+    // comprehension-required attribute a 420.
+    [TestMethod]
+    public void BadRequests_AreAnsweredWithTheirErrors()
+    {
+        ScriptedControlling peer = new();
+        IPEndPoint x = new(IPAddress.Parse("10.0.0.2"), 6000);
+
+        peer.Send(x, peer.Request(integrity: false));
+        peer.Send(x, peer.Request(username: "nope:" + peer.Credentials.UsernameFragment));
+        peer.Send(x, peer.Request(unknownRequired: 0x7F01));
+
+        CollectionAssert.AreEqual(new[] { 400, 401, 420 }, peer.Errors().ToArray());
+    }
+
     [TestMethod]
     public void ConsentChecks_OnTheSelectedPair_AreFourToSixSecondsApart()
     {
@@ -251,7 +266,9 @@ public sealed class IceNominationTests
         public byte[] Request(
             string? username = null,
             bool useCandidate = false,
-            uint? nomination = null
+            uint? nomination = null,
+            bool integrity = true,
+            ushort? unknownRequired = null
         )
         {
             byte[] buffer = new byte[256];
@@ -287,7 +304,18 @@ public sealed class IceNominationTests
                 writer.AddAttribute(StunAttributeType.Nomination, value[..4]);
             }
 
-            writer.AddMessageIntegrity(Encoding.UTF8.GetBytes(Machine.LocalCredentials.Password));
+            if (unknownRequired is { } type)
+            {
+                writer.AddAttribute((StunAttributeType)type, [0, 0, 0, 0]);
+            }
+
+            if (integrity)
+            {
+                writer.AddMessageIntegrity(
+                    Encoding.UTF8.GetBytes(Machine.LocalCredentials.Password)
+                );
+            }
+
             writer.AddFingerprint();
             return buffer[..writer.Length];
         }
@@ -309,6 +337,23 @@ public sealed class IceNominationTests
                 StunMessageReader.TryParse(t.Data, out StunMessageReader stun)
                 && stun.Class == StunMessageClass.SuccessResponse
             );
+        }
+
+        // The error codes of the error responses the machine sent.
+        public IEnumerable<int> Errors()
+        {
+            AnswerChecks();
+            foreach (IceTransmit t in _sent)
+            {
+                if (
+                    StunMessageReader.TryParse(t.Data, out StunMessageReader stun)
+                    && stun.Class == StunMessageClass.ErrorResponse
+                    && stun.TryGetErrorCode(out int code)
+                )
+                {
+                    yield return code;
+                }
+            }
         }
 
         private void AnswerChecks()

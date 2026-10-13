@@ -116,6 +116,19 @@ public ref struct StunMessageWriter
         AddAttribute(StunAttributeType.ErrorCode, value[..(4 + length)]);
     }
 
+    /// <summary>Appends UNKNOWN-ATTRIBUTES (RFC 8489 section 14.9): the types a 420 answer names.</summary>
+    /// <param name="types">The attribute types.</param>
+    public void AddUnknownAttributes(scoped ReadOnlySpan<ushort> types)
+    {
+        Span<byte> value = stackalloc byte[types.Length * 2];
+        for (int i = 0; i < types.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(value[(i * 2)..], types[i]);
+        }
+
+        AddAttribute(StunAttributeType.UnknownAttributes, value);
+    }
+
     /// <summary>Appends a 32-bit big-endian attribute value, such as LIFETIME.</summary>
     public void AddUInt32(StunAttributeType type, uint value)
     {

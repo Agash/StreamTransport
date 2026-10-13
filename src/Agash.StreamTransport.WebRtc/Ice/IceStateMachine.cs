@@ -553,14 +553,39 @@ internal sealed partial class IceStateMachine
         TimeSpan now
     )
     {
-        // USERNAME is localUfrag:remoteUfrag, MESSAGE-INTEGRITY keyed by our password (RFC 8445 section
-        // 7.3): a request for another session, such as one from before a restart, is not answered.
-        if (
-            !stun.TryFindAttribute(StunAttributeType.Username, out ReadOnlySpan<byte> username)
-            || !IsOurUsername(username)
-            || !stun.VerifyMessageIntegrity(_localPassword)
-        )
+        // RFC 8489 section 9.1.3 under ICE's short-term credentials (RFC 8445 section 7.3): no USERNAME or
+        // MESSAGE-INTEGRITY is a 400; a USERNAME for another session (one from before a restart) or a
+        // MESSAGE-INTEGRITY that does not verify is a 401. Neither answer can be authenticated.
+        bool hasUsername = stun.TryFindAttribute(
+            StunAttributeType.Username,
+            out ReadOnlySpan<byte> username
+        );
+        if (!hasUsername || !stun.TryFindAttribute(StunAttributeType.MessageIntegrity, out _))
         {
+            SendError(stun, local, source, 400, "Bad Request", authenticated: false);
+            return;
+        }
+
+        if (!IsOurUsername(username) || !stun.VerifyMessageIntegrity(_localPassword))
+        {
+            SendError(stun, local, source, 401, "Unauthenticated", authenticated: false);
+            return;
+        }
+
+        // RFC 8489 section 6.3.1: a comprehension-required attribute this agent does not know is a 420.
+        Span<ushort> unknown = stackalloc ushort[8];
+        int unknownCount = stun.CollectUnknownRequired(UnderstoodInChecks, unknown);
+        if (unknownCount > 0)
+        {
+            SendError(
+                stun,
+                local,
+                source,
+                420,
+                "Unknown Attribute",
+                authenticated: true,
+                unknown[..unknownCount]
+            );
             return;
         }
 
@@ -690,6 +715,48 @@ internal sealed partial class IceStateMachine
         }
 
         return true;
+    }
+
+    // The attributes a connectivity check may carry (RFC 8445 section 7.1, RFC 8489, renomination).
+    private static readonly StunAttributeType[] UnderstoodInChecks =
+    [
+        StunAttributeType.Username,
+        StunAttributeType.MessageIntegrity,
+        StunAttributeType.MessageIntegritySha256,
+        StunAttributeType.Priority,
+        StunAttributeType.UseCandidate,
+    ];
+
+    private void SendError(
+        StunMessageReader stun,
+        LocalEndpoint local,
+        IPEndPoint source,
+        int code,
+        string reason,
+        bool authenticated,
+        scoped ReadOnlySpan<ushort> unknown = default
+    )
+    {
+        byte[] response = new byte[128 + (unknown.Length * 2)];
+        StunMessageWriter writer = new(
+            response,
+            StunMessageClass.ErrorResponse,
+            StunMethod.Binding,
+            stun.TransactionId
+        );
+        writer.AddErrorCode(code, reason);
+        if (!unknown.IsEmpty)
+        {
+            writer.AddUnknownAttributes(unknown);
+        }
+
+        if (authenticated)
+        {
+            writer.AddMessageIntegrity(_localPassword);
+        }
+
+        writer.AddFingerprint();
+        _transmits.Enqueue(new IceTransmit(local.Handle, source, response[..writer.Length]));
     }
 
     private void SendRoleConflict(StunMessageReader stun, LocalEndpoint local, IPEndPoint source)

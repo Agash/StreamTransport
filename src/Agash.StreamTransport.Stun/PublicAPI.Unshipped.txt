@@ -43,6 +43,7 @@ Agash.StreamTransport.Stun.StunMessageClass.Request = 0 -> Agash.StreamTransport
 Agash.StreamTransport.Stun.StunMessageClass.SuccessResponse = 2 -> Agash.StreamTransport.Stun.StunMessageClass
 Agash.StreamTransport.Stun.StunMessageReader
 Agash.StreamTransport.Stun.StunMessageReader.Class.get -> Agash.StreamTransport.Stun.StunMessageClass
+Agash.StreamTransport.Stun.StunMessageReader.CollectUnknownRequired(scoped System.ReadOnlySpan<Agash.StreamTransport.Stun.StunAttributeType> understood, System.Span<ushort> unknown) -> int
 Agash.StreamTransport.Stun.StunMessageReader.Method.get -> Agash.StreamTransport.Stun.StunMethod
 Agash.StreamTransport.Stun.StunMessageReader.Raw.get -> System.ReadOnlySpan<byte>
 Agash.StreamTransport.Stun.StunMessageReader.StunMessageReader() -> void
@@ -60,6 +61,7 @@ Agash.StreamTransport.Stun.StunMessageWriter.AddErrorCode(int code, string! reas
 Agash.StreamTransport.Stun.StunMessageWriter.AddFingerprint() -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddMessageIntegrity(System.ReadOnlySpan<byte> key) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddUInt32(Agash.StreamTransport.Stun.StunAttributeType type, uint value) -> void
+Agash.StreamTransport.Stun.StunMessageWriter.AddUnknownAttributes(scoped System.ReadOnlySpan<ushort> types) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddXorAddress(Agash.StreamTransport.Stun.StunAttributeType type, System.Net.IPEndPoint! endpoint) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddXorMappedAddress(System.Net.IPEndPoint! endpoint) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.Length.get -> int

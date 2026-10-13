@@ -151,9 +151,32 @@ public sealed partial class StunBindingServer : IAsyncDisposable
             !StunMessageReader.TryParse(datagram, out StunMessageReader request)
             || request.Class != StunMessageClass.Request
             || request.Method != StunMethod.Binding
+            || (
+                request.TryFindAttribute(StunAttributeType.Fingerprint, out _)
+                && !request.VerifyFingerprint()
+            )
         )
         {
             return null;
+        }
+
+        // RFC 8489 section 6.3.1: a comprehension-required attribute this server does not know is answered
+        // with 420 naming it.
+        Span<ushort> unknown = stackalloc ushort[8];
+        int count = request.CollectUnknownRequired([], unknown);
+        if (count > 0)
+        {
+            byte[] error = new byte[64 + (count * 2)];
+            var refusal = new StunMessageWriter(
+                error,
+                StunMessageClass.ErrorResponse,
+                StunMethod.Binding,
+                request.TransactionId
+            );
+            refusal.AddErrorCode(420, "Unknown Attribute");
+            refusal.AddUnknownAttributes(unknown[..count]);
+            refusal.AddFingerprint();
+            return error[..refusal.Length];
         }
 
         byte[] response = new byte[64];

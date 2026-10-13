@@ -130,6 +130,46 @@ public readonly ref struct StunMessageReader
     }
 
     /// <summary>
+    /// Collects the comprehension-required attributes (types below 0x8000) the receiver does not
+    /// understand, which a request is answered with 420 for (RFC 8489 sections 6.3.1 and 15). Attributes
+    /// after MESSAGE-INTEGRITY are ignored, as section 14.5 has them.
+    /// </summary>
+    /// <param name="understood">The attribute types the receiver understands.</param>
+    /// <param name="unknown">Where the unknown types go.</param>
+    /// <returns>How many were written to <paramref name="unknown"/>.</returns>
+    public int CollectUnknownRequired(
+        scoped ReadOnlySpan<StunAttributeType> understood,
+        Span<ushort> unknown
+    )
+    {
+        ReadOnlySpan<byte> body = Raw[StunHeader.Length..];
+        int offset = 0;
+        int count = 0;
+        while (offset + 4 <= body.Length && count < unknown.Length)
+        {
+            ushort type = BinaryPrimitives.ReadUInt16BigEndian(body[offset..]);
+            int valueLength = BinaryPrimitives.ReadUInt16BigEndian(body[(offset + 2)..]);
+            if (type < 0x8000 && !understood.Contains((StunAttributeType)type))
+            {
+                unknown[count++] = type;
+            }
+
+            if (
+                (StunAttributeType)type
+                is StunAttributeType.MessageIntegrity
+                    or StunAttributeType.MessageIntegritySha256
+            )
+            {
+                break;
+            }
+
+            offset += 4 + ((valueLength + 3) & ~3);
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// Decodes XOR-MAPPED-ADDRESS (RFC 8489 §14.2) into an <see cref="IPEndPoint"/>. Supports IPv4 and IPv6.
     /// </summary>
     public bool TryGetXorMappedAddress(out IPEndPoint endpoint) =>
