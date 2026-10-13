@@ -25,8 +25,9 @@
     <PackageProjectUrl>https://github.com/Agash/StreamTransport</PackageProjectUrl>
   </PropertyGroup>
   <!-- Owned libraries build from a local clone when one sits where the StreamWeaver checkout keeps
-       it, so a change to one of them is exercised here before it is released; elsewhere, and on CI,
-       the published package is used. Set UseLocal<Library>=false to build against the package. -->
+       it, or where <Library>Project points (CI clones each library's main and sets those), so a
+       change to one of them is exercised here before it is released; elsewhere the published
+       package is used. Set UseLocal<Library>=false to build against the package. -->
   <PropertyGroup>
     <DtlsCoreProject Condition="'$(DtlsCoreProject)' == ''"
       >$(MSBuildThisFileDirectory)../../../Dtls.Core/src/Dtls.Core/Dtls.Core.csproj</DtlsCoreProject>
