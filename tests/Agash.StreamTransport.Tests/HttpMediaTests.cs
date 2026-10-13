@@ -532,6 +532,36 @@ public sealed class HttpMediaTests
         Assert.AreEqual("u", advertised[0].Username);
     }
 
+    // RFC 9725 sections 4.1 and 4.6: GET is a 2xx with no content (404 for no such session), and a CORS
+    // preflight gets no ICE servers.
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task GetAndPreflight_AnswerAsTheRfcSays()
+    {
+        await using WebApplication app = await StartAsync(
+            web => web.MapWhip("/whip", (_, _) => ValueTask.FromResult<HttpMediaSetup?>(null)),
+            services =>
+                services.AddSingleton<IIceServerProvider>(
+                    new Agash.StreamTransport.Stun.StaticIceServerProvider([
+                        new IceServer(["turn:relay.example.net"], "u", "p"),
+                    ])
+                )
+        );
+        using HttpClient http = new() { BaseAddress = Address(app) };
+
+        using HttpResponseMessage get = await http.GetAsync(new Uri("/whip", UriKind.Relative));
+        using HttpResponseMessage unknown = await http.GetAsync(
+            new Uri("/whip/nosuch", UriKind.Relative)
+        );
+        using HttpRequestMessage preflight = new(HttpMethod.Options, "/whip");
+        preflight.Headers.Add("Access-Control-Request-Method", "POST");
+        using HttpResponseMessage preflighted = await http.SendAsync(preflight);
+
+        Assert.AreEqual(System.Net.HttpStatusCode.NoContent, get.StatusCode);
+        Assert.AreEqual(System.Net.HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.IsFalse(preflighted.Headers.Contains("Link"));
+    }
+
     private static MediaSessionOptions Loopback() =>
         MediaServices.Loopback(new MediaSessionOptions { VideoCodecs = [VideoCodecId.H264] });
 

@@ -184,6 +184,11 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         return (StatusCodes.Status200OK, resource.Tag, ours.Format());
     }
 
+    /// <summary>Whether a session resource exists.</summary>
+    /// <param name="id">The resource id.</param>
+    /// <returns>Whether it exists.</returns>
+    public bool Exists(string id) => _resources.ContainsKey(id);
+
     public async Task<bool> EndAsync(string id)
     {
         if (!_resources.TryRemove(id, out Resource? resource))

@@ -70,6 +70,12 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
         RouteGroupBuilder group = endpoints.MapGroup(pattern);
         group.MapPost("", (RequestDelegate)(context => OfferAsync(context, handler, protocol)));
         group.MapMethods("", [HttpMethods.Options], (RequestDelegate)Options);
+        group.MapMethods("", [HttpMethods.Get, HttpMethods.Head], (RequestDelegate)NoContent);
+        group.MapMethods(
+            "/{resource}",
+            [HttpMethods.Get, HttpMethods.Head],
+            (RequestDelegate)ResourceNoContent
+        );
         group.MapMethods("/{resource}", [HttpMethods.Options], (RequestDelegate)ResourceOptions);
         group.MapDelete("/{resource}", (RequestDelegate)DeleteAsync);
         group.MapMethods("/{resource}", [HttpMethods.Patch], (RequestDelegate)TrickleAsync);
@@ -194,11 +200,36 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
     }
 
     // RFC 9725 section 4.2: 200 with Accept-Post, and the ICE servers (section 4.6).
+    // RFC 9725 section 4.2: the endpoint takes SDP offers. ICE servers go with the 201 to the POST (section
+    // 4.6); a CORS preflight, which asks only what the endpoint allows, gets no TURN credentials minted.
     private static Task Options(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.Headers.Allow = "OPTIONS, POST, GET, HEAD";
         context.Response.Headers["Accept-Post"] = "application/sdp";
-        AdvertiseIceServers(context);
+        if (!context.Request.Headers.ContainsKey("Access-Control-Request-Method"))
+        {
+            AdvertiseIceServers(context);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    // RFC 9725 section 4.1: endpoints and sessions have no representation, so GET is a 2xx with no
+    // content; an unknown session is not found.
+    private static Task NoContent(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
+        return Task.CompletedTask;
+    }
+
+    private static Task ResourceNoContent(HttpContext context)
+    {
+        context.Response.StatusCode = context
+            .RequestServices.GetRequiredService<HttpMediaResources>()
+            .Exists((string)context.Request.RouteValues["resource"]!)
+            ? StatusCodes.Status204NoContent
+            : StatusCodes.Status404NotFound;
         return Task.CompletedTask;
     }
 
@@ -207,7 +238,7 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
     private static Task ResourceOptions(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status200OK;
-        context.Response.Headers.Allow = "OPTIONS, PATCH, DELETE";
+        context.Response.Headers.Allow = "OPTIONS, GET, HEAD, PATCH, DELETE";
         context.Response.Headers["Accept-Patch"] = TrickleIceFragment.MediaType;
         return Task.CompletedTask;
     }
