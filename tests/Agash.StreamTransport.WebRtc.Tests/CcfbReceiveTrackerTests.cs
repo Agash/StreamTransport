@@ -11,7 +11,7 @@ public sealed class CcfbReceiveTrackerTests
     private const byte Ce = 0x03;
 
     [TestMethod]
-    public void AddToFeedback_InOrder_ReportsEachPacketOnce()
+    public void AddToFeedback_InOrder_RepeatsTheLatestPacketsSoALostReportIsCovered()
     {
         CcfbReceiveTracker tracker = new();
         for (ushort s = 100; s < 105; s++)
@@ -25,7 +25,32 @@ public sealed class CcfbReceiveTrackerTests
         Assert.IsTrue(report.Metrics.All(static m => m.Received && m.Ecn == Ect1));
 
         tracker.OnPacket(105, 120_000, Ect1);
-        Assert.AreEqual((ushort)105, Single(tracker, 130_000).BeginSequence, "contiguous");
+        CcfbStreamReport next = Single(tracker, 130_000);
+        Assert.AreEqual((ushort)100, next.BeginSequence, "overlaps back to the first packet");
+        Assert.HasCount(6, next.Metrics);
+    }
+
+    // The SCReAMv2 reference receiver's span: a report covers at least the latest 32 packets, however few
+    // arrived since the last one, and never reaches before the stream's first packet.
+    [TestMethod]
+    public void AddToFeedback_LongStream_CoversAtLeastTheLatest32()
+    {
+        CcfbReceiveTracker tracker = new();
+        for (ushort s = 0; s < 100; s++)
+        {
+            tracker.OnPacket(s, s * 1000L, Ect1);
+        }
+
+        _ = Single(tracker, 100_000);
+        for (ushort s = 100; s < 105; s++)
+        {
+            tracker.OnPacket(s, s * 1000L, Ect1);
+        }
+
+        CcfbStreamReport report = Single(tracker, 110_000);
+        Assert.AreEqual((ushort)(105 - CcfbReceiveTracker.MinimumSpan), report.BeginSequence);
+        Assert.HasCount(CcfbReceiveTracker.MinimumSpan, report.Metrics);
+        Assert.IsTrue(report.Metrics.All(static m => m.Received));
     }
 
     // A packet reported missing that arrives later moves the next report back to it, and the packets
@@ -46,11 +71,11 @@ public sealed class CcfbReceiveTrackerTests
         tracker.OnPacket(13, 3000, 0);
         CcfbStreamReport second = Single(tracker, 4000);
 
-        Assert.AreEqual((ushort)11, second.BeginSequence);
+        Assert.AreEqual((ushort)10, second.BeginSequence);
         Assert.IsTrue(second.Metrics.All(static m => m.Received));
         Assert.AreEqual(
             Ccfb.ArrivalTimeOffset(3000),
-            second.Metrics[1].ArrivalTimeOffset,
+            second.Metrics[2].ArrivalTimeOffset,
             "packet 12 keeps its first arrival time"
         );
     }

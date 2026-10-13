@@ -2,9 +2,12 @@ namespace Agash.StreamTransport.WebRtc.Rtcp;
 
 /// <summary>
 /// What one received RTP stream contributes to RFC 8888 congestion-control feedback. Each report covers
-/// the sequence numbers since the previous one; a packet that arrives after a report covered it moves the
-/// next report's start back, so the gap is reported again as received (section 3.1: a packet once reported
-/// received stays received in later overlapping reports). The latest packets are kept for that.
+/// the sequence numbers since the previous one and at least the latest <see cref="MinimumSpan"/>, so
+/// consecutive reports overlap and one lost report costs the sender nothing (the SCReAMv2 reference
+/// receiver's 32, which draft-ietf-ccwg-rfc8298bis-screamv2 section 6 names as the answer to lost feedback).
+/// A packet that arrives after a report covered it moves the next report's start back, so the gap is
+/// reported again as received (section 3.1: a packet once reported received stays received in later
+/// overlapping reports). The latest packets are kept for that.
 /// </summary>
 /// <remarks>The receive-side shape matches libwebrtc's, so reports read the same to a browser.</remarks>
 internal sealed class CcfbReceiveTracker
@@ -15,9 +18,15 @@ internal sealed class CcfbReceiveTracker
     // How far back a late packet can still move a report's start.
     private const int KeepForReordering = 64;
 
+    /// <summary>The fewest latest packets a report covers.</summary>
+    public const int MinimumSpan = 32;
+
     private readonly List<Entry> _packets = [];
     private long _first;
     private long _nextInFeedback;
+
+    // The earliest packet received since the stream (re)started: overlap never reaches before it.
+    private long _earliest;
     private long _highest = -1;
     private int _ignoredSinceFeedback;
 
@@ -33,6 +42,7 @@ internal sealed class CcfbReceiveTracker
             // The first packet, or a restart: keep room behind it for reordered predecessors.
             _first = extended - KeepForReordering + 1;
             _nextInFeedback = extended;
+            _earliest = extended;
             for (int i = 0; i < KeepForReordering; i++)
             {
                 _packets.Add(default);
@@ -45,6 +55,7 @@ internal sealed class CcfbReceiveTracker
             return;
         }
 
+        _earliest = Math.Min(_earliest, extended);
         long index = extended - _first;
         if (index >= _packets.Count)
         {
@@ -113,7 +124,11 @@ internal sealed class CcfbReceiveTracker
         }
 
         _ignoredSinceFeedback = 0;
-        for (long begin = _nextInFeedback; begin < end; begin += maxRun)
+        long start = Math.Max(
+            Math.Max(_first, _earliest),
+            Math.Min(_nextInFeedback, end - MinimumSpan)
+        );
+        for (long begin = start; begin < end; begin += maxRun)
         {
             int run = (int)Math.Min(maxRun, end - begin);
             var metrics = new CcfbMetric[run];
