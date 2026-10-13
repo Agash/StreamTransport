@@ -216,9 +216,17 @@ public sealed partial class ScreamCongestionController : ICongestionController
         double t = Seconds(now);
 
         // Nothing sent for half a second while the window stayed closed: the feedback that would open it is
-        // not coming, so what is in flight is forgotten and sending resumes (reference implementation).
+        // not coming, so what is in flight is forgotten and sending resumes (reference implementation). Data
+        // still unacknowledged then means the feedback stopped, and RFC 8888 section 5 asks for a rapid
+        // reduction when consecutive reports are lost: the reference window halves each time, down to its
+        // minimum, as a persistent congestion collapses QUIC's window (RFC 9002 section 7.6).
         if (!double.IsNaN(_lastTransmit) && t - _lastTransmit > DeadlockInterval)
         {
+            if (BytesInFlight > 0)
+            {
+                ReferenceWindow = Math.Max(_options.MinReferenceWindow, ReferenceWindow / 2);
+            }
+
             _inFlight.Clear();
             BytesInFlight = 0;
             _lastTransmit = t;

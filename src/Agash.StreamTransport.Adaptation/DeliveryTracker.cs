@@ -7,7 +7,8 @@ namespace Agash.StreamTransport.Adaptation;
 /// packet no feedback mentions once RACK's time rule would judge it (RFC 8985 section 6.2: a packet sent
 /// after it was delivered, and a round trip and the reordering window passed since it was sent) is
 /// <see cref="PacketOutcome.Unreported"/>, not lost: feedback reports contiguous ranges, so a packet
-/// skipped behind a delivered one means its report was lost, as libwebrtc also reads it. A packet is
+/// skipped behind a delivered one means its report was lost, and RFC 8888 section 5 has a sender take one
+/// lost report as congestion unchanged (consecutive ones are the controller's to answer). A packet is
 /// resolved once, however many overlapping reports cover it (RFC 8888 section 3.1).
 /// </summary>
 /// <remarks>

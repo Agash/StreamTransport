@@ -211,6 +211,57 @@ public sealed class ScreamCongestionControllerTests
         Assert.IsTrue(controller.CanTransmit(1200, now + TimeSpan.FromMilliseconds(600)));
     }
 
+    // RFC 8888 section 5: feedback lost report after report calls for a rapid reduction. Each release of
+    // a window that unacknowledged data kept closed halves it, down to the minimum.
+    [TestMethod]
+    public void FeedbackSilence_HalvesTheReferenceWindowAtEachRelease()
+    {
+        ScreamCongestionController controller = new(Options);
+        var now = TimeSpan.FromSeconds(1);
+        long id = 0;
+        double start = controller.ReferenceWindow;
+        for (int release = 1; release <= 12; release++)
+        {
+            while (controller.CanTransmit(1200, now))
+            {
+                controller.OnPacketSent(new SentPacket(++id, 1200, now, TrafficClass.Video));
+            }
+
+            now += TimeSpan.FromMilliseconds(600);
+            Assert.IsTrue(controller.CanTransmit(1200, now));
+            Assert.AreEqual(
+                Math.Max(Options.MinReferenceWindow, start / Math.Pow(2, release)),
+                controller.ReferenceWindow,
+                1
+            );
+        }
+    }
+
+    // An idle source, everything it sent acknowledged, keeps its window when it sends again.
+    [TestMethod]
+    public void IdleWithNothingInFlight_KeepsTheReferenceWindow()
+    {
+        ScreamCongestionController controller = new(Options);
+        var now = TimeSpan.FromSeconds(1);
+        controller.OnPacketSent(new SentPacket(1, 1200, now, TrafficClass.Video));
+        _ = controller.OnFeedback(
+            [
+                new PacketObservation(
+                    new SentPacket(1, 1200, now, TrafficClass.Video),
+                    PacketOutcome.Delivered,
+                    now + TimeSpan.FromMilliseconds(10),
+                    EcnCodepoint.NotEct
+                ),
+            ],
+            TimeSpan.FromMilliseconds(20),
+            now + TimeSpan.FromMilliseconds(20)
+        );
+        double before = controller.ReferenceWindow;
+
+        Assert.IsTrue(controller.CanTransmit(1200, now + TimeSpan.FromSeconds(2)));
+        Assert.AreEqual(before, controller.ReferenceWindow);
+    }
+
     // A new path: every estimate is back where a new controller starts, the round trip seeded from the one
     // measured on the new path, and the controller converges on the new path's capacity from there.
     [TestMethod]
