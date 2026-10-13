@@ -7,7 +7,10 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <Compile Include="..\Agash.StreamTransport.WebRtc.Tests\InMemoryIceNetwork.cs" Link="InMemoryIceNetwork.cs" />
+    <Compile
+      Include="..\Agash.StreamTransport.WebRtc.Tests\InMemoryIceNetwork.cs"
+      Link="InMemoryIceNetwork.cs"
+    />
     <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
     <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc.DependencyInjection\Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
     <ProjectReference Include="..\..\src\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
