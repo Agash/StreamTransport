@@ -1,8 +1,10 @@
-// RGB to 4:2:0 Y'CbCr, written as a luma plane and an interleaved chroma plane. Each thread makes one
-// chroma sample and the 2x2 luma block it covers. With Pack set, the output is twice the colour width:
-// the left half is the colour, the right half the source alpha as grey (a, a, a), which the same matrix
-// turns into luma with neutral chroma. That is the side-by-side alpha layout every StreamTransport
-// platform writes and reads.
+// RGB to 4:2:0 Y'CbCr, written as a luma plane and an interleaved chroma plane. Each thread makes
+// one chroma sample and the 2x2 luma block it covers. Chroma is left-sited, as H.264, H.265 and AV1
+// assume when nothing says otherwise: each sample sits on its block's left column and between its
+// two rows, so it is a [1 2 1] filter across the column and its neighbours, averaged over the two
+// rows. With Pack set, the output is twice the colour width: the left half is the colour, the right
+// half the source alpha as grey (a, a, a), which the same matrix turns into luma with neutral
+// chroma. That is the side-by-side alpha layout every StreamTransport platform writes and reads.
 
 cbuffer Parameters : register(b0)
 {
@@ -52,6 +54,11 @@ void Main(uint3 id : SV_DispatchThreadID)
     Luma[below] = dot(s01, RowY.xyz) + RowY.w;
     Luma[diagonal] = dot(s11, RowY.xyz) + RowY.w;
 
-    float3 average = (s00 + s10 + s01 + s11) * 0.25;
+    // The left neighbour stays inside the half it belongs to: the colour's first column, or the alpha's.
+    uint start = Pack != 0 && l.x >= ColourWidth ? ColourWidth : 0;
+    uint left = max(l.x, start + 1) - 1;
+    float3 sl0 = Colour(uint2(left, l.y));
+    float3 sl1 = Colour(uint2(left, below.y));
+    float3 average = (sl0 + sl1 + 2 * (s00 + s01) + s10 + s11) * 0.125;
     Chroma[c] = float2(dot(average, RowCb.xyz) + RowCb.w, dot(average, RowCr.xyz) + RowCr.w);
 }

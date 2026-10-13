@@ -13,7 +13,7 @@ public sealed class VulkanProcessorTests
     private static readonly VulkanVideoProcessorFactory Factory = new();
 
     [TestMethod]
-    public void BgraToNv12_MatchesTheBt709VideoRangeMatrix()
+    public void BgraToNv12_MatchesTheBt709MatrixWithLeftSitedChroma()
     {
         byte[] pixels = Picture();
         using VideoFrameLease output = Run(
@@ -30,8 +30,10 @@ public sealed class VulkanProcessorTests
         {
             for (int x = 0; x < Width; x += 2)
             {
-                // Pictures are flat over each 2x2 block, so the chroma average is the block's colour.
                 Vector3 rgb = Rgb(pixels, x, row);
+                // Chroma is left-sited: a [1 2 1] filter over the column before the block and the
+                // block's two, which are alike, as its two rows are.
+                Vector3 sited = (Rgb(pixels, Math.Max(x - 1, 0), row) + (3 * rgb)) / 4;
                 Assert.AreEqual(
                     Apply(y, rgb) * 255,
                     planes[0][(row * Width) + x],
@@ -39,8 +41,8 @@ public sealed class VulkanProcessorTests
                     $"Luma at {x},{row}."
                 );
                 int c = ((row / 2) * Width) + x;
-                Assert.AreEqual(Apply(cb, rgb) * 255, planes[1][c], 1.0, $"Cb at {x},{row}.");
-                Assert.AreEqual(Apply(cr, rgb) * 255, planes[1][c + 1], 1.0, $"Cr at {x},{row}.");
+                Assert.AreEqual(Apply(cb, sited) * 255, planes[1][c], 1.0, $"Cb at {x},{row}.");
+                Assert.AreEqual(Apply(cr, sited) * 255, planes[1][c + 1], 1.0, $"Cr at {x},{row}.");
             }
         }
 
@@ -116,9 +118,9 @@ public sealed class VulkanProcessorTests
     }
 
     [TestMethod]
-    public void PackThenUnpack_ReturnsColourAndAlpha()
+    public void PackThenUnpack_ReturnsAColourRampAndAlpha()
     {
-        byte[] pixels = Picture();
+        byte[] pixels = Ramp();
         using VideoFrameLease packed = Run(
             Bgra(pixels),
             Description(PixelFormat.Bgra, Width),
@@ -136,9 +138,17 @@ public sealed class VulkanProcessorTests
 
         Assert.AreEqual(new VideoSize(Width, Height), unpack.Info.Output.Size);
         byte[] back = Download(unpacked, PixelFormat.Bgra, Width)[0];
-        for (int i = 0; i < pixels.Length; i++)
+        // Inside the border, where neither shader clamps, a ramp comes back as it went.
+        for (int y = 1; y < Height - 1; y++)
         {
-            Assert.AreEqual(pixels[i], back[i], 2.0, $"Byte {i} ({"BGRA"[i % 4]}).");
+            for (int x = 1; x < Width - 1; x++)
+            {
+                for (int k = 0; k < 4; k++)
+                {
+                    int i = (((y * Width) + x) * 4) + k;
+                    Assert.AreEqual(pixels[i], back[i], 2.0, $"{"BGRA"[k]} at {x},{y}.");
+                }
+            }
         }
 
         Assert.AreEqual(VideoColor.Srgb, unpacked.Frame.Color);
@@ -395,7 +405,28 @@ public sealed class VulkanProcessorTests
         }
     }
 
-    // Colour blocks of 2x2 pixels with varying alpha, so 4:2:0 chroma loses nothing.
+    // Colour ramps in BGRA with an alpha pattern. Chroma sited and filtered the same way down and up
+    // returns a linear ramp exactly, so a round trip that shifts or blurs the colour shows here.
+    private static byte[] Ramp()
+    {
+        byte[] pixels = new byte[Width * Height * 4];
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                int i = ((y * Width) + x) * 4;
+                pixels[i] = (byte)(200 - x - y);
+                pixels[i + 1] = (byte)(60 + (3 * y));
+                pixels[i + 2] = (byte)(40 + (2 * x));
+                pixels[i + 3] = (byte)(((x * 37) + (y * 5)) % 256);
+            }
+        }
+
+        return pixels;
+    }
+
+    // Colour blocks of 2x2 pixels with varying alpha: luma and alpha come through exactly, and left-sited
+    // chroma takes in the column before each block.
     private static byte[] Picture()
     {
         byte[] pixels = new byte[Width * Height * 4];

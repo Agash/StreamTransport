@@ -13,9 +13,21 @@ cbuffer Parameters : register(b0)
     float4 RowB;
 };
 
+// Chroma is left-sited (H.264, H.265 and AV1's default): a sample sits on every other column, between two
+// rows. So an even column takes it as it is and an odd one the mean of its two neighbours, and each row
+// weighs the chroma row it falls in 3:1 against the next nearest.
+
 Texture2DArray<float> Luma : register(t0);
 Texture2DArray<float2> Chroma : register(t1);
 RWTexture2D<float4> Output : register(u0);
+
+// The chroma for luma column x on chroma row r, interpolated across columns.
+float2 ChromaRow(uint x, uint r, uint last)
+{
+    uint c = x / 2;
+    float2 here = Chroma.Load(int4(c, r, 0, 0));
+    return (x & 1) == 0 ? here : (here + Chroma.Load(int4(min(c + 1, last), r, 0, 0))) * 0.5;
+}
 
 [numthreads(8, 8, 1)]
 void Main(uint3 id : SV_DispatchThreadID)
@@ -27,7 +39,11 @@ void Main(uint3 id : SV_DispatchThreadID)
     }
 
     float y = (Luma.Load(int4(p, 0, 0)) - LumaScale.x) * LumaScale.y;
-    float2 cbcr = Chroma.Load(int4(p / 2, 0, 0)) - LumaScale.z;
+    uint lastColumn = (OutWidth + 1) / 2 - 1;
+    uint row = p.y / 2;
+    uint other = (p.y & 1) == 0 ? max(row, 1u) - 1 : min(row + 1, (OutHeight + 1) / 2 - 1);
+    float2 cbcr = ChromaRow(p.x, row, lastColumn) * 0.75 + ChromaRow(p.x, other, lastColumn) * 0.25
+        - LumaScale.z;
     float3 ycc = float3(y, cbcr);
     float3 rgb = saturate(float3(
         dot(ycc, RowR.xyz) + RowR.w,

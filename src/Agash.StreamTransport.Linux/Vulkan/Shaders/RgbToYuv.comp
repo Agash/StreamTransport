@@ -1,9 +1,12 @@
 #version 450
-// RGB to 4:2:0 Y'CbCr, written as a luma plane and an interleaved chroma plane. Each invocation makes
-// one chroma sample and the 2x2 luma block it covers. With pack set, the output is twice the colour
-// width: the left half is the colour, the right half the source alpha as grey (a, a, a), which the same
-// matrix turns into luma with neutral chroma. That is the side-by-side alpha layout every
-// StreamTransport platform writes and reads.
+// RGB to 4:2:0 Y'CbCr, written as a luma plane and an interleaved chroma plane. Each invocation
+// makes one chroma sample and the 2x2 luma block it covers. Chroma is left-sited, as H.264, H.265
+// and AV1 assume when nothing says otherwise: each sample sits on its block's left column and
+// between its two rows, so it is a [1 2 1] filter across the column and its neighbours, averaged
+// over the two rows. With pack set, the output is twice the colour width: the left half is the
+// colour, the right half the source alpha as grey (a, a, a), which the same matrix turns into luma
+// with neutral chroma. That is the side-by-side alpha layout every StreamTransport platform writes
+// and reads.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -53,7 +56,12 @@ void main()
     imageStore(luma, ivec2(below), vec4(dot(s01, p.rowY.xyz) + p.rowY.w));
     imageStore(luma, ivec2(diagonal), vec4(dot(s11, p.rowY.xyz) + p.rowY.w));
 
-    vec3 average = (s00 + s10 + s01 + s11) * 0.25;
+    // The left neighbour stays inside the half it belongs to: the colour's first column, or the alpha's.
+    uint start = p.pack != 0 && l.x >= p.colourWidth ? p.colourWidth : 0;
+    uint left = max(l.x, start + 1) - 1;
+    vec3 sl0 = colourAt(uvec2(left, l.y));
+    vec3 sl1 = colourAt(uvec2(left, below.y));
+    vec3 average = (sl0 + sl1 + 2.0 * (s00 + s01) + s10 + s11) * 0.125;
     imageStore(chroma, ivec2(c), vec4(dot(average, p.rowCb.xyz) + p.rowCb.w,
                                       dot(average, p.rowCr.xyz) + p.rowCr.w, 0.0, 0.0));
 }
