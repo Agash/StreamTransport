@@ -313,7 +313,7 @@ internal sealed partial class IceStateMachine
                 HandleBindingSuccess(stun, now);
                 break;
             case StunMessageClass.ErrorResponse when stun.Method == StunMethod.Binding:
-                HandleBindingError(stun);
+                HandleBindingError(stun, now);
                 break;
             default:
                 // Indications carry nothing the agent acts on.
@@ -392,7 +392,7 @@ internal sealed partial class IceStateMachine
             {
                 pair.TriggeredCheck = true;
             }
-            else
+            else if (!pair.ConsentLost)
             {
                 pair.State = PairState.Waiting;
                 pair.Transmits = 0;
@@ -627,22 +627,35 @@ internal sealed partial class IceStateMachine
 
     // A 487 answer to our check (RFC 8445 section 7.2.5.1): the peer kept the role, so this agent takes the
     // other and checks the pair again.
-    private void HandleBindingError(StunMessageReader stun)
+    // An authenticated error answer to our check: 487, the peer kept the role, so this agent takes the other
+    // and checks the pair again (RFC 8445 section 7.2.5.1); 403, the peer revoked consent for the pair
+    // (RFC 7675 section 5.2), which is then never used again under these credentials.
+    private void HandleBindingError(StunMessageReader stun, TimeSpan now)
     {
         string transaction = Convert.ToHexString(stun.TransactionId);
         if (
             !stun.TryFindAttribute(StunAttributeType.ErrorCode, out ReadOnlySpan<byte> error)
             || error.Length < 4
-            || ((error[2] & 0x07) * 100) + error[3] != 487
-            || !_inFlight.Remove(transaction, out (CandidatePair Pair, TimeSpan SentAt) check)
+            || !_inFlight.TryGetValue(transaction, out (CandidatePair Pair, TimeSpan SentAt) check)
+            || !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
         )
         {
             return;
         }
 
-        SetRole(Role == IceRole.Controlling ? IceRole.Controlled : IceRole.Controlling);
-        check.Pair.State = PairState.Waiting;
-        check.Pair.TriggeredCheck = true;
+        int code = ((error[2] & 0x07) * 100) + error[3];
+        if (code == 487)
+        {
+            _ = _inFlight.Remove(transaction);
+            SetRole(Role == IceRole.Controlling ? IceRole.Controlled : IceRole.Controlling);
+            check.Pair.State = PairState.Waiting;
+            check.Pair.TriggeredCheck = true;
+        }
+        else if (code == 403)
+        {
+            _ = _inFlight.Remove(transaction);
+            LoseConsent(check.Pair, now);
+        }
     }
 
     private void HandleBindingSuccess(StunMessageReader stun, TimeSpan now)
@@ -870,10 +883,25 @@ internal sealed partial class IceStateMachine
             return;
         }
 
-        LogConsentLost(selected.Remote.Endpoint);
+        LoseConsent(selected, now);
+    }
+
+    // RFC 7675 section 5.1: once consent to a pair is lost, these credentials are not used on it again; it
+    // stays failed until a restart brings new ones. The selection moves to the best valid alternate with
+    // consent, or every other pair is checked again.
+    private void LoseConsent(CandidatePair pair, TimeSpan now)
+    {
+        pair.ConsentLost = true;
+        pair.State = PairState.Failed;
+        pair.NominationCheck = false;
+        if (!ReferenceEquals(pair, _selected))
+        {
+            return;
+        }
+
+        LogConsentLost(pair.Remote.Endpoint);
         _metrics.ConsentLost.Add(1);
         _selected = null;
-        selected.NominationCheck = false;
         if (
             Best(now) is { } next
             && IsWritable(next, now)
@@ -892,6 +920,11 @@ internal sealed partial class IceStateMachine
     {
         foreach (CandidatePair pair in _pairs)
         {
+            if (pair.ConsentLost)
+            {
+                continue;
+            }
+
             pair.State = PairState.Waiting;
             pair.Nominated = false;
             pair.NominationCheck = false;
@@ -1254,6 +1287,9 @@ internal sealed partial class IceStateMachine
         public PairState State { get; set; } = PairState.Waiting;
 
         public bool TriggeredCheck { get; set; }
+
+        // Consent was lost or revoked: these credentials are not used on the pair again.
+        public bool ConsentLost { get; set; }
 
         public bool NominationCheck { get; set; }
 

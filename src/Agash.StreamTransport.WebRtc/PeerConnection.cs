@@ -390,6 +390,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// </summary>
     public SdpDescription RestartIce()
     {
+        _restarting = true;
         _localIceCredentials = IceCredentials.Generate();
         ForgetLocalCandidates();
         _iceAgent?.Restart(_localIceCredentials);
@@ -436,6 +437,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         if (isRestartOffer)
         {
+            _restarting = true;
             _localIceCredentials = IceCredentials.Generate();
             ForgetLocalCandidates();
             _iceAgent!.Restart(_localIceCredentials);
@@ -884,12 +886,35 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Raised when consent to the path media used was lost and no other path is up (RFC 7675). The
+    /// credentials in use cannot reach the peer again, so it takes an ICE restart (<see cref="RestartIce"/>,
+    /// offered to the peer) to carry on; without one the connection fails after
+    /// <see cref="IceTimings.FailureTimeout"/>.
+    /// </summary>
+    public event Action? ConnectivityLost;
+
+    // Whether ICE had connected, and whether a restart this side made or the peer asked for is under way,
+    // so checking again reads as a lost path only when neither explains it.
+    private volatile bool _iceWasConnected;
+    private volatile bool _restarting;
+
     private void OnIceStateChanged(IceConnectionState iceState)
     {
         switch (iceState)
         {
-            case IceConnectionState.Connected when Interlocked.Exchange(ref _dtlsStarted, 1) == 0:
-                _ = RunDtlsHandshakeAsync();
+            case IceConnectionState.Connected:
+                _iceWasConnected = true;
+                _restarting = false;
+                if (Interlocked.Exchange(ref _dtlsStarted, 1) == 0)
+                {
+                    _ = RunDtlsHandshakeAsync();
+                }
+
+                break;
+            case IceConnectionState.Checking when _iceWasConnected && !_restarting:
+                LogConnectivityLost(_logger);
+                ConnectivityLost?.Invoke();
                 break;
             case IceConnectionState.Failed:
                 Settle("ice_failed");
@@ -1486,4 +1511,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "The {Kind} section {Mid} is rejected: the peers share no codec for it."
     )]
     private static partial void LogSectionRejected(ILogger logger, SdpMediaKind kind, string mid);
+
+    [LoggerMessage(
+        EventId = 1161,
+        Level = LogLevel.Warning,
+        Message = "Consent to the path was lost and no other path is up; it takes an ICE restart to carry on"
+    )]
+    private static partial void LogConnectivityLost(ILogger logger);
 }

@@ -155,12 +155,18 @@ public sealed class IceMobilityTests
         );
     }
 
+    // RFC 7675 section 5.1: credentials whose consent lapsed are not used on the pair again, so the path
+    // coming back is not enough; a restart with fresh credentials reconnects.
     [TestMethod]
-    public void ConsentLost_WithNoAlternate_RecoversWhenThePathReturns()
+    public void ConsentLost_WithNoAlternate_TakesARestartToRecover()
     {
         IceSwitchboard board = new();
         var address = IPAddress.Parse("10.0.0.1");
-        (IceSwitchboard.Peer a, _) = Connect(board, [address], [IPAddress.Parse("10.0.0.2")]);
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [address],
+            [IPAddress.Parse("10.0.0.2")]
+        );
 
         board.Cut(address);
         Assert.IsTrue(
@@ -169,9 +175,17 @@ public sealed class IceMobilityTests
         );
 
         board.Uncut(address);
+        Assert.IsFalse(
+            board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)),
+            "the spent credentials are not used on the pair again."
+        );
+
+        var fresh = IceCredentials.Generate();
+        board.Restart(a, fresh, [address]);
+        b.Machine.SetRemoteCredentials(fresh);
         Assert.IsTrue(
             board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)),
-            "the machine reconnects once the path is back."
+            "a restart reconnects."
         );
         Assert.IsTrue(board.SendData(a));
     }

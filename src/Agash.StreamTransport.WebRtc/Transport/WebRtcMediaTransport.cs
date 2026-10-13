@@ -167,6 +167,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         _connection = connection;
         connection.LocalIceCandidate += OnLocalCandidate;
         connection.StateChanged += OnStateChanged;
+        connection.ConnectivityLost += OnConnectivityLost;
         connection.RtpReceived += OnRtp;
         connection.SenderReportReceived += OnSenderReport;
         connection.KeyframeRequested += _ => KeyframeRequested?.Invoke();
@@ -388,6 +389,28 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 }
                 : null
         );
+
+    // The path was lost with its credentials spent: the offering side restarts ICE, which the signaling
+    // carries to the peer (a WHIP client by PATCH); the answering side waits for that restart.
+    private void OnConnectivityLost()
+    {
+        if (_role == MediaSessionRole.Offerer && Volatile.Read(ref _disposed) == 0)
+        {
+            _ = RestartAfterLossAsync();
+        }
+    }
+
+    private async Task RestartAfterLossAsync()
+    {
+        try
+        {
+            await RestartAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            LogRestartFailed(exception);
+        }
+    }
 
     private void OnStateChanged(PeerConnectionState state)
     {
@@ -887,6 +910,13 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     [LoggerMessage(1173, LogLevel.Information, "Restarting ICE: fresh credentials and candidates.")]
     private partial void LogIceRestart();
+
+    [LoggerMessage(
+        1174,
+        LogLevel.Warning,
+        "The ICE restart after a lost path could not be offered."
+    )]
+    private partial void LogRestartFailed(Exception exception);
 
     [LoggerMessage(1168, LogLevel.Warning, "The STUN server {Url} did not resolve; it is skipped.")]
     private partial void LogStunUnresolved(string url);

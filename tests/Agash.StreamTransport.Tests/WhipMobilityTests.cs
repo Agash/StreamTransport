@@ -134,12 +134,102 @@ public sealed class WhipMobilityTests
         }
     }
 
-    private static MediaSessionOptions Options(IIceSocketFactory sockets) =>
+    private static MediaSessionOptions Options(
+        IIceSocketFactory sockets,
+        IceTimings? timings = null
+    ) =>
         new()
         {
             VideoCodecs = [VideoCodecId.H264],
-            Transport = new WebRtcTransportOptions { SocketFactory = sockets },
+            Transport = new WebRtcTransportOptions
+            {
+                SocketFactory = sockets,
+                IceTimings = timings,
+            },
         };
+
+    // Consent that lapses in a second and a half, so an outage outlasts it quickly.
+    private static readonly IceTimings QuickConsent = IceTimings.Default with
+    {
+        ConsentTimeout = TimeSpan.FromMilliseconds(1500),
+        StablePingInterval = TimeSpan.FromMilliseconds(200),
+        WeakPingInterval = TimeSpan.FromMilliseconds(200),
+        ReceivingTimeout = TimeSpan.FromMilliseconds(500),
+    };
+
+    // An outage longer than consent spends the credentials (RFC 7675 section 5.1): the publisher restarts
+    // ICE by PATCH, and once the network is back media carries on under the new credentials.
+    [TestMethod]
+    [Timeout(90_000)]
+    public async Task Publisher_AfterAnOutageLongerThanConsent_RestartsAndCarriesOn()
+    {
+        InMemoryIceNetwork network = new();
+        bool down = false;
+        network.Drop = (_, _, _) => Volatile.Read(ref down);
+        TaskCompletionSource restarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
+        await using WebApplication app = await StartAsync(
+            new SimulatedNetworkMonitor(),
+            web =>
+            {
+                web.Use(
+                    async (context, next) =>
+                    {
+                        if (HttpMethods.IsPatch(context.Request.Method))
+                        {
+                            context.Request.EnableBuffering();
+                            using StreamReader reader = new(context.Request.Body, leaveOpen: true);
+                            string body = await reader.ReadToEndAsync(context.RequestAborted);
+                            if (body.Contains("a=ice-ufrag:", StringComparison.Ordinal))
+                            {
+                                restarted.TrySetResult();
+                            }
+
+                            context.Request.Body.Position = 0;
+                        }
+
+                        await next(context);
+                    }
+                );
+                web.MapWhip(
+                    "/whip",
+                    (_, _) =>
+                        ValueTask.FromResult<HttpMediaSetup?>(
+                            new HttpMediaSetup(
+                                new MediaEndpoints { VideoSink = watch.WrapVideo() },
+                                Options(network.Factory(Server), QuickConsent)
+                            )
+                        )
+                );
+            }
+        );
+
+        TestSignalGenerator generator = new();
+        using IVideoInput video = await new TestSignalVideoInputProvider(generator).OpenAsync(
+            new VideoInputInfo("test", "signal", "Test signal", MediaInputKind.Generated, []),
+            new VideoInputRequest { Size = new VideoSize(320, 240), FrameRate = 30 },
+            CancellationToken.None
+        );
+        HttpMediaSession publishing = await WhipClient.PublishAsync(
+            app.Services.GetRequiredService<IMediaSessionFactory>(),
+            new Uri(Address(app), "/whip"),
+            new MediaEndpoints { VideoSource = video },
+            Options(network.Factory(Wifi), QuickConsent)
+        );
+        await using (publishing)
+        {
+            await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
+            await watch.UntilAsync(m => m.Frames >= 30, TimeSpan.FromSeconds(30));
+
+            Volatile.Write(ref down, true);
+            await restarted.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            Volatile.Write(ref down, false);
+
+            int atRestart = watch.Analyzer.Measure().Frames;
+            await watch.UntilAsync(m => m.Frames >= atRestart + 60, TimeSpan.FromSeconds(30));
+            Assert.AreEqual(TransportState.Connected, publishing.Session.State);
+        }
+    }
 
     private static async Task<WebApplication> StartAsync(
         INetworkMonitor monitor,
