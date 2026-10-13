@@ -1,0 +1,341 @@
+#nullable enable
+~override Agash.StreamTransport.Adaptation.CapacityEstimate.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.CapacityEstimate.ToString() -> string
+~override Agash.StreamTransport.Adaptation.PacedPacket.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.PacedPacket.ToString() -> string
+~override Agash.StreamTransport.Adaptation.PacketObservation.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.PacketObservation.ToString() -> string
+~override Agash.StreamTransport.Adaptation.PacketReport.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.PacketReport.ToString() -> string
+~override Agash.StreamTransport.Adaptation.RecoveryInputs.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.RecoveryInputs.ToString() -> string
+~override Agash.StreamTransport.Adaptation.RecoveryPlan.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.RecoveryPlan.ToString() -> string
+~override Agash.StreamTransport.Adaptation.SentPacket.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.SentPacket.ToString() -> string
+Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.CapacityEstimate.CapacityEstimate() -> void
+Agash.StreamTransport.Adaptation.CapacityEstimate.CapacityEstimate(long TargetBitsPerSecond, long PacingBitsPerSecond, System.TimeSpan SmoothedRoundTrip = default(System.TimeSpan), System.TimeSpan MinimumRoundTrip = default(System.TimeSpan)) -> void
+Agash.StreamTransport.Adaptation.CapacityEstimate.Deconstruct(out long TargetBitsPerSecond, out long PacingBitsPerSecond, out System.TimeSpan SmoothedRoundTrip, out System.TimeSpan MinimumRoundTrip) -> void
+Agash.StreamTransport.Adaptation.CapacityEstimate.Equals(Agash.StreamTransport.Adaptation.CapacityEstimate other) -> bool
+Agash.StreamTransport.Adaptation.CapacityEstimate.MinimumRoundTrip.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.CapacityEstimate.MinimumRoundTrip.init -> void
+Agash.StreamTransport.Adaptation.CapacityEstimate.PacingBitsPerSecond.get -> long
+Agash.StreamTransport.Adaptation.CapacityEstimate.PacingBitsPerSecond.init -> void
+Agash.StreamTransport.Adaptation.CapacityEstimate.QueueDelay.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.CapacityEstimate.SmoothedRoundTrip.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.CapacityEstimate.SmoothedRoundTrip.init -> void
+Agash.StreamTransport.Adaptation.CapacityEstimate.TargetBitsPerSecond.get -> long
+Agash.StreamTransport.Adaptation.CapacityEstimate.TargetBitsPerSecond.init -> void
+Agash.StreamTransport.Adaptation.CircuitBreaker
+Agash.StreamTransport.Adaptation.CircuitBreaker.CircuitBreaker(Agash.StreamTransport.Adaptation.CircuitBreakerOptions? options = null) -> void
+Agash.StreamTransport.Adaptation.CircuitBreaker.OnFeedback(System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.CircuitBreaker.OnReceptionReport(System.TimeSpan now, uint extendedHighestSequence, double fractionLost, System.TimeSpan roundTrip, long sendBitsPerSecond, int packetSize) -> void
+Agash.StreamTransport.Adaptation.CircuitBreaker.OnSent(System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.CircuitBreaker.OnTick(System.TimeSpan now) -> Agash.StreamTransport.Adaptation.CircuitBreakerState
+Agash.StreamTransport.Adaptation.CircuitBreaker.Reason.get -> Agash.StreamTransport.Adaptation.CircuitBreakerReason
+Agash.StreamTransport.Adaptation.CircuitBreaker.ReducedBitsPerSecond.get -> long
+Agash.StreamTransport.Adaptation.CircuitBreaker.State.get -> Agash.StreamTransport.Adaptation.CircuitBreakerState
+Agash.StreamTransport.Adaptation.CircuitBreaker.TryReset(System.TimeSpan now) -> bool
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.CircuitBreakerOptions() -> void
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.FullThroughputEquation.get -> bool
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.FullThroughputEquation.set -> void
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.GroupOfPictures.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.GroupOfPictures.set -> void
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.MediaTimeoutReports.get -> int
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.MediaTimeoutReports.set -> void
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.ReceiverReportInterval.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.ReceiverReportInterval.set -> void
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.ReportingInterval.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.CircuitBreakerOptions.ReportingInterval.set -> void
+Agash.StreamTransport.Adaptation.CircuitBreakerReason
+Agash.StreamTransport.Adaptation.CircuitBreakerReason.Congestion = 3 -> Agash.StreamTransport.Adaptation.CircuitBreakerReason
+Agash.StreamTransport.Adaptation.CircuitBreakerReason.FeedbackTimeout = 1 -> Agash.StreamTransport.Adaptation.CircuitBreakerReason
+Agash.StreamTransport.Adaptation.CircuitBreakerReason.MediaTimeout = 2 -> Agash.StreamTransport.Adaptation.CircuitBreakerReason
+Agash.StreamTransport.Adaptation.CircuitBreakerReason.None = 0 -> Agash.StreamTransport.Adaptation.CircuitBreakerReason
+Agash.StreamTransport.Adaptation.CircuitBreakerState
+Agash.StreamTransport.Adaptation.CircuitBreakerState.Closed = 0 -> Agash.StreamTransport.Adaptation.CircuitBreakerState
+Agash.StreamTransport.Adaptation.CircuitBreakerState.Open = 2 -> Agash.StreamTransport.Adaptation.CircuitBreakerState
+Agash.StreamTransport.Adaptation.CircuitBreakerState.Reduced = 1 -> Agash.StreamTransport.Adaptation.CircuitBreakerState
+Agash.StreamTransport.Adaptation.DeliveryTracker
+Agash.StreamTransport.Adaptation.DeliveryTracker.Count.get -> int
+Agash.StreamTransport.Adaptation.DeliveryTracker.DeliveryTracker(System.TimeSpan? history = null) -> void
+Agash.StreamTransport.Adaptation.DeliveryTracker.LossAllowance.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.DeliveryTracker.OnFeedback(System.ReadOnlySpan<Agash.StreamTransport.Adaptation.PacketReport> reports, System.TimeSpan now, System.Collections.Generic.List<Agash.StreamTransport.Adaptation.PacketObservation>! observations) -> System.TimeSpan?
+Agash.StreamTransport.Adaptation.DeliveryTracker.OnPathChanged() -> void
+Agash.StreamTransport.Adaptation.DeliveryTracker.OnSent(in Agash.StreamTransport.Adaptation.SentPacket packet) -> void
+Agash.StreamTransport.Adaptation.DeliveryTracker.OnTick(System.TimeSpan now, System.Collections.Generic.List<Agash.StreamTransport.Adaptation.PacketObservation>! observations) -> void
+Agash.StreamTransport.Adaptation.DeliveryTracker.ReorderingWindow.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.EcnCodepoint.Ce = 3 -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.EcnCodepoint.Ect0 = 2 -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.EcnCodepoint.Ect1 = 1 -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.EcnCodepoint.NotEct = 0 -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.EcnMode
+Agash.StreamTransport.Adaptation.EcnMode.Classic = 1 -> Agash.StreamTransport.Adaptation.EcnMode
+Agash.StreamTransport.Adaptation.EcnMode.L4s = 2 -> Agash.StreamTransport.Adaptation.EcnMode
+Agash.StreamTransport.Adaptation.EcnMode.None = 0 -> Agash.StreamTransport.Adaptation.EcnMode
+Agash.StreamTransport.Adaptation.EcnState
+Agash.StreamTransport.Adaptation.EcnState.Capable = 2 -> Agash.StreamTransport.Adaptation.EcnState
+Agash.StreamTransport.Adaptation.EcnState.Disabled = 0 -> Agash.StreamTransport.Adaptation.EcnState
+Agash.StreamTransport.Adaptation.EcnState.Failed = 3 -> Agash.StreamTransport.Adaptation.EcnState
+Agash.StreamTransport.Adaptation.EcnState.Testing = 1 -> Agash.StreamTransport.Adaptation.EcnState
+Agash.StreamTransport.Adaptation.EcnValidator
+Agash.StreamTransport.Adaptation.EcnValidator.Disable() -> void
+Agash.StreamTransport.Adaptation.EcnValidator.EcnValidator(System.TimeSpan? retryInterval = null) -> void
+Agash.StreamTransport.Adaptation.EcnValidator.MarkFor(long packetId, Agash.StreamTransport.Adaptation.EcnCodepoint codepoint, System.TimeSpan now) -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.EcnValidator.OnFeedback(System.ReadOnlySpan<Agash.StreamTransport.Adaptation.PacketObservation> observations, System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.EcnValidator.Start() -> void
+Agash.StreamTransport.Adaptation.EcnValidator.State.get -> Agash.StreamTransport.Adaptation.EcnState
+Agash.StreamTransport.Adaptation.EcnValidator.StateChanged -> System.Action<Agash.StreamTransport.Adaptation.EcnState>?
+Agash.StreamTransport.Adaptation.ICongestionController
+Agash.StreamTransport.Adaptation.ICongestionController.CanTransmit(int size, System.TimeSpan now) -> bool
+Agash.StreamTransport.Adaptation.ICongestionController.Current.get -> Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.ICongestionController.Ecn.get -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.ICongestionController.OnFeedback(System.ReadOnlySpan<Agash.StreamTransport.Adaptation.PacketObservation> observations, System.TimeSpan? roundTrip, System.TimeSpan now) -> Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.ICongestionController.OnMediaFrame(int bytes, System.TimeSpan queueDelay, System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.ICongestionController.OnPacketSent(in Agash.StreamTransport.Adaptation.SentPacket packet) -> void
+Agash.StreamTransport.Adaptation.ICongestionController.OnPathChanged(System.TimeSpan? roundTrip, System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.ICongestionController.OnTick(System.TimeSpan now) -> Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.ICongestionController.UseEcn(Agash.StreamTransport.Adaptation.EcnCodepoint codepoint) -> void
+Agash.StreamTransport.Adaptation.MediaRateAllocator
+Agash.StreamTransport.Adaptation.MediaRateAllocator.MediaRateAllocator(System.Func<Agash.StreamTransport.Adaptation.TrafficClass, long>! sentBytes, System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.Adaptation.MediaRateAllocator.RecoveryBitsPerSecond.get -> long
+Agash.StreamTransport.Adaptation.MediaRateAllocator.VideoBitsPerSecond(long targetBitsPerSecond, long audioBitsPerSecond, long minimumVideoBitsPerSecond) -> long
+Agash.StreamTransport.Adaptation.PacedPacket
+Agash.StreamTransport.Adaptation.PacedPacket.Buffer.get -> byte[]!
+Agash.StreamTransport.Adaptation.PacedPacket.Buffer.init -> void
+Agash.StreamTransport.Adaptation.PacedPacket.Class.get -> Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.PacedPacket.Class.init -> void
+Agash.StreamTransport.Adaptation.PacedPacket.Deconstruct(out byte[]! Buffer, out int Length, out Agash.StreamTransport.Adaptation.TrafficClass Class) -> void
+Agash.StreamTransport.Adaptation.PacedPacket.Equals(Agash.StreamTransport.Adaptation.PacedPacket other) -> bool
+Agash.StreamTransport.Adaptation.PacedPacket.Length.get -> int
+Agash.StreamTransport.Adaptation.PacedPacket.Length.init -> void
+Agash.StreamTransport.Adaptation.PacedPacket.PacedPacket() -> void
+Agash.StreamTransport.Adaptation.PacedPacket.PacedPacket(byte[]! Buffer, int Length, Agash.StreamTransport.Adaptation.TrafficClass Class) -> void
+Agash.StreamTransport.Adaptation.Pacer
+Agash.StreamTransport.Adaptation.Pacer.BitsPerSecond.get -> long
+Agash.StreamTransport.Adaptation.Pacer.BitsPerSecond.set -> void
+Agash.StreamTransport.Adaptation.Pacer.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.Adaptation.Pacer.Enqueue(Agash.StreamTransport.Adaptation.PacedPacket packet) -> void
+Agash.StreamTransport.Adaptation.Pacer.Gate.get -> System.Func<int, bool>?
+Agash.StreamTransport.Adaptation.Pacer.Gate.init -> void
+Agash.StreamTransport.Adaptation.Pacer.Pacer(System.Func<Agash.StreamTransport.Adaptation.PacedPacket, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask>! send, int packetOverhead = 0, System.TimeProvider? timeProvider = null, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.Adaptation.Pacer!>? logger = null) -> void
+Agash.StreamTransport.Adaptation.Pacer.QueueDelay.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.Pacer.SentBytes(Agash.StreamTransport.Adaptation.TrafficClass trafficClass) -> long
+Agash.StreamTransport.Adaptation.Pacer.Wake() -> void
+Agash.StreamTransport.Adaptation.PacketObservation
+Agash.StreamTransport.Adaptation.PacketObservation.ArrivedAt.get -> System.TimeSpan?
+Agash.StreamTransport.Adaptation.PacketObservation.ArrivedAt.init -> void
+Agash.StreamTransport.Adaptation.PacketObservation.Deconstruct(out Agash.StreamTransport.Adaptation.SentPacket Packet, out Agash.StreamTransport.Adaptation.PacketOutcome Outcome, out System.TimeSpan? ArrivedAt, out Agash.StreamTransport.Adaptation.EcnCodepoint Ecn) -> void
+Agash.StreamTransport.Adaptation.PacketObservation.Ecn.get -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.PacketObservation.Ecn.init -> void
+Agash.StreamTransport.Adaptation.PacketObservation.Equals(Agash.StreamTransport.Adaptation.PacketObservation other) -> bool
+Agash.StreamTransport.Adaptation.PacketObservation.Outcome.get -> Agash.StreamTransport.Adaptation.PacketOutcome
+Agash.StreamTransport.Adaptation.PacketObservation.Outcome.init -> void
+Agash.StreamTransport.Adaptation.PacketObservation.Packet.get -> Agash.StreamTransport.Adaptation.SentPacket
+Agash.StreamTransport.Adaptation.PacketObservation.Packet.init -> void
+Agash.StreamTransport.Adaptation.PacketObservation.PacketObservation() -> void
+Agash.StreamTransport.Adaptation.PacketObservation.PacketObservation(Agash.StreamTransport.Adaptation.SentPacket Packet, Agash.StreamTransport.Adaptation.PacketOutcome Outcome, System.TimeSpan? ArrivedAt, Agash.StreamTransport.Adaptation.EcnCodepoint Ecn) -> void
+Agash.StreamTransport.Adaptation.PacketOutcome
+Agash.StreamTransport.Adaptation.PacketOutcome.Delivered = 0 -> Agash.StreamTransport.Adaptation.PacketOutcome
+Agash.StreamTransport.Adaptation.PacketOutcome.DeliveredLate = 2 -> Agash.StreamTransport.Adaptation.PacketOutcome
+Agash.StreamTransport.Adaptation.PacketOutcome.Lost = 1 -> Agash.StreamTransport.Adaptation.PacketOutcome
+Agash.StreamTransport.Adaptation.PacketReport
+Agash.StreamTransport.Adaptation.PacketReport.ArrivedAt.get -> System.TimeSpan?
+Agash.StreamTransport.Adaptation.PacketReport.ArrivedAt.init -> void
+Agash.StreamTransport.Adaptation.PacketReport.Deconstruct(out long Id, out bool Received, out System.TimeSpan? ArrivedAt, out Agash.StreamTransport.Adaptation.EcnCodepoint Ecn) -> void
+Agash.StreamTransport.Adaptation.PacketReport.Ecn.get -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.PacketReport.Ecn.init -> void
+Agash.StreamTransport.Adaptation.PacketReport.Equals(Agash.StreamTransport.Adaptation.PacketReport other) -> bool
+Agash.StreamTransport.Adaptation.PacketReport.Id.get -> long
+Agash.StreamTransport.Adaptation.PacketReport.Id.init -> void
+Agash.StreamTransport.Adaptation.PacketReport.PacketReport() -> void
+Agash.StreamTransport.Adaptation.PacketReport.PacketReport(long Id, bool Received, System.TimeSpan? ArrivedAt, Agash.StreamTransport.Adaptation.EcnCodepoint Ecn) -> void
+Agash.StreamTransport.Adaptation.PacketReport.Received.get -> bool
+Agash.StreamTransport.Adaptation.PacketReport.Received.init -> void
+Agash.StreamTransport.Adaptation.PathMtuDiscovery
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.CheckBlackHole(System.TimeSpan now) -> bool
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.Current.get -> int
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.OnAcknowledged(long packetId, int size) -> bool
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.OnLost(long packetId, int size, System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.OnPathChanged() -> bool
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.OnProbeAbandoned() -> void
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.OnProbeSent(long packetId) -> void
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.PathMtuDiscovery(Agash.StreamTransport.Adaptation.PathMtuOptions? options = null) -> void
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.ProbeInFlight.get -> bool
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.State.get -> Agash.StreamTransport.Adaptation.PathMtuState
+Agash.StreamTransport.Adaptation.PathMtuDiscovery.TakeProbe(System.TimeSpan now, int largestProbe) -> int?
+Agash.StreamTransport.Adaptation.PathMtuOptions
+Agash.StreamTransport.Adaptation.PathMtuOptions.<Clone>$() -> Agash.StreamTransport.Adaptation.PathMtuOptions!
+Agash.StreamTransport.Adaptation.PathMtuOptions.BaseSize.get -> int
+Agash.StreamTransport.Adaptation.PathMtuOptions.BaseSize.init -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.BlackHoleCooldown.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.PathMtuOptions.BlackHoleCooldown.init -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.Equals(Agash.StreamTransport.Adaptation.PathMtuOptions? other) -> bool
+Agash.StreamTransport.Adaptation.PathMtuOptions.MaximumProbes.get -> int
+Agash.StreamTransport.Adaptation.PathMtuOptions.MaximumProbes.init -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.MaximumSize.get -> int
+Agash.StreamTransport.Adaptation.PathMtuOptions.MaximumSize.init -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.MinimumChange.get -> int
+Agash.StreamTransport.Adaptation.PathMtuOptions.MinimumChange.init -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.PathMtuOptions() -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.RaiseInterval.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.PathMtuOptions.RaiseInterval.init -> void
+Agash.StreamTransport.Adaptation.PathMtuOptions.Validate() -> void
+Agash.StreamTransport.Adaptation.PathMtuState
+Agash.StreamTransport.Adaptation.PathMtuState.Base = 0 -> Agash.StreamTransport.Adaptation.PathMtuState
+Agash.StreamTransport.Adaptation.PathMtuState.Error = 3 -> Agash.StreamTransport.Adaptation.PathMtuState
+Agash.StreamTransport.Adaptation.PathMtuState.SearchComplete = 2 -> Agash.StreamTransport.Adaptation.PathMtuState
+Agash.StreamTransport.Adaptation.PathMtuState.Searching = 1 -> Agash.StreamTransport.Adaptation.PathMtuState
+Agash.StreamTransport.Adaptation.RecoveryInputs
+Agash.StreamTransport.Adaptation.RecoveryInputs.BitsPerSecond.get -> long
+Agash.StreamTransport.Adaptation.RecoveryInputs.BitsPerSecond.init -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.Deconstruct(out double LossFraction, out System.TimeSpan RoundTrip, out long BitsPerSecond, out double FramesPerSecond, out double PacketsPerFrame, out System.TimeSpan? PlayoutBudget) -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.Equals(Agash.StreamTransport.Adaptation.RecoveryInputs other) -> bool
+Agash.StreamTransport.Adaptation.RecoveryInputs.FramesPerSecond.get -> double
+Agash.StreamTransport.Adaptation.RecoveryInputs.FramesPerSecond.init -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.LossFraction.get -> double
+Agash.StreamTransport.Adaptation.RecoveryInputs.LossFraction.init -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.PacketsPerFrame.get -> double
+Agash.StreamTransport.Adaptation.RecoveryInputs.PacketsPerFrame.init -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.PlayoutBudget.get -> System.TimeSpan?
+Agash.StreamTransport.Adaptation.RecoveryInputs.PlayoutBudget.init -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.RecoveryInputs() -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.RecoveryInputs(double LossFraction, System.TimeSpan RoundTrip, long BitsPerSecond, double FramesPerSecond, double PacketsPerFrame, System.TimeSpan? PlayoutBudget = null) -> void
+Agash.StreamTransport.Adaptation.RecoveryInputs.RoundTrip.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.RecoveryInputs.RoundTrip.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPlan
+Agash.StreamTransport.Adaptation.RecoveryPlan.Deconstruct(out int FecGroupSize, out bool Retransmit) -> void
+Agash.StreamTransport.Adaptation.RecoveryPlan.Equals(Agash.StreamTransport.Adaptation.RecoveryPlan other) -> bool
+Agash.StreamTransport.Adaptation.RecoveryPlan.Fec.get -> bool
+Agash.StreamTransport.Adaptation.RecoveryPlan.FecGroupSize.get -> int
+Agash.StreamTransport.Adaptation.RecoveryPlan.FecGroupSize.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPlan.RecoveryPlan() -> void
+Agash.StreamTransport.Adaptation.RecoveryPlan.RecoveryPlan(int FecGroupSize, bool Retransmit) -> void
+Agash.StreamTransport.Adaptation.RecoveryPlan.Retransmit.get -> bool
+Agash.StreamTransport.Adaptation.RecoveryPlan.Retransmit.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicy
+Agash.StreamTransport.Adaptation.RecoveryPolicy.Plan(in Agash.StreamTransport.Adaptation.RecoveryInputs inputs) -> Agash.StreamTransport.Adaptation.RecoveryPlan
+Agash.StreamTransport.Adaptation.RecoveryPolicy.RecoveryPolicy(Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? options = null) -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.<Clone>$() -> Agash.StreamTransport.Adaptation.RecoveryPolicyOptions!
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.Equals(Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? other) -> bool
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.MaximumFramesSpanned.get -> int
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.MaximumFramesSpanned.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.MaximumGroupSize.get -> int
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.MaximumGroupSize.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.MinimumBytesPerFrame.get -> int
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.MinimumBytesPerFrame.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.RecoveryPolicyOptions() -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.RetransmitOnlyRoundTrip.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.RetransmitOnlyRoundTrip.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.SmallFrameRoundTrip.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.SmallFrameRoundTrip.init -> void
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.TargetUnrecoverable.get -> double
+Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.TargetUnrecoverable.init -> void
+Agash.StreamTransport.Adaptation.ScreamCongestionController
+Agash.StreamTransport.Adaptation.ScreamCongestionController.BytesInFlight.get -> long
+Agash.StreamTransport.Adaptation.ScreamCongestionController.CanTransmit(int size, System.TimeSpan now) -> bool
+Agash.StreamTransport.Adaptation.ScreamCongestionController.Current.get -> Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.ScreamCongestionController.Ecn.get -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.ScreamCongestionController.EcnMode.get -> Agash.StreamTransport.Adaptation.EcnMode
+Agash.StreamTransport.Adaptation.ScreamCongestionController.OnFeedback(System.ReadOnlySpan<Agash.StreamTransport.Adaptation.PacketObservation> observations, System.TimeSpan? roundTrip, System.TimeSpan now) -> Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.ScreamCongestionController.OnMediaFrame(int bytes, System.TimeSpan queueDelay, System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.ScreamCongestionController.OnPacketSent(in Agash.StreamTransport.Adaptation.SentPacket packet) -> void
+Agash.StreamTransport.Adaptation.ScreamCongestionController.OnPathChanged(System.TimeSpan? roundTrip, System.TimeSpan now) -> void
+Agash.StreamTransport.Adaptation.ScreamCongestionController.OnTick(System.TimeSpan now) -> Agash.StreamTransport.Adaptation.CapacityEstimate
+Agash.StreamTransport.Adaptation.ScreamCongestionController.QueueDelayTarget.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.ScreamCongestionController.ReferenceWindow.get -> double
+Agash.StreamTransport.Adaptation.ScreamCongestionController.ScreamCongestionController(Agash.StreamTransport.Adaptation.ScreamOptions? options = null, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.Adaptation.ScreamCongestionController!>? logger = null) -> void
+Agash.StreamTransport.Adaptation.ScreamCongestionController.UseEcn(Agash.StreamTransport.Adaptation.EcnCodepoint codepoint) -> void
+Agash.StreamTransport.Adaptation.ScreamOptions
+Agash.StreamTransport.Adaptation.ScreamOptions.CompetingFlowCompensation.get -> bool
+Agash.StreamTransport.Adaptation.ScreamOptions.CompetingFlowCompensation.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.Ecn.get -> Agash.StreamTransport.Adaptation.EcnMode
+Agash.StreamTransport.Adaptation.ScreamOptions.Ecn.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.EcnBeta.get -> double
+Agash.StreamTransport.Adaptation.ScreamOptions.EcnBeta.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.LossBeta.get -> double
+Agash.StreamTransport.Adaptation.ScreamOptions.LossBeta.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.LossRateThreshold.get -> double
+Agash.StreamTransport.Adaptation.ScreamOptions.LossRateThreshold.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.MaxBitrateBps.get -> long
+Agash.StreamTransport.Adaptation.ScreamOptions.MaxBitrateBps.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.MaxRelaxedPacingFactor.get -> double
+Agash.StreamTransport.Adaptation.ScreamOptions.MaxRelaxedPacingFactor.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.MaxSegmentSize.get -> int
+Agash.StreamTransport.Adaptation.ScreamOptions.MaxSegmentSize.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.MinBitrateBps.get -> long
+Agash.StreamTransport.Adaptation.ScreamOptions.MinBitrateBps.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.MinReferenceWindow.get -> int
+Agash.StreamTransport.Adaptation.ScreamOptions.MinReferenceWindow.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.MultiplicativeIncreaseFactor.get -> double
+Agash.StreamTransport.Adaptation.ScreamOptions.MultiplicativeIncreaseFactor.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.PacingHeadroom.get -> double
+Agash.StreamTransport.Adaptation.ScreamOptions.PacingHeadroom.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.PostCongestionDelayRtts.get -> int
+Agash.StreamTransport.Adaptation.ScreamOptions.PostCongestionDelayRtts.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.QueueDelayTargetMaxMs.get -> int
+Agash.StreamTransport.Adaptation.ScreamOptions.QueueDelayTargetMaxMs.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.QueueDelayTargetMs.get -> int
+Agash.StreamTransport.Adaptation.ScreamOptions.QueueDelayTargetMs.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.ReduceJitter.get -> bool
+Agash.StreamTransport.Adaptation.ScreamOptions.ReduceJitter.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.ScreamOptions() -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.StartBitrateBps.get -> long
+Agash.StreamTransport.Adaptation.ScreamOptions.StartBitrateBps.set -> void
+Agash.StreamTransport.Adaptation.ScreamOptions.VirtualRttMs.get -> int
+Agash.StreamTransport.Adaptation.ScreamOptions.VirtualRttMs.set -> void
+Agash.StreamTransport.Adaptation.SentPacket
+Agash.StreamTransport.Adaptation.SentPacket.Class.get -> Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.SentPacket.Class.init -> void
+Agash.StreamTransport.Adaptation.SentPacket.Deconstruct(out long Id, out int Size, out System.TimeSpan SentAt, out Agash.StreamTransport.Adaptation.TrafficClass Class) -> void
+Agash.StreamTransport.Adaptation.SentPacket.Equals(Agash.StreamTransport.Adaptation.SentPacket other) -> bool
+Agash.StreamTransport.Adaptation.SentPacket.Id.get -> long
+Agash.StreamTransport.Adaptation.SentPacket.Id.init -> void
+Agash.StreamTransport.Adaptation.SentPacket.SentAt.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.SentPacket.SentAt.init -> void
+Agash.StreamTransport.Adaptation.SentPacket.SentPacket() -> void
+Agash.StreamTransport.Adaptation.SentPacket.SentPacket(long Id, int Size, System.TimeSpan SentAt, Agash.StreamTransport.Adaptation.TrafficClass Class) -> void
+Agash.StreamTransport.Adaptation.SentPacket.Size.get -> int
+Agash.StreamTransport.Adaptation.SentPacket.Size.init -> void
+Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.TrafficClass.Audio = 0 -> Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.TrafficClass.Probe = 4 -> Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.TrafficClass.Repair = 3 -> Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.TrafficClass.Retransmission = 1 -> Agash.StreamTransport.Adaptation.TrafficClass
+Agash.StreamTransport.Adaptation.TrafficClass.Video = 2 -> Agash.StreamTransport.Adaptation.TrafficClass
+const Agash.StreamTransport.Adaptation.PathMtuDiscovery.BlackHoleThreshold = 3 -> int
+override Agash.StreamTransport.Adaptation.CapacityEstimate.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.PacedPacket.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.PacketObservation.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.PacketReport.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.PathMtuOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Adaptation.PathMtuOptions.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.PathMtuOptions.ToString() -> string!
+override Agash.StreamTransport.Adaptation.RecoveryInputs.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.RecoveryPlan.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.ToString() -> string!
+override Agash.StreamTransport.Adaptation.SentPacket.GetHashCode() -> int
+static Agash.StreamTransport.Adaptation.CapacityEstimate.operator !=(Agash.StreamTransport.Adaptation.CapacityEstimate left, Agash.StreamTransport.Adaptation.CapacityEstimate right) -> bool
+static Agash.StreamTransport.Adaptation.CapacityEstimate.operator ==(Agash.StreamTransport.Adaptation.CapacityEstimate left, Agash.StreamTransport.Adaptation.CapacityEstimate right) -> bool
+static Agash.StreamTransport.Adaptation.PacedPacket.operator !=(Agash.StreamTransport.Adaptation.PacedPacket left, Agash.StreamTransport.Adaptation.PacedPacket right) -> bool
+static Agash.StreamTransport.Adaptation.PacedPacket.operator ==(Agash.StreamTransport.Adaptation.PacedPacket left, Agash.StreamTransport.Adaptation.PacedPacket right) -> bool
+static Agash.StreamTransport.Adaptation.PacketObservation.operator !=(Agash.StreamTransport.Adaptation.PacketObservation left, Agash.StreamTransport.Adaptation.PacketObservation right) -> bool
+static Agash.StreamTransport.Adaptation.PacketObservation.operator ==(Agash.StreamTransport.Adaptation.PacketObservation left, Agash.StreamTransport.Adaptation.PacketObservation right) -> bool
+static Agash.StreamTransport.Adaptation.PacketReport.operator !=(Agash.StreamTransport.Adaptation.PacketReport left, Agash.StreamTransport.Adaptation.PacketReport right) -> bool
+static Agash.StreamTransport.Adaptation.PacketReport.operator ==(Agash.StreamTransport.Adaptation.PacketReport left, Agash.StreamTransport.Adaptation.PacketReport right) -> bool
+static Agash.StreamTransport.Adaptation.PathMtuOptions.operator !=(Agash.StreamTransport.Adaptation.PathMtuOptions? left, Agash.StreamTransport.Adaptation.PathMtuOptions? right) -> bool
+static Agash.StreamTransport.Adaptation.PathMtuOptions.operator ==(Agash.StreamTransport.Adaptation.PathMtuOptions? left, Agash.StreamTransport.Adaptation.PathMtuOptions? right) -> bool
+static Agash.StreamTransport.Adaptation.RecoveryInputs.operator !=(Agash.StreamTransport.Adaptation.RecoveryInputs left, Agash.StreamTransport.Adaptation.RecoveryInputs right) -> bool
+static Agash.StreamTransport.Adaptation.RecoveryInputs.operator ==(Agash.StreamTransport.Adaptation.RecoveryInputs left, Agash.StreamTransport.Adaptation.RecoveryInputs right) -> bool
+static Agash.StreamTransport.Adaptation.RecoveryPlan.operator !=(Agash.StreamTransport.Adaptation.RecoveryPlan left, Agash.StreamTransport.Adaptation.RecoveryPlan right) -> bool
+static Agash.StreamTransport.Adaptation.RecoveryPlan.operator ==(Agash.StreamTransport.Adaptation.RecoveryPlan left, Agash.StreamTransport.Adaptation.RecoveryPlan right) -> bool
+static Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.operator !=(Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? left, Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? right) -> bool
+static Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.operator ==(Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? left, Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? right) -> bool
+static Agash.StreamTransport.Adaptation.SentPacket.operator !=(Agash.StreamTransport.Adaptation.SentPacket left, Agash.StreamTransport.Adaptation.SentPacket right) -> bool
+static Agash.StreamTransport.Adaptation.SentPacket.operator ==(Agash.StreamTransport.Adaptation.SentPacket left, Agash.StreamTransport.Adaptation.SentPacket right) -> bool

@@ -1,0 +1,362 @@
+#nullable enable
+~override Agash.StreamTransport.MediaSessionStatistics.Equals(object obj) -> bool
+~override Agash.StreamTransport.MediaSessionStatistics.ToString() -> string
+~override Agash.StreamTransport.PublishedSession.Equals(object obj) -> bool
+~override Agash.StreamTransport.PublishedSession.ToString() -> string
+~override Agash.StreamTransport.TestSignal.TestSignalMeasurement.Equals(object obj) -> bool
+Agash.StreamTransport.Http.HttpMediaSession
+Agash.StreamTransport.Http.HttpMediaSession.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.Http.HttpMediaSession.Resource.get -> System.Uri?
+Agash.StreamTransport.Http.HttpMediaSession.Session.get -> Agash.StreamTransport.IMediaSession!
+Agash.StreamTransport.Http.HttpSignalingOptions
+Agash.StreamTransport.Http.HttpSignalingOptions.<Clone>$() -> Agash.StreamTransport.Http.HttpSignalingOptions!
+Agash.StreamTransport.Http.HttpSignalingOptions.BearerToken.get -> string?
+Agash.StreamTransport.Http.HttpSignalingOptions.BearerToken.init -> void
+Agash.StreamTransport.Http.HttpSignalingOptions.Equals(Agash.StreamTransport.Http.HttpSignalingOptions? other) -> bool
+Agash.StreamTransport.Http.HttpSignalingOptions.HttpClient.get -> System.Net.Http.HttpClient?
+Agash.StreamTransport.Http.HttpSignalingOptions.HttpClient.init -> void
+Agash.StreamTransport.Http.HttpSignalingOptions.HttpSignalingOptions() -> void
+Agash.StreamTransport.Http.HttpSignalingOptions.Timeout.get -> System.TimeSpan
+Agash.StreamTransport.Http.HttpSignalingOptions.Timeout.init -> void
+Agash.StreamTransport.Http.HttpSignalingOptions.TimeProvider.get -> System.TimeProvider?
+Agash.StreamTransport.Http.HttpSignalingOptions.TimeProvider.init -> void
+Agash.StreamTransport.Http.IceServerLinks
+Agash.StreamTransport.Http.TrickleIceFragment
+Agash.StreamTransport.Http.TrickleIceFragment.<Clone>$() -> Agash.StreamTransport.Http.TrickleIceFragment!
+Agash.StreamTransport.Http.TrickleIceFragment.ApplyTo(string! sdp) -> string!
+Agash.StreamTransport.Http.TrickleIceFragment.Candidates.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.Http.TrickleIceFragment.Candidates.init -> void
+Agash.StreamTransport.Http.TrickleIceFragment.Deconstruct(out string? UsernameFragment, out string? Password, out string! MediaLine, out string? Mid, out System.Collections.Generic.IReadOnlyList<string!>! Candidates, out bool EndOfCandidates) -> void
+Agash.StreamTransport.Http.TrickleIceFragment.EndOfCandidates.get -> bool
+Agash.StreamTransport.Http.TrickleIceFragment.EndOfCandidates.init -> void
+Agash.StreamTransport.Http.TrickleIceFragment.Equals(Agash.StreamTransport.Http.TrickleIceFragment? other) -> bool
+Agash.StreamTransport.Http.TrickleIceFragment.Format() -> string!
+Agash.StreamTransport.Http.TrickleIceFragment.MediaLine.get -> string!
+Agash.StreamTransport.Http.TrickleIceFragment.MediaLine.init -> void
+Agash.StreamTransport.Http.TrickleIceFragment.Mid.get -> string?
+Agash.StreamTransport.Http.TrickleIceFragment.Mid.init -> void
+Agash.StreamTransport.Http.TrickleIceFragment.Password.get -> string?
+Agash.StreamTransport.Http.TrickleIceFragment.Password.init -> void
+Agash.StreamTransport.Http.TrickleIceFragment.TrickleIceFragment(string? UsernameFragment, string? Password, string! MediaLine, string? Mid, System.Collections.Generic.IReadOnlyList<string!>! Candidates, bool EndOfCandidates = false) -> void
+Agash.StreamTransport.Http.TrickleIceFragment.UsernameFragment.get -> string?
+Agash.StreamTransport.Http.TrickleIceFragment.UsernameFragment.init -> void
+Agash.StreamTransport.Http.WhepClient
+Agash.StreamTransport.Http.WhipClient
+Agash.StreamTransport.IMediaSession
+Agash.StreamTransport.IMediaSession.AudioOutputOffset.get -> System.TimeSpan?
+Agash.StreamTransport.IMediaSession.AudioOutputOffset.set -> void
+Agash.StreamTransport.IMediaSession.CircuitBreakerChanged -> System.Action<Agash.StreamTransport.Adaptation.CircuitBreakerState>?
+Agash.StreamTransport.IMediaSession.Connected.get -> System.Threading.Tasks.Task!
+Agash.StreamTransport.IMediaSession.RestartTransportAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.IMediaSession.Route.get -> Agash.StreamTransport.MediaRoute?
+Agash.StreamTransport.IMediaSession.StartAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.IMediaSession.State.get -> Agash.StreamTransport.TransportState
+Agash.StreamTransport.IMediaSession.StateChanged -> System.Action<Agash.StreamTransport.TransportState>?
+Agash.StreamTransport.IMediaSession.Statistics.get -> Agash.StreamTransport.MediaSessionStatistics
+Agash.StreamTransport.IMediaSession.Transport.get -> Agash.StreamTransport.TransportStatistics
+Agash.StreamTransport.IMediaSession.TryResumeTransmission() -> bool
+Agash.StreamTransport.IMediaSession.VideoFrameTimed -> System.Action<Agash.StreamTransport.VideoFrameTimingReport!>?
+Agash.StreamTransport.IMediaSessionFactory
+Agash.StreamTransport.IMediaSessionFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options) -> Agash.StreamTransport.IMediaSession!
+Agash.StreamTransport.MediaCodecRegistry
+Agash.StreamTransport.MediaCodecRegistry.CanDecode(Agash.StreamTransport.Media.AudioCodecId codec) -> bool
+Agash.StreamTransport.MediaCodecRegistry.CanDecode(Agash.StreamTransport.Media.VideoCodecId codec) -> bool
+Agash.StreamTransport.MediaCodecRegistry.CanDecodeAlphaLayer(Agash.StreamTransport.Media.VideoCodecId codec) -> bool
+Agash.StreamTransport.MediaCodecRegistry.CanEncode(Agash.StreamTransport.Media.AudioCodecId codec) -> bool
+Agash.StreamTransport.MediaCodecRegistry.CanEncode(Agash.StreamTransport.Media.VideoCodecId codec) -> bool
+Agash.StreamTransport.MediaCodecRegistry.CanEncodeAlphaLayer(Agash.StreamTransport.Media.VideoCodecId codec) -> bool
+Agash.StreamTransport.MediaCodecRegistry.MediaCodecRegistry(System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IVideoEncoderFactory!>! videoEncoders, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IVideoDecoderFactory!>! videoDecoders, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IVideoProcessorFactory!>! videoProcessors, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IAudioEncoderFactory!>! audioEncoders, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IAudioDecoderFactory!>! audioDecoders, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.MediaCodecRegistry!>? logger = null) -> void
+Agash.StreamTransport.MediaCodecRegistry.QueryAudioEncoder(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.AudioEncoderInfo?
+Agash.StreamTransport.MediaCodecRegistry.QueryVideoEncoder(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.GpuIdentity? device, System.Collections.Generic.IReadOnlySet<string!>? refused = null, Agash.StreamTransport.Media.AlphaLayout alpha = Agash.StreamTransport.Media.AlphaLayout.None) -> Agash.StreamTransport.Media.VideoEncoderInfo?
+Agash.StreamTransport.MediaCodecRegistry.TryCreateAudioDecoder(Agash.StreamTransport.Media.AudioCodecFormat! format, out Agash.StreamTransport.Media.IAudioDecoder? decoder) -> bool
+Agash.StreamTransport.MediaCodecRegistry.TryCreateAudioEncoder(Agash.StreamTransport.Media.AudioEncoderConfiguration! configuration, out Agash.StreamTransport.Media.IAudioEncoder? encoder) -> bool
+Agash.StreamTransport.MediaCodecRegistry.TryCreateVideoDecoder(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.VideoConstraints! output, out Agash.StreamTransport.Media.IVideoDecoder? decoder, Agash.StreamTransport.Media.AlphaLayout alpha = Agash.StreamTransport.Media.AlphaLayout.None) -> bool
+Agash.StreamTransport.MediaCodecRegistry.TryCreateVideoEncoder(Agash.StreamTransport.Media.VideoEncoderConfiguration! configuration, Agash.StreamTransport.Media.GpuIdentity? device, out Agash.StreamTransport.Media.IVideoEncoder? encoder, System.Collections.Generic.IReadOnlySet<string!>? refused = null) -> bool
+Agash.StreamTransport.MediaCodecRegistry.TryCreateVideoProcessor(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing, out Agash.StreamTransport.Media.IVideoProcessor? processor) -> bool
+Agash.StreamTransport.MediaDevices
+Agash.StreamTransport.MediaDevices.AudioOutputProviders.get -> System.Collections.Immutable.ImmutableArray<string!>
+Agash.StreamTransport.MediaDevices.CreateAudioOutputAsync(string? provider, string? name = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Media.IAudioOutput!>!
+Agash.StreamTransport.MediaDevices.CreateVideoOutputAsync(string? provider, string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Media.IVideoOutput!>!
+Agash.StreamTransport.MediaDevices.GetAudioInputsAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>!
+Agash.StreamTransport.MediaDevices.GetVideoInputsAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>!
+Agash.StreamTransport.MediaDevices.MediaDevices(System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IVideoInputProvider!>! videoInputs, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IAudioInputProvider!>! audioInputs, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IVideoOutputProvider!>! videoOutputs, System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.IAudioOutputProvider!>! audioOutputs, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.MediaDevices!>? logger = null) -> void
+Agash.StreamTransport.MediaDevices.OpenAudioInputAsync(string! spec, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Media.IAudioInput!>!
+Agash.StreamTransport.MediaDevices.OpenVideoInputAsync(string! spec, Agash.StreamTransport.Media.VideoInputRequest? request = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Media.IVideoInput!>!
+Agash.StreamTransport.MediaDevices.VideoOutputProviders.get -> System.Collections.Immutable.ImmutableArray<string!>
+Agash.StreamTransport.MediaEndpoints
+Agash.StreamTransport.MediaEndpoints.<Clone>$() -> Agash.StreamTransport.MediaEndpoints!
+Agash.StreamTransport.MediaEndpoints.AudioSink.get -> Agash.StreamTransport.Media.IAudioSink?
+Agash.StreamTransport.MediaEndpoints.AudioSink.init -> void
+Agash.StreamTransport.MediaEndpoints.AudioSource.get -> Agash.StreamTransport.Media.IAudioSource?
+Agash.StreamTransport.MediaEndpoints.AudioSource.init -> void
+Agash.StreamTransport.MediaEndpoints.Equals(Agash.StreamTransport.MediaEndpoints? other) -> bool
+Agash.StreamTransport.MediaEndpoints.HasAudio.get -> bool
+Agash.StreamTransport.MediaEndpoints.HasVideo.get -> bool
+Agash.StreamTransport.MediaEndpoints.MediaEndpoints() -> void
+Agash.StreamTransport.MediaEndpoints.VideoSink.get -> Agash.StreamTransport.Media.IVideoSink?
+Agash.StreamTransport.MediaEndpoints.VideoSink.init -> void
+Agash.StreamTransport.MediaEndpoints.VideoSource.get -> Agash.StreamTransport.Media.IVideoSource?
+Agash.StreamTransport.MediaEndpoints.VideoSource.init -> void
+Agash.StreamTransport.MediaProfile
+Agash.StreamTransport.MediaProfile.AvatarTransparent = 3 -> Agash.StreamTransport.MediaProfile
+Agash.StreamTransport.MediaProfile.InteractiveP2P = 0 -> Agash.StreamTransport.MediaProfile
+Agash.StreamTransport.MediaProfile.IrlContribution = 2 -> Agash.StreamTransport.MediaProfile
+Agash.StreamTransport.MediaProfile.ScreenShare = 1 -> Agash.StreamTransport.MediaProfile
+Agash.StreamTransport.MediaPublisher
+Agash.StreamTransport.MediaPublisher.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.MediaPublisher.MediaPublisher(Agash.StreamTransport.IMediaRoom! room, Agash.StreamTransport.IMediaSessionFactory! sessions, Agash.StreamTransport.MediaEndpoints! sources, Agash.StreamTransport.MediaSessionOptions! options, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.MediaPublisher!>? logger = null) -> void
+Agash.StreamTransport.MediaPublisher.Sessions.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PublishedSession>!
+Agash.StreamTransport.MediaPublisher.Start() -> void
+Agash.StreamTransport.MediaSessionOptions
+Agash.StreamTransport.MediaSessionOptions.<Clone>$() -> Agash.StreamTransport.MediaSessionOptions!
+Agash.StreamTransport.MediaSessionOptions.Alpha.get -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.MediaSessionOptions.Alpha.init -> void
+Agash.StreamTransport.MediaSessionOptions.AudioBitsPerSecond.get -> int
+Agash.StreamTransport.MediaSessionOptions.AudioBitsPerSecond.init -> void
+Agash.StreamTransport.MediaSessionOptions.AudioCodecs.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecId>
+Agash.StreamTransport.MediaSessionOptions.AudioCodecs.init -> void
+Agash.StreamTransport.MediaSessionOptions.AudioContent.get -> Agash.StreamTransport.Media.AudioContent
+Agash.StreamTransport.MediaSessionOptions.AudioContent.init -> void
+Agash.StreamTransport.MediaSessionOptions.AudioExpectedLossPercent.get -> int
+Agash.StreamTransport.MediaSessionOptions.AudioExpectedLossPercent.init -> void
+Agash.StreamTransport.MediaSessionOptions.Equals(Agash.StreamTransport.MediaSessionOptions? other) -> bool
+Agash.StreamTransport.MediaSessionOptions.KeyframeInterval.get -> System.TimeSpan
+Agash.StreamTransport.MediaSessionOptions.KeyframeInterval.init -> void
+Agash.StreamTransport.MediaSessionOptions.MaxFrameRate.get -> double?
+Agash.StreamTransport.MediaSessionOptions.MaxFrameRate.init -> void
+Agash.StreamTransport.MediaSessionOptions.MaxPlayoutDelay.get -> System.TimeSpan
+Agash.StreamTransport.MediaSessionOptions.MaxPlayoutDelay.init -> void
+Agash.StreamTransport.MediaSessionOptions.MediaSessionOptions() -> void
+Agash.StreamTransport.MediaSessionOptions.MinPlayoutDelay.get -> System.TimeSpan
+Agash.StreamTransport.MediaSessionOptions.MinPlayoutDelay.init -> void
+Agash.StreamTransport.MediaSessionOptions.Playout.get -> Agash.StreamTransport.PlayoutMode
+Agash.StreamTransport.MediaSessionOptions.Playout.init -> void
+Agash.StreamTransport.MediaSessionOptions.PlayoutMargin.get -> System.TimeSpan
+Agash.StreamTransport.MediaSessionOptions.PlayoutMargin.init -> void
+Agash.StreamTransport.MediaSessionOptions.Profile.get -> Agash.StreamTransport.MediaProfile
+Agash.StreamTransport.MediaSessionOptions.Profile.init -> void
+Agash.StreamTransport.MediaSessionOptions.Transport.get -> Agash.StreamTransport.MediaTransportOptions!
+Agash.StreamTransport.MediaSessionOptions.Transport.init -> void
+Agash.StreamTransport.MediaSessionOptions.VideoCodecs.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecId>
+Agash.StreamTransport.MediaSessionOptions.VideoCodecs.init -> void
+Agash.StreamTransport.MediaSessionOptions.VideoTuning.get -> Agash.StreamTransport.Media.EncodeTuning
+Agash.StreamTransport.MediaSessionOptions.VideoTuning.init -> void
+Agash.StreamTransport.MediaSessionStatistics
+Agash.StreamTransport.MediaSessionStatistics.AudioConcealed.get -> int
+Agash.StreamTransport.MediaSessionStatistics.AudioConcealed.init -> void
+Agash.StreamTransport.MediaSessionStatistics.AudioFramesDecoded.get -> int
+Agash.StreamTransport.MediaSessionStatistics.AudioFramesDecoded.init -> void
+Agash.StreamTransport.MediaSessionStatistics.AudioFramesSent.get -> int
+Agash.StreamTransport.MediaSessionStatistics.AudioFramesSent.init -> void
+Agash.StreamTransport.MediaSessionStatistics.AudioRecovered.get -> int
+Agash.StreamTransport.MediaSessionStatistics.AudioRecovered.init -> void
+Agash.StreamTransport.MediaSessionStatistics.AvSyncOffset.get -> System.TimeSpan?
+Agash.StreamTransport.MediaSessionStatistics.AvSyncOffset.init -> void
+Agash.StreamTransport.MediaSessionStatistics.Deconstruct(out int VideoFramesSent, out int AudioFramesSent, out int AudioFramesDecoded, out int VideoFramesDropped, out int VideoFramesDecoded, out int VideoFramesFailed, out int VideoFramesSkipped, out int AudioConcealed, out int AudioRecovered, out System.TimeSpan PlayoutDelay, out System.TimeSpan? AvSyncOffset) -> void
+Agash.StreamTransport.MediaSessionStatistics.Equals(Agash.StreamTransport.MediaSessionStatistics other) -> bool
+Agash.StreamTransport.MediaSessionStatistics.MediaSessionStatistics() -> void
+Agash.StreamTransport.MediaSessionStatistics.MediaSessionStatistics(int VideoFramesSent, int AudioFramesSent, int AudioFramesDecoded, int VideoFramesDropped, int VideoFramesDecoded, int VideoFramesFailed, int VideoFramesSkipped, int AudioConcealed, int AudioRecovered, System.TimeSpan PlayoutDelay, System.TimeSpan? AvSyncOffset) -> void
+Agash.StreamTransport.MediaSessionStatistics.PlayoutDelay.get -> System.TimeSpan
+Agash.StreamTransport.MediaSessionStatistics.PlayoutDelay.init -> void
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesDecoded.get -> int
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesDecoded.init -> void
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesDropped.get -> int
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesDropped.init -> void
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesFailed.get -> int
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesFailed.init -> void
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesSent.get -> int
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesSent.init -> void
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesSkipped.get -> int
+Agash.StreamTransport.MediaSessionStatistics.VideoFramesSkipped.init -> void
+Agash.StreamTransport.MediaSubscriber
+Agash.StreamTransport.MediaSubscriber.AudioOutputOffset.get -> System.TimeSpan?
+Agash.StreamTransport.MediaSubscriber.AudioOutputOffset.set -> void
+Agash.StreamTransport.MediaSubscriber.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.MediaSubscriber.MediaSubscriber(Agash.StreamTransport.IMediaRoom! room, Agash.StreamTransport.IMediaSessionFactory! sessions, Agash.StreamTransport.MediaEndpoints! sinks, Agash.StreamTransport.MediaSessionOptions! options, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.MediaSubscriber!>? logger = null) -> void
+Agash.StreamTransport.MediaSubscriber.Session.get -> Agash.StreamTransport.IMediaSession?
+Agash.StreamTransport.MediaSubscriber.SessionStarted -> System.Action<Agash.StreamTransport.IMediaSession!>?
+Agash.StreamTransport.MediaSubscriber.Start() -> void
+Agash.StreamTransport.PlayoutMode
+Agash.StreamTransport.PlayoutMode.OnArrival = 0 -> Agash.StreamTransport.PlayoutMode
+Agash.StreamTransport.PlayoutMode.Synced = 1 -> Agash.StreamTransport.PlayoutMode
+Agash.StreamTransport.PublishedSession
+Agash.StreamTransport.PublishedSession.Deconstruct(out Agash.StreamTransport.PeerId Peer, out Agash.StreamTransport.IMediaSession! Session) -> void
+Agash.StreamTransport.PublishedSession.Equals(Agash.StreamTransport.PublishedSession other) -> bool
+Agash.StreamTransport.PublishedSession.Peer.get -> Agash.StreamTransport.PeerId
+Agash.StreamTransport.PublishedSession.Peer.init -> void
+Agash.StreamTransport.PublishedSession.PublishedSession() -> void
+Agash.StreamTransport.PublishedSession.PublishedSession(Agash.StreamTransport.PeerId Peer, Agash.StreamTransport.IMediaSession! Session) -> void
+Agash.StreamTransport.PublishedSession.Session.get -> Agash.StreamTransport.IMediaSession!
+Agash.StreamTransport.PublishedSession.Session.init -> void
+Agash.StreamTransport.RoomClient
+Agash.StreamTransport.RoomClient.ChannelFor(Agash.StreamTransport.PeerId peer) -> Agash.StreamTransport.ISignalingChannel!
+Agash.StreamTransport.RoomClient.ControlReceived -> System.Action<Agash.StreamTransport.PeerControlMessage!>?
+Agash.StreamTransport.RoomClient.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.RoomClient.IceServers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
+Agash.StreamTransport.RoomClient.PeerJoined -> System.Action<Agash.StreamTransport.PeerInfo>?
+Agash.StreamTransport.RoomClient.PeerLeft -> System.Action<Agash.StreamTransport.PeerId>?
+Agash.StreamTransport.RoomClient.Peers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PeerInfo>!
+Agash.StreamTransport.RoomClient.Self.get -> Agash.StreamTransport.PeerId
+Agash.StreamTransport.RoomClient.SendControlAsync(string! topic, string! payload, Agash.StreamTransport.PeerId? to = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.RoomClient.State.get -> Agash.StreamTransport.RoomState!
+Agash.StreamTransport.ServiceCollectionExtensions
+Agash.StreamTransport.Sessions.MediaSessionFactory
+Agash.StreamTransport.Sessions.MediaSessionFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options) -> Agash.StreamTransport.IMediaSession!
+Agash.StreamTransport.Sessions.MediaSessionFactory.Dispose() -> void
+Agash.StreamTransport.Sessions.MediaSessionFactory.MediaSessionFactory(Agash.StreamTransport.MediaCodecRegistry! codecs, Agash.StreamTransport.IMediaTransportFactory! transports, System.TimeProvider! timeProvider, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
+Agash.StreamTransport.StreamTransportDiagnostics
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Measure() -> Agash.StreamTransport.TestSignal.TestSignalMeasurement
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Reset() -> void
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.TestSignalAnalyzer(System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapAudio(Agash.StreamTransport.Media.IAudioSink? inner = null) -> Agash.StreamTransport.Media.IAudioSink!
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapVideo(Agash.StreamTransport.Media.IVideoSink? inner = null) -> Agash.StreamTransport.Media.IVideoSink!
+Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider
+Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>
+Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.Name.get -> string!
+Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.OpenAsync(Agash.StreamTransport.Media.AudioInputInfo! input, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioInput!>
+Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.Rank.get -> int
+Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.TestSignalAudioInputProvider(Agash.StreamTransport.TestSignal.TestSignalGenerator! generator) -> void
+Agash.StreamTransport.TestSignal.TestSignalGenerator
+Agash.StreamTransport.TestSignal.TestSignalGenerator.Clock.get -> Agash.StreamTransport.Media.MediaClock!
+Agash.StreamTransport.TestSignal.TestSignalGenerator.Draw(System.Span<byte> luma, System.Span<byte> chroma, Agash.StreamTransport.Media.VideoSize size, Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> void
+Agash.StreamTransport.TestSignal.TestSignalGenerator.IsFlash(Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> bool
+Agash.StreamTransport.TestSignal.TestSignalGenerator.Origin.get -> Agash.StreamTransport.Media.MediaTime
+Agash.StreamTransport.TestSignal.TestSignalGenerator.TestSignalGenerator(System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.TestSignal.TestSignalGenerator.TimeProvider.get -> System.TimeProvider!
+Agash.StreamTransport.TestSignal.TestSignalGenerator.WallOrigin.get -> System.DateTimeOffset
+Agash.StreamTransport.TestSignal.TestSignalGenerator.WallTime(Agash.StreamTransport.Media.MediaTime time) -> System.DateTimeOffset
+Agash.StreamTransport.TestSignal.TestSignalMeasurement
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Deconstruct(out int Pairs, out System.TimeSpan MeanOffset, out System.TimeSpan MinOffset, out System.TimeSpan MaxOffset, out int Frames, out System.TimeSpan MeanLatency, out System.TimeSpan MinLatency, out System.TimeSpan MaxLatency, out int Unreadable) -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Equals(Agash.StreamTransport.TestSignal.TestSignalMeasurement other) -> bool
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Frames.get -> int
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Frames.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MaxLatency.get -> System.TimeSpan
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MaxLatency.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MaxOffset.get -> System.TimeSpan
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MaxOffset.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MeanLatency.get -> System.TimeSpan
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MeanLatency.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MeanOffset.get -> System.TimeSpan
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MeanOffset.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MinLatency.get -> System.TimeSpan
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MinLatency.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MinOffset.get -> System.TimeSpan
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.MinOffset.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Pairs.get -> int
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Pairs.init -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.TestSignalMeasurement() -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.TestSignalMeasurement(int Pairs, System.TimeSpan MeanOffset, System.TimeSpan MinOffset, System.TimeSpan MaxOffset, int Frames, System.TimeSpan MeanLatency, System.TimeSpan MinLatency, System.TimeSpan MaxLatency, int Unreadable) -> void
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Unreadable.get -> int
+Agash.StreamTransport.TestSignal.TestSignalMeasurement.Unreadable.init -> void
+Agash.StreamTransport.TestSignal.TestSignalVideoInputProvider
+Agash.StreamTransport.TestSignal.TestSignalVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.TestSignal.TestSignalVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.TestSignal.TestSignalVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.TestSignal.TestSignalVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.TestSignal.TestSignalVideoInputProvider.TestSignalVideoInputProvider(Agash.StreamTransport.TestSignal.TestSignalGenerator! generator) -> void
+Agash.StreamTransport.VideoFrameTimingReport
+Agash.StreamTransport.VideoFrameTimingReport.<Clone>$() -> Agash.StreamTransport.VideoFrameTimingReport!
+Agash.StreamTransport.VideoFrameTimingReport.Assembly.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.Capture.get -> Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.VideoFrameTimingReport.Capture.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.Decode.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.DecodeFinish.get -> Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.VideoFrameTimingReport.DecodeFinish.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.DecodeStart.get -> Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.VideoFrameTimingReport.DecodeStart.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.Deconstruct(out Agash.StreamTransport.FrameTimingReasons Reasons, out Agash.StreamTransport.Media.NtpTime Capture, out System.TimeSpan EncodeStart, out System.TimeSpan EncodeFinish, out System.TimeSpan PacketizationFinish, out System.TimeSpan PacerExit, out Agash.StreamTransport.Media.NtpTime FirstPacketReceived, out Agash.StreamTransport.Media.NtpTime LastPacketReceived, out Agash.StreamTransport.Media.NtpTime DecodeStart, out Agash.StreamTransport.Media.NtpTime DecodeFinish, out Agash.StreamTransport.Media.NtpTime Presented, out System.TimeSpan? SenderClockOffset) -> void
+Agash.StreamTransport.VideoFrameTimingReport.Encode.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.EncodeFinish.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.EncodeFinish.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.EncodeQueue.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.EncodeStart.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.EncodeStart.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.EndToEnd.get -> System.TimeSpan?
+Agash.StreamTransport.VideoFrameTimingReport.Equals(Agash.StreamTransport.VideoFrameTimingReport? other) -> bool
+Agash.StreamTransport.VideoFrameTimingReport.FirstPacketReceived.get -> Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.VideoFrameTimingReport.FirstPacketReceived.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.LastPacketReceived.get -> Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.VideoFrameTimingReport.LastPacketReceived.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.Network.get -> System.TimeSpan?
+Agash.StreamTransport.VideoFrameTimingReport.Pacer.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.PacerExit.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.PacerExit.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.PacketizationFinish.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.PacketizationFinish.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.Packetize.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.Playout.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.Presented.get -> Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.VideoFrameTimingReport.Presented.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.Reasons.get -> Agash.StreamTransport.FrameTimingReasons
+Agash.StreamTransport.VideoFrameTimingReport.Reasons.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.Receive.get -> System.TimeSpan
+Agash.StreamTransport.VideoFrameTimingReport.SenderClockOffset.get -> System.TimeSpan?
+Agash.StreamTransport.VideoFrameTimingReport.SenderClockOffset.init -> void
+Agash.StreamTransport.VideoFrameTimingReport.VideoFrameTimingReport(Agash.StreamTransport.FrameTimingReasons Reasons, Agash.StreamTransport.Media.NtpTime Capture, System.TimeSpan EncodeStart, System.TimeSpan EncodeFinish, System.TimeSpan PacketizationFinish, System.TimeSpan PacerExit, Agash.StreamTransport.Media.NtpTime FirstPacketReceived, Agash.StreamTransport.Media.NtpTime LastPacketReceived, Agash.StreamTransport.Media.NtpTime DecodeStart, Agash.StreamTransport.Media.NtpTime DecodeFinish, Agash.StreamTransport.Media.NtpTime Presented, System.TimeSpan? SenderClockOffset) -> void
+Agash.StreamTransport.VideoRouteExtensions
+Agash.StreamTransport.WebSocketSignalingChannel
+Agash.StreamTransport.WebSocketSignalingChannel.DescriptionReceived -> System.Func<Agash.StreamTransport.SessionDescription, System.Threading.Tasks.Task!>?
+Agash.StreamTransport.WebSocketSignalingChannel.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebSocketSignalingChannel.IceCandidateReceived -> System.Func<Agash.StreamTransport.IceCandidateInit, System.Threading.Tasks.Task!>?
+Agash.StreamTransport.WebSocketSignalingChannel.RunAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.WebSocketSignalingChannel.SendAsync(Agash.StreamTransport.IceCandidateInit candidate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.WebSocketSignalingChannel.SendAsync(Agash.StreamTransport.SessionDescription description, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.WebSocketSignalingChannel.WebSocketSignalingChannel(System.Net.WebSockets.WebSocket! socket) -> void
+const Agash.StreamTransport.Http.TrickleIceFragment.DefaultMediaLine = "audio 9 RTP/AVP 0" -> string!
+const Agash.StreamTransport.Http.TrickleIceFragment.MediaType = "application/trickle-ice-sdpfrag" -> string!
+const Agash.StreamTransport.StreamTransportDiagnostics.ActivitySourceName = "Agash.StreamTransport" -> string!
+const Agash.StreamTransport.StreamTransportDiagnostics.MeterName = "Agash.StreamTransport" -> string!
+const Agash.StreamTransport.TestSignal.TestSignalGenerator.BarcodeBits = 40 -> int
+const Agash.StreamTransport.TestSignal.TestSignalGenerator.ClickHertz = 1000 -> double
+override Agash.StreamTransport.Http.HttpSignalingOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Http.HttpSignalingOptions.GetHashCode() -> int
+override Agash.StreamTransport.Http.HttpSignalingOptions.ToString() -> string!
+override Agash.StreamTransport.Http.TrickleIceFragment.Equals(object? obj) -> bool
+override Agash.StreamTransport.Http.TrickleIceFragment.GetHashCode() -> int
+override Agash.StreamTransport.Http.TrickleIceFragment.ToString() -> string!
+override Agash.StreamTransport.MediaEndpoints.Equals(object? obj) -> bool
+override Agash.StreamTransport.MediaEndpoints.GetHashCode() -> int
+override Agash.StreamTransport.MediaEndpoints.ToString() -> string!
+override Agash.StreamTransport.MediaSessionOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.MediaSessionOptions.GetHashCode() -> int
+override Agash.StreamTransport.MediaSessionOptions.ToString() -> string!
+override Agash.StreamTransport.MediaSessionStatistics.GetHashCode() -> int
+override Agash.StreamTransport.PublishedSession.GetHashCode() -> int
+override Agash.StreamTransport.TestSignal.TestSignalMeasurement.GetHashCode() -> int
+override Agash.StreamTransport.TestSignal.TestSignalMeasurement.ToString() -> string!
+override Agash.StreamTransport.VideoFrameTimingReport.Equals(object? obj) -> bool
+override Agash.StreamTransport.VideoFrameTimingReport.GetHashCode() -> int
+override Agash.StreamTransport.VideoFrameTimingReport.ToString() -> string!
+static Agash.StreamTransport.Http.HttpSignalingOptions.operator !=(Agash.StreamTransport.Http.HttpSignalingOptions? left, Agash.StreamTransport.Http.HttpSignalingOptions? right) -> bool
+static Agash.StreamTransport.Http.HttpSignalingOptions.operator ==(Agash.StreamTransport.Http.HttpSignalingOptions? left, Agash.StreamTransport.Http.HttpSignalingOptions? right) -> bool
+static Agash.StreamTransport.Http.IceServerLinks.Format(System.Collections.Generic.IEnumerable<Agash.StreamTransport.IceServer!>! servers) -> System.Collections.Generic.IEnumerable<string!>!
+static Agash.StreamTransport.Http.IceServerLinks.Parse(System.Collections.Generic.IEnumerable<string!>! values) -> System.Collections.Generic.List<Agash.StreamTransport.IceServer!>!
+static Agash.StreamTransport.Http.TrickleIceFragment.ForFirstSection(string! sdp, System.Collections.Generic.IReadOnlyList<string!>! candidates) -> Agash.StreamTransport.Http.TrickleIceFragment!
+static Agash.StreamTransport.Http.TrickleIceFragment.FromFirstSection(string! sdp) -> Agash.StreamTransport.Http.TrickleIceFragment!
+static Agash.StreamTransport.Http.TrickleIceFragment.operator !=(Agash.StreamTransport.Http.TrickleIceFragment? left, Agash.StreamTransport.Http.TrickleIceFragment? right) -> bool
+static Agash.StreamTransport.Http.TrickleIceFragment.operator ==(Agash.StreamTransport.Http.TrickleIceFragment? left, Agash.StreamTransport.Http.TrickleIceFragment? right) -> bool
+static Agash.StreamTransport.Http.TrickleIceFragment.TryParse(string! body, out Agash.StreamTransport.Http.TrickleIceFragment! fragment) -> bool
+static Agash.StreamTransport.Http.WhepClient.PlayAsync(Agash.StreamTransport.IMediaSessionFactory! sessions, System.Uri! endpoint, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options, Agash.StreamTransport.Http.HttpSignalingOptions? signaling = null, Microsoft.Extensions.Logging.ILogger? logger = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Http.HttpMediaSession!>!
+static Agash.StreamTransport.Http.WhipClient.PublishAsync(Agash.StreamTransport.IMediaSessionFactory! sessions, System.Uri! endpoint, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options, Agash.StreamTransport.Http.HttpSignalingOptions? signaling = null, Microsoft.Extensions.Logging.ILogger? logger = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.Http.HttpMediaSession!>!
+static Agash.StreamTransport.MediaEndpoints.operator !=(Agash.StreamTransport.MediaEndpoints? left, Agash.StreamTransport.MediaEndpoints? right) -> bool
+static Agash.StreamTransport.MediaEndpoints.operator ==(Agash.StreamTransport.MediaEndpoints? left, Agash.StreamTransport.MediaEndpoints? right) -> bool
+static Agash.StreamTransport.MediaSessionOptions.For(Agash.StreamTransport.MediaProfile profile) -> Agash.StreamTransport.MediaSessionOptions!
+static Agash.StreamTransport.MediaSessionOptions.operator !=(Agash.StreamTransport.MediaSessionOptions? left, Agash.StreamTransport.MediaSessionOptions? right) -> bool
+static Agash.StreamTransport.MediaSessionOptions.operator ==(Agash.StreamTransport.MediaSessionOptions? left, Agash.StreamTransport.MediaSessionOptions? right) -> bool
+static Agash.StreamTransport.MediaSessionStatistics.operator !=(Agash.StreamTransport.MediaSessionStatistics left, Agash.StreamTransport.MediaSessionStatistics right) -> bool
+static Agash.StreamTransport.MediaSessionStatistics.operator ==(Agash.StreamTransport.MediaSessionStatistics left, Agash.StreamTransport.MediaSessionStatistics right) -> bool
+static Agash.StreamTransport.PublishedSession.operator !=(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
+static Agash.StreamTransport.PublishedSession.operator ==(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
+static Agash.StreamTransport.RoomClient.ConnectAsync(Agash.StreamTransport.IDuplexSignalingTransport! transport, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
+static Agash.StreamTransport.RoomClient.ConnectAsync(System.Uri! relayWebSocketUrl, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
+static Agash.StreamTransport.ServiceCollectionExtensions.AddStreamTransport(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Agash.StreamTransport.TestSignal.TestSignalGenerator.Fill(System.Span<float> samples, int channels, int sampleRate, long firstSample) -> void
+static Agash.StreamTransport.TestSignal.TestSignalGenerator.TryReadBarcode(System.ReadOnlySpan<byte> luma, int stride, Agash.StreamTransport.Media.VideoSize size, System.DateTimeOffset near, out System.DateTimeOffset sent) -> bool
+static Agash.StreamTransport.TestSignal.TestSignalMeasurement.operator !=(Agash.StreamTransport.TestSignal.TestSignalMeasurement left, Agash.StreamTransport.TestSignal.TestSignalMeasurement right) -> bool
+static Agash.StreamTransport.TestSignal.TestSignalMeasurement.operator ==(Agash.StreamTransport.TestSignal.TestSignalMeasurement left, Agash.StreamTransport.TestSignal.TestSignalMeasurement right) -> bool
+static Agash.StreamTransport.VideoFrameTimingReport.operator !=(Agash.StreamTransport.VideoFrameTimingReport? left, Agash.StreamTransport.VideoFrameTimingReport? right) -> bool
+static Agash.StreamTransport.VideoFrameTimingReport.operator ==(Agash.StreamTransport.VideoFrameTimingReport? left, Agash.StreamTransport.VideoFrameTimingReport? right) -> bool
+static Agash.StreamTransport.VideoRouteExtensions.Route(this Agash.StreamTransport.MediaCodecRegistry! registry, Agash.StreamTransport.Media.IVideoSource! source, Agash.StreamTransport.Media.IVideoSink! sink) -> System.IDisposable!
+static readonly Agash.StreamTransport.TestSignal.TestSignalAnalyzer.MaxLatency -> System.TimeSpan
+static readonly Agash.StreamTransport.TestSignal.TestSignalGenerator.ClickLength -> System.TimeSpan
