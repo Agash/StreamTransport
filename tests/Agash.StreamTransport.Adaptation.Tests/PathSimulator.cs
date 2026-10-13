@@ -23,7 +23,6 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
 {
     private const int PacketSize = 1200;
     private static readonly TimeSpan Step = TimeSpan.FromMilliseconds(1);
-    private static readonly TimeSpan FeedbackInterval = TimeSpan.FromMilliseconds(20);
 
     private readonly DeliveryTracker _tracker = new();
     private readonly Random _random = new(seed);
@@ -31,10 +30,12 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
     private readonly List<(long Id, TimeSpan Arrived, bool Ce)> _arrived = [];
     private readonly HashSet<long> _lost = [];
     private readonly List<PacketObservation> _observations = [];
-    private readonly Queue<(TimeSpan Due, PacketReport[] Reports)> _returning = new();
+    private readonly List<(TimeSpan Due, PacketReport[] Reports)> _returning = [];
     private double _sendCredit;
     private double _paceCredit;
     private TimeSpan _linkFree;
+    private TimeSpan _lastDeparture;
+    private TimeSpan _lastReturn;
     private TimeSpan _lastFeedback;
     private long _nextId;
     private long _highestReported;
@@ -47,12 +48,27 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
 
     public TimeSpan BaseDelay { get; set; } = TimeSpan.FromMilliseconds(20);
 
+    // How often the receiver reports: CCFB's 20 ms by default; StreamTransport's receiver reports as often
+    // as every 10 ms.
+    public TimeSpan FeedbackInterval { get; set; } = TimeSpan.FromMilliseconds(20);
+
     public Bottleneck Kind { get; set; } = Bottleneck.TailDrop;
 
     // The deepest queue a tail-drop bottleneck holds.
     public TimeSpan QueueLimit { get; set; } = TimeSpan.FromMilliseconds(300);
 
     public double RandomLoss { get; set; }
+
+    // Each one-way delay varies uniformly by up to this either way, in order, as netem's jitter on a rated
+    // link does: a packet never overtakes the one before it. Feedback on the way back varies the same.
+    public TimeSpan Jitter { get; set; }
+
+    // Whether feedback may overtake earlier feedback on the way back, as netem's jitter without a rate
+    // reorders packets.
+    public bool ReorderFeedback { get; set; }
+
+    // Packets the path really lost, against Lost, which is what the sender concluded.
+    public int TrulyLost => _lost.Count;
 
     // Whether reports carry arrival times; without them only the round trip shows the queue.
     public bool ReportArrivalTimes { get; set; } = true;
@@ -156,7 +172,9 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
             (Kind == Bottleneck.L4sMarking && queued > TimeSpan.FromMilliseconds(2))
             || (Kind == Bottleneck.ClassicMarking && queued > TimeSpan.FromMilliseconds(15));
         _linkFree = start + serialization;
-        _link.Enqueue((id, _linkFree + BaseDelay, ce));
+        TimeSpan departs = _linkFree + BaseDelay + Jittered();
+        _lastDeparture = departs = departs > _lastDeparture ? departs : _lastDeparture;
+        _link.Enqueue((id, departs, ce));
     }
 
     private void Deliver()
@@ -206,17 +224,26 @@ internal sealed class PathSimulator(ScreamCongestionController controller, int s
         _highestReported = Math.Max(_highestReported, highest);
         _arrived.Clear();
         reports.Sort(static (a, b) => a.Id.CompareTo(b.Id));
-        _returning.Enqueue((Now + BaseDelay, [.. reports]));
+        TimeSpan due = Now + BaseDelay + Jittered();
+        if (!ReorderFeedback)
+        {
+            _lastReturn = due = due > _lastReturn ? due : _lastReturn;
+        }
+
+        _returning.Add((due, [.. reports]));
     }
+
+    private TimeSpan Jittered() =>
+        Jitter > TimeSpan.Zero ? Jitter * ((2 * _random.NextDouble()) - 1) : TimeSpan.Zero;
 
     // Reports that have crossed the return path reach the tracker and the controller.
     private void Return()
     {
-        while (
-            _returning.TryPeek(out (TimeSpan Due, PacketReport[] Reports) next) && next.Due <= Now
-        )
+        _returning.Sort(static (a, b) => a.Due.CompareTo(b.Due));
+        while (_returning.Count > 0 && _returning[0].Due <= Now)
         {
-            _ = _returning.Dequeue();
+            (TimeSpan Due, PacketReport[] Reports) next = _returning[0];
+            _returning.RemoveAt(0);
             _observations.Clear();
             TimeSpan? roundTrip = _tracker.OnFeedback(next.Reports, Now, _observations);
             Lost += _observations.Count(static o => o.Outcome == PacketOutcome.Lost);

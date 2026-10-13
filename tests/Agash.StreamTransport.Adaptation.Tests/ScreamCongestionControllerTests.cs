@@ -33,6 +33,34 @@ public sealed class ScreamCongestionControllerTests
         );
     }
 
+    // Delay that varies but loses nothing, as on a cellular or Wi-Fi link, with the feedback reordered or
+    // not on its way back: nothing is taken for loss, and the rate stays near the capacity.
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void JitteryPath_IsNotTakenForLoss_AndKeepsTheRate(bool reorderFeedback)
+    {
+        PathSimulator path = new(new ScreamCongestionController(Options))
+        {
+            CapacityBps = 8_000_000,
+            BaseDelay = TimeSpan.FromMilliseconds(25),
+            Jitter = TimeSpan.FromMilliseconds(8),
+            ReorderFeedback = reorderFeedback,
+            FeedbackInterval = TimeSpan.FromMilliseconds(10),
+        };
+        path.Run(TimeSpan.FromSeconds(20));
+        path.Run(TimeSpan.FromSeconds(10));
+        Report(path);
+
+        Assert.AreEqual(0, path.TrulyLost);
+        Assert.IsLessThan(
+            10,
+            path.Lost,
+            "packets that arrived were declared lost, past the first few"
+        );
+        Assert.IsGreaterThan(0.7 * path.CapacityBps, path.DeliveredBps);
+    }
+
     // A capacity drop: the rate follows it down within seconds and the queue drains.
     [TestMethod]
     public void CapacityDrop_FollowsItDown()
