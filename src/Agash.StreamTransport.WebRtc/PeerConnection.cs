@@ -979,6 +979,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             SrtpProtectionProfiles = [.. SrtpSession.Profiles],
             LoggerFactory = _loggerFactory,
+            TimeProvider = _time,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
                 ClientCertificates = [_certificate.Certificate],
@@ -994,6 +995,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             SrtpProtectionProfiles = [.. SrtpSession.Profiles],
             LoggerFactory = _loggerFactory,
+            TimeProvider = _time,
             CookieExchange = false,
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
