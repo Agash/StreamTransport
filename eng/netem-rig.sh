@@ -6,10 +6,14 @@
 #
 #   eng/netem-rig.sh [--seconds N] [profile ...]
 #
-# Profiles: clean lte jitter loss lossy step bloat l4s (all of them by default). jitter and loss are
-# lte's two halves, to tell which one a result comes from. Linux only; needs root through
+# Profiles: clean lte jitter loss lossy step bloat l4s burst feedback rttspike blackhole mtu (all of them
+# by default). jitter and loss are lte's two halves, to tell which one a result comes from. burst loses in
+# Gilbert-Elliott bursts, feedback loses on the return path only, and rttspike, blackhole and mtu change
+# the link a third of the way in (a 150 ms delay, a 5 s outage, a 1280-byte MTU) and restore it at two
+# thirds, the outage right after it. Linux only; needs root through
 # sudo -n for the namespaces and tc, and runs the processes themselves as the calling user. IPv6 only, as
-# the deployments are. Results go to artifacts/netem/<profile>/.
+# the deployments are. Results go to artifacts/netem/<profile>/; with RIG_CAPTURE=1 the subscriber side's
+# traffic is captured there too (capture.pcap, needs tcpdump), STUN in the clear for reading ICE.
 set -euo pipefail
 
 seconds=60
@@ -21,7 +25,7 @@ while [[ $# -gt 0 ]]; do
     *) profiles+=("$1"); shift ;;
   esac
 done
-[[ ${#profiles[@]} -gt 0 ]] || profiles=(clean lte jitter loss lossy step bloat l4s)
+[[ ${#profiles[@]} -gt 0 ]] || profiles=(clean lte jitter loss lossy step bloat l4s burst feedback rttspike blackhole mtu)
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 out="$repo/artifacts/netem"
@@ -65,11 +69,18 @@ link_up() {
 qdisc() { local ns="$1"; shift; sudo -n ip netns exec "$ns" tc qdisc "$@"; }
 
 # Delay each way, so the round trip is twice the argument; the rate and loss limit the publisher's side,
-# which is the direction media takes.
+# which is the direction media takes. The loss is netem's (a percentage, or "gemodel p r 1-h 1-k" for
+# bursts); the optional return loss drops feedback on the way back.
 shape() {
-  local rate="$1" delay="$2" jitter="$3" loss="$4" limit="${5:-1000}"
-  qdisc "$ns_a" replace dev rig-a root netem rate "$rate" delay "$delay" "$jitter" loss "$loss" limit "$limit"
-  qdisc "$ns_b" replace dev rig-b root netem delay "$delay" "$jitter"
+  local rate="$1" delay="$2" jitter="$3" loss="$4" limit="${5:-1000}" back="${6:-0%}"
+  # shellcheck disable=SC2086 # the loss may be a model with its parameters
+  qdisc "$ns_a" replace dev rig-a root netem rate "$rate" delay "$delay" "$jitter" loss $loss limit "$limit"
+  qdisc "$ns_b" replace dev rig-b root netem delay "$delay" "$jitter" loss "$back"
+}
+
+mtu() {
+  sudo -n ip -n "$ns_a" link set rig-a mtu "$1"
+  sudo -n ip -n "$ns_b" link set rig-b mtu "$1"
 }
 
 # A DualPI2 bottleneck (RFC 9332): the rate is an HTB class the AQM sits under, the delay a netem stage on
@@ -102,9 +113,15 @@ run_profile() {
     step) shape 20mbit 20ms 0ms 0% ;;
     bloat) shape 4mbit 20ms 0ms 0% 2000 ;;
     l4s) shape_l4s 10mbit 15ms ;;
+    burst) shape 8mbit 25ms 0ms "gemodel 0.5% 25% 70% 0%" ;;
+    feedback) shape 8mbit 25ms 0ms 0% 1000 10% ;;
+    rttspike|blackhole|mtu) shape 8mbit 25ms 0ms 0% ;;
     *) echo "unknown profile $profile" >&2; return 1 ;;
   esac
 
+  if [[ "${RIG_CAPTURE:-0}" == 1 ]]; then
+    sudo -n ip netns exec "$ns_b" tcpdump -i rig-b -s 200 -w "$dir/capture.pcap" udp >/dev/null 2>&1 &
+  fi
   as_user "$ns_b" env STREAMTRANSPORT_RELAY_URLS="http://[$addr_b]:8080" \
     "$dotnet" "$bin/relay/StreamTransport.Relay.dll" >"$dir/relay.log" 2>&1 &
   sleep 3
@@ -116,14 +133,26 @@ run_profile() {
   as_user "$ns_b" "$dotnet" "$bin/cli/streamtransport.dll" subscribe --relay "$relay" --room rig \
     --video none --audio none --measure >"$dir/subscriber.log" 2>&1 &
 
-  # The step profile drops the link to an eighth a third of the way in and restores it at two thirds.
-  if [[ "$profile" == step ]]; then
-    sleep $(( seconds / 3 )); shape 2500kbit 20ms 0ms 0%
-    sleep $(( seconds / 3 )); shape 20mbit 20ms 0ms 0%
-    sleep $(( seconds - 2 * (seconds / 3) ))
-  else
-    sleep "$seconds"
-  fi
+  # The changing profiles alter the link a third of the way in and restore it at two thirds; the step
+  # drops it to an eighth.
+  local third=$(( seconds / 3 ))
+  case "$profile" in
+    step)
+      sleep "$third"; shape 2500kbit 20ms 0ms 0%
+      sleep "$third"; shape 20mbit 20ms 0ms 0% ;;
+    rttspike)
+      sleep "$third"; shape 8mbit 75ms 0ms 0%
+      sleep "$third"; shape 8mbit 25ms 0ms 0% ;;
+    blackhole)
+      sleep "$third"; shape 8mbit 25ms 0ms 100%
+      sleep 5; shape 8mbit 25ms 0ms 0%
+      sleep $(( third - 5 )) ;;
+    mtu)
+      sleep "$third"; mtu 1280
+      sleep "$third"; mtu 1500 ;;
+    *) sleep $(( 2 * third )) ;;
+  esac
+  sleep $(( seconds - 2 * third ))
 
   sudo -n ip netns exec "$ns_a" tc -s qdisc show dev rig-a >"$dir/qdisc.txt" 2>&1 || true
   teardown
