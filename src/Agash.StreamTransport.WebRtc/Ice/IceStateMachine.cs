@@ -135,9 +135,7 @@ internal sealed partial class IceStateMachine
 
     /// <summary>
     /// Sets the peer's ICE credentials. New ones after the first come with an ICE restart, which restarts
-    /// this agent too, so every pair is checked again under them. Candidates of the peer's old session are
-    /// kept: a candidate of the new one can arrive by trickle before the description that carries the new
-    /// credentials, and an old candidate that no longer answers only fails its checks.
+    /// this agent too and forgets the peer's old candidates (<see cref="Restart"/>).
     /// </summary>
     /// <param name="remote">The peer's credentials.</param>
     public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
@@ -457,8 +455,8 @@ internal sealed partial class IceStateMachine
     }
 
     /// <summary>
-    /// A full restart under new credentials: every local endpoint and pair goes; the driver adds freshly
-    /// bound endpoints, which pair with the remote candidates already known.
+    /// A full restart under new credentials: every local endpoint, pair and remote candidate goes; the
+    /// driver adds freshly bound endpoints, which pair with the remote candidates the restart brings.
     /// </summary>
     /// <param name="credentials">The new local credentials.</param>
     public void Restart(IceCredentials credentials)
@@ -471,6 +469,12 @@ internal sealed partial class IceStateMachine
         _inFlight.Clear();
         _pairs.Clear();
         _locals.Clear();
+
+        // RFC 9725 section 4.3.3 and RFC 8839 section 4.4.1.1.1: after a restart the peer's candidates are
+        // the new set its description and trickle bring; a candidate of the old session is discarded. One
+        // the peer still answers from is learned again as peer-reflexive.
+        _remoteCandidates.Clear();
+        _remoteCandidatesSeen = 0;
         SetState(IceConnectionState.Checking);
         _metrics.Restarts.Add(1);
         LogRestart();

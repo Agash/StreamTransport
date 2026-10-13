@@ -71,6 +71,56 @@ public sealed class IceFailureTests
         Assert.AreEqual(0, machine.PendingGathers);
     }
 
+    // RFC 9725 section 4.3.3, RFC 8839 section 4.4.1.1.1: after a restart only the new session's candidates
+    // are checked.
+    [TestMethod]
+    public void Restart_ForgetsTheOldSessionsCandidates()
+    {
+        IceStateMachine machine = new(
+            IceCredentials.Generate(),
+            IceRole.Controlling,
+            IceTimings.Default,
+            NullLogger.Instance
+        );
+        machine.SetRemoteCredentials(IceCredentials.Generate());
+        machine.AddLocalEndpoint(0, new IPEndPoint(IPAddress.Parse("10.0.0.1"), 5000));
+        Assert.IsTrue(
+            IceCandidate.TryParse(
+                "candidate:1 1 udp 2130706431 10.0.0.2 6000 typ host",
+                out IceCandidate old
+            )
+        );
+        Assert.IsTrue(
+            IceCandidate.TryParse(
+                "candidate:2 1 udp 2130706431 10.0.0.3 6000 typ host",
+                out IceCandidate fresh
+            )
+        );
+        machine.AddRemoteCandidate(old);
+        machine.Start(TimeSpan.Zero);
+
+        machine.Restart(IceCredentials.Generate());
+        machine.SetRemoteCredentials(IceCredentials.Generate());
+        machine.AddLocalEndpoint(1, new IPEndPoint(IPAddress.Parse("10.0.0.1"), 5001));
+        machine.AddRemoteCandidate(fresh);
+        HashSet<IPEndPoint> checkedAddresses = [];
+        for (
+            TimeSpan now = TimeSpan.Zero;
+            now < TimeSpan.FromSeconds(5);
+            now += TimeSpan.FromMilliseconds(50)
+        )
+        {
+            machine.HandleTimeout(now);
+            while (machine.TryPollTransmit(out IceTransmit transmit))
+            {
+                _ = checkedAddresses.Add(transmit.Destination);
+            }
+        }
+
+        CollectionAssert.Contains(checkedAddresses.ToList(), fresh.Endpoint);
+        CollectionAssert.DoesNotContain(checkedAddresses.ToList(), old.Endpoint);
+    }
+
     private static IceStateMachine Machine(out List<IceConnectionState> states)
     {
         IceStateMachine machine = new(
