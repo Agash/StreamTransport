@@ -1081,3 +1081,5 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.FormatP
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Inspect(System.ReadOnlySpan<byte> payload) -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadTraits
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.KeyframeRequires.get -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadTraits
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFeedback.get -> System.Collections.Immutable.ImmutableArray<string!>
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IgnoredCandidates.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IgnoredCandidates.init -> void

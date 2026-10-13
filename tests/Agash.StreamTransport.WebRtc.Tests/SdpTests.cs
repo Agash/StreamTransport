@@ -126,6 +126,23 @@ public sealed class SdpTests
         StringAssert.Contains(sdp, "a=msid:s1 s1-1");
     }
 
+    // A browser hiding its host address writes an mDNS name (RFC 8839 section 5.1): kept aside, as written.
+    [TestMethod]
+    public void Parse_MdnsCandidate_IsKeptAsIgnored()
+    {
+        const string Mdns =
+            "candidate:1 1 udp 2122260223 5f2c3a8e-1b2d-4c5e-9f00-0123456789ab.local 54321 typ host";
+        string sdp = SdpWriter.Write(SampleOffer()).Replace(
+            "a=mid:0\r\n",
+            $"a=mid:0\r\na={Mdns}\r\n",
+            StringComparison.Ordinal
+        );
+
+        Assert.IsTrue(SdpReader.TryParse(sdp, out SdpDescription read));
+        CollectionAssert.AreEqual(new[] { Mdns }, read.Media[0].IgnoredCandidates.ToArray());
+        Assert.IsFalse(read.Media[0].Candidates.Any(static c => c.Endpoint.Port == 54321));
+    }
+
     // RFC 3551 section 6: a static payload type needs no a=rtpmap.
     [TestMethod]
     public void Parse_StaticPayloadTypeWithoutRtpmap_IsKept()

@@ -26,6 +26,7 @@ public static class SdpReader
         SdpSetup sessionSetup = SdpSetup.ActPass;
         bool iceLite = false;
         List<IceCandidate> sessionCandidates = [];
+        List<string> sessionIgnored = [];
         List<SdpExtension> sessionExtensions = [];
         bool sessionAllowMixed = false;
 
@@ -57,12 +58,17 @@ public static class SdpReader
                 continue;
             }
 
-            if (
-                TryValue(line, "a=candidate:", out _)
-                && IceCandidate.TryParse(line, out IceCandidate parsed)
-            )
+            if (TryValue(line, "a=candidate:", out _))
             {
-                (current?.Candidates ?? sessionCandidates).Add(parsed);
+                if (IceCandidate.TryParse(line, out IceCandidate parsed))
+                {
+                    (current?.Candidates ?? sessionCandidates).Add(parsed);
+                }
+                else
+                {
+                    (current?.IgnoredCandidates ?? sessionIgnored).Add(line[2..]);
+                }
+
                 continue;
             }
 
@@ -137,6 +143,7 @@ public static class SdpReader
                     FecSsrc = m.FecSsrc,
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
+                    IgnoredCandidates = [.. sessionIgnored, .. m.IgnoredCandidates],
                     EndOfCandidates = m.EndOfCandidates,
                 }
             );
@@ -305,6 +312,8 @@ public static class SdpReader
         public uint? FecSsrc { get; private set; }
         public bool Rejected { get; init; }
         public List<IceCandidate> Candidates { get; } = [];
+
+        public List<string> IgnoredCandidates { get; } = [];
         public bool EndOfCandidates { get; private set; }
 
         public static MediaBuilder? FromMLine(string line)

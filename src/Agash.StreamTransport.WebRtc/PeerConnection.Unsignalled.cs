@@ -94,6 +94,13 @@ public sealed partial class PeerConnection
     );
 
     [LoggerMessage(
+        EventId = 1178,
+        Level = LogLevel.Information,
+        Message = "Ignored remote {Candidate}: not a UDP address this stack can check (an mDNS name or TCP); a peer behind it is learned from its checks"
+    )]
+    private partial void LogIgnoredCandidate(string candidate);
+
+    [LoggerMessage(
         EventId = 1177,
         Level = LogLevel.Information,
         Message = "Learned SSRC {Ssrc} as the {Stream} stream of section {Mid}, which the peer did not name"

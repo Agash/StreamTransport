@@ -177,6 +177,13 @@ public sealed record SdpMediaDescription
     /// </summary>
     public IReadOnlyList<Ice.IceCandidate> Candidates { get; init; } = [];
 
+    /// <summary>
+    /// The <c>a=candidate</c> values this stack cannot use, as written: mDNS host names (RFC 8839 section
+    /// 5.1), TCP candidates and malformed lines. A peer behind an mDNS name is still reached, as a
+    /// peer-reflexive candidate, once its checks arrive.
+    /// </summary>
+    public IReadOnlyList<string> IgnoredCandidates { get; init; } = [];
+
     /// <summary>Whether the section says no more candidates follow (<c>a=end-of-candidates</c>).</summary>
     public bool EndOfCandidates { get; init; }
 }

@@ -492,6 +492,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
 
+        foreach (
+            string ignored in description
+                .Media.SelectMany(static m => m.IgnoredCandidates)
+                .Distinct(StringComparer.Ordinal)
+        )
+        {
+            LogIgnoredCandidate(ignored);
+        }
+
         // Candidates the description carries, as a peer that does not trickle sends them.
         foreach (
             IceCandidate candidate in description
