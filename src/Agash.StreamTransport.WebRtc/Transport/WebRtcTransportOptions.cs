@@ -20,4 +20,10 @@ public sealed record WebRtcTransportOptions : MediaTransportOptions
 
     /// <summary>Whether loopback candidates are gathered, for peers on one host.</summary>
     public bool IncludeLoopbackCandidates { get; init; }
+
+    /// <summary>
+    /// Where ICE gets its local addresses and binds its sockets: the host's UDP stack when null. A network
+    /// of another kind, or one a test simulates, plugs in here.
+    /// </summary>
+    public IIceSocketFactory? SocketFactory { get; init; }
 }
