@@ -106,10 +106,12 @@ run_profile() {
     "$dotnet" "$bin/relay/StreamTransport.Relay.dll" >"$dir/relay.log" 2>&1 &
   sleep 3
   local relay="ws://[$addr_b]:8080/ws"
-  as_user "$ns_b" "$dotnet" "$bin/cli/StreamTransport.Cli.dll" subscribe --relay "$relay" --room rig \
-    --video none --audio none --measure >"$dir/subscriber.log" 2>&1 &
-  as_user "$ns_a" "$dotnet" "$bin/cli/StreamTransport.Cli.dll" publish --relay "$relay" --room rig \
+  # The publisher's hello creates the room, so it goes first.
+  as_user "$ns_a" "$dotnet" "$bin/cli/streamtransport.dll" publish --relay "$relay" --room rig \
     --video test --audio test >"$dir/publisher.log" 2>&1 &
+  sleep 3
+  as_user "$ns_b" "$dotnet" "$bin/cli/streamtransport.dll" subscribe --relay "$relay" --room rig \
+    --video none --audio none --measure >"$dir/subscriber.log" 2>&1 &
 
   # The step profile drops the link to an eighth a third of the way in and restores it at two thirds.
   if [[ "$profile" == step ]]; then
