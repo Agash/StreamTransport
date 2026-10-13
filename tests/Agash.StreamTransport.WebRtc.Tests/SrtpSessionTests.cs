@@ -213,6 +213,46 @@ public sealed class SrtpSessionTests
         }
     }
 
+    // RFC 3711 section 3.4: the first SRTCP packet carries index 0.
+    [TestMethod]
+    public void ProtectRtcp_FirstIndexIsZero()
+    {
+        (SrtpSession client, _) = Pair(SrtpProtectionProfile.AeadAes128Gcm, 16, 12);
+        byte[] rtcp = new byte[64];
+        rtcp[0] = 0x80;
+        rtcp[1] = 201;
+        rtcp[3] = 1;
+        int length = client.ProtectRtcp(rtcp, 8);
+
+        // The trailer: the E flag and the 31-bit index, then the 16-octet tag.
+        uint trailer = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+            rtcp.AsSpan(length - 20)
+        );
+        Assert.AreEqual(0u, trailer & 0x7FFF_FFFFu);
+    }
+
+    // As libsrtp: a stream's receive state exists only after one of its packets authenticates.
+    [TestMethod]
+    public void ForgedPackets_LeaveNoReceiveState()
+    {
+        (SrtpSession client, SrtpSession server) = Pair(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            16,
+            12
+        );
+        for (uint ssrc = 1; ssrc <= 100; ssrc++)
+        {
+            byte[] forged = Rtp(ssrc, 1, out int length);
+            Assert.IsFalse(server.UnprotectRtp(forged, length + 16, out _));
+        }
+
+        Assert.AreEqual(0, server.KnownReceiveStreams);
+
+        byte[] real = Rtp(7, 1, out int realLength);
+        Assert.IsTrue(server.UnprotectRtp(real, client.ProtectRtp(real, realLength), out _));
+        Assert.AreEqual(1, server.KnownReceiveStreams);
+    }
+
     private static (SrtpSession Client, SrtpSession Server) Pair(
         SrtpProtectionProfile profile,
         int keyLength,

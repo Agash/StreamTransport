@@ -26,7 +26,9 @@ public sealed class SrtpSession : IDisposable
     private readonly ConcurrentDictionary<uint, SendIndex> _sendIndex = new();
     private readonly ConcurrentDictionary<uint, ReceiveIndex> _receiveIndex = new();
     private readonly ConcurrentDictionary<uint, ReplayWindow> _receiveRtcp = new();
-    private int _srtcpSendIndex;
+
+    // RFC 3711 section 3.4: the first SRTCP packet carries index 0.
+    private int _srtcpSendIndex = -1;
 
     // The profiles this session implements, most preferred first. AES-GCM authenticates and encrypts in
     // one pass with a 16-octet tag; 128-bit keys come first because every peer that offers GCM offers
@@ -119,7 +121,10 @@ public sealed class SrtpSession : IDisposable
 
         uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
         ushort seq = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
-        ReceiveIndex state = _receiveIndex.GetOrAdd(ssrc, static _ => new ReceiveIndex());
+        // A stream's state is kept only once a packet of it authenticates, as libsrtp does, so forged
+        // packets cannot grow the table.
+        bool known = _receiveIndex.TryGetValue(ssrc, out ReceiveIndex? state);
+        state ??= new ReceiveIndex();
         lock (state)
         {
             ulong index = state.Estimate(seq);
@@ -132,16 +137,25 @@ public sealed class SrtpSession : IDisposable
             }
 
             state.Commit(index);
-            return true;
         }
+
+        if (!known)
+        {
+            _ = _receiveIndex.TryAdd(ssrc, state);
+        }
+
+        return true;
     }
+
+    // The streams whose packets have authenticated, for tests.
+    internal int KnownReceiveStreams => _receiveIndex.Count + _receiveRtcp.Count;
 
     /// <summary>Protects an RTCP packet in place (SRTCP), assigning the next outbound SRTCP index.</summary>
     /// <exception cref="InvalidOperationException">The 31-bit SRTCP index is exhausted.</exception>
     public int ProtectRtcp(Span<byte> packet, int length)
     {
         int index = Interlocked.Increment(ref _srtcpSendIndex);
-        if (index is <= 0 or > 0x7FFF_FFFF)
+        if (index is < 0 or > 0x7FFF_FFFF)
         {
             throw new InvalidOperationException(
                 "The SRTCP index is exhausted; the session must be re-keyed."
@@ -167,7 +181,8 @@ public sealed class SrtpSession : IDisposable
         ulong index =
             BinaryPrimitives.ReadUInt32BigEndian(packet[(length - _receive.RtcpOverhead)..])
             & 0x7FFF_FFFFu;
-        ReplayWindow window = _receiveRtcp.GetOrAdd(ssrc, static _ => new ReplayWindow());
+        bool known = _receiveRtcp.TryGetValue(ssrc, out ReplayWindow? window);
+        window ??= new ReplayWindow();
         lock (window)
         {
             if (
@@ -179,8 +194,14 @@ public sealed class SrtpSession : IDisposable
             }
 
             window.Accept(index);
-            return true;
         }
+
+        if (!known)
+        {
+            _ = _receiveRtcp.TryAdd(ssrc, window);
+        }
+
+        return true;
     }
 
     /// <inheritdoc/>
