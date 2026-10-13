@@ -71,6 +71,24 @@ public sealed class RtpRtcpTests
         CollectionAssert.AreEqual(payload, parsedPayload.ToArray());
     }
 
+    // RFC 3550 section 5.1: the padding octets the last octet counts are not payload; a count past the
+    // payload makes the packet invalid (A.1), and a padding-only RTX packet carries no original.
+    [TestMethod]
+    public void RtpPacket_TryParse_StripsPaddingAndRejectsAnOverlongCount()
+    {
+        byte[] packet = [0xA0, 96, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0x41, 0x42, 0, 0, 3];
+        Assert.IsTrue(RtpPacket.TryParse(packet, out _, out ReadOnlySpan<byte> payload));
+        CollectionAssert.AreEqual(new byte[] { 0x41, 0x42 }, payload.ToArray());
+
+        packet[^1] = 6;
+        Assert.IsFalse(RtpPacket.TryParse(packet, out _, out _));
+        packet[^1] = 0;
+        Assert.IsFalse(RtpPacket.TryParse(packet, out _, out _));
+
+        byte[] paddingOnlyRtx = [0xA0, 97, 0, 9, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 4];
+        Assert.IsFalse(RtxStream.TryUnwrap(paddingOnlyRtx, new byte[64], 96, 3, out _));
+    }
+
     [TestMethod]
     public void RtpPacket_TryParse_RejectsTooShortOrWrongVersion()
     {

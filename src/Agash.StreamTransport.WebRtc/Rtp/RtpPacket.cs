@@ -170,7 +170,21 @@ public static class RtpPacket
             offset = dataEnd;
         }
 
-        payload = packet[offset..];
+        // RFC 3550 section 5.1: with the P bit set, the last octet counts the padding octets, itself
+        // included, which are not payload; a count past the payload makes the packet invalid (A.1).
+        int end = packet.Length;
+        if ((packet[0] & 0x20) != 0)
+        {
+            int padding = packet[^1];
+            if (padding == 0 || padding > end - offset)
+            {
+                return false;
+            }
+
+            end -= padding;
+        }
+
+        payload = packet[offset..end];
         header = new RtpHeader(marker, payloadType, sequenceNumber, timestamp, ssrc, extensions);
         return true;
     }
