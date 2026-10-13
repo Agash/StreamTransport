@@ -1,4 +1,4 @@
 #nullable enable
-Agash.StreamTransport.WebRtc.DependencyInjection.ServiceCollectionExtensions
-static Agash.StreamTransport.WebRtc.DependencyInjection.ServiceCollectionExtensions.AddRtpPayloadFormat(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat! format) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-static Agash.StreamTransport.WebRtc.DependencyInjection.ServiceCollectionExtensions.AddStreamTransportWebRtc(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Agash.StreamTransport.Adaptation.ScreamOptions!>? configureCongestionControl = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+Microsoft.Extensions.DependencyInjection.StreamTransportWebRtcServiceCollectionExtensions
+static Microsoft.Extensions.DependencyInjection.StreamTransportWebRtcServiceCollectionExtensions.AddRtpPayloadFormat(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat! format) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.Extensions.DependencyInjection.StreamTransportWebRtcServiceCollectionExtensions.AddStreamTransportWebRtc(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Agash.StreamTransport.Adaptation.ScreamOptions!>? configureCongestionControl = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

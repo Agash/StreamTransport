@@ -7,7 +7,6 @@ using Agash.StreamTransport.Http;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.TestSignal;
 using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Tests;
 using Agash.StreamTransport.WebRtc.Transport;

@@ -6,7 +6,6 @@ using Agash.StreamTransport.Linux;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Signaling;
 using Agash.StreamTransport.TestSignal;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

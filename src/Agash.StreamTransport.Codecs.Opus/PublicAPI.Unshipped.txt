@@ -30,11 +30,11 @@ Agash.StreamTransport.Codecs.Opus.OpusOptions.Complexity.get -> int
 Agash.StreamTransport.Codecs.Opus.OpusOptions.Complexity.init -> void
 Agash.StreamTransport.Codecs.Opus.OpusOptions.Equals(Agash.StreamTransport.Codecs.Opus.OpusOptions? other) -> bool
 Agash.StreamTransport.Codecs.Opus.OpusOptions.OpusOptions() -> void
-Agash.StreamTransport.Codecs.Opus.ServiceCollectionExtensions
+Microsoft.Extensions.DependencyInjection.StreamTransportOpusServiceCollectionExtensions
 override Agash.StreamTransport.Codecs.Opus.OpusOptions.Equals(object? obj) -> bool
 override Agash.StreamTransport.Codecs.Opus.OpusOptions.GetHashCode() -> int
 override Agash.StreamTransport.Codecs.Opus.OpusOptions.ToString() -> string!
 static Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
 static Agash.StreamTransport.Codecs.Opus.OpusOptions.operator !=(Agash.StreamTransport.Codecs.Opus.OpusOptions? left, Agash.StreamTransport.Codecs.Opus.OpusOptions? right) -> bool
 static Agash.StreamTransport.Codecs.Opus.OpusOptions.operator ==(Agash.StreamTransport.Codecs.Opus.OpusOptions? left, Agash.StreamTransport.Codecs.Opus.OpusOptions? right) -> bool
-static Agash.StreamTransport.Codecs.Opus.ServiceCollectionExtensions.AddOpusCodecs(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Agash.StreamTransport.Codecs.Opus.OpusOptions? options = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.Extensions.DependencyInjection.StreamTransportOpusServiceCollectionExtensions.AddOpusCodecs(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Agash.StreamTransport.Codecs.Opus.OpusOptions? options = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

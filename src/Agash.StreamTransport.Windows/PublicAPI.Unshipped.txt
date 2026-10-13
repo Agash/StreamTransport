@@ -10,7 +10,7 @@ Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.
 Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.Name.get -> string!
 Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
 Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.Rank.get -> int
-Agash.StreamTransport.Windows.ServiceCollectionExtensions
+Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions
 Agash.StreamTransport.Windows.Spout.SpoutVideoSink
 Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
 Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Dispose() -> void
@@ -71,6 +71,6 @@ Agash.StreamTransport.Windows.WasapiAudioOutputProvider.WasapiAudioOutputProvide
 override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.Equals(object? obj) -> bool
 override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.GetHashCode() -> int
 override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.ToString() -> string!
-static Agash.StreamTransport.Windows.ServiceCollectionExtensions.AddWindowsMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions.AddWindowsMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.operator !=(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? left, Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? right) -> bool
 static Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.operator ==(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? left, Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? right) -> bool

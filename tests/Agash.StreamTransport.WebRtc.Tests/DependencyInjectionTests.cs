@@ -2,7 +2,6 @@ using System.Net;
 using System.Security.Cryptography;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;

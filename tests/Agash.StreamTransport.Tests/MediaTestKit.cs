@@ -5,7 +5,6 @@ using System.Runtime.InteropServices;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;

@@ -1,5 +1,4 @@
 using Agash.StreamTransport.Media;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;

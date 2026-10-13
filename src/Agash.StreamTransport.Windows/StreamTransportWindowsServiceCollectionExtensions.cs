@@ -1,13 +1,19 @@
 using Agash.StreamTransport.Media;
+using Agash.StreamTransport.Windows;
 using Agash.StreamTransport.Windows.Direct3D12;
 using Agash.StreamTransport.Windows.MediaFoundation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Agash.StreamTransport.Windows;
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
 
 /// <summary>DI registration for the Windows media.</summary>
-public static class ServiceCollectionExtensions
+public static class StreamTransportWindowsServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the Direct3D 12 video processor, which sessions choose over CPU conversion for frames

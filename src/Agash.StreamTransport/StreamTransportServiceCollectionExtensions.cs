@@ -1,13 +1,19 @@
+using Agash.StreamTransport;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sessions;
 using Agash.StreamTransport.TestSignal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Agash.StreamTransport;
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
 
 /// <summary>DI registration for StreamTransport media sessions.</summary>
-public static class ServiceCollectionExtensions
+public static class StreamTransportServiceCollectionExtensions
 {
     /// <summary>
     /// Registers media sessions over WebRTC: the WebRTC stack with its payload formats, the codec

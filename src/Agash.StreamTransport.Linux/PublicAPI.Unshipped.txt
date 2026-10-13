@@ -93,7 +93,7 @@ Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetNodeId.get
 Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetNodeId.init -> void
 Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetObject.get -> string?
 Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetObject.init -> void
-Agash.StreamTransport.Linux.ServiceCollectionExtensions
+Microsoft.Extensions.DependencyInjection.StreamTransportLinuxServiceCollectionExtensions
 Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider
 Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
 Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.Name.get -> string!
@@ -125,4 +125,4 @@ static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.operator !=
 static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.operator ==(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? right) -> bool
 static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.operator !=(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? right) -> bool
 static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.operator ==(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? right) -> bool
-static Agash.StreamTransport.Linux.ServiceCollectionExtensions.AddLinuxMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.Extensions.DependencyInjection.StreamTransportLinuxServiceCollectionExtensions.AddLinuxMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

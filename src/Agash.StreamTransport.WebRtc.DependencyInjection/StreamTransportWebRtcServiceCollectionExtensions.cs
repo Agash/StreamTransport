@@ -1,5 +1,7 @@
 using System.Diagnostics.Metrics;
+using Agash.StreamTransport;
 using Agash.StreamTransport.Adaptation;
+using Agash.StreamTransport.WebRtc;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,10 +9,15 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Agash.StreamTransport.WebRtc.DependencyInjection;
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
 
 /// <summary>DI registration for the Agash.StreamTransport WebRTC stack.</summary>
-public static class ServiceCollectionExtensions
+public static class StreamTransportWebRtcServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the WebRTC transport: the system <see cref="TimeProvider"/> unless one is registered, the DTLS

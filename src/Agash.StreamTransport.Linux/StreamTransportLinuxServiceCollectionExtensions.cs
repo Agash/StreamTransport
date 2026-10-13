@@ -1,3 +1,4 @@
+using Agash.StreamTransport.Linux;
 using Agash.StreamTransport.Linux.PipeWire;
 using Agash.StreamTransport.Linux.V4l2;
 using Agash.StreamTransport.Linux.Vulkan;
@@ -5,10 +6,15 @@ using Agash.StreamTransport.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Agash.StreamTransport.Linux;
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
 
 /// <summary>DI registration for the Linux media.</summary>
-public static class ServiceCollectionExtensions
+public static class StreamTransportLinuxServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the Vulkan video processor, which sessions choose over CPU conversion for DMA-BUF

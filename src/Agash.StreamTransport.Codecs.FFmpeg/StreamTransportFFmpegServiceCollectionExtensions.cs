@@ -1,14 +1,20 @@
 using System.Diagnostics.Metrics;
+using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Media;
 using FFmpeg.Interop;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
-namespace Agash.StreamTransport.Codecs.FFmpeg;
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
 
 /// <summary>DI registration for the FFmpeg codecs.</summary>
-public static class ServiceCollectionExtensions
+public static class StreamTransportFFmpegServiceCollectionExtensions
 {
     /// <summary>
     /// Registers an encoder and a decoder factory for every backend this platform has, and the swscale

@@ -1,7 +1,6 @@
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Tests;
-using Agash.StreamTransport.WebRtc.DependencyInjection;
 using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Windows.Win32.Graphics.Dxgi.Common;

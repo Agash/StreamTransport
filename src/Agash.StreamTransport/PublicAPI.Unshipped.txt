@@ -199,7 +199,7 @@ Agash.StreamTransport.RoomClient.Peers.get -> System.Collections.Generic.IReadOn
 Agash.StreamTransport.RoomClient.Self.get -> Agash.StreamTransport.PeerId
 Agash.StreamTransport.RoomClient.SendControlAsync(string! topic, string! payload, Agash.StreamTransport.PeerId? to = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.RoomClient.State.get -> Agash.StreamTransport.RoomState!
-Agash.StreamTransport.ServiceCollectionExtensions
+Microsoft.Extensions.DependencyInjection.StreamTransportServiceCollectionExtensions
 Agash.StreamTransport.Sessions.MediaSessionFactory
 Agash.StreamTransport.Sessions.MediaSessionFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options) -> Agash.StreamTransport.IMediaSession!
 Agash.StreamTransport.Sessions.MediaSessionFactory.Dispose() -> void
@@ -350,7 +350,7 @@ static Agash.StreamTransport.PublishedSession.operator !=(Agash.StreamTransport.
 static Agash.StreamTransport.PublishedSession.operator ==(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
 static Agash.StreamTransport.RoomClient.ConnectAsync(Agash.StreamTransport.IDuplexSignalingTransport! transport, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
 static Agash.StreamTransport.RoomClient.ConnectAsync(System.Uri! relayWebSocketUrl, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
-static Agash.StreamTransport.ServiceCollectionExtensions.AddStreamTransport(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.Extensions.DependencyInjection.StreamTransportServiceCollectionExtensions.AddStreamTransport(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static Agash.StreamTransport.TestSignal.TestSignalGenerator.Fill(System.Span<float> samples, int channels, int sampleRate, long firstSample) -> void
 static Agash.StreamTransport.TestSignal.TestSignalGenerator.TryReadBarcode(System.ReadOnlySpan<byte> luma, int stride, Agash.StreamTransport.Media.VideoSize size, System.DateTimeOffset near, out System.DateTimeOffset sent) -> bool
 static Agash.StreamTransport.TestSignal.TestSignalMeasurement.operator !=(Agash.StreamTransport.TestSignal.TestSignalMeasurement left, Agash.StreamTransport.TestSignal.TestSignalMeasurement right) -> bool

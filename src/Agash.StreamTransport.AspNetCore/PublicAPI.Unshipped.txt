@@ -1,7 +1,7 @@
 #nullable enable
-Agash.StreamTransport.AspNetCore.HttpMediaEndpointRouteBuilderExtensions
+Microsoft.AspNetCore.Builder.StreamTransportAspNetCoreEndpointRouteBuilderExtensions
 Agash.StreamTransport.AspNetCore.HttpMediaHandler
-Agash.StreamTransport.AspNetCore.HttpMediaServiceCollectionExtensions
+Microsoft.Extensions.DependencyInjection.StreamTransportAspNetCoreServiceCollectionExtensions
 Agash.StreamTransport.AspNetCore.HttpMediaSetup
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.<Clone>$() -> Agash.StreamTransport.AspNetCore.HttpMediaSetup!
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Deconstruct(out Agash.StreamTransport.MediaEndpoints! Endpoints, out Agash.StreamTransport.MediaSessionOptions! Options) -> void
@@ -16,9 +16,9 @@ Agash.StreamTransport.AspNetCore.HttpMediaSetup.Options.init -> void
 override Agash.StreamTransport.AspNetCore.HttpMediaSetup.Equals(object? obj) -> bool
 override Agash.StreamTransport.AspNetCore.HttpMediaSetup.GetHashCode() -> int
 override Agash.StreamTransport.AspNetCore.HttpMediaSetup.ToString() -> string!
-static Agash.StreamTransport.AspNetCore.HttpMediaEndpointRouteBuilderExtensions.MapWhep(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern, Agash.StreamTransport.AspNetCore.HttpMediaHandler! handler) -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
-static Agash.StreamTransport.AspNetCore.HttpMediaEndpointRouteBuilderExtensions.MapWhip(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern, Agash.StreamTransport.AspNetCore.HttpMediaHandler! handler) -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
-static Agash.StreamTransport.AspNetCore.HttpMediaServiceCollectionExtensions.AddHttpMediaEndpoints(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Microsoft.AspNetCore.Builder.StreamTransportAspNetCoreEndpointRouteBuilderExtensions.MapWhep(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern, Agash.StreamTransport.AspNetCore.HttpMediaHandler! handler) -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+static Microsoft.AspNetCore.Builder.StreamTransportAspNetCoreEndpointRouteBuilderExtensions.MapWhip(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern, Agash.StreamTransport.AspNetCore.HttpMediaHandler! handler) -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+static Microsoft.Extensions.DependencyInjection.StreamTransportAspNetCoreServiceCollectionExtensions.AddHttpMediaEndpoints(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static Agash.StreamTransport.AspNetCore.HttpMediaSetup.operator !=(Agash.StreamTransport.AspNetCore.HttpMediaSetup? left, Agash.StreamTransport.AspNetCore.HttpMediaSetup? right) -> bool
 static Agash.StreamTransport.AspNetCore.HttpMediaSetup.operator ==(Agash.StreamTransport.AspNetCore.HttpMediaSetup? left, Agash.StreamTransport.AspNetCore.HttpMediaSetup? right) -> bool
 virtual Agash.StreamTransport.AspNetCore.HttpMediaHandler.Invoke(Microsoft.AspNetCore.Http.HttpContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.AspNetCore.HttpMediaSetup?>
