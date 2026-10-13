@@ -16,12 +16,16 @@ namespace Agash.StreamTransport;
 /// <param name="socket">The connected socket.</param>
 /// <param name="ownsSocket">Whether disposing the transport closes and disposes the socket.</param>
 /// <param name="logger">The logging; none when null.</param>
+/// <param name="timeProvider">The clock the close timeout runs on; the system's when null.</param>
 public sealed partial class WebSocketSignalingTransport(
     WebSocket socket,
     bool ownsSocket = false,
-    ILogger<WebSocketSignalingTransport>? logger = null
+    ILogger<WebSocketSignalingTransport>? logger = null,
+    TimeProvider? timeProvider = null
 ) : IDuplexSignalingTransport
 {
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+
     private readonly ILogger _logger = logger ?? NullLogger<WebSocketSignalingTransport>.Instance;
 
     private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
@@ -113,7 +117,7 @@ public sealed partial class WebSocketSignalingTransport(
             return;
         }
 
-        using var timeout = new CancellationTokenSource(CloseTimeout);
+        using var timeout = new CancellationTokenSource(CloseTimeout, _time);
         try
         {
             await socket
@@ -134,7 +138,7 @@ public sealed partial class WebSocketSignalingTransport(
         {
             // A peer that never answers the close frame must not hold disposal: give the handshake a
             // moment, then drop the connection.
-            using var timeout = new CancellationTokenSource(CloseTimeout);
+            using var timeout = new CancellationTokenSource(CloseTimeout, _time);
             try
             {
                 if (socket.State == WebSocketState.Open)
