@@ -46,6 +46,12 @@ source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder
   AVFoundation, PipeWire) and travel as abs-capture-time; synced playout holds audio and video in one
   adaptive buffer and releases them by capture time. `TestSignalAnalyzer` measures the A/V offset and
   end-to-end latency of a received test signal.
+  What is measured and what is assumed past playout: audio sinks report their device latency (WASAPI
+  stream latency, AVAudioEngine's presentation and output latency, PipeWire's graph delay), and the PipeWire video
+  sink reports the graph's delay to its consumer. Spout and Syphon hand a texture to another application
+  that decides when it shows, so they report nothing and count as zero, as do the display and any
+  compositor. A host that knows that downstream delay (OBS's buffering, a capture card) sets
+  `IMediaSession.AudioOutputOffset`.
 - **Profiles**: `InteractiveP2P`, `ScreenShare`, `IrlContribution` and `AvatarTransparent` set codec
   preference, rate control, repair and playout in one choice. `AvatarTransparent` carries alpha as the
   H.265 alpha layer where both peers code it and side by side through any codec otherwise, packed and
