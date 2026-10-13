@@ -30,7 +30,7 @@ public sealed class SrtpSession : IDisposable
 
     // The profiles this session implements, most preferred first. AES-GCM authenticates and encrypts in
     // one pass with a 16-octet tag; 128-bit keys come first because every peer that offers GCM offers
-    // them. AES-CM with HMAC-SHA1-80 is the legacy fallback for peers that offer no GCM profile.
+    // them. AES-CM with HMAC-SHA1-80 is the fallback for peers that offer no GCM profile.
     internal static readonly SrtpProtectionProfile[] Profiles =
     [
         SrtpProtectionProfile.AeadAes128Gcm,

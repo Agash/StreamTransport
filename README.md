@@ -36,7 +36,7 @@ source (camera, screen, Spout, Syphon, PipeWire) -> encoder -> WebRTC -> decoder
   IOSurfaces) or system memory, and the pipeline converts only where an encoder or sink cannot take them.
 - **Real links**: SCReAM congestion control (RFC 8298, RFC 8888), a pacer, sequence-aware frame assembly,
   NACK/RTX and FlexFEC, Opus in-band FEC and concealment, IPv6-first candidates, TURN over UDP, TCP and
-  TLS with a relay-only policy, and SRTP with AES-GCM (AES-CM for legacy peers) and replay protection.
+  TLS with a relay-only policy, and SRTP with AES-GCM (AES-CM for peers that offer no GCM profile) and replay protection.
   Rate control plans for the source's measured frame rate, and a receiver that falls behind resyncs at a
   keyframe instead of building latency.
 - **Mobility**: a path that goes silent is left for a warm standby pair within seconds; a network change
@@ -138,6 +138,7 @@ with the role and the outcome.
 | `Agash.StreamTransport.WebRtc.DependencyInjection` | `AddStreamTransportWebRtc()`: registers the WebRTC transport sessions run over. |
 | `Agash.StreamTransport.Signaling` | Room router and a WebSocket signaling transport. |
 | `Agash.StreamTransport.Stun` | STUN binding server and ICE server providers. |
+| `Agash.StreamTransport.AspNetCore` | WHIP and WHEP endpoints (`MapWhip`, `MapWhep`) mapped onto an ASP.NET Core application's routing. |
 
 ## Build
 

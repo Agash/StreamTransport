@@ -47,7 +47,7 @@ public enum StunMethod : ushort
 /// </summary>
 public enum StunAttributeType : ushort
 {
-    /// <summary>MAPPED-ADDRESS (legacy, RFC 8489 §14.1).</summary>
+    /// <summary>MAPPED-ADDRESS (the unobfuscated address, for servers that omit XOR-MAPPED-ADDRESS; RFC 8489 §14.1).</summary>
     MappedAddress = 0x0001,
 
     /// <summary>USERNAME (RFC 8489 §14.3).</summary>

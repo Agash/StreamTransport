@@ -7,7 +7,7 @@ Behaviour follows libwebrtc where interop and correctness depend on it: the NACK
 `h26x_packet_buffer` are ports of their libwebrtc counterparts. The code is idiomatic modern .NET (spans,
 `ArrayPool`, `readonly record struct`, source-generated logging).
 
-SRTP offers `SRTP_AEAD_AES_128_GCM`, `SRTP_AEAD_AES_256_GCM` and, for legacy peers,
+SRTP offers `SRTP_AEAD_AES_128_GCM`, `SRTP_AEAD_AES_256_GCM` and, for peers that offer no GCM profile,
 `SRTP_AES128_CM_HMAC_SHA1_80`, with a 1024-packet replay window per SSRC.
 
 Crypto is the platform's own (`AesGcm`, `Aes`, `HMACSHA1`, `CertificateRequest`). DTLS 1.2 and 1.3 come from
@@ -15,6 +15,48 @@ Crypto is the platform's own (`AesGcm`, `Aes`, `HMACSHA1`, `CertificateRequest`)
 or third-party crypto dependency.
 
 The package is the transport under [`Agash.StreamTransport`](https://github.com/Agash/StreamTransport).
+
+Scope: audio and video over RTP/SRTP. There are no data channels and no SCTP.
+
+## Quick start
+
+Two `PeerConnection`s in one process, negotiating through direct calls where an application would use its
+signaling channel:
+
+```csharp
+var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
+var certificate = RtcCertificate.Generate();
+
+await using var offerer = new PeerConnection(
+    new PeerConnectionOptions { Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x1111_1111, [opus])] },
+    certificate);
+await using var answerer = new PeerConnection(
+    new PeerConnectionOptions { Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x2222_2222, [opus])] },
+    certificate);
+
+// Trickle ICE: each side hands its candidates to the other as they are gathered.
+offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
+answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
+
+var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+offerer.StateChanged += s => { if (s == PeerConnectionState.Connected) connected.TrySetResult(); };
+answerer.RtpReceived += (header, payload) => Console.WriteLine($"{payload.Length} bytes, PT {header.PayloadType}");
+
+// Offer and answer.
+SdpDescription offer = offerer.CreateOffer();
+answerer.SetRemoteDescription(offer, SdpType.Offer);
+SdpDescription answer = answerer.CreateAnswer();
+offerer.SetRemoteDescription(answer, SdpType.Answer);
+
+await connected.Task; // ICE and the DTLS handshake are done; SRTP is keyed.
+offerer.TrySendRtp(payloadType: 111, ssrc: 0x1111_1111, rtpTimestamp: 160, marker: true, payload,
+    new RtpExtensionValues(captureNtp));
+```
+
+`payload` is the encoded frame (a `byte[]`) and `captureNtp` the capture time as a 64-bit NTP timestamp
+carried in the abs-capture-time header extension. `TrySendRtp` returns false, dropping the packet, when DTLS-SRTP is not established yet.
+The types are in `Agash.StreamTransport.WebRtc`, `.Sdp` and `.Rtp`. A `PeerConnectionOptions.SocketFactory`
+replaces the UDP sockets, which is how the tests run connections in memory.
 
 ## Diagnostics
 
