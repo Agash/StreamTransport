@@ -1229,15 +1229,29 @@ public sealed partial class PeerConnection : IAsyncDisposable
             BreakerOnFeedback();
         }
 
-        if (RtcpFeedback.ContainsPli(rtcp, out uint pliSsrc))
+        // Every feedback element of the compound, which may carry several for different SSRCs (RFC 8108).
+        List<ushort>? lost = null;
+        List<(uint, byte)>? fir = null;
+        foreach (RtcpElement element in RtcpCompound.Enumerate(rtcp))
         {
-            KeyframeRequested?.Invoke(pliSsrc);
-        }
+            if (RtcpFeedback.TryReadPli(element, out uint pliSsrc))
+            {
+                KeyframeRequested?.Invoke(pliSsrc);
+            }
+            else if (RtcpFeedback.TryReadNack(element, out uint nackSsrc, lost ??= []))
+            {
+                if (lost.Count > 0)
+                {
+                    Retransmit(nackSsrc, [.. lost]);
+                }
 
-        var lost = new List<ushort>();
-        if (RtcpFeedback.TryParseNack(rtcp, out uint nackSsrc, lost) && lost.Count > 0)
-        {
-            Retransmit(nackSsrc, lost);
+                lost.Clear();
+            }
+            else if (RtcpFeedback.TryReadFir(element, out uint requester, fir ??= []))
+            {
+                OnFullIntraRequests(requester, fir);
+                fir.Clear();
+            }
         }
 
         // RFC 8888 congestion-control feedback (PT 205, FMT 11) - drives the send-side controller, if any.
@@ -1245,6 +1259,40 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         // Sender and receiver reports: the round trip and the peer's sender-report timing.
         OnReports(rtcp);
+    }
+
+    // RFC 5104 section 4.3.1.2: a FIR for one of this endpoint's streams with a new command sequence number
+    // from that requester asks for a decoder refresh point; a repeated number is a retransmission of a
+    // request already served.
+    private readonly Dictionary<(uint Requester, uint Target), byte> _firSequences = [];
+
+    private void OnFullIntraRequests(
+        uint requester,
+        List<(uint TargetSsrc, byte Sequence)> requests
+    )
+    {
+        foreach ((uint target, byte sequence) in requests)
+        {
+            if (!IsOwnSource(target))
+            {
+                continue;
+            }
+
+            lock (_firSequences)
+            {
+                if (
+                    _firSequences.TryGetValue((requester, target), out byte last)
+                    && last == sequence
+                )
+                {
+                    continue;
+                }
+
+                _firSequences[(requester, target)] = sequence;
+            }
+
+            KeyframeRequested?.Invoke(target);
+        }
     }
 
     // Repairs go through the pacer ahead of new video and inside the same budget (RFC 4588 section 7).

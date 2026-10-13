@@ -71,44 +71,99 @@ public static class RtcpFeedback
         return fciOffset;
     }
 
-    /// <summary>Parses a Generic NACK, appending the requested lost sequence numbers to <paramref name="lost"/>.</summary>
-    public static bool TryParseNack(
-        ReadOnlySpan<byte> packet,
-        out uint mediaSsrc,
-        List<ushort> lost
-    )
+    /// <summary>
+    /// Reads one Generic NACK element (RTPFB, FMT 1), appending the lost sequence numbers it requests to
+    /// <paramref name="lost"/>. A compound packet may carry several, for different SSRCs (RFC 8108).
+    /// </summary>
+    /// <param name="element">An element of a compound packet.</param>
+    /// <param name="mediaSsrc">The media SSRC the NACK is about.</param>
+    /// <param name="lost">Where the requested sequence numbers go.</param>
+    /// <returns>Whether the element is a Generic NACK.</returns>
+    public static bool TryReadNack(in RtcpElement element, out uint mediaSsrc, List<ushort> lost)
     {
+        ArgumentNullException.ThrowIfNull(lost);
         mediaSsrc = 0;
-        foreach (RtcpElement element in RtcpCompound.Enumerate(packet))
+        if (
+            element.PacketType != RtcpPacketType.TransportFeedback
+            || element.ReportCount != FmtNackOrPli
+            || element.Body.Length < 8
+        )
         {
-            if (
-                element.PacketType != RtcpPacketType.TransportFeedback
-                || element.ReportCount != FmtNackOrPli
-                || element.Body.Length < 8
-            )
-            {
-                continue;
-            }
-
-            mediaSsrc = BinaryPrimitives.ReadUInt32BigEndian(element.Body[4..]);
-            for (int o = 8; o + 4 <= element.Body.Length; o += 4)
-            {
-                ushort pid = BinaryPrimitives.ReadUInt16BigEndian(element.Body[o..]);
-                ushort blp = BinaryPrimitives.ReadUInt16BigEndian(element.Body[(o + 2)..]);
-                lost.Add(pid);
-                for (int bit = 0; bit < 16; bit++)
-                {
-                    if ((blp & (1 << bit)) != 0)
-                    {
-                        lost.Add((ushort)(pid + bit + 1));
-                    }
-                }
-            }
-
-            return true;
+            return false;
         }
 
-        return false;
+        mediaSsrc = BinaryPrimitives.ReadUInt32BigEndian(element.Body[4..]);
+        for (int o = 8; o + 4 <= element.Body.Length; o += 4)
+        {
+            ushort pid = BinaryPrimitives.ReadUInt16BigEndian(element.Body[o..]);
+            ushort blp = BinaryPrimitives.ReadUInt16BigEndian(element.Body[(o + 2)..]);
+            lost.Add(pid);
+            for (int bit = 0; bit < 16; bit++)
+            {
+                if ((blp & (1 << bit)) != 0)
+                {
+                    lost.Add((ushort)(pid + bit + 1));
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Reads one Picture Loss Indication element (PSFB, FMT 1).</summary>
+    /// <param name="element">An element of a compound packet.</param>
+    /// <param name="mediaSsrc">The media SSRC a keyframe is asked for.</param>
+    /// <returns>Whether the element is a PLI.</returns>
+    public static bool TryReadPli(in RtcpElement element, out uint mediaSsrc)
+    {
+        mediaSsrc = 0;
+        if (
+            element.PacketType != RtcpPacketType.PayloadFeedback
+            || element.ReportCount != FmtNackOrPli
+            || element.Body.Length < 8
+        )
+        {
+            return false;
+        }
+
+        mediaSsrc = BinaryPrimitives.ReadUInt32BigEndian(element.Body[4..]);
+        return true;
+    }
+
+    /// <summary>
+    /// Reads the requests of one Full Intra Request element (PSFB, FMT 4, RFC 5104 section 4.3.1): each
+    /// FCI entry names a media sender and a command sequence number.
+    /// </summary>
+    /// <param name="element">An element of a compound packet.</param>
+    /// <param name="senderSsrc">The SSRC of the request's sender.</param>
+    /// <param name="requests">Where the target SSRCs and sequence numbers go.</param>
+    /// <returns>Whether the element is a FIR.</returns>
+    public static bool TryReadFir(
+        in RtcpElement element,
+        out uint senderSsrc,
+        List<(uint TargetSsrc, byte Sequence)> requests
+    )
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        senderSsrc = 0;
+        if (
+            element.PacketType != RtcpPacketType.PayloadFeedback
+            || element.ReportCount != FmtFir
+            || element.Body.Length < 8
+        )
+        {
+            return false;
+        }
+
+        senderSsrc = BinaryPrimitives.ReadUInt32BigEndian(element.Body);
+        for (int o = 8; o + 8 <= element.Body.Length; o += 8)
+        {
+            requests.Add(
+                (BinaryPrimitives.ReadUInt32BigEndian(element.Body[o..]), element.Body[o + 4])
+            );
+        }
+
+        return true;
     }
 
     /// <summary>Builds a Picture Loss Indication (PT 206, FMT 1). Returns the bytes written (12).</summary>
@@ -123,26 +178,6 @@ public static class RtcpFeedback
             12
         );
         return 12;
-    }
-
-    /// <summary>Returns true if the compound packet contains a PLI for <paramref name="mediaSsrc"/>.</summary>
-    public static bool ContainsPli(ReadOnlySpan<byte> packet, out uint mediaSsrc)
-    {
-        mediaSsrc = 0;
-        foreach (RtcpElement element in RtcpCompound.Enumerate(packet))
-        {
-            if (
-                element.PacketType == RtcpPacketType.PayloadFeedback
-                && element.ReportCount == FmtNackOrPli
-                && element.Body.Length >= 8
-            )
-            {
-                mediaSsrc = BinaryPrimitives.ReadUInt32BigEndian(element.Body[4..]);
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>Builds a Full Intra Request (PT 206, FMT 4) for one media SSRC with a command sequence number.</summary>

@@ -67,11 +67,43 @@ public sealed class RtcpProtectionAndFeedbackTests
         int length = RtcpFeedback.BuildNack(buffer, senderSsrc: 0x1, mediaSsrc: 0xDEADBEEF, lost);
 
         var recovered = new List<ushort>();
-        Assert.IsTrue(
-            RtcpFeedback.TryParseNack(buffer.AsSpan(0, length), out uint mediaSsrc, recovered)
-        );
+        uint mediaSsrc = 0;
+        foreach (RtcpElement element in RtcpCompound.Enumerate(buffer.AsSpan(0, length)))
+        {
+            Assert.IsTrue(RtcpFeedback.TryReadNack(element, out mediaSsrc, recovered));
+        }
+
         Assert.AreEqual(0xDEADBEEFu, mediaSsrc);
         CollectionAssert.AreEquivalent(lost, recovered);
+    }
+
+    // RFC 8108: one compound packet may carry feedback for several streams; every element is read.
+    [TestMethod]
+    public void Compound_WithTwoNacksAndAFir_ReadsEveryElement()
+    {
+        byte[] buffer = new byte[128];
+        int length = RtcpFeedback.BuildNack(buffer, senderSsrc: 1, mediaSsrc: 0xA, [5]);
+        length += RtcpFeedback.BuildNack(buffer.AsSpan(length), senderSsrc: 1, mediaSsrc: 0xB, [9]);
+        length += RtcpFeedback.BuildFir(buffer.AsSpan(length), senderSsrc: 1, targetSsrc: 0xB, 7);
+
+        List<(uint, ushort)> nacks = [];
+        List<(uint, byte)> firs = [];
+        foreach (RtcpElement element in RtcpCompound.Enumerate(buffer.AsSpan(0, length)))
+        {
+            List<ushort> lost = [];
+            if (RtcpFeedback.TryReadNack(element, out uint ssrc, lost))
+            {
+                nacks.AddRange(lost.Select(seq => (ssrc, seq)));
+            }
+            else
+            {
+                Assert.IsTrue(RtcpFeedback.TryReadFir(element, out uint requester, firs));
+                Assert.AreEqual(1u, requester);
+            }
+        }
+
+        CollectionAssert.AreEqual(new (uint, ushort)[] { (0xA, 5), (0xB, 9) }, nacks);
+        CollectionAssert.AreEqual(new (uint, byte)[] { (0xB, 7) }, firs);
     }
 
     [TestMethod]
@@ -80,7 +112,12 @@ public sealed class RtcpProtectionAndFeedbackTests
         byte[] buffer = new byte[32];
         int length = RtcpFeedback.BuildPli(buffer, senderSsrc: 0x11, mediaSsrc: 0x22);
         Assert.AreEqual(12, length);
-        Assert.IsTrue(RtcpFeedback.ContainsPli(buffer.AsSpan(0, length), out uint mediaSsrc));
+        uint mediaSsrc = 0;
+        foreach (RtcpElement element in RtcpCompound.Enumerate(buffer.AsSpan(0, length)))
+        {
+            Assert.IsTrue(RtcpFeedback.TryReadPli(element, out mediaSsrc));
+        }
+
         Assert.AreEqual(0x22u, mediaSsrc);
     }
 

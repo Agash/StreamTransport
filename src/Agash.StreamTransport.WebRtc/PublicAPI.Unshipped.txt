@@ -912,8 +912,9 @@ static Agash.StreamTransport.WebRtc.Rtcp.RtcpCompound.Enumerate(System.ReadOnlyS
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildFir(System.Span<byte> destination, uint senderSsrc, uint targetSsrc, byte commandSequence) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildNack(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc, System.ReadOnlySpan<ushort> lostSequences) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildPli(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc) -> int
-static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.ContainsPli(System.ReadOnlySpan<byte> packet, out uint mediaSsrc) -> bool
-static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryParseNack(System.ReadOnlySpan<byte> packet, out uint mediaSsrc, System.Collections.Generic.List<ushort>! lost) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadFir(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint senderSsrc, System.Collections.Generic.List<(uint TargetSsrc, byte Sequence)>! requests) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadNack(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint mediaSsrc, System.Collections.Generic.List<ushort>! lost) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadPli(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint mediaSsrc) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport report) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.operator !=(Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.operator ==(Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport right) -> bool

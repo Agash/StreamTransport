@@ -3,13 +3,13 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using Agash.StreamTransport.Media;
+using Agash.StreamTransport.Stun;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
-using Agash.StreamTransport.Stun;
 using Agash.StreamTransport.WebRtc.Turn;
 using Dtls.Core;
 
@@ -66,6 +66,7 @@ public sealed class ParserFuzzTests
     {
         byte[][] seeds = [Nack(), Pli(), Ccfb(), [.. Pli(), .. Nack()]];
         List<ushort> lost = [];
+        List<(uint, byte)> firs = [];
         List<CcfbStreamReport> streams = [];
         Fuzz(
             seeds,
@@ -78,9 +79,14 @@ public sealed class ParserFuzzTests
 
                 _ = RtcpSenderReport.TryParse(input, out _);
                 _ = RtcpReceiverReport.TryParse(input, out _);
-                lost.Clear();
-                _ = RtcpFeedback.TryParseNack(input, out _, lost);
-                _ = RtcpFeedback.ContainsPli(input, out _);
+                foreach (RtcpElement element in RtcpCompound.Enumerate(input))
+                {
+                    lost.Clear();
+                    _ = RtcpFeedback.TryReadNack(element, out _, lost);
+                    _ = RtcpFeedback.TryReadPli(element, out _);
+                    _ = RtcpFeedback.TryReadFir(element, out _, firs);
+                    firs.Clear();
+                }
                 streams.Clear();
                 _ = Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(input, out _, out _, streams);
             }
