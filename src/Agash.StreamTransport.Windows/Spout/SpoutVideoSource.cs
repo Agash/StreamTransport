@@ -135,7 +135,6 @@ public sealed partial class SpoutVideoSource : IVideoSource, IDisposable
         private readonly SpoutDevice _device;
         private readonly SpoutReceiver _receiver;
         private readonly CancellationTokenSource _stop = new();
-        private readonly Task _loop;
         private D3D12TexturePool? _copies;
         private SpoutFormat _refused;
 
@@ -164,21 +163,15 @@ public sealed partial class SpoutVideoSource : IVideoSource, IDisposable
                 }
             );
             source.LogReceiving(_engine.Adapter);
-            _loop = RunAsync();
+            _ = RunAsync();
         }
 
-        public void Dispose()
-        {
-            _stop.Cancel();
-            try
-            {
-                _loop.GetAwaiter().GetResult();
-            }
-            catch (OperationCanceledException)
-            {
-                // Deliberately not logged: cancellation is how receiving stops.
-            }
+        // Stops receiving without waiting for it: the loop releases the receiver and the devices itself as it
+        // ends, so nothing is released while it may still be using them and nobody blocks on it.
+        public void Dispose() => _stop.Cancel();
 
+        private void Release()
+        {
             _receiver.Dispose();
             _device.Dispose();
             _copies?.Dispose();
@@ -244,21 +237,25 @@ public sealed partial class SpoutVideoSource : IVideoSource, IDisposable
             return new D3D12FrameLease(in kept, copy);
         }
 
-        private Task RunAsync() =>
-            _receiver
-                .RunAsync(Deliver, _stop.Token)
-                .ContinueWith(
-                    task =>
-                    {
-                        if (task.Exception is { } failure)
-                        {
-                            _source.LogReceiveFailed(failure.GetBaseException());
-                        }
-                    },
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default
-                );
+        private async Task RunAsync()
+        {
+            try
+            {
+                await _receiver.RunAsync(Deliver, _stop.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Deliberately not logged: cancellation is how receiving stops.
+            }
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                _source.LogReceiveFailed(failure);
+            }
+            finally
+            {
+                Release();
+            }
+        }
 
         private void Deliver(in SpoutFrame frame)
         {

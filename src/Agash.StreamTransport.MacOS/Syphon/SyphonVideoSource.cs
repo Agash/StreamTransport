@@ -135,7 +135,6 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
         private readonly MetalEngine _engine;
         private readonly SyphonClient _client;
         private readonly CancellationTokenSource _stop = new();
-        private readonly Task _loop;
         private readonly CommandCompletions _completions = new();
         private IOSurfacePool? _copies;
         private PooledSurface? _delivering;
@@ -149,21 +148,15 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
                 new SyphonClientOptions { Device = _engine.Device, LoggerFactory = source._loggers }
             );
             source.LogReceiving(source._server.Name, _engine.Identity);
-            _loop = RunAsync();
+            _ = RunAsync();
         }
 
-        public void Dispose()
-        {
-            _stop.Cancel();
-            try
-            {
-                _loop.GetAwaiter().GetResult();
-            }
-            catch (OperationCanceledException)
-            {
-                // Deliberately not logged: cancellation is how receiving stops.
-            }
+        // Stops receiving without waiting for it: the loop releases the client itself as it ends, so nothing is
+        // released while it may still be using it and nobody blocks on it.
+        public void Dispose() => _stop.Cancel();
 
+        private void Release()
+        {
             _client.Dispose();
             _copies?.Dispose();
             _stop.Dispose();
@@ -274,28 +267,26 @@ public sealed partial class SyphonVideoSource : IVideoSource, IDisposable
                 MTLTextureUsage.ShaderRead
             );
 
-        private Task RunAsync() =>
-            _client
-                .RunAsync(Deliver, _stop.Token)
-                .ContinueWith(
-                    task =>
-                    {
-                        if (task.Exception is { } failure)
-                        {
-                            _source.LogReceiveFailed(
-                                failure.GetBaseException(),
-                                _source._server.Name
-                            );
-                        }
-                        else if (!task.IsCanceled)
-                        {
-                            _source.LogServerStopped(_source._server.Name);
-                        }
-                    },
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default
-                );
+        private async Task RunAsync()
+        {
+            try
+            {
+                await _client.RunAsync(Deliver, _stop.Token).ConfigureAwait(false);
+                _source.LogServerStopped(_source._server.Name);
+            }
+            catch (OperationCanceledException)
+            {
+                // Deliberately not logged: cancellation is how receiving stops.
+            }
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                _source.LogReceiveFailed(failure, _source._server.Name);
+            }
+            finally
+            {
+                Release();
+            }
+        }
 
         private void Deliver(in SyphonFrame frame)
         {
