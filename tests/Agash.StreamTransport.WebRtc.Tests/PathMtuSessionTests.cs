@@ -73,6 +73,35 @@ public sealed class PathMtuSessionTests
         Assert.IsLessThanOrEqualTo(1250, session.Sender.MaximumDatagramSize);
     }
 
+    // RFC 8899 section 3: probes are expected to be lost. Lost probes on the RTX stream must not read as
+    // media that stopped arriving (RFC 8083 section 4.2), so the circuit breaker stays closed while the
+    // search probes above a smaller path.
+    [TestMethod]
+    [Timeout(90_000)]
+    public async Task ProbesLostAboveTheLimit_NeverTripTheCircuitBreaker()
+    {
+        int limit = 1452;
+        await using Session session = await Session.ConnectAsync(() => Volatile.Read(ref limit));
+        int opened = 0;
+        session.Sender.CircuitBreakerChanged += (state, _) =>
+        {
+            if (state == Adaptation.CircuitBreakerState.Open)
+            {
+                Interlocked.Increment(ref opened);
+            }
+        };
+        await session.SendUntilAsync(
+            () => session.Sender.MaximumDatagramSize >= 1400,
+            TestContext.CancellationToken
+        );
+
+        Volatile.Write(ref limit, 1250);
+        await session.SendForAsync(TimeSpan.FromSeconds(12), TestContext.CancellationToken);
+
+        Assert.AreEqual(0, Volatile.Read(ref opened));
+        Assert.IsLessThanOrEqualTo(1250, session.Sender.MaximumDatagramSize);
+    }
+
     // A sender and a receiver with RTX and congestion-control feedback, on a network that drops datagrams
     // above the limit.
     private sealed class Session : IAsyncDisposable

@@ -60,7 +60,11 @@ static async Task<int> RunAsync(CommandLine command)
 {
     using ILoggerFactory loggers = LoggerFactory.Create(builder =>
         builder
-            .AddSimpleConsole(options => options.SingleLine = true)
+            .AddSimpleConsole(options =>
+            {
+                options.SingleLine = true;
+                options.TimestampFormat = "HH:mm:ss.fff ";
+            })
             .SetMinimumLevel(command.Verbose ? LogLevel.Debug : LogLevel.Information)
     );
     ILogger log = loggers.CreateLogger("streamtransport");

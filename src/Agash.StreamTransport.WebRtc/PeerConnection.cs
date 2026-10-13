@@ -864,6 +864,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return ValueTask.CompletedTask;
         }
 
+        // RFC 8899 section 3, item 1: nothing but a probe goes out larger than the path MTU. After a black
+        // hole falls back, media already packetized for the old size, and repairs of it, would only be lost.
+        if (packet.Class != TrafficClass.Probe && protectedLength > MaximumDatagramSize)
+        {
+            LogAbovePathMtu(_logger, protectedLength, packet.Class, MaximumDatagramSize);
+            return ValueTask.CompletedTask;
+        }
+
         long now = NowMicros();
         if (
             _options.RepairOverStandby
@@ -889,7 +897,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
             packet.Class,
             transportSequence
         );
-        BreakerOnSent(header.Ssrc, protectedLength);
+        // Probes are meant to be lost (RFC 8899 section 3); they are not media a breaker watches.
+        if (packet.Class != TrafficClass.Probe)
+        {
+            BreakerOnSent(header.Ssrc, protectedLength);
+        }
+
         RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
         if (packet.Class == TrafficClass.Retransmission)
         {
@@ -1786,6 +1799,18 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "No keyframe request sent for {Ssrc}: the description agreed neither PLI nor FIR"
     )]
     private static partial void LogKeyframeRequestNotAgreed(ILogger logger, uint ssrc);
+
+    [LoggerMessage(
+        EventId = 1182,
+        Level = LogLevel.Debug,
+        Message = "Dropped a {Bytes}-byte {Class} datagram above the path MTU of {Limit} bytes"
+    )]
+    private static partial void LogAbovePathMtu(
+        ILogger logger,
+        int bytes,
+        TrafficClass @class,
+        int limit
+    );
 
     [LoggerMessage(
         EventId = 1175,
