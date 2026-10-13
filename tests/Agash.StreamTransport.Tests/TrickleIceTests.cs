@@ -32,9 +32,10 @@ public sealed class TrickleIceTests
         Assert.AreEqual("P2uYro0UCOQ4zxjKXaWCBui1", fragment.Password);
         Assert.AreEqual("video 9 UDP/TLS/RTP/SAVPF 96", fragment.MediaLine);
         Assert.AreEqual("0", fragment.Mid);
+        // RFC 9725 figure 3's layout: the group at session level, the credentials in the section.
         Assert.AreEqual(
-            "a=ice-ufrag:EsAw\r\na=ice-pwd:P2uYro0UCOQ4zxjKXaWCBui1\r\n"
-                + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na="
+            "a=group:BUNDLE 0 1\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n"
+                + "a=ice-ufrag:EsAw\r\na=ice-pwd:P2uYro0UCOQ4zxjKXaWCBui1\r\na="
                 + Cellular
                 + "\r\n",
             fragment.Format()
@@ -58,6 +59,28 @@ public sealed class TrickleIceTests
         Assert.HasCount(2, fragment.Candidates);
         StringAssert.StartsWith(fragment.Candidates[1], "candidate:3471623853 1 udp");
         Assert.IsTrue(fragment.EndOfCandidates);
+        Assert.AreEqual("BUNDLE 0 1", fragment.BundleGroup);
+    }
+
+    // RFC 9725 section 4.3.3: a restart's body carries the ice-options and ice-lite of the description.
+    [TestMethod]
+    public void FromFirstSection_CarriesIceOptionsAndLite()
+    {
+        string offer = Offer
+            .Replace("t=0 0\r\n", "t=0 0\r\na=ice-lite\r\n", StringComparison.Ordinal)
+            .Replace(
+                "a=mid:0\r\n",
+                "a=mid:0\r\na=ice-options:trickle ice2 renomination\r\n",
+                StringComparison.Ordinal
+            );
+
+        string body = TrickleIceFragment.FromFirstSection(offer).Format();
+
+        StringAssert.StartsWith(body, "a=ice-lite\r\n");
+        StringAssert.Contains(body, "a=ice-options:trickle ice2 renomination\r\n");
+        Assert.IsTrue(TrickleIceFragment.TryParse(body, out TrickleIceFragment read));
+        Assert.IsTrue(read.IceLite);
+        Assert.AreEqual("trickle ice2 renomination", read.IceOptions);
     }
 
     [TestMethod]

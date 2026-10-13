@@ -16,6 +16,13 @@ namespace Agash.StreamTransport.Http;
 /// <param name="Mid">The identification tag of the media section the candidates belong to.</param>
 /// <param name="Candidates">The candidates, each as its attribute value (<c>candidate:...</c>).</param>
 /// <param name="EndOfCandidates">Whether the fragment says no more candidates follow.</param>
+/// <remarks>
+/// Laid out as RFC 9725's examples are: the BUNDLE group and <c>a=ice-lite</c> at session level, then the
+/// pseudo <c>m=</c> line with its <c>mid</c>, and the credentials, <c>ice-options</c> and candidates in
+/// that section, where the session description has them (RFC 8840 section 4.4). A restart's request and
+/// response carry the same <c>ice-options</c> and <c>ice-lite</c> as the offer and answer (RFC 9725
+/// section 4.3.3).
+/// </remarks>
 public sealed record TrickleIceFragment(
     string? UsernameFragment,
     string? Password,
@@ -25,6 +32,15 @@ public sealed record TrickleIceFragment(
     bool EndOfCandidates = false
 )
 {
+    /// <summary>The section's <c>a=ice-options</c> value, as in the offer or answer; null for none.</summary>
+    public string? IceOptions { get; init; }
+
+    /// <summary>Whether the session is ICE lite (<c>a=ice-lite</c>), as in the offer or answer.</summary>
+    public bool IceLite { get; init; }
+
+    /// <summary>The session's <c>a=group:BUNDLE</c> value; null for none.</summary>
+    public string? BundleGroup { get; init; }
+
     /// <summary>The media type of the body.</summary>
     public const string MediaType = "application/trickle-ice-sdpfrag";
 
@@ -49,9 +65,28 @@ public sealed record TrickleIceFragment(
         string? password = null;
         string? mediaLine = null;
         string? mid = null;
+        string? options = null;
+        string? group = null;
+        bool lite = false;
         foreach (string raw in sdp.Split('\n'))
         {
             string line = raw.TrimEnd('\r');
+            if (mediaLine is null && line == "a=ice-lite")
+            {
+                lite = true;
+            }
+            else if (
+                mediaLine is null
+                && line.StartsWith("a=group:BUNDLE", StringComparison.Ordinal)
+            )
+            {
+                group = line["a=group:".Length..];
+            }
+            else if (line.StartsWith("a=ice-options:", StringComparison.Ordinal))
+            {
+                options ??= line["a=ice-options:".Length..];
+            }
+
             if (line.StartsWith("m=", StringComparison.Ordinal))
             {
                 if (mediaLine is not null)
@@ -81,7 +116,12 @@ public sealed record TrickleIceFragment(
             mediaLine ?? DefaultMediaLine,
             mid,
             candidates
-        );
+        )
+        {
+            IceOptions = options,
+            IceLite = lite,
+            BundleGroup = group,
+        };
     }
 
     /// <summary>
@@ -193,6 +233,9 @@ public sealed record TrickleIceFragment(
         string? password = null;
         string? mediaLine = null;
         string? mid = null;
+        string? options = null;
+        string? group = null;
+        bool lite = false;
         bool end = false;
         List<string> candidates = [];
         foreach (string raw in body.Split('\n'))
@@ -237,6 +280,18 @@ public sealed record TrickleIceFragment(
             {
                 end = true;
             }
+            else if (line == "a=ice-lite")
+            {
+                lite = true;
+            }
+            else if (line.StartsWith("a=ice-options:", StringComparison.Ordinal))
+            {
+                options = line["a=ice-options:".Length..];
+            }
+            else if (line.StartsWith("a=group:", StringComparison.Ordinal))
+            {
+                group = line["a=group:".Length..];
+            }
         }
 
         if (candidates.Count > 0 && mediaLine is null)
@@ -251,7 +306,12 @@ public sealed record TrickleIceFragment(
             mid,
             candidates,
             end
-        );
+        )
+        {
+            IceOptions = options,
+            IceLite = lite,
+            BundleGroup = group,
+        };
         return true;
     }
 
@@ -260,6 +320,22 @@ public sealed record TrickleIceFragment(
     public string Format()
     {
         StringBuilder body = new();
+        if (IceLite)
+        {
+            body.Append("a=ice-lite\r\n");
+        }
+
+        if (BundleGroup is { } group)
+        {
+            body.Append("a=group:").Append(group).Append("\r\n");
+        }
+
+        body.Append("m=").Append(MediaLine).Append("\r\n");
+        if (Mid is { } mid)
+        {
+            body.Append("a=mid:").Append(mid).Append("\r\n");
+        }
+
         if (UsernameFragment is { } ufrag)
         {
             body.Append("a=ice-ufrag:").Append(ufrag).Append("\r\n");
@@ -270,10 +346,9 @@ public sealed record TrickleIceFragment(
             body.Append("a=ice-pwd:").Append(password).Append("\r\n");
         }
 
-        body.Append("m=").Append(MediaLine).Append("\r\n");
-        if (Mid is { } mid)
+        if (IceOptions is { } options)
         {
-            body.Append("a=mid:").Append(mid).Append("\r\n");
+            body.Append("a=ice-options:").Append(options).Append("\r\n");
         }
 
         foreach (string candidate in Candidates)

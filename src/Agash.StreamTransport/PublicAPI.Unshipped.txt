@@ -19,6 +19,8 @@ Agash.StreamTransport.Http.IceServerLinks
 Agash.StreamTransport.Http.TrickleIceFragment
 Agash.StreamTransport.Http.TrickleIceFragment.<Clone>$() -> Agash.StreamTransport.Http.TrickleIceFragment!
 Agash.StreamTransport.Http.TrickleIceFragment.ApplyTo(string! sdp) -> string!
+Agash.StreamTransport.Http.TrickleIceFragment.BundleGroup.get -> string?
+Agash.StreamTransport.Http.TrickleIceFragment.BundleGroup.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.Candidates.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Agash.StreamTransport.Http.TrickleIceFragment.Candidates.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.Deconstruct(out string? UsernameFragment, out string? Password, out string! MediaLine, out string? Mid, out System.Collections.Generic.IReadOnlyList<string!>! Candidates, out bool EndOfCandidates) -> void
@@ -26,6 +28,10 @@ Agash.StreamTransport.Http.TrickleIceFragment.EndOfCandidates.get -> bool
 Agash.StreamTransport.Http.TrickleIceFragment.EndOfCandidates.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.Equals(Agash.StreamTransport.Http.TrickleIceFragment? other) -> bool
 Agash.StreamTransport.Http.TrickleIceFragment.Format() -> string!
+Agash.StreamTransport.Http.TrickleIceFragment.IceLite.get -> bool
+Agash.StreamTransport.Http.TrickleIceFragment.IceLite.init -> void
+Agash.StreamTransport.Http.TrickleIceFragment.IceOptions.get -> string?
+Agash.StreamTransport.Http.TrickleIceFragment.IceOptions.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.MediaLine.get -> string!
 Agash.StreamTransport.Http.TrickleIceFragment.MediaLine.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.Mid.get -> string?
