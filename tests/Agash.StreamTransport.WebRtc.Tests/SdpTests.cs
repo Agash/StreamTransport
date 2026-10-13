@@ -126,6 +126,22 @@ public sealed class SdpTests
         StringAssert.Contains(sdp, "a=msid:s1 s1-1");
     }
 
+    // RFC 3551 section 6: a static payload type needs no a=rtpmap.
+    [TestMethod]
+    public void Parse_StaticPayloadTypeWithoutRtpmap_IsKept()
+    {
+        string sdp = SdpWriter.Write(SampleOffer()).Replace(
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111",
+            "m=audio 9 UDP/TLS/RTP/SAVPF 111 0",
+            StringComparison.Ordinal
+        );
+
+        Assert.IsTrue(SdpReader.TryParse(sdp, out SdpDescription read));
+        SdpCodec pcmu = read.Media[0].Codecs.Single(static c => c.PayloadType == 0);
+        Assert.AreEqual("PCMU", pcmu.EncodingName);
+        Assert.AreEqual(8000, pcmu.ClockRate);
+    }
+
     [TestMethod]
     public void WriteThenParse_RoundTrips()
     {

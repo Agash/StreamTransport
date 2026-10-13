@@ -443,7 +443,10 @@ public static class SdpReader
             var codecs = new List<SdpCodec>(_payloadOrder.Count);
             foreach (int pt in _payloadOrder)
             {
-                if (!_rtpmap.TryGetValue(pt, out (string Name, int Clock, int? Channels) map))
+                if (
+                    !_rtpmap.TryGetValue(pt, out (string Name, int Clock, int? Channels) map)
+                    && !StaticPayloadTypes.TryGetValue(pt, out map)
+                )
                 {
                     continue;
                 }
@@ -465,6 +468,21 @@ public static class SdpReader
 
             return codecs;
         }
+
+        // RFC 3551 section 6: payload types a description may list without an a=rtpmap.
+        private static readonly Dictionary<
+            int,
+            (string Name, int Clock, int? Channels)
+        > StaticPayloadTypes = new()
+        {
+            [0] = ("PCMU", 8000, 1),
+            [3] = ("GSM", 8000, 1),
+            [4] = ("G723", 8000, 1),
+            [8] = ("PCMA", 8000, 1),
+            [9] = ("G722", 8000, 1),
+            [13] = ("CN", 8000, 1),
+            [18] = ("G729", 8000, 1),
+        };
 
         private void ParseRtpmap(string value)
         {

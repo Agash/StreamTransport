@@ -422,7 +422,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
     public void SetRemoteDescription(SdpDescription description, SdpType type)
     {
         ArgumentNullException.ThrowIfNull(description);
-        SdpMediaDescription first = description.Media[0];
+        // With BUNDLE the offerer-tagged section, the first that is not rejected, carries the transport
+        // (RFC 9143 section 7.3).
+        SdpMediaDescription first =
+            description.Media.FirstOrDefault(static m => !m.Rejected) ?? description.Media[0];
 
         // An offer whose ICE ufrag differs from the established one is an ICE restart (RFC 8829): rotate our
         // own credentials and restart the agent so the answer carries fresh creds + re-gathered candidates.
@@ -825,7 +828,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         if (_remoteDescription is { } remote)
         {
-            SdpMediaDescription first = remote.Media[0];
+            SdpMediaDescription first =
+                remote.Media.FirstOrDefault(static m => !m.Rejected) ?? remote.Media[0];
             agent.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
         }
 
