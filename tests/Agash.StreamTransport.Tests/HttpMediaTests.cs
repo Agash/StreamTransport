@@ -255,13 +255,14 @@ public sealed class HttpMediaTests
         await using (playing)
         {
             await playing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
-            while (analyzer.Measure().Pairs < 2)
+
+            // Two A/V pairs can be measured a frame short of a second of video, so both are waited for.
+            using CancellationTokenSource guard = new(TimeSpan.FromSeconds(20));
+            while (analyzer.Measure() is { Pairs: < 2 } or { Frames: <= 30 })
             {
-                await Task.Delay(200);
+                await Task.Delay(200, guard.Token);
             }
         }
-
-        Assert.IsGreaterThan(30, analyzer.Measure().Frames);
     }
 
     [TestMethod]
