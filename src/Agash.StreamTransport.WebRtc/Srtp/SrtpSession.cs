@@ -73,12 +73,35 @@ public sealed class SrtpSession : IDisposable
     /// <see cref="ProtectionOverhead"/> spare octets.
     /// </summary>
     /// <exception cref="InvalidOperationException">The packet's index was already protected.</exception>
-    public int ProtectRtp(Span<byte> packet, int length)
+    public int ProtectRtp(Span<byte> packet, int length) =>
+        TryProtectRtp(packet, length, out int protectedLength)
+            ? protectedLength
+            : throw new InvalidOperationException(
+                "The packet's RTP sequence does not follow the last one protected on its SSRC; protecting it would reuse an SRTP index."
+            );
+
+    /// <summary>
+    /// Protects an RTP packet in place unless its index does not follow the last one protected on its SSRC,
+    /// which would reuse a nonce: a packet the send path reordered is dropped, not sent.
+    /// </summary>
+    /// <param name="packet">The packet, with <see cref="ProtectionOverhead"/> spare octets.</param>
+    /// <param name="length">Its length.</param>
+    /// <param name="protectedLength">The protected length.</param>
+    /// <returns>Whether it was protected.</returns>
+    public bool TryProtectRtp(Span<byte> packet, int length, out int protectedLength)
     {
         uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
         ushort seq = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
-        uint roc = _sendIndex.GetOrAdd(ssrc, static _ => new SendIndex()).Next(ssrc, seq);
-        return _send.ProtectRtp(roc, packet, length);
+        if (
+            !_sendIndex.GetOrAdd(ssrc, static _ => new SendIndex()).TryNext(ssrc, seq, out uint roc)
+        )
+        {
+            protectedLength = 0;
+            return false;
+        }
+
+        protectedLength = _send.ProtectRtp(roc, packet, length);
+        return true;
     }
 
     /// <summary>
@@ -181,7 +204,7 @@ public sealed class SrtpSession : IDisposable
         };
 
     // The outbound 48-bit index for one SSRC: strictly increasing, the rollover counter advancing when the
-    // sequence number wraps. A repeat or a step back would reuse a nonce, so it throws.
+    // sequence number wraps. A repeat or a step back would reuse a nonce, so it is refused.
     private sealed class SendIndex
     {
         private const ulong MaxIndex = (1UL << 48) - 1;
@@ -190,8 +213,9 @@ public sealed class SrtpSession : IDisposable
         private ulong _last;
         private bool _seen;
 
-        public uint Next(uint ssrc, ushort seq)
+        public bool TryNext(uint ssrc, ushort seq, out uint rolloverCounter)
         {
+            rolloverCounter = 0;
             lock (_gate)
             {
                 ulong roc = _last >> 16;
@@ -203,9 +227,7 @@ public sealed class SrtpSession : IDisposable
                 ulong index = (roc << 16) | seq;
                 if (_seen && (index <= _last || index - _last > 0x8000))
                 {
-                    throw new InvalidOperationException(
-                        $"RTP sequence {seq} on SSRC {ssrc} does not follow {(ushort)_last}; protecting it would reuse an SRTP index."
-                    );
+                    return false;
                 }
 
                 if (index > MaxIndex)
@@ -217,7 +239,8 @@ public sealed class SrtpSession : IDisposable
 
                 _last = index;
                 _seen = true;
-                return (uint)roc;
+                rolloverCounter = (uint)roc;
+                return true;
             }
         }
     }

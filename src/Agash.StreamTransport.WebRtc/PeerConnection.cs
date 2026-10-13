@@ -698,7 +698,17 @@ public sealed partial class PeerConnection : IAsyncDisposable
             packet.Length,
             out ushort? transportSequence
         );
-        int protectedLength = srtp.ProtectRtp(packet.Buffer, length);
+        if (!srtp.TryProtectRtp(packet.Buffer, length, out int protectedLength))
+        {
+            LogOutOfOrderDropped(_logger, header.Ssrc, header.SequenceNumber);
+            if (packet.Class == TrafficClass.Probe)
+            {
+                AbandonProbe();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
         long now = NowMicros();
         if (
             _options.RepairOverStandby
@@ -1518,4 +1528,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "Consent to the path was lost and no other path is up; it takes an ICE restart to carry on"
     )]
     private static partial void LogConnectivityLost(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1176,
+        Level = LogLevel.Warning,
+        Message = "RTP sequence {Sequence} on SSRC {Ssrc} reached the wire out of order; it is dropped, as protecting it would reuse an SRTP index"
+    )]
+    private static partial void LogOutOfOrderDropped(ILogger logger, uint ssrc, ushort sequence);
 }

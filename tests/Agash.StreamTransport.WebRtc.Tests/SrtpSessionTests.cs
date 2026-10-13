@@ -168,6 +168,28 @@ public sealed class SrtpSessionTests
         }
     }
 
+    // The send path drops a packet that reached it out of order rather than reusing a nonce or faulting.
+    [TestMethod]
+    public void TryProtectRtp_SequenceThatStepsBack_IsRefusedAndTheStreamGoesOn()
+    {
+        (SrtpSession client, SrtpSession server) = Pair(
+            SrtpProtectionProfile.AeadAes128Gcm,
+            16,
+            12
+        );
+        using (client)
+        using (server)
+        {
+            byte[] packet = Rtp(9, 500, out int length);
+            Assert.IsTrue(client.TryProtectRtp(packet, length, out _));
+            byte[] earlier = Rtp(9, 499, out length);
+            Assert.IsFalse(client.TryProtectRtp(earlier, length, out _));
+            byte[] next = Rtp(9, 501, out length);
+            Assert.IsTrue(client.TryProtectRtp(next, length, out int protectedLength));
+            Assert.IsTrue(server.UnprotectRtp(next, protectedLength, out _));
+        }
+    }
+
     [TestMethod]
     public void UnprotectRtcp_ReplayedPacket_IsRejected()
     {
