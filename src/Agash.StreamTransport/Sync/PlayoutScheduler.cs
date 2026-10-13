@@ -54,6 +54,17 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
         }
     }
 
+    /// <summary>Bounds the buffer to a sender's playout delay range, within this side's maximum.</summary>
+    /// <param name="minimum">The least delay asked for.</param>
+    /// <param name="maximum">The most.</param>
+    public void Bound(TimeSpan minimum, TimeSpan maximum)
+    {
+        lock (_gate)
+        {
+            _timeline.Bound(minimum, maximum);
+        }
+    }
+
     /// <summary>
     /// Holds an entry until the frame captured at a sender instant is due, shifted by an extra delay
     /// (the difference between the output paths' own latencies, which may be negative).

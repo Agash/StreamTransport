@@ -39,9 +39,11 @@ internal sealed class PlayoutTimeline
 
     private const long MaxChangePerSecond = 100_000_000;
 
-    private readonly long _minDelay;
-    private readonly long _maxDelay;
+    private readonly long _ownMinDelay;
+    private readonly long _ownMaxDelay;
     private readonly long _margin;
+    private long _minDelay;
+    private long _maxDelay;
     private readonly StreamState[] _streams = [new(), new()];
     private long _delay;
     private bool _delaySet;
@@ -53,9 +55,26 @@ internal sealed class PlayoutTimeline
     /// <param name="margin">Headroom above the measured jitter.</param>
     public PlayoutTimeline(TimeSpan minDelay, TimeSpan maxDelay, TimeSpan margin)
     {
-        _minDelay = MediaTime.FromTimeSpan(minDelay).Nanoseconds;
-        _maxDelay = MediaTime.FromTimeSpan(maxDelay).Nanoseconds;
+        _minDelay = _ownMinDelay = MediaTime.FromTimeSpan(minDelay).Nanoseconds;
+        _maxDelay = _ownMaxDelay = MediaTime.FromTimeSpan(maxDelay).Nanoseconds;
         _margin = MediaTime.FromTimeSpan(margin).Nanoseconds;
+    }
+
+    /// <summary>The buffer's bounds now: this side's own, or a sender's within this side's maximum.</summary>
+    public (TimeSpan Minimum, TimeSpan Maximum) Bounds =>
+        (new MediaTime(_minDelay).ToTimeSpan(), new MediaTime(_maxDelay).ToTimeSpan());
+
+    /// <summary>
+    /// Takes a sender's bounds for the buffer (the playout-delay extension), never past this side's own
+    /// maximum, which bounds the latency it accepts.
+    /// </summary>
+    /// <param name="minimum">The least delay the sender asks for.</param>
+    /// <param name="maximum">The most.</param>
+    public void Bound(TimeSpan minimum, TimeSpan maximum)
+    {
+        long min = Math.Clamp(MediaTime.FromTimeSpan(minimum).Nanoseconds, 0, _ownMaxDelay);
+        _minDelay = min;
+        _maxDelay = Math.Clamp(MediaTime.FromTimeSpan(maximum).Nanoseconds, min, _ownMaxDelay);
     }
 
     /// <summary>Whether a frame has set the estimates.</summary>

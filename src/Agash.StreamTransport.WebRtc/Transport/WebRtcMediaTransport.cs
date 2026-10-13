@@ -464,7 +464,14 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 _videoPayloadType = local.PayloadType;
                 if (videoOffer.Sends)
                 {
-                    _videoWriter = Writer(payloadFormat, local, media.LocalSsrc);
+                    _videoWriter = Writer(
+                        payloadFormat,
+                        local,
+                        media.LocalSsrc,
+                        _options.RequestedPlayoutDelay is { } asked
+                            ? new PlayoutDelay(asked.Minimum, asked.Maximum)
+                            : null
+                    );
                 }
 
                 if (videoOffer.Receives)
@@ -496,12 +503,18 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         return new NegotiatedMedia(video, audio);
     }
 
-    private static RtpStreamWriter Writer(RtpPayloadFormat format, SdpCodec codec, uint ssrc) =>
+    private static RtpStreamWriter Writer(
+        RtpPayloadFormat format,
+        SdpCodec codec,
+        uint ssrc,
+        PlayoutDelay? playoutDelay = null
+    ) =>
         new(
             format.CreatePacketizer(),
             (byte)codec.PayloadType,
             ssrc,
-            new ClockRate(format.ClockRate)
+            new ClockRate(format.ClockRate),
+            playoutDelay
         );
 
     // What the receiver declared, for the encoder: an H.264 peer that names no profile takes Baseline
@@ -692,6 +705,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         private readonly Dictionary<uint, Arrival> _arrivals = [];
         private bool _captureTimes;
         private long? _gapSince;
+        private PlayoutDelay? _playoutDelay;
 
         public void OnPacket(in RtpHeader header, ReadOnlySpan<byte> payload)
         {
@@ -713,6 +727,14 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             {
                 _captureTimes = true;
                 _aligner.Record(new NtpTime(ntp), header.Timestamp);
+            }
+
+            if (header.Extensions.PlayoutDelay is { } asked && asked != _playoutDelay)
+            {
+                _playoutDelay = asked;
+                owner._receiver!.OnPlayoutDelayRequested(
+                    new PlayoutDelayRange(asked.Minimum, asked.Maximum)
+                );
             }
 
             RtpFrameBuffer.InsertResult result = _buffer.Insert(

@@ -237,6 +237,9 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         }
     }
 
+    void IReceivedMediaConsumer.OnPlayoutDelayRequested(PlayoutDelayRange range) =>
+        _playout.Request(range);
+
     void IReceivedMediaConsumer.OnAudioPacket(
         EncodedFrameBuffer packet,
         long sequence,

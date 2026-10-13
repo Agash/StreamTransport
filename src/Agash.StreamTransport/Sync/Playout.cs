@@ -63,6 +63,13 @@ internal sealed class Playout : IAsyncDisposable
     /// <summary>The playout buffer depth, or zero when frames play on arrival.</summary>
     public TimeSpan CurrentDelay => _scheduler?.CurrentDelay ?? TimeSpan.Zero;
 
+    /// <summary>
+    /// Keeps the playout delay within the range the sender asked for, as far as this session's own
+    /// maximum allows; frames that play on arrival have no delay to bound.
+    /// </summary>
+    /// <param name="range">The sender's range.</param>
+    public void Request(PlayoutDelayRange range) => _scheduler?.Bound(range.Minimum, range.Maximum);
+
     /// <summary>Plays a decoded video frame now or at its slot.</summary>
     /// <param name="frame">The frame, borrowed.</param>
     /// <param name="capture">The sender's capture instant, when known.</param>

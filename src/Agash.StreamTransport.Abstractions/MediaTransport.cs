@@ -134,6 +134,14 @@ public readonly record struct VideoReceiveTiming(
 );
 
 /// <summary>
+/// The range a sender asks a receiver to keep its video playout delay in: the playout-delay header
+/// extension libwebrtc and browsers read. Zero for both renders each frame as soon as it is decoded.
+/// </summary>
+/// <param name="Minimum">The least delay.</param>
+/// <param name="Maximum">The most delay.</param>
+public readonly record struct PlayoutDelayRange(TimeSpan Minimum, TimeSpan Maximum);
+
+/// <summary>
 /// Takes the media a transport receives, on the transport's receive thread. Each frame's buffer passes to
 /// the consumer, which disposes it.
 /// </summary>
@@ -162,6 +170,10 @@ public interface IReceivedMediaConsumer
         TimeSpan position,
         NtpTime? capture
     );
+
+    /// <summary>The sender asked for its video to play within a delay range, or changed the range it asked for.</summary>
+    /// <param name="range">The range.</param>
+    void OnPlayoutDelayRequested(PlayoutDelayRange range) { }
 }
 
 /// <summary>Counters and estimates of a transport, for telemetry.</summary>
@@ -219,6 +231,13 @@ public record MediaTransportOptions
     /// wants it short, since a silent modem rarely recovers in time to matter.
     /// </summary>
     public TimeSpan? PathFailover { get; init; }
+
+    /// <summary>
+    /// The playout delay range this side asks the receiver to keep its video in; null asks nothing. Zero
+    /// for both makes a browser render each frame as it is decoded, for interactive use where latency
+    /// matters more than smoothness.
+    /// </summary>
+    public PlayoutDelayRange? RequestedPlayoutDelay { get; init; }
 }
 
 /// <summary>

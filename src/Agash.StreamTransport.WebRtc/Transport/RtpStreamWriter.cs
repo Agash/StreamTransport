@@ -18,7 +18,8 @@ internal sealed class RtpStreamWriter(
     IRtpPacketizer packetizer,
     byte payloadType,
     uint ssrc,
-    ClockRate rate
+    ClockRate rate,
+    PlayoutDelay? playoutDelay = null
 )
 {
     private readonly RtpPayloadWriter _payloads = new();
@@ -63,7 +64,8 @@ internal sealed class RtpStreamWriter(
             for (int i = 0; i < _payloads.Count; i++)
             {
                 RtpExtensionValues extensions =
-                    capture is not { } captured ? default
+                    capture is not { } captured
+                        ? new RtpExtensionValues(PlayoutDelay: i == 0 ? playoutDelay : null)
                     : i == last && timing is { } timed
                         ? new RtpExtensionValues(
                             captured.Value,
@@ -79,7 +81,7 @@ internal sealed class RtpStreamWriter(
                                 0
                             )
                         )
-                    : i == 0 ? new RtpExtensionValues(captured.Value)
+                    : i == 0 ? new RtpExtensionValues(captured.Value, PlayoutDelay: playoutDelay)
                     : default;
                 sent &= connection.TrySendRtp(
                     payloadType,
