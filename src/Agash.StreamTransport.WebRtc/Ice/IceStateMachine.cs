@@ -55,9 +55,15 @@ internal sealed partial class IceStateMachine
     private readonly Dictionary<string, (CandidatePair Pair, TimeSpan SentAt)> _inFlight = new(
         StringComparer.Ordinal
     );
-    private readonly Dictionary<string, LocalEndpoint> _gatherInFlight = new(
+    private readonly Dictionary<string, GatherRequest> _gatherInFlight = new(
         StringComparer.Ordinal
     );
+
+    // RFC 8489 section 6.2.1: a request over UDP is sent again after RTO, doubling, up to Rc times, and given
+    // up Rm times RTO after the last.
+    private static readonly TimeSpan GatherRto = TimeSpan.FromMilliseconds(500);
+    private const int GatherTransmits = 7;
+    private const int GatherFinalWait = 16;
     private readonly Queue<IceTransmit> _transmits = new();
     private readonly Queue<IceEvent> _events = new();
     private byte[] _localPassword;
@@ -248,7 +254,7 @@ internal sealed partial class IceStateMachine
 
         foreach (
             string transaction in _gatherInFlight
-                .Where(entry => ReferenceEquals(entry.Value, local))
+                .Where(entry => ReferenceEquals(entry.Value.Local, local))
                 .Select(entry => entry.Key)
                 .ToList()
         )
@@ -304,13 +310,21 @@ internal sealed partial class IceStateMachine
             return;
         }
 
+        // RFC 8489 section 14.7: a message with a FINGERPRINT that does not match is not STUN.
+        if (
+            stun.TryFindAttribute(StunAttributeType.Fingerprint, out _) && !stun.VerifyFingerprint()
+        )
+        {
+            return;
+        }
+
         switch (stun.Class)
         {
             case StunMessageClass.Request when stun.Method == StunMethod.Binding:
                 HandleBindingRequest(stun, endpoint, source, now);
                 break;
             case StunMessageClass.SuccessResponse when stun.Method == StunMethod.Binding:
-                HandleBindingSuccess(stun, now);
+                HandleBindingSuccess(stun, endpoint, source, now);
                 break;
             case StunMessageClass.ErrorResponse when stun.Method == StunMethod.Binding:
                 HandleBindingError(stun, now);
@@ -366,6 +380,7 @@ internal sealed partial class IceStateMachine
         // One pacing step per call; a driver that fell behind catches up at Ta, not in a burst.
         NextTimeout = tick + _timings.Ta > now ? tick + _timings.Ta : now + _timings.Ta;
         CheckForFailure(now);
+        RetransmitGathers(now);
         if (_remote.Password is not { Length: > 0 })
         {
             return;
@@ -450,8 +465,13 @@ internal sealed partial class IceStateMachine
                 transaction
             );
             writer.AddFingerprint();
-            _gatherInFlight[Convert.ToHexString(transaction)] = local;
-            _transmits.Enqueue(new IceTransmit(local.Handle, server, buffer[..writer.Length]));
+            byte[] request = buffer[..writer.Length];
+            _gatherInFlight[Convert.ToHexString(transaction)] = new GatherRequest(
+                local,
+                server,
+                request
+            );
+            _transmits.Enqueue(new IceTransmit(local.Handle, server, request));
         }
     }
 
@@ -658,30 +678,43 @@ internal sealed partial class IceStateMachine
         }
     }
 
-    private void HandleBindingSuccess(StunMessageReader stun, TimeSpan now)
+    private void HandleBindingSuccess(
+        StunMessageReader stun,
+        LocalEndpoint local,
+        IPEndPoint source,
+        TimeSpan now
+    )
     {
         string transaction = Convert.ToHexString(stun.TransactionId);
-        if (_gatherInFlight.Remove(transaction, out LocalEndpoint? gathered))
+        if (_gatherInFlight.Remove(transaction, out GatherRequest? gathered))
         {
-            HandleServerReflexive(stun, gathered);
+            HandleServerReflexive(stun, gathered.Local);
             return;
         }
 
-        if (!_inFlight.Remove(transaction, out (CandidatePair Pair, TimeSpan SentAt) check))
+        if (!_inFlight.TryGetValue(transaction, out (CandidatePair Pair, TimeSpan SentAt) check))
         {
             return;
         }
 
         CandidatePair pair = check.Pair;
 
-        // A response's MESSAGE-INTEGRITY is keyed by the responder's password.
+        // RFC 8445 section 7.2.5.2.1: the response comes from where the check went, to where it left from;
+        // one that does not is discarded, and the check may still be answered. Its MESSAGE-INTEGRITY is
+        // keyed by the responder's password.
         if (
-            _remote.Password is { Length: > 0 }
-            && !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
+            !ReferenceEquals(pair.Local, local)
+            || !pair.Remote.Endpoint.Equals(source)
+            || (
+                _remote.Password is { Length: > 0 }
+                && !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
+            )
         )
         {
             return;
         }
+
+        _ = _inFlight.Remove(transaction);
 
         pair.State = PairState.Succeeded;
         pair.LastResponse = now;
@@ -1161,6 +1194,53 @@ internal sealed partial class IceStateMachine
         _transmits.Enqueue(
             new IceTransmit(pair.Local.Handle, pair.Remote.Endpoint, buffer[..writer.Length])
         );
+    }
+
+    private void RetransmitGathers(TimeSpan now)
+    {
+        if (_gatherInFlight.Count == 0)
+        {
+            return;
+        }
+
+        foreach ((string transaction, GatherRequest request) in _gatherInFlight.ToArray())
+        {
+            request.SentAt ??= now;
+            TimeSpan wait =
+                request.Transmits >= GatherTransmits
+                    ? GatherRto * GatherFinalWait
+                    : GatherRto * (1 << (request.Transmits - 1));
+            if (now - request.SentAt.Value < wait)
+            {
+                continue;
+            }
+
+            if (request.Transmits >= GatherTransmits)
+            {
+                _ = _gatherInFlight.Remove(transaction);
+                continue;
+            }
+
+            request.Transmits++;
+            request.SentAt = now;
+            _transmits.Enqueue(
+                new IceTransmit(request.Local.Handle, request.Server, request.Message)
+            );
+        }
+    }
+
+    // A server-reflexive gather request: where it went, what it was, and its retransmissions.
+    private sealed class GatherRequest(LocalEndpoint local, IPEndPoint server, byte[] message)
+    {
+        public LocalEndpoint Local { get; } = local;
+
+        public IPEndPoint Server { get; } = server;
+
+        public byte[] Message { get; } = message;
+
+        public TimeSpan? SentAt { get; set; }
+
+        public int Transmits { get; set; } = 1;
     }
 
     // RFC 8445 section 8.1.2: the agent fails when every pair has failed and no more candidates are coming,

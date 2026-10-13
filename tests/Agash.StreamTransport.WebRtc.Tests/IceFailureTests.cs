@@ -40,6 +40,38 @@ public sealed class IceFailureTests
         Assert.AreEqual(IceTimings.Default.FailureTimeout.TotalSeconds, failedAt.TotalSeconds, 0.2);
     }
 
+    // RFC 8489 section 6.2.1: a server-reflexive request with no answer goes again, seven times in all,
+    // and is given up after.
+    [TestMethod]
+    public void UnansweredGatherRequest_IsRetransmittedThenGivenUp()
+    {
+        IceStateMachine machine = new(
+            IceCredentials.Generate(),
+            IceRole.Controlling,
+            IceTimings.Default,
+            NullLogger.Instance
+        );
+        var server = new IPEndPoint(IPAddress.Parse("10.9.9.9"), 3478);
+        machine.AddLocalEndpoint(0, new IPEndPoint(IPAddress.Parse("10.0.0.1"), 5000));
+        machine.AddStunServer(server);
+        machine.Start(TimeSpan.Zero);
+
+        int sent = 0;
+        while (machine.NextTimeout is { } next && next <= TimeSpan.FromSeconds(60))
+        {
+            machine.HandleTimeout(next);
+            while (machine.TryPollTransmit(out IceTransmit transmit))
+            {
+                sent += transmit.Destination.Equals(server) ? 1 : 0;
+            }
+
+            while (machine.TryPollEvent(out _)) { }
+        }
+
+        Assert.AreEqual(7, sent);
+        Assert.AreEqual(0, machine.PendingGathers);
+    }
+
     private static IceStateMachine Machine(out List<IceConnectionState> states)
     {
         IceStateMachine machine = new(
