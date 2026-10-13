@@ -9,6 +9,31 @@ public sealed class RecoveryPolicyTests
     private static RecoveryInputs Inputs(double loss, int rttMs, long bps = 4_000_000) =>
         new(loss, TimeSpan.FromMilliseconds(rttMs), bps, 30, 12);
 
+    // A repair that cannot make the receiver's playout budget is not asked for; FEC carries the loss even
+    // on a round trip that would otherwise retransmit only.
+    [TestMethod]
+    public void RoundTripBeyondThePlayoutBudget_RepairsWithFecOnly()
+    {
+        RecoveryPlan plan = Policy.Plan(
+            Inputs(0.05, 10) with
+            {
+                RoundTrip = TimeSpan.FromMilliseconds(120),
+                PlayoutBudget = TimeSpan.FromMilliseconds(100),
+            }
+        );
+
+        Assert.IsFalse(plan.Retransmit);
+        Assert.IsTrue(plan.Fec);
+    }
+
+    [TestMethod]
+    public void RoundTripWithinThePlayoutBudget_Retransmits() =>
+        Assert.IsTrue(
+            Policy
+                .Plan(Inputs(0.05, 10) with { PlayoutBudget = TimeSpan.FromMilliseconds(100) })
+                .Retransmit
+        );
+
     [TestMethod]
     public void NoLoss_SendsNoFec() => Assert.IsFalse(Policy.Plan(Inputs(0, 80)).Fec);
 

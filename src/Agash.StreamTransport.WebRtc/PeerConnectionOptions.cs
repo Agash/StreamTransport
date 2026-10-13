@@ -125,6 +125,12 @@ public sealed class PeerConnectionOptions
 
     /// <summary>ICE's pacing and timeouts; libwebrtc's values when null.</summary>
     public IceTimings? IceTimings { get; init; }
+
+    /// <summary>
+    /// How long the receiver holds a frame before playing it, when known, so the recovery policy stops
+    /// retransmitting on a round trip too long to make it in time and repairs with FEC instead.
+    /// </summary>
+    public TimeSpan? PlayoutBudget { get; init; }
 }
 
 /// <summary>The aggregate connection state of a <see cref="PeerConnection"/> (ICE + DTLS).</summary>

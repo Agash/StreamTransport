@@ -1081,7 +1081,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private void Retransmit(uint mediaSsrc, List<ushort> lostSequences)
     {
         if (
-            !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
+            !_retransmit
+            || !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
             || !_sendHistory.TryGetValue(mediaSsrc, out RtpSendHistory? history)
         )
         {

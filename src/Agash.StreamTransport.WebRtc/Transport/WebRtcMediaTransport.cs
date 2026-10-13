@@ -370,6 +370,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             SocketFactory = _options.SocketFactory,
             RepairOverStandby = _options.RepairOverSecondPath,
             IceTimings = IceTimingsFor(_options),
+            PlayoutBudget = _options.RequestedPlayoutDelay?.Maximum,
         };
     }
 

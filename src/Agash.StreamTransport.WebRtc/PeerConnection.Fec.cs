@@ -30,6 +30,10 @@ public sealed partial class PeerConnection
 
     // The FEC group size the recovery policy set: 0 sends no repairs. Off until loss is seen.
     private int _fecGroupSize;
+
+    // Whether NACKs are answered: off when a retransmission could not arrive within the receiver's playout
+    // budget, so the repair is left to FEC.
+    private volatile bool _retransmit = true;
     private RecoveryPolicy? _recovery;
     private long _protectedPackets;
     private long _protectedFrames;
@@ -161,9 +165,11 @@ public sealed partial class PeerConnection
                 estimate.SmoothedRoundTrip,
                 estimate.TargetBitsPerSecond,
                 frames / seconds,
-                (double)packets / frames
+                (double)packets / frames,
+                _options.PlayoutBudget
             )
         );
+        _retransmit = plan.Retransmit;
         if (Interlocked.Exchange(ref _fecGroupSize, plan.FecGroupSize) != plan.FecGroupSize)
         {
             LogRecoveryPlan(plan.FecGroupSize, _lossRate, estimate.SmoothedRoundTrip);

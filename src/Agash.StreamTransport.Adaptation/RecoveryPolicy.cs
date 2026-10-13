@@ -6,12 +6,17 @@ namespace Agash.StreamTransport.Adaptation;
 /// <param name="BitsPerSecond">The media target rate.</param>
 /// <param name="FramesPerSecond">The frame rate sent.</param>
 /// <param name="PacketsPerFrame">The packets a frame takes on average.</param>
+/// <param name="PlayoutBudget">
+/// How long the receiver holds a frame before it plays, when known (the playout delay the sender asked
+/// for): a retransmission that cannot arrive within it is wasted.
+/// </param>
 public readonly record struct RecoveryInputs(
     double LossFraction,
     TimeSpan RoundTrip,
     long BitsPerSecond,
     double FramesPerSecond,
-    double PacketsPerFrame
+    double PacketsPerFrame,
+    TimeSpan? PlayoutBudget = null
 );
 
 /// <summary>How a sender repairs loss.</summary>
@@ -74,17 +79,26 @@ public sealed class RecoveryPolicy(RecoveryPolicyOptions? options = null)
     /// <returns>The plan.</returns>
     public RecoveryPlan Plan(in RecoveryInputs inputs)
     {
+        // A retransmission arrives about a round trip and a half after the loss: the NACK's way back, the
+        // repair's way out, and the receiver's wait to notice the gap.
+        bool retransmit = inputs.PlayoutBudget is not { } budget || inputs.RoundTrip * 1.5 < budget;
         double loss = Math.Clamp(inputs.LossFraction, 0, 1);
-        if (loss <= 0 || inputs.RoundTrip < _options.RetransmitOnlyRoundTrip)
+        if (loss <= 0)
         {
-            return new RecoveryPlan(0, true);
+            return new RecoveryPlan(0, retransmit);
         }
 
         double fps = Math.Max(1, inputs.FramesPerSecond);
         double bytesPerFrame = inputs.BitsPerSecond / 8.0 / fps;
         if (
-            bytesPerFrame < _options.MinimumBytesPerFrame
-            && inputs.RoundTrip < _options.SmallFrameRoundTrip
+            retransmit
+            && (
+                inputs.RoundTrip < _options.RetransmitOnlyRoundTrip
+                || (
+                    bytesPerFrame < _options.MinimumBytesPerFrame
+                    && inputs.RoundTrip < _options.SmallFrameRoundTrip
+                )
+            )
         )
         {
             return new RecoveryPlan(0, true);
@@ -112,7 +126,7 @@ public sealed class RecoveryPolicy(RecoveryPolicyOptions? options = null)
             }
         }
 
-        return new RecoveryPlan(group, true);
+        return new RecoveryPlan(group, retransmit);
     }
 
     // The chance that two or more of m packets are lost, each independently with probability p.
