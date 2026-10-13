@@ -725,6 +725,13 @@ internal sealed partial class IceStateMachine
         if (pair.NominationCheck || (pair.NominatedByPeer && Role == IceRole.Controlled))
         {
             Nominate(pair, now);
+
+            // Several pairs can be marked for nomination before the first is selected; the others must stop
+            // carrying USE-CANDIDATE, or each of their keep-alives moves the controlled agent's selection.
+            if (!ReferenceEquals(pair, _selected))
+            {
+                pair.NominationCheck = false;
+            }
         }
         else if (Role == IceRole.Controlling && _selected is null)
         {
@@ -1178,10 +1185,11 @@ internal sealed partial class IceStateMachine
             tieBreaker
         );
         // The controlling agent nominates on every check of the selected pair (libwebrtc's semi-aggressive
-        // mode), so a controlled agent that missed the first nomination after a switch still sees one.
+        // mode), so a controlled agent that missed the first nomination after a switch still sees one. Once a
+        // pair is selected no other is nominated: a controlled agent follows every nomination it sees.
         if (
             Role == IceRole.Controlling
-            && (pair.NominationCheck || ReferenceEquals(pair, _selected))
+            && (_selected is null ? pair.NominationCheck : ReferenceEquals(pair, _selected))
         )
         {
             writer.AddAttribute(StunAttributeType.UseCandidate, default);
