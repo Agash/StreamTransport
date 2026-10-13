@@ -11,6 +11,8 @@ public sealed class FlexFecAccumulatorTests
     [DataRow(1)]
     [DataRow(5)]
     [DataRow(15)]
+    [DataRow(46)]
+    [DataRow(110)]
     public void Repairs_MatchTheReferenceBuilder_GroupAfterGroup(int groupSize)
     {
         FlexFecAccumulator accumulator = new();
@@ -82,8 +84,8 @@ public sealed class FlexFecAccumulatorTests
     private static FecSourcePacket Source(byte[] rtp) =>
         new(
             BinaryPrimitives.ReadUInt16BigEndian(rtp.AsSpan(2)),
-            (byte)((rtp[0] & 0x3F) | (((rtp[1] >> 7) & 1) << 6)),
-            (byte)(rtp[1] & 0x7F),
+            (byte)(rtp[0] & 0x3F),
+            rtp[1],
             BinaryPrimitives.ReadUInt32BigEndian(rtp.AsSpan(4)),
             rtp.AsMemory(12)
         );

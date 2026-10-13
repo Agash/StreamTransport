@@ -51,7 +51,11 @@ public sealed class RecoveryPolicyTests
             previous = plan.FecGroupSize;
         }
 
-        Assert.AreEqual(15, Policy.Plan(Inputs(0.002, 80)).FecGroupSize);
+        Assert.AreEqual(
+            60,
+            Policy.Plan(Inputs(0.002, 80)).FecGroupSize,
+            "low loss: the group reaches the span limit, five frames of twelve packets, so one repair goes per 60."
+        );
         Assert.AreEqual(2, Policy.Plan(Inputs(0.08, 80)).FecGroupSize, "dense as it gets: 50%.");
     }
 

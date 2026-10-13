@@ -37,6 +37,14 @@ public sealed partial class PeerConnection
 
     private bool FecEnabled => Volatile.Read(ref _fec).Send is not null;
 
+    // What a repair adds to the largest packet it protects: its CSRC and the FEC header for the longest group
+    // the recovery policy may plan, whose packets are consecutive.
+    private int FecRepairOverhead =>
+        FlexFec.CsrcLength
+        + FlexFec.HeaderLength(
+            Math.Clamp(_options.Recovery.MaximumGroupSize, 1, FlexFec.MaxProtected)
+        );
+
     // What FlexFEC the negotiation agreed: this endpoint protects its media on its FEC SSRC when both
     // sides list the flexfec codec and it announced an FEC SSRC; it recovers the peer's media from the
     // repairs on the SSRC the peer's FEC-FR group names. RFC 8627 section 1.1.7 has an answer to an offer
@@ -98,7 +106,10 @@ public sealed partial class PeerConnection
             _fecAccumulator.Add(cleartextRtp);
             if (
                 !_fecAccumulator.TryComplete(
-                    Math.Min(group, FlexFec.MaxProtected),
+                    Math.Min(
+                        group,
+                        Math.Min(FlexFec.MaxProtected, _options.Recovery.MaximumGroupSize)
+                    ),
                     out ReadOnlySpan<byte> body
                 )
             )
@@ -107,15 +118,18 @@ public sealed partial class PeerConnection
             }
 
             byte[] repair = ArrayPool<byte>.Shared.Rent(
-                RtpPacket.FixedHeaderLength + body.Length + SrtpSession.MaxProtectionOverhead
+                RtpPacket.FixedHeaderLength
+                    + FlexFec.CsrcLength
+                    + body.Length
+                    + SrtpSession.MaxProtectionOverhead
             );
-            int length = RtpPacket.Write(
+            int length = FlexFec.WriteRepairPacket(
                 repair,
-                false,
                 sender.PayloadType,
                 NextSequence(sender.FecSsrc),
-                0,
+                _fecAccumulator.LatestTimestamp,
                 sender.FecSsrc,
+                sender.ProtectedSsrc,
                 body
             );
             return new PacedPacket(repair, length, TrafficClass.Repair);
@@ -172,8 +186,8 @@ public sealed partial class PeerConnection
             body.CopyTo(buffer);
             _fecRecvPackets[slot] = new FecSourcePacket(
                 sequence,
-                (byte)((cleartextRtp[0] & 0x3F) | (((cleartextRtp[1] >> 7) & 1) << 6)),
-                (byte)(cleartextRtp[1] & 0x7F),
+                (byte)(cleartextRtp[0] & 0x3F),
+                cleartextRtp[1],
                 BinaryPrimitives.ReadUInt32BigEndian(cleartextRtp[4..]),
                 buffer.AsMemory(0, body.Length)
             );
@@ -186,9 +200,20 @@ public sealed partial class PeerConnection
             ? packet
             : null;
 
-    // Receive side: a repair arrived - recover a lost media packet and deliver it through the normal path.
-    private void OnFecPacket(ReadOnlySpan<byte> fecBody, uint protectedSsrc)
+    // Receive side: a repair arrived - recover a lost media packet and deliver it through the normal path. A
+    // repair names what it protects in its CSRC list (RFC 8627 section 4.2.1); one that does not name the
+    // media this connection caches is not for it.
+    private void OnFecPacket(
+        ReadOnlySpan<byte> repairRtp,
+        ReadOnlySpan<byte> fecBody,
+        uint protectedSsrc
+    )
     {
+        if (!NamesProtectedSsrc(repairRtp, protectedSsrc))
+        {
+            return;
+        }
+
         FecRecoveredPacket? recovered;
         lock (_fecGate)
         {
@@ -204,7 +229,7 @@ public sealed partial class PeerConnection
         // same parse/dispatch as a real arrival (so its header extension parses identically).
         byte[] rtp = new byte[12 + r.BodyAfterHeader.Length];
         rtp[0] = (byte)(0x80 | (r.HeaderBits & 0x3F));
-        rtp[1] = (byte)((((r.HeaderBits >> 6) & 1) << 7) | r.PayloadType);
+        rtp[1] = r.MarkerAndPayloadType;
         BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), r.SequenceNumber);
         BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), r.Timestamp);
         BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), protectedSsrc);
@@ -221,5 +246,23 @@ public sealed partial class PeerConnection
             int payloadOffset = rtp.Length - payload.Length;
             RtpReceived?.Invoke(header, rtp.AsMemory(payloadOffset, payload.Length));
         }
+    }
+
+    private static bool NamesProtectedSsrc(ReadOnlySpan<byte> repairRtp, uint protectedSsrc)
+    {
+        int count = repairRtp[0] & 0x0F;
+        for (int i = 0; i < count; i++)
+        {
+            int at = RtpPacket.FixedHeaderLength + (i * 4);
+            if (
+                at + 4 <= repairRtp.Length
+                && BinaryPrimitives.ReadUInt32BigEndian(repairRtp[at..]) == protectedSsrc
+            )
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

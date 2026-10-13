@@ -1174,7 +1174,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             if (header.Ssrc == fecFrom.FecSsrc)
             {
-                OnFecPacket(payload, fecFrom.ProtectedSsrc);
+                OnFecPacket(packet.Span[..plaintextLength], payload, fecFrom.ProtectedSsrc);
                 return;
             }
 

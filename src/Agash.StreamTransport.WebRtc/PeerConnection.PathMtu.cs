@@ -66,7 +66,8 @@ public sealed partial class PeerConnection
     /// <summary>
     /// The largest RTP payload that fits <see cref="MaximumDatagramSize"/> with everything a packet and its
     /// repairs add: the header and the largest extension block the negotiated extensions make, the SRTP
-    /// tag, an RTX sequence number, a FlexFEC header.
+    /// tag, an RTX sequence number, and a FlexFEC repair's CSRC and header for the longest mask the
+    /// recovery policy can ask for.
     /// Packetizers read it per frame, so media follows the path MTU as it changes.
     /// </summary>
     public int MaximumRtpPayloadSize =>
@@ -75,7 +76,7 @@ public sealed partial class PeerConnection
         - Volatile.Read(ref _extensions).MaximumBlockLength
         - SrtpSession.MaxProtectionOverhead
         - RtxRoom
-        - (FecEnabled ? FlexFec.HeaderLength : 0);
+        - (FecEnabled ? FecRepairOverhead : 0);
 
     /// <summary>Raised with the new size when <see cref="MaximumDatagramSize"/> changes.</summary>
     public event Action<int>? MaximumDatagramSizeChanged;

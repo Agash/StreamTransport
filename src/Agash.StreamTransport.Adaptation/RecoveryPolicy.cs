@@ -49,8 +49,11 @@ public sealed record RecoveryPolicyOptions
     /// <summary>The most frames one repair may span, so it arrives within a round trip of them. 6.</summary>
     public int MaximumFramesSpanned { get; init; } = 6;
 
-    /// <summary>The largest group one repair protects: the 15-bit FlexFEC mask. 15.</summary>
-    public int MaximumGroupSize { get; init; } = 15;
+    /// <summary>
+    /// The largest group one repair protects: the longest FlexFEC mask's 110 bits. At low loss a large group
+    /// keeps the repair rate down; the loss target and <see cref="MaximumFramesSpanned"/> bound it otherwise.
+    /// </summary>
+    public int MaximumGroupSize { get; init; } = 110;
 }
 
 /// <summary>

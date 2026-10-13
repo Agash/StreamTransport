@@ -1,6 +1,4 @@
 using System.Buffers.Binary;
-using System.Numerics;
-using System.Runtime.InteropServices;
 
 namespace Agash.StreamTransport.WebRtc.Rtp;
 
@@ -13,26 +11,35 @@ namespace Agash.StreamTransport.WebRtc.Rtp;
 /// <remarks>Not thread-safe: the sender feeds it one packet at a time.</remarks>
 internal sealed class FlexFecAccumulator
 {
-    // Room for the FEC header and the largest RTP packet that fits a datagram.
+    // Room for the largest RTP packet that fits a datagram.
     private const int MaxBody = 1500;
 
-    private readonly byte[] _repair = new byte[FlexFec.HeaderLength + MaxBody];
+    // The parity sits after room for the longest header; a repair's header is written just before it.
+    private readonly byte[] _repair = new byte[FlexFec.MaxHeaderLength + MaxBody];
     private int _maxBody;
+    private int _span;
     private ushort _snBase;
-    private ushort _mask;
+    private UInt128 _mask;
     private byte _headerBits;
-    private byte _payloadType;
+    private byte _second;
     private uint _timestamp;
     private ushort _length;
 
+    // The parity of the last repair is cleared lazily, before the next packet folds in, so the span
+    // TryComplete handed out stays valid until then.
+    private int _pendingClear;
+
     /// <summary>How many packets the current group holds.</summary>
     public int Count { get; private set; }
+
+    /// <summary>The newest protected packet's timestamp: the repair's send time on the media clock.</summary>
+    public uint LatestTimestamp { get; private set; }
 
     /// <summary>Folds a cleartext RTP packet of the protected stream into the group.</summary>
     /// <param name="rtp">The packet, its fixed header first.</param>
     public void Add(ReadOnlySpan<byte> rtp)
     {
-        ReadOnlySpan<byte> body = rtp[12..];
+        ReadOnlySpan<byte> body = rtp[RtpPacket.FixedHeaderLength..];
         ushort sequence = BinaryPrimitives.ReadUInt16BigEndian(rtp[2..]);
         if (Count == 0)
         {
@@ -42,19 +49,23 @@ internal sealed class FlexFecAccumulator
         int offset = (ushort)(sequence - _snBase);
         if (offset >= FlexFec.MaxProtected || body.Length > MaxBody)
         {
-            // Outside what one 15-bit mask covers: start the group again from this packet.
+            // Outside what one mask covers: start the group again from this packet.
             Reset();
             _snBase = sequence;
             offset = 0;
         }
 
-        _mask |= (ushort)(1 << (14 - offset));
-        _headerBits ^= (byte)((rtp[0] & 0x3F) | (((rtp[1] >> 7) & 1) << 6));
-        _payloadType ^= (byte)(rtp[1] & 0x7F);
-        _timestamp ^= BinaryPrimitives.ReadUInt32BigEndian(rtp[4..]);
+        uint timestamp = BinaryPrimitives.ReadUInt32BigEndian(rtp[4..]);
+        _mask |= FlexFec.MaskBit(offset);
+        _span = Math.Max(_span, offset + 1);
+        _headerBits ^= (byte)(rtp[0] & 0x3F);
+        _second ^= rtp[1];
+        _timestamp ^= timestamp;
         _length ^= (ushort)body.Length;
         _maxBody = Math.Max(_maxBody, body.Length);
-        Xor(_repair.AsSpan(FlexFec.HeaderLength, body.Length), body);
+        LatestTimestamp = timestamp;
+        Clear();
+        Parity.Xor(_repair.AsSpan(FlexFec.MaxHeaderLength, body.Length), body);
         Count++;
     }
 
@@ -70,14 +81,17 @@ internal sealed class FlexFecAccumulator
             return false;
         }
 
-        Span<byte> header = _repair.AsSpan(0, FlexFec.HeaderLength);
-        header[0] = (byte)(_headerBits & 0x3F);
-        header[1] = (byte)(_payloadType & 0x7F);
-        BinaryPrimitives.WriteUInt16BigEndian(header[2..], _length);
-        BinaryPrimitives.WriteUInt32BigEndian(header[4..], _timestamp);
-        BinaryPrimitives.WriteUInt16BigEndian(header[8..], _snBase);
-        BinaryPrimitives.WriteUInt16BigEndian(header[10..], (ushort)(_mask & 0x7FFF));
-        repair = _repair.AsSpan(0, FlexFec.HeaderLength + _maxBody);
+        int header = FlexFec.HeaderLength(_span);
+        FlexFec.WriteHeader(
+            _repair.AsSpan(FlexFec.MaxHeaderLength - header, header),
+            _headerBits,
+            _second,
+            _length,
+            _timestamp,
+            _snBase,
+            _mask
+        );
+        repair = _repair.AsSpan(FlexFec.MaxHeaderLength - header, header + _maxBody);
         _pendingClear = _maxBody;
         ResetFields();
         return true;
@@ -91,17 +105,14 @@ internal sealed class FlexFecAccumulator
         Clear();
     }
 
-    // The parity of the last repair is cleared lazily, before the next packet folds in, so the span
-    // TryComplete handed out stays valid until then.
-    private int _pendingClear;
-
     private void ResetFields()
     {
         Count = 0;
         _maxBody = 0;
+        _span = 0;
         _mask = 0;
         _headerBits = 0;
-        _payloadType = 0;
+        _second = 0;
         _timestamp = 0;
         _length = 0;
     }
@@ -110,30 +121,8 @@ internal sealed class FlexFecAccumulator
     {
         if (_pendingClear > 0)
         {
-            _repair.AsSpan(FlexFec.HeaderLength, _pendingClear).Clear();
+            _repair.AsSpan(FlexFec.MaxHeaderLength, _pendingClear).Clear();
             _pendingClear = 0;
-        }
-    }
-
-    private void Xor(Span<byte> parity, ReadOnlySpan<byte> body)
-    {
-        Clear();
-        int i = 0;
-        if (Vector.IsHardwareAccelerated)
-        {
-            Span<Vector<byte>> wide = MemoryMarshal.Cast<byte, Vector<byte>>(parity);
-            ReadOnlySpan<Vector<byte>> from = MemoryMarshal.Cast<byte, Vector<byte>>(body);
-            for (int v = 0; v < wide.Length; v++)
-            {
-                wide[v] ^= from[v];
-            }
-
-            i = wide.Length * Vector<byte>.Count;
-        }
-
-        for (; i < body.Length; i++)
-        {
-            parity[i] ^= body[i];
         }
     }
 }
