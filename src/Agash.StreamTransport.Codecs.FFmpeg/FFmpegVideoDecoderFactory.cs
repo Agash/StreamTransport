@@ -261,7 +261,7 @@ public sealed partial class FFmpegVideoDecoderFactory : IVideoDecoderFactory
     private FF.HardwareDevice? OpenDevice(FF.GpuAdapter? adapter) =>
         _spec.DeviceType is not { } type ? null
         : adapter is null ? FF.HardwareDevice.Create(type)
-        : FF.HardwareDevice.Create(type, adapter);
+        : FF.HardwareDevice.CreateForAdapter(type, adapter);
 
     private bool CountedProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
     {

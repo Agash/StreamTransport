@@ -50,7 +50,7 @@ public sealed class GpuInputTests
         FF.GpuAdapter adapter =
             FF.GpuAdapter.FindByLuid((long)identity.Value)
             ?? throw new AssertFailedException("The encoder's GPU is not among the adapters.");
-        using var device = FF.HardwareDevice.Create(
+        using var device = FF.HardwareDevice.CreateForAdapter(
             storage == VideoStorageKind.D3D12
                 ? FF.HardwareDeviceType.D3D12VA
                 : FF.HardwareDeviceType.D3D11VA,

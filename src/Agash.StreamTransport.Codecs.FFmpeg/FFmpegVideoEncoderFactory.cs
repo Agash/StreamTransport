@@ -460,7 +460,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         {
             using FF.HardwareDevice device = adapter is null
                 ? FF.HardwareDevice.Create(type)
-                : FF.HardwareDevice.Create(type, adapter);
+                : FF.HardwareDevice.CreateForAdapter(type, adapter);
             if (!DriverEncodes(device, codec.Id))
             {
                 LogProbeFailed(
@@ -515,7 +515,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         {
             using FF.HardwareDevice device = adapter is null
                 ? FF.HardwareDevice.Create(type)
-                : FF.HardwareDevice.Create(type, adapter);
+                : FF.HardwareDevice.CreateForAdapter(type, adapter);
             FF.HardwareFrameConstraints constraints = device.GetFrameConstraints();
             return new VideoSize(
                 constraints.MaxWidth > 0 ? constraints.MaxWidth : fallback,
