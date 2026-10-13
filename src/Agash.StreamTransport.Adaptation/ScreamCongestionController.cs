@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Agash.StreamTransport.Adaptation;
 
 /// <summary>
@@ -15,7 +18,7 @@ namespace Agash.StreamTransport.Adaptation;
 /// in flight near the maximum rate, and releasing a window that no feedback has opened for half a second.
 /// Not thread-safe: the transport serializes calls.
 /// </remarks>
-public sealed class ScreamCongestionController : ICongestionController
+public sealed partial class ScreamCongestionController : ICongestionController
 {
     // Section 4.2.1.3.
     private const double L4sAvgGUp = 1.0 / 8;
@@ -63,6 +66,8 @@ public sealed class ScreamCongestionController : ICongestionController
     private const int QdelayNormShortHistory = 50;
 
     private readonly ScreamOptions _options;
+    private readonly ILogger _logger;
+    private double _lastStateLog = double.NegativeInfinity;
     private readonly double _virtualRtt;
     private readonly double _qdelayTargetLo;
     private readonly double _qdelayTargetHi;
@@ -135,9 +140,17 @@ public sealed class ScreamCongestionController : ICongestionController
 
     /// <summary>A controller with the given tunables, or the draft's recommended values.</summary>
     /// <param name="options">The tunables.</param>
-    public ScreamCongestionController(ScreamOptions? options = null)
+    /// <param name="logger">
+    /// Where its reactions go, at debug level: each window reduction and why, each clock drift hold, and
+    /// its state once a second.
+    /// </param>
+    public ScreamCongestionController(
+        ScreamOptions? options = null,
+        ILogger<ScreamCongestionController>? logger = null
+    )
     {
         _options = options ?? new ScreamOptions();
+        _logger = logger ?? (ILogger)NullLogger.Instance;
         _virtualRtt = _options.VirtualRttMs / 1000.0;
         _qdelayTargetLo = _options.QueueDelayTargetMs / 1000.0;
         _qdelayTargetHi = Math.Max(_qdelayTargetLo, _options.QueueDelayTargetMaxMs / 1000.0);
@@ -534,6 +547,15 @@ public sealed class ScreamCongestionController : ICongestionController
         if (isLoss || isCe || isVirtualCe)
         {
             _lastReaction = t;
+            LogReaction(
+                isLoss ? "loss"
+                    : isCe ? "ce"
+                    : "queue delay",
+                (long)ReferenceWindow,
+                _qdelayAvg * 1000,
+                _lossRate,
+                isVirtualCe ? l4sAlphaV : _l4sAlpha
+            );
         }
 
         _lossDetected = false;
@@ -641,6 +663,7 @@ public sealed class ScreamCongestionController : ICongestionController
                     _delayMinAvg = 0;
                     Array.Fill(_baseDelays, double.PositiveInfinity);
                     _driftHoldUntil = t + Math.Max(5 * SmoothedRtt, 0.2);
+                    LogDriftHold(_qdelayTarget * 250);
                 }
             }
         }
@@ -651,6 +674,23 @@ public sealed class ScreamCongestionController : ICongestionController
         }
 
         _lastSlowUpdate = t;
+        if (t - _lastStateLog >= 1)
+        {
+            _lastStateLog = t;
+            LogState(
+                (long)_targetBitrate / 1000,
+                (long)ReferenceWindow,
+                BytesInFlight,
+                SmoothedRtt * 1000,
+                _qdelay * 1000,
+                _qdelayAvg * 1000,
+                _qdelayTarget * 1000,
+                _qdelayDevAvg * 1000,
+                _refWndDelayScale,
+                _lossRate
+            );
+        }
+
         if (_options.CompetingFlowCompensation)
         {
             AdjustQueueDelayTarget();
@@ -813,4 +853,42 @@ public sealed class ScreamCongestionController : ICongestionController
 
         Current = Estimate();
     }
+
+    [LoggerMessage(
+        2610,
+        LogLevel.Debug,
+        "SCReAM backs off on {Cause}: window {Window} B, queue delay {QueueDelayMs:0.0} ms, loss rate {LossRate:0.0000}, alpha {Alpha:0.000}."
+    )]
+    private partial void LogReaction(
+        string cause,
+        long window,
+        double queueDelayMs,
+        double lossRate,
+        double alpha
+    );
+
+    [LoggerMessage(
+        2611,
+        LogLevel.Debug,
+        "SCReAM sees the minimum queue delay creep past {LimitMs:0.0} ms, takes it for clock drift, measures the base delay afresh and halves the rate meanwhile."
+    )]
+    private partial void LogDriftHold(double limitMs);
+
+    [LoggerMessage(
+        2612,
+        LogLevel.Debug,
+        "SCReAM: target {TargetKbps} kbit/s, window {Window} B, {InFlight} B in flight, RTT {RttMs:0.0} ms, queue delay {QueueDelayMs:0.0} ms (average {AverageMs:0.0}, target {TargetMs:0.0}, deviation {DeviationMs:0.0}), delay scale {DelayScale:0.00}, loss rate {LossRate:0.0000}."
+    )]
+    private partial void LogState(
+        long targetKbps,
+        long window,
+        long inFlight,
+        double rttMs,
+        double queueDelayMs,
+        double averageMs,
+        double targetMs,
+        double deviationMs,
+        double delayScale,
+        double lossRate
+    );
 }

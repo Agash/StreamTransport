@@ -49,7 +49,8 @@ public static class ServiceCollectionExtensions
 
         // The controller is stateful per connection, so it is transient; options are bound from IOptions.
         services.TryAddTransient<ICongestionController>(static sp => new ScreamCongestionController(
-            sp.GetService<IOptions<ScreamOptions>>()?.Value
+            sp.GetService<IOptions<ScreamOptions>>()?.Value,
+            sp.GetService<ILoggerFactory>()?.CreateLogger<ScreamCongestionController>()
         ));
 
         foreach (RtpPayloadFormat format in RtpPayloadFormatRegistry.BuiltIn.Formats)
