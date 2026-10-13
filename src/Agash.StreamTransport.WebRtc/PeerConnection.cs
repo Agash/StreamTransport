@@ -1513,7 +1513,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private static partial void LogSectionRejected(ILogger logger, SdpMediaKind kind, string mid);
 
     [LoggerMessage(
-        EventId = 1161,
+        EventId = 1175,
         Level = LogLevel.Warning,
         Message = "Consent to the path was lost and no other path is up; it takes an ICE restart to carry on"
     )]
