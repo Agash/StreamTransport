@@ -6,7 +6,8 @@
 #
 #   eng/netem-rig.sh [--seconds N] [profile ...]
 #
-# Profiles: clean lte lossy step bloat l4s (all of them by default). Linux only; needs root through
+# Profiles: clean lte jitter loss lossy step bloat l4s (all of them by default). jitter and loss are
+# lte's two halves, to tell which one a result comes from. Linux only; needs root through
 # sudo -n for the namespaces and tc, and runs the processes themselves as the calling user. IPv6 only, as
 # the deployments are. Results go to artifacts/netem/<profile>/.
 set -euo pipefail
@@ -20,7 +21,7 @@ while [[ $# -gt 0 ]]; do
     *) profiles+=("$1"); shift ;;
   esac
 done
-[[ ${#profiles[@]} -gt 0 ]] || profiles=(clean lte lossy step bloat l4s)
+[[ ${#profiles[@]} -gt 0 ]] || profiles=(clean lte jitter loss lossy step bloat l4s)
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 out="$repo/artifacts/netem"
@@ -95,6 +96,8 @@ run_profile() {
   case "$profile" in
     clean) shape 50mbit 10ms 0ms 0% ;;
     lte) shape 8mbit 25ms 8ms 0.5% ;;
+    jitter) shape 8mbit 25ms 8ms 0% ;;
+    loss) shape 8mbit 25ms 0ms 0.5% ;;
     lossy) shape 20mbit 20ms 2ms 3% ;;
     step) shape 20mbit 20ms 0ms 0% ;;
     bloat) shape 4mbit 20ms 0ms 0% 2000 ;;
