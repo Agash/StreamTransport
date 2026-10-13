@@ -64,6 +64,12 @@ internal sealed partial class IceStateMachine
     private byte[] _localPassword;
     private IceCredentials _remote;
     private CandidatePair? _selected;
+
+    // When the agent last started checking with nothing selected, for the failure timeout; and when the
+    // peer last trickled a candidate, so failed pairs fail the agent only once it has gone quiet.
+    private TimeSpan? _checkingSince;
+    private TimeSpan _remoteCandidateAt;
+    private int _remoteCandidatesSeen;
     private bool _started;
 
     // The pair the last data datagram came over, so the per-packet lookup is one comparison.
@@ -357,6 +363,7 @@ internal sealed partial class IceStateMachine
 
         // One pacing step per call; a driver that fell behind catches up at Ta, not in a burst.
         NextTimeout = tick + _timings.Ta > now ? tick + _timings.Ta : now + _timings.Ta;
+        CheckForFailure(now);
         if (_remote.Password is not { Length: > 0 })
         {
             return;
@@ -1020,6 +1027,36 @@ internal sealed partial class IceStateMachine
         );
     }
 
+    // RFC 8445 section 8.1.2: the agent fails when every pair has failed and no more candidates are coming,
+    // which with trickle means the peer has gone quiet for a receiving timeout; and, as browsers do, when
+    // checking has run past the failure timeout with nothing selected, which covers a peer that never sent
+    // a candidate or a description at all.
+    private void CheckForFailure(TimeSpan now)
+    {
+        if (_remoteCandidates.Count != _remoteCandidatesSeen)
+        {
+            _remoteCandidatesSeen = _remoteCandidates.Count;
+            _remoteCandidateAt = now;
+        }
+
+        if (State != IceConnectionState.Checking || _selected is not null)
+        {
+            _checkingSince = null;
+            return;
+        }
+
+        _checkingSince ??= now;
+        bool exhausted =
+            _pairs.Count > 0
+            && _pairs.TrueForAll(static p => p.State == PairState.Failed)
+            && now - _remoteCandidateAt >= _timings.ReceivingTimeout;
+        if (exhausted || now - _checkingSince.Value >= _timings.FailureTimeout)
+        {
+            LogFailed(_pairs.Count, exhausted);
+            SetState(IceConnectionState.Failed);
+        }
+    }
+
     private void SetState(IceConnectionState state)
     {
         if (State != state)
@@ -1155,4 +1192,19 @@ internal sealed partial class IceStateMachine
 
         public int Transmits { get; set; }
     }
+
+    [LoggerMessage(
+        EventId = 1139,
+        Level = LogLevel.Warning,
+        Message = "ICE failed: {Pairs} candidate pairs, {Reason}"
+    )]
+    private partial void LogFailedCore(int pairs, string reason);
+
+    private void LogFailed(int pairs, bool exhausted) =>
+        LogFailedCore(
+            pairs,
+            exhausted
+                ? "every one failed and the peer sent no more candidates"
+                : "none selected within the failure timeout"
+        );
 }

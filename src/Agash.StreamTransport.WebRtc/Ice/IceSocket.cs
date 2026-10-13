@@ -54,6 +54,13 @@ public sealed record IceTimings
 
     /// <summary>How long without a response to its checks before the selected pair loses consent. 30 s.</summary>
     public TimeSpan ConsentTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How long checks may run with no pair selected before the agent gives up and reports
+    /// <see cref="IceConnectionState.Failed"/>: a peer that is unreachable, or that never sends its
+    /// candidates or its description. 30 s.
+    /// </summary>
+    public TimeSpan FailureTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>
