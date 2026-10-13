@@ -263,6 +263,7 @@ public sealed class RtpExtensionTests
                 RtpExtensionUris.AbsoluteCaptureTime,
                 RtpExtensionUris.VideoTiming,
                 RtpExtensionUris.PlayoutDelay,
+                RtpExtensionUris.TransportWideSequence,
             },
             offer.Media[0].Extensions.Select(static e => e.Uri).ToArray()
         );

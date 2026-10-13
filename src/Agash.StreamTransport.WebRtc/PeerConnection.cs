@@ -309,6 +309,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     // An answer carries these only when the offer did (RFC 5506, RFC 8888 section 6).
                     RtcpReducedSize = remote.RtcpReducedSize,
                     CongestionControlFeedback = remote.CongestionControlFeedback,
+                    TransportWideFeedback = AnswersTransportFeedback(remote),
                     Ecn = AnswerEcn(remote.Ecn),
                     Extensions = AnsweredExtensions(remote),
                 }
@@ -689,7 +690,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         int payloadLength = payload.Length;
         StampPacerExit(packet.Buffer, header.Ssrc, header.SequenceNumber);
-        int protectedLength = srtp.ProtectRtp(packet.Buffer, packet.Length);
+        int length = StampTransportSequence(
+            packet.Buffer,
+            packet.Length,
+            out ushort? transportSequence
+        );
+        int protectedLength = srtp.ProtectRtp(packet.Buffer, length);
         long now = NowMicros();
         if (
             _options.RepairOverStandby
@@ -712,7 +718,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             header.Ssrc,
             header.SequenceNumber,
             protectedLength,
-            packet.Class
+            packet.Class,
+            transportSequence
         );
         BreakerOnSent(header.Ssrc, protectedLength);
         RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
@@ -1053,7 +1060,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
-                original.Length + 2 + SrtpSession.MaxProtectionOverhead
+                original.Length + 2 + TransportSequenceRoom + SrtpSession.MaxProtectionOverhead
             );
             if (
                 RtxStream.TryWrap(
@@ -1100,7 +1107,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // Congestion feedback and reception reports cover what crossed the wire, so a retransmission
         // counts under the RTX stream's SSRC and sequence.
         long arrivalMicros = NowMicros();
-        RecordArrival(header.Ssrc, header.SequenceNumber, arrivalMicros, ecn, header.Marker);
+        RecordArrival(
+            header.Ssrc,
+            header.SequenceNumber,
+            header.Extensions.TransportSequence,
+            arrivalMicros,
+            ecn,
+            header.Marker
+        );
         RecordReceivedForReports(header, arrivalMicros);
 
         // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered

@@ -101,6 +101,14 @@ public static class SdpWriter
                 );
             }
 
+            if (media.TransportWideFeedback)
+            {
+                sb.Append(
+                    CultureInfo.InvariantCulture,
+                    $"a=rtcp-fb:{codec.PayloadType} transport-cc\r\n"
+                );
+            }
+
             if (!string.IsNullOrEmpty(codec.FormatParameters))
             {
                 sb.Append(

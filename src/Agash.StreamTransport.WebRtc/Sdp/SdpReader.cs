@@ -127,6 +127,7 @@ public static class SdpReader
                     RtcpMux = m.RtcpMux,
                     RtcpReducedSize = m.RtcpReducedSize,
                     CongestionControlFeedback = m.CongestionControlFeedback,
+                    TransportWideFeedback = m.TransportWideFeedback,
                     Ecn = m.Ecn,
                     // RFC 8285 section 5: mappings are all at session level or all at media level.
                     Extensions = m.Extensions.Count > 0 ? m.Extensions : sessionExtensions,
@@ -247,6 +248,8 @@ public static class SdpReader
         public bool RtcpReducedSize { get; private set; }
 
         public bool CongestionControlFeedback { get; private set; }
+
+        public bool TransportWideFeedback { get; private set; }
 
         public SdpEcnCapability? Ecn { get; private set; }
 
@@ -499,6 +502,11 @@ public static class SdpReader
             {
                 // RFC 8888 asks for the wildcard; a peer that lists it per payload type means the same.
                 CongestionControlFeedback = true;
+            }
+            else if (space > 0 && value[(space + 1)..] == "transport-cc")
+            {
+                // Listed per payload type by browsers; it is one feedback stream for the whole transport.
+                TransportWideFeedback = true;
             }
             else if (space == 1 && value[0] == '*')
             {

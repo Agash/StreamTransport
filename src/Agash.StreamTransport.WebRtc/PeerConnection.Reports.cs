@@ -346,14 +346,17 @@ public sealed partial class PeerConnection
     {
         bool reducedSize = remote.Media.Count > 0;
         bool feedback = remote.Media.Count > 0;
+        bool transportFeedback = remote.Media.Count > 0;
         foreach (SdpMediaDescription media in remote.Media)
         {
             reducedSize &= media.RtcpReducedSize;
             feedback &= media.CongestionControlFeedback;
+            transportFeedback &= media.TransportWideFeedback;
         }
 
         _rtcpReducedSize = reducedSize;
         _ccfbNegotiated = feedback;
+        _transportFeedbackNegotiated = transportFeedback;
         NoteEcn(remote);
     }
 

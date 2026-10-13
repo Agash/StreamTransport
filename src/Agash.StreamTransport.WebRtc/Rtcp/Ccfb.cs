@@ -16,10 +16,10 @@ public readonly record struct CcfbStreamReport(
 );
 
 /// <summary>
-/// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11) - the modern,
-/// standardized transport feedback this stack uses instead of the legacy transport-wide-cc (TWCC). The
-/// receiver reports per-packet arrival times + ECN keyed on the media RTP sequence number; the sender's
-/// congestion controller consumes them.
+/// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11), the standard
+/// transport feedback and the one this stack prefers; with a peer that offers only transport-wide-cc, as
+/// browsers do, it uses <see cref="TransportFeedback"/>. The receiver reports per-packet arrival times and
+/// ECN keyed on the media RTP sequence number; the sender's congestion controller consumes them.
 /// </summary>
 public static class Ccfb
 {

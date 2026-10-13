@@ -121,6 +121,7 @@ public sealed partial class PeerConnection
                 RtpPacket.FixedHeaderLength
                     + FlexFec.CsrcLength
                     + body.Length
+                    + TransportSequenceRoom
                     + SrtpSession.MaxProtectionOverhead
             );
             int length = FlexFec.WriteRepairPacket(

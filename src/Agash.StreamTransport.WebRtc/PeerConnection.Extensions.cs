@@ -16,8 +16,9 @@ public sealed partial class PeerConnection
     /// <summary>The header extensions the two sides agreed, empty before negotiation completes.</summary>
     public RtpExtensionMap NegotiatedExtensions => Volatile.Read(ref _extensions);
 
-    // What an offer maps for a section: capture times for both kinds (lip sync), and for video the
-    // per-frame timing and the playout delay the sender asks for.
+    // What an offer maps for a section: capture times for both kinds (lip sync) and the transport-wide
+    // sequence number transport feedback needs, and for video the per-frame timing and the playout delay
+    // the sender asks for.
     private static IReadOnlyList<SdpExtension> OfferedExtensions(SdpMediaKind kind)
     {
         RtpExtensionMap ids = RtpExtensionMap.Offered;
@@ -27,9 +28,18 @@ public sealed partial class PeerConnection
                 new SdpExtension(ids.AbsoluteCaptureTime, RtpExtensionUris.AbsoluteCaptureTime),
                 new SdpExtension(ids.VideoTiming, RtpExtensionUris.VideoTiming),
                 new SdpExtension(ids.PlayoutDelay, RtpExtensionUris.PlayoutDelay),
+                new SdpExtension(ids.TransportSequence, RtpExtensionUris.TransportWideSequence),
             ]
-            : [new SdpExtension(ids.AbsoluteCaptureTime, RtpExtensionUris.AbsoluteCaptureTime)];
+            :
+            [
+                new SdpExtension(ids.AbsoluteCaptureTime, RtpExtensionUris.AbsoluteCaptureTime),
+                new SdpExtension(ids.TransportSequence, RtpExtensionUris.TransportWideSequence),
+            ];
     }
+
+    // Transport feedback is answered only where the offer did not also offer RFC 8888, which is preferred.
+    private static bool AnswersTransportFeedback(SdpMediaDescription offer) =>
+        offer.TransportWideFeedback && !offer.CongestionControlFeedback;
 
     // The answer's mappings: each offered extension this endpoint offers for the kind too, under the
     // offerer's identifier, with the direction mirrored (RFC 8285 section 7).
@@ -43,6 +53,10 @@ public sealed partial class PeerConnection
                 offered.Id is >= 1 and <= 255
                 && offered.Direction != SdpDirection.Inactive
                 && ours.Any(o => o.Uri == offered.Uri)
+                && (
+                    offered.Uri != RtpExtensionUris.TransportWideSequence
+                    || AnswersTransportFeedback(offer)
+                )
             )
             {
                 answered.Add(

@@ -201,7 +201,13 @@ public sealed partial class PeerConnection
 
     // Send side: number each packet on the wire, remember it for feedback, tell the controller, and decide
     // its ECN codepoint.
-    private EcnCodepoint RecordSent(uint ssrc, ushort seq, int sizeBytes, TrafficClass trafficClass)
+    private EcnCodepoint RecordSent(
+        uint ssrc,
+        ushort seq,
+        int sizeBytes,
+        TrafficClass trafficClass,
+        ushort? transportSequence = null
+    )
     {
         SentPacket packet;
         lock (_ccGate)
@@ -209,6 +215,10 @@ public sealed partial class PeerConnection
             long id = ++_nextPacketId;
             packet = new SentPacket(id, sizeBytes, Now, trafficClass);
             _sentIds[Key(ssrc, seq)] = id;
+            if (transportSequence is { } transport)
+            {
+                _sentByTransport[transport] = id;
+            }
             _delivery.OnSent(packet);
 
             // A sequence number recurs after 65536 packets of one SSRC; numbers that old are forgotten.
@@ -243,18 +253,38 @@ public sealed partial class PeerConnection
 
     // Receive side: note the arrival (time and ECN mark) of an RTP packet for the next CCFB report, and send
     // the report when a frame has ended and the spacing allows.
-    private void RecordArrival(uint ssrc, ushort seq, long nowMicros, byte ecn, bool marker)
+    private void RecordArrival(
+        uint ssrc,
+        ushort seq,
+        ushort? transportSequence,
+        long nowMicros,
+        byte ecn,
+        bool marker
+    )
     {
         bool due;
         lock (_ccGate)
         {
-            if (!_ccfbTrackers.TryGetValue(ssrc, out CcfbReceiveTracker? tracker))
+            if (TransportFeedbackActive)
             {
-                tracker = new CcfbReceiveTracker();
-                _ccfbTrackers[ssrc] = tracker;
+                if (transportSequence is not { } transport)
+                {
+                    return;
+                }
+
+                RecordTransportArrival(ssrc, transport, nowMicros);
+            }
+            else
+            {
+                if (!_ccfbTrackers.TryGetValue(ssrc, out CcfbReceiveTracker? tracker))
+                {
+                    tracker = new CcfbReceiveTracker();
+                    _ccfbTrackers[ssrc] = tracker;
+                }
+
+                tracker.OnPacket(seq, nowMicros, ecn);
             }
 
-            tracker.OnPacket(seq, nowMicros, ecn);
             if (_firstUnreportedArrivalMicros < 0)
             {
                 _firstUnreportedArrivalMicros = nowMicros;
@@ -273,7 +303,7 @@ public sealed partial class PeerConnection
 
     // Under _ccGate: whether a report should go now.
     private bool FeedbackDue(long nowMicros) =>
-        _ccfbNegotiated
+        FeedbackNegotiated
         && _firstUnreportedArrivalMicros >= 0
         && nowMicros >= _nextFeedbackMicros
         && (
@@ -378,6 +408,15 @@ public sealed partial class PeerConnection
             now = NowMicros();
             if (!FeedbackDue(now))
             {
+                return;
+            }
+
+            if (TransportFeedbackActive)
+            {
+                _firstUnreportedArrivalMicros = -1;
+                _markerSinceFeedback = false;
+                _unreportedPackets = 0;
+                SendTransportFeedback(srtp, agent, now);
                 return;
             }
 
@@ -517,7 +556,9 @@ public sealed partial class PeerConnection
     )
     {
         _ccfbScratch.Clear();
-        if (!Ccfb.TryParse(rtcp, out _, out uint compactTimestamp, _ccfbScratch))
+        bool transport = TransportFeedbackActive;
+        uint compactTimestamp = 0;
+        if (!transport && !Ccfb.TryParse(rtcp, out _, out compactTimestamp, _ccfbScratch))
         {
             return null;
         }
@@ -528,7 +569,12 @@ public sealed partial class PeerConnection
         _observations.Clear();
         lock (_ccGate)
         {
-            TimeSpan reportedAt = UnwrapReportTimestamp(compactTimestamp);
+            if (transport && !CollectTransportFeedback(rtcp))
+            {
+                return null;
+            }
+
+            TimeSpan reportedAt = transport ? default : UnwrapReportTimestamp(compactTimestamp);
             foreach (CcfbStreamReport stream in _ccfbScratch)
             {
                 for (int i = 0; i < stream.Metrics.Count; i++)

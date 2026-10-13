@@ -76,7 +76,8 @@ public sealed partial class PeerConnection
         - Volatile.Read(ref _extensions).MaximumBlockLength
         - SrtpSession.MaxProtectionOverhead
         - RtxRoom
-        - (FecEnabled ? FecRepairOverhead : 0);
+        - (FecEnabled ? FecRepairOverhead : 0)
+        - (TransportFeedbackActive ? TransportSequenceRoom : 0);
 
     /// <summary>Raised with the new size when <see cref="MaximumDatagramSize"/> changes.</summary>
     public event Action<int>? MaximumDatagramSizeChanged;
@@ -117,7 +118,7 @@ public sealed partial class PeerConnection
     // On the process tick: sends a probe when the search wants one and a packet to build it from is at hand.
     private void ProbePathMtu(TimeSpan now)
     {
-        if (!_ccfbNegotiated || _srtp is not { } srtp)
+        if (!FeedbackNegotiated || _srtp is not { } srtp)
         {
             return;
         }
@@ -140,8 +141,20 @@ public sealed partial class PeerConnection
                 continue;
             }
 
+            if (!RtpPacket.TryParse(original.Span, out _, out ReadOnlySpan<byte> originalPayload))
+            {
+                continue;
+            }
+
+            // What the retransmission measures before padding: a plain header, the original sequence
+            // number and the payload, the original's extensions dropped, and the transport-wide sequence
+            // number when that is stamped on.
             int overhead = srtp.ProtectionOverhead;
-            int unpadded = original.Length + RtxRoom;
+            int unpadded =
+                RtpPacket.FixedHeaderLength
+                + RtxRoom
+                + originalPayload.Length
+                + (TransportFeedbackActive ? TransportSequenceRoom : 0);
             int? target;
             lock (_feedbackGate)
             {
@@ -150,29 +163,29 @@ public sealed partial class PeerConnection
 
             if (target is { } size)
             {
-                // Media keeps within the confirmed size, so the padding is at least one octet; were it not,
-                // the probe would only test a larger size than asked, which confirms that one too.
-                SendProbe(
-                    original.Span,
-                    rtx,
-                    rtxPayloadType,
-                    Math.Max(1, size - overhead - unpadded)
-                );
+                SendProbe(original.Span, rtx, rtxPayloadType, size - overhead);
             }
 
             return;
         }
     }
 
+    // A probe of exactly the size asked, before protection: the retransmission as wrapped, which drops the
+    // original's header extensions, padded up to it, less what the transport-wide sequence number adds as
+    // the packet leaves.
     private void SendProbe(
         ReadOnlySpan<byte> original,
         RtxSender rtx,
         byte rtxPayloadType,
-        int padding
+        int size
     )
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            original.Length + RtxRoom + padding + SrtpSession.MaxProtectionOverhead
+            original.Length
+                + RtxRoom
+                + MaxRtpPadding
+                + TransportSequenceRoom
+                + SrtpSession.MaxProtectionOverhead
         );
         if (
             !RtxStream.TryWrap(
@@ -189,6 +202,14 @@ public sealed partial class PeerConnection
             AbandonProbe();
             return;
         }
+
+        // Media keeps within the confirmed size, so the padding is at least one octet; were it not, the
+        // probe would only test a larger size than asked, which confirms that one too.
+        int padding = Math.Clamp(
+            size - length - (TransportFeedbackActive ? TransportSequenceRoom : 0),
+            1,
+            MaxRtpPadding
+        );
 
         // RFC 3550 section 5.1: the P bit, then padding whose last octet counts it.
         buffer[0] |= 0x20;

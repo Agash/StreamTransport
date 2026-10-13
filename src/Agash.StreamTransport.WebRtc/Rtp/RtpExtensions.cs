@@ -15,6 +15,13 @@ public static class RtpExtensionUris
 
     /// <summary>The playout delay the sender asks the receiver to keep within (WebRTC playout-delay).</summary>
     public const string PlayoutDelay = "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay";
+
+    /// <summary>
+    /// The transport-wide sequence number transport feedback reports on
+    /// (<c>draft-holmer-rmcat-transport-wide-cc-extensions-01</c>).
+    /// </summary>
+    public const string TransportWideSequence =
+        "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01";
 }
 
 /// <summary>
@@ -121,15 +128,23 @@ public readonly record struct PlayoutDelay(TimeSpan Minimum, TimeSpan Maximum)
 /// <param name="AbsoluteCaptureTimeNtp">The capture time as a UQ32.32 NTP timestamp.</param>
 /// <param name="VideoTiming">The frame's sender timing.</param>
 /// <param name="PlayoutDelay">The playout delay the sender asks for.</param>
+/// <param name="TransportSequence">
+/// The transport-wide sequence number, read from a received packet; a sent one gets it as it leaves (see
+/// <see cref="RtpExtensionMap.InsertTransportSequence"/>).
+/// </param>
 public readonly record struct RtpExtensionValues(
     ulong? AbsoluteCaptureTimeNtp = null,
     VideoTiming? VideoTiming = null,
-    PlayoutDelay? PlayoutDelay = null
+    PlayoutDelay? PlayoutDelay = null,
+    ushort? TransportSequence = null
 )
 {
     /// <summary>Whether the packet carries none.</summary>
     public bool IsEmpty =>
-        AbsoluteCaptureTimeNtp is null && VideoTiming is null && PlayoutDelay is null;
+        AbsoluteCaptureTimeNtp is null
+        && VideoTiming is null
+        && PlayoutDelay is null
+        && TransportSequence is null;
 }
 
 /// <summary>
@@ -142,19 +157,29 @@ public readonly record struct RtpExtensionValues(
 /// <param name="AbsoluteCaptureTime">The abs-capture-time identifier.</param>
 /// <param name="VideoTiming">The video-timing identifier.</param>
 /// <param name="PlayoutDelay">The playout-delay identifier.</param>
-public sealed record RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, int PlayoutDelay)
+/// <param name="TransportSequence">The transport-wide sequence number's identifier.</param>
+public sealed record RtpExtensionMap(
+    int AbsoluteCaptureTime,
+    int VideoTiming,
+    int PlayoutDelay,
+    int TransportSequence = 0
+)
 {
+    // The transport-wide sequence number's value.
+    private const int TransportSequenceLength = 2;
+
     private const ushort OneByteProfile = 0xBEDE;
     private const ushort TwoByteProfile = 0x1000;
 
     /// <summary>No extensions.</summary>
-    public static RtpExtensionMap None { get; } = new(0, 0, 0);
+    public static RtpExtensionMap None { get; } = new(0, 0, 0, 0);
 
     /// <summary>The identifiers this endpoint offers.</summary>
-    public static RtpExtensionMap Offered { get; } = new(1, 2, 3);
+    public static RtpExtensionMap Offered { get; } = new(1, 2, 3, 4);
 
     /// <summary>Whether any extension is in use.</summary>
-    public bool IsEmpty => AbsoluteCaptureTime == 0 && VideoTiming == 0 && PlayoutDelay == 0;
+    public bool IsEmpty =>
+        AbsoluteCaptureTime == 0 && VideoTiming == 0 && PlayoutDelay == 0 && TransportSequence == 0;
 
     /// <summary>The most bytes the extension block of a packet takes, its 4-byte header included.</summary>
     public int MaximumBlockLength
@@ -165,12 +190,14 @@ public sealed record RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, i
             int data =
                 (AbsoluteCaptureTime != 0 ? element + 8 : 0)
                 + (VideoTiming != 0 ? element + Rtp.VideoTiming.Length : 0)
-                + (PlayoutDelay != 0 ? element + Rtp.PlayoutDelay.Length : 0);
+                + (PlayoutDelay != 0 ? element + Rtp.PlayoutDelay.Length : 0)
+                + (TransportSequence != 0 ? element + TransportSequenceLength : 0);
             return data == 0 ? 0 : 4 + ((data + 3) / 4 * 4);
         }
     }
 
-    private bool TwoByte => AbsoluteCaptureTime > 14 || VideoTiming > 14 || PlayoutDelay > 14;
+    private bool TwoByte =>
+        AbsoluteCaptureTime > 14 || VideoTiming > 14 || PlayoutDelay > 14 || TransportSequence > 14;
 
     /// <summary>The identifiers of the extensions this endpoint understands among SDP's mappings.</summary>
     /// <param name="extensions">The section's mappings.</param>
@@ -181,6 +208,7 @@ public sealed record RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, i
         int capture = 0;
         int timing = 0;
         int delay = 0;
+        int transport = 0;
         foreach (SdpExtension extension in extensions)
         {
             if (extension.Id is < 1 or > 255 || extension.Direction == SdpDirection.Inactive)
@@ -199,12 +227,15 @@ public sealed record RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, i
                 case RtpExtensionUris.PlayoutDelay:
                     delay = extension.Id;
                     break;
+                case RtpExtensionUris.TransportWideSequence:
+                    transport = extension.Id;
+                    break;
                 default:
                     break;
             }
         }
 
-        return new RtpExtensionMap(capture, timing, delay);
+        return new RtpExtensionMap(capture, timing, delay, transport);
     }
 
     /// <summary>
@@ -276,6 +307,7 @@ public sealed record RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, i
         ulong? capture = null;
         VideoTiming? timing = null;
         PlayoutDelay? delay = null;
+        ushort? transport = null;
         int i = 0;
         while (i < data.Length)
         {
@@ -329,11 +361,157 @@ public sealed record RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, i
             {
                 delay = Rtp.PlayoutDelay.Read(value);
             }
+            else if (id == TransportSequence && length == TransportSequenceLength)
+            {
+                transport = BinaryPrimitives.ReadUInt16BigEndian(value);
+            }
 
             i += length;
         }
 
-        return new RtpExtensionValues(capture, timing, delay);
+        return new RtpExtensionValues(capture, timing, delay, transport);
+    }
+
+    /// <summary>
+    /// Adds the transport-wide sequence number to a packet about to leave, in place: into the room its
+    /// extension block's padding leaves, or by growing the block, or by giving the packet one. Every packet
+    /// takes it as it is sent, whatever wrote it (media, retransmission, FEC repair), so the numbers follow
+    /// the order packets reach the wire.
+    /// </summary>
+    /// <param name="packet">The packet's buffer, with room for <see cref="MaximumBlockLength"/> more bytes.</param>
+    /// <param name="length">The packet's length.</param>
+    /// <param name="sequence">The number.</param>
+    /// <returns>The packet's new length, or -1 when the map has no identifier for it or the buffer no room.</returns>
+    public int InsertTransportSequence(Span<byte> packet, int length, ushort sequence)
+    {
+        if (TransportSequence == 0 || length < RtpPacket.FixedHeaderLength)
+        {
+            return -1;
+        }
+
+        bool twoByte = TwoByte;
+        int element = (twoByte ? 2 : 1) + TransportSequenceLength;
+        int headerEnd = RtpPacket.FixedHeaderLength + ((packet[0] & 0x0F) * 4);
+        if (headerEnd > length)
+        {
+            return -1;
+        }
+
+        int at;
+        if ((packet[0] & 0x10) == 0)
+        {
+            // No block: one of a word, the element and its padding.
+            int grow = 4 + ((element + 3) / 4 * 4);
+            if (length + grow > packet.Length)
+            {
+                return -1;
+            }
+
+            packet[headerEnd..length].CopyTo(packet[(headerEnd + grow)..]);
+            BinaryPrimitives.WriteUInt16BigEndian(
+                packet[headerEnd..],
+                twoByte ? TwoByteProfile : OneByteProfile
+            );
+            BinaryPrimitives.WriteUInt16BigEndian(
+                packet[(headerEnd + 2)..],
+                (ushort)((grow - 4) / 4)
+            );
+            packet[(headerEnd + 4)..(headerEnd + grow)].Clear();
+            packet[0] |= 0x10;
+            at = headerEnd + 4;
+            length += grow;
+        }
+        else
+        {
+            if (headerEnd + 4 > length)
+            {
+                return -1;
+            }
+
+            ushort profile = BinaryPrimitives.ReadUInt16BigEndian(packet[headerEnd..]);
+            bool blockTwoByte = (profile & 0xFFF0) == TwoByteProfile;
+            if (twoByte && !blockTwoByte)
+            {
+                return -1; // A one-byte block cannot hold a two-byte identifier.
+            }
+
+            int words = BinaryPrimitives.ReadUInt16BigEndian(packet[(headerEnd + 2)..]);
+            int dataStart = headerEnd + 4;
+            int dataEnd = dataStart + (words * 4);
+            if (dataEnd > length)
+            {
+                return -1;
+            }
+
+            int used = UsedLength(packet[dataStart..dataEnd], blockTwoByte);
+            element = (blockTwoByte ? 2 : 1) + TransportSequenceLength;
+            int room = dataEnd - (dataStart + used);
+            if (room < element)
+            {
+                int grow = (element - room + 3) / 4 * 4;
+                if (length + grow > packet.Length)
+                {
+                    return -1;
+                }
+
+                packet[dataEnd..length].CopyTo(packet[(dataEnd + grow)..]);
+                packet[dataEnd..(dataEnd + grow)].Clear();
+                BinaryPrimitives.WriteUInt16BigEndian(
+                    packet[(headerEnd + 2)..],
+                    (ushort)(words + (grow / 4))
+                );
+                length += grow;
+            }
+
+            at = dataStart + used;
+            twoByte = blockTwoByte;
+        }
+
+        at = Element(packet, at, TransportSequence, TransportSequenceLength, twoByte);
+        BinaryPrimitives.WriteUInt16BigEndian(packet[at..], sequence);
+        return length;
+    }
+
+    // How much of an extension block's data its elements take, before the padding.
+    private static int UsedLength(ReadOnlySpan<byte> data, bool twoByte)
+    {
+        int used = 0;
+        int i = 0;
+        while (i < data.Length)
+        {
+            if (data[i] == 0)
+            {
+                i++;
+                continue;
+            }
+
+            int length;
+            if (twoByte)
+            {
+                if (i + 2 > data.Length)
+                {
+                    break;
+                }
+
+                length = data[i + 1];
+                i += 2;
+            }
+            else
+            {
+                if (data[i] >> 4 == 15)
+                {
+                    break;
+                }
+
+                length = (data[i] & 0x0F) + 1;
+                i++;
+            }
+
+            i += length;
+            used = Math.Min(i, data.Length);
+        }
+
+        return used;
     }
 
     private static int Element(Span<byte> destination, int at, int id, int length, bool twoByte)

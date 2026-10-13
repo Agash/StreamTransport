@@ -122,6 +122,14 @@ public sealed record SdpMediaDescription
     public bool CongestionControlFeedback { get; init; } = true;
 
     /// <summary>
+    /// Whether transport-wide congestion control feedback is offered (<c>a=rtcp-fb:&lt;pt&gt; transport-cc</c>,
+    /// with the transport-wide sequence header extension), which browsers send where they do not offer
+    /// RFC 8888. Offered always; an answer keeps it only when it does not keep
+    /// <see cref="CongestionControlFeedback"/>.
+    /// </summary>
+    public bool TransportWideFeedback { get; init; } = true;
+
+    /// <summary>
     /// ECN for this media (<c>a=ecn-capable-rtp:</c>, RFC 6679 section 6.1): the initiation methods in
     /// order of preference, and the optional <c>mode</c> and <c>ect</c> parameters; null when not offered.
     /// </summary>
