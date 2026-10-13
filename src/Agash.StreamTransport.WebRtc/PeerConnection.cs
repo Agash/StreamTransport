@@ -325,7 +325,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         ConfigureFec(offer);
         if (_iceAgent is null)
         {
-            StartIce(IceRole.Controlled);
+            // RFC 8445 section 6.1.1: with an ICE lite peer the full agent controls, whoever offered.
+            StartIce(offer.IceLite ? IceRole.Controlling : IceRole.Controlled);
         }
 
         return new SdpDescription { Media = media };

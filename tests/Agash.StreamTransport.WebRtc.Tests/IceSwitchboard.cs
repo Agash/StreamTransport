@@ -52,11 +52,13 @@ internal sealed class IceSwitchboard
     public (Peer Controlling, Peer Controlled) Pair(
         IPAddress[] controlling,
         IPAddress[] controlled,
-        IceTimings? timings = null
+        IceTimings? timings = null,
+        IceRole firstRole = IceRole.Controlling,
+        IceRole secondRole = IceRole.Controlled
     )
     {
-        Peer a = Add(IceRole.Controlling, controlling, timings ?? IceTimings.Default);
-        Peer b = Add(IceRole.Controlled, controlled, timings ?? IceTimings.Default);
+        Peer a = Add(firstRole, controlling, timings ?? IceTimings.Default);
+        Peer b = Add(secondRole, controlled, timings ?? IceTimings.Default);
         a.Machine.SetRemoteCredentials(b.Machine.LocalCredentials);
         b.Machine.SetRemoteCredentials(a.Machine.LocalCredentials);
         a.Remote = b;

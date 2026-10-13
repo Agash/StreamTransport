@@ -42,7 +42,6 @@ internal sealed partial class IceStateMachine
     // Equally ranked pairs switch only for this much less round trip, as libwebrtc's kMinImprovement.
     private static readonly TimeSpan MinimumRoundTripImprovement = TimeSpan.FromMilliseconds(10);
 
-    private readonly IceRole _role;
     private readonly IceTimings _timings;
     private readonly WebRtcMetrics _metrics;
     private readonly ILogger _logger;
@@ -87,7 +86,7 @@ internal sealed partial class IceStateMachine
         _metrics = metrics ?? WebRtcMetrics.Shared;
         LocalCredentials = local;
         _localPassword = Encoding.UTF8.GetBytes(local.Password);
-        _role = role;
+        Role = role;
         _timings = timings;
         _logger = logger;
         Span<byte> tieBreaker = stackalloc byte[8];
@@ -313,8 +312,11 @@ internal sealed partial class IceStateMachine
             case StunMessageClass.SuccessResponse when stun.Method == StunMethod.Binding:
                 HandleBindingSuccess(stun, now);
                 break;
+            case StunMessageClass.ErrorResponse when stun.Method == StunMethod.Binding:
+                HandleBindingError(stun);
+                break;
             default:
-                // Error responses and indications carry nothing the agent acts on.
+                // Indications carry nothing the agent acts on.
                 break;
         }
     }
@@ -476,7 +478,7 @@ internal sealed partial class IceStateMachine
     }
 
     private ulong PairPriority(IceCandidate local, IceCandidate remote) =>
-        _role == IceRole.Controlling
+        Role == IceRole.Controlling
             ? IceCandidate.ComputePairPriority(local.Priority, remote.Priority)
             : IceCandidate.ComputePairPriority(remote.Priority, local.Priority);
 
@@ -490,6 +492,12 @@ internal sealed partial class IceStateMachine
         // USERNAME is localUfrag:remoteUfrag, MESSAGE-INTEGRITY keyed by our password.
         if (!stun.VerifyMessageIntegrity(_localPassword))
         {
+            return;
+        }
+
+        if (RoleConflict(stun))
+        {
+            SendRoleConflict(stun, local, source);
             return;
         }
 
@@ -515,7 +523,7 @@ internal sealed partial class IceStateMachine
         // A nomination can arrive before our own check on the pair succeeded, so it is remembered until
         // that check succeeds (RFC 8445 section 7.3.1.5). A nomination of another pair once one is
         // selected is the controlling agent moving: it ranks the pair above unnominated ones.
-        if (useCandidate && _role == IceRole.Controlled)
+        if (useCandidate && Role == IceRole.Controlled)
         {
             pair.NominatedByPeer = true;
             pair.LastNominated = now;
@@ -540,6 +548,101 @@ internal sealed partial class IceStateMachine
         }
 
         pair.TriggeredCheck = true;
+    }
+
+    /// <summary>The agent's role now: the one it started with, or the one a role conflict settled on.</summary>
+    public IceRole Role { get; private set; }
+
+    /// <summary>
+    /// Takes a role, as when the peer is an ICE lite agent, which leaves the full agent controlling
+    /// (RFC 8445 section 6.1.1).
+    /// </summary>
+    /// <param name="role">The role.</param>
+    public void SetRole(IceRole role)
+    {
+        if (role == Role)
+        {
+            return;
+        }
+
+        Role = role;
+        foreach (CandidatePair pair in _pairs)
+        {
+            pair.Priority = PairPriority(pair.Local.Candidate, pair.Remote);
+        }
+
+        _pairs.Sort(static (a, b) => b.Priority.CompareTo(a.Priority));
+        LogRoleChanged(role);
+    }
+
+    // RFC 8445 section 7.3.1.1: both agents claiming one role is settled by the tie-breakers. The agent with
+    // the larger one keeps the role it claims, and answers 487 when that is its own role; the other agent
+    // takes the opposite role and carries on. True when this request is answered with 487.
+    private bool RoleConflict(StunMessageReader stun)
+    {
+        StunAttributeType theirs =
+            Role == IceRole.Controlling
+                ? StunAttributeType.IceControlling
+                : StunAttributeType.IceControlled;
+        if (!stun.TryFindAttribute(theirs, out ReadOnlySpan<byte> value) || value.Length != 8)
+        {
+            return false;
+        }
+
+        bool oursWins = _tieBreaker >= BinaryPrimitives.ReadUInt64BigEndian(value);
+        if (Role == IceRole.Controlling)
+        {
+            if (oursWins)
+            {
+                return true;
+            }
+
+            SetRole(IceRole.Controlled);
+            return false;
+        }
+
+        if (oursWins)
+        {
+            SetRole(IceRole.Controlling);
+            return false;
+        }
+
+        return true;
+    }
+
+    private void SendRoleConflict(StunMessageReader stun, LocalEndpoint local, IPEndPoint source)
+    {
+        byte[] response = new byte[128];
+        StunMessageWriter writer = new(
+            response,
+            StunMessageClass.ErrorResponse,
+            StunMethod.Binding,
+            stun.TransactionId
+        );
+        writer.AddErrorCode(487, "Role Conflict");
+        writer.AddMessageIntegrity(_localPassword);
+        writer.AddFingerprint();
+        _transmits.Enqueue(new IceTransmit(local.Handle, source, response[..writer.Length]));
+    }
+
+    // A 487 answer to our check (RFC 8445 section 7.2.5.1): the peer kept the role, so this agent takes the
+    // other and checks the pair again.
+    private void HandleBindingError(StunMessageReader stun)
+    {
+        string transaction = Convert.ToHexString(stun.TransactionId);
+        if (
+            !stun.TryFindAttribute(StunAttributeType.ErrorCode, out ReadOnlySpan<byte> error)
+            || error.Length < 4
+            || ((error[2] & 0x07) * 100) + error[3] != 487
+            || !_inFlight.Remove(transaction, out (CandidatePair Pair, TimeSpan SentAt) check)
+        )
+        {
+            return;
+        }
+
+        SetRole(Role == IceRole.Controlling ? IceRole.Controlled : IceRole.Controlling);
+        check.Pair.State = PairState.Waiting;
+        check.Pair.TriggeredCheck = true;
     }
 
     private void HandleBindingSuccess(StunMessageReader stun, TimeSpan now)
@@ -573,11 +676,11 @@ internal sealed partial class IceStateMachine
         pair.Unanswered = 0;
         pair.NoteRoundTrip(now - check.SentAt);
         LogPairSucceeded(pair.Local.Candidate.Endpoint, pair.Remote.Endpoint);
-        if (pair.NominationCheck || (pair.NominatedByPeer && _role == IceRole.Controlled))
+        if (pair.NominationCheck || (pair.NominatedByPeer && Role == IceRole.Controlled))
         {
             Nominate(pair, now);
         }
-        else if (_role == IceRole.Controlling && _selected is null)
+        else if (Role == IceRole.Controlling && _selected is null)
         {
             // Regular nomination: the first valid pair, the highest-priority one checked, is nominated.
             pair.NominationCheck = true;
@@ -901,7 +1004,7 @@ internal sealed partial class IceStateMachine
             return aReceiving ? 1 : -1;
         }
 
-        if (_role == IceRole.Controlled)
+        if (Role == IceRole.Controlled)
         {
             if (a.NominatedByPeer != b.NominatedByPeer)
             {
@@ -943,7 +1046,7 @@ internal sealed partial class IceStateMachine
         pair.LastSent ??= now;
 
         // The controlling agent nominates the new pair at once, so the controlled agent follows it.
-        if (_role == IceRole.Controlling)
+        if (Role == IceRole.Controlling)
         {
             pair.NominationCheck = true;
             pair.TriggeredCheck = true;
@@ -1003,7 +1106,7 @@ internal sealed partial class IceStateMachine
         Span<byte> tieBreaker = stackalloc byte[8];
         BinaryPrimitives.WriteUInt64BigEndian(tieBreaker, _tieBreaker);
         writer.AddAttribute(
-            _role == IceRole.Controlling
+            Role == IceRole.Controlling
                 ? StunAttributeType.IceControlling
                 : StunAttributeType.IceControlled,
             tieBreaker
@@ -1011,7 +1114,7 @@ internal sealed partial class IceStateMachine
         // The controlling agent nominates on every check of the selected pair (libwebrtc's semi-aggressive
         // mode), so a controlled agent that missed the first nomination after a switch still sees one.
         if (
-            _role == IceRole.Controlling
+            Role == IceRole.Controlling
             && (pair.NominationCheck || ReferenceEquals(pair, _selected))
         )
         {
@@ -1146,7 +1249,7 @@ internal sealed partial class IceStateMachine
 
         public IceCandidate Remote { get; } = remote;
 
-        public ulong Priority { get; } = priority;
+        public ulong Priority { get; set; } = priority;
 
         public PairState State { get; set; } = PairState.Waiting;
 
@@ -1207,4 +1310,7 @@ internal sealed partial class IceStateMachine
                 ? "every one failed and the peer sent no more candidates"
                 : "none selected within the failure timeout"
         );
+
+    [LoggerMessage(EventId = 1140, Level = LogLevel.Information, Message = "ICE role is {Role}")]
+    private partial void LogRoleChanged(IceRole role);
 }

@@ -93,18 +93,33 @@ public readonly ref struct StunMessageReader
     /// Finds the first attribute of <paramref name="type"/> and returns its value (without the 4-byte
     /// attribute header and without trailing padding). Returns <see langword="false"/> if absent.
     /// </summary>
+    /// <remarks>
+    /// Attributes after MESSAGE-INTEGRITY are not found, FINGERPRINT aside (RFC 8489 section 14.5):
+    /// integrity does not cover them, so one appended to a captured message (a USE-CANDIDATE, say) must
+    /// not count.
+    /// </remarks>
     public bool TryFindAttribute(StunAttributeType type, out ReadOnlySpan<byte> value)
     {
         ReadOnlySpan<byte> body = Raw[StunHeader.Length..];
         int offset = 0;
+        bool protectedPart = true;
         while (offset + 4 <= body.Length)
         {
             var attrType = (StunAttributeType)BinaryPrimitives.ReadUInt16BigEndian(body[offset..]);
             int valueLength = BinaryPrimitives.ReadUInt16BigEndian(body[(offset + 2)..]);
-            if (attrType == type)
+            if (attrType == type && (protectedPart || type == StunAttributeType.Fingerprint))
             {
                 value = body.Slice(offset + 4, valueLength);
                 return true;
+            }
+
+            if (
+                attrType
+                is StunAttributeType.MessageIntegrity
+                    or StunAttributeType.MessageIntegritySha256
+            )
+            {
+                protectedPart = false;
             }
 
             offset += 4 + ((valueLength + 3) & ~3);
