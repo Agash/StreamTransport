@@ -31,6 +31,10 @@ internal sealed class InMemoryIceNetwork
     public IReadOnlyList<IPEndPoint> BoundOn(IPAddress address) =>
         [.. _sockets.Keys.Where(endpoint => endpoint.Address.Equals(address))];
 
+    /// <summary>A task that completes when the socket bound on the endpoint is closed.</summary>
+    public Task WhenClosed(IPEndPoint endpoint) =>
+        _sockets.TryGetValue(endpoint, out FakeSocket? socket) ? socket.Closed : Task.CompletedTask;
+
     /// <summary>Decides which datagrams the network loses: true drops one.</summary>
     public Func<IPEndPoint, IPEndPoint, byte[], bool>? Drop { get; set; }
 
@@ -94,6 +98,10 @@ internal sealed class InMemoryIceNetwork
                 new UnboundedChannelOptions { SingleReader = true }
             );
 
+        private readonly TaskCompletionSource _closed = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+
         public FakeSocket(InMemoryIceNetwork network, IPAddress address)
         {
             _network = network;
@@ -101,6 +109,8 @@ internal sealed class InMemoryIceNetwork
         }
 
         public IPEndPoint LocalEndPoint { get; }
+
+        public Task Closed => _closed.Task;
 
         public ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
@@ -145,6 +155,7 @@ internal sealed class InMemoryIceNetwork
         {
             _ = _network._sockets.TryRemove(LocalEndPoint, out _);
             _ = _rx.Writer.TryComplete();
+            _ = _closed.TrySetResult();
         }
     }
 }

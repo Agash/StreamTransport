@@ -132,11 +132,8 @@ public sealed class TurnAllocationTests
         _ = Pump(allocation);
         var peer = new IPEndPoint(IPAddress.Loopback, 9);
 
-        for (int attempt = 0; attempt < 50 && server.ChannelBinds == 0; attempt++)
-        {
-            await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
-            await Task.Delay(20);
-        }
+        await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
+        await server.WhenChannelBound.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.AreEqual(1, server.ChannelBinds);
     }
@@ -150,23 +147,32 @@ public sealed class TurnAllocationTests
         using TurnAllocation allocation = await Allocate(server, TurnTransport.Udp, time);
         _ = Pump(allocation);
         var peer = new IPEndPoint(IPAddress.Loopback, 9);
-        for (int attempt = 0; attempt < 50 && server.ChannelBinds == 0; attempt++)
+
+        // The server answering the bind does not mean the allocation has recorded it; a datagram arriving
+        // as ChannelData does.
+        while (!server.WhenChannelData.IsCompleted)
         {
             await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
-            await Task.Delay(20);
+
+            // Deliberate: retry pacing; sends repeat until the bind has taken effect, as ICE checks do.
+            await Task.WhenAny(server.WhenChannelData, Task.Delay(20));
         }
 
-        // Past four minutes the binding is refreshed; past 7.5 the 600 s allocation is. Each step lets
-        // the round trips it started finish before the clock moves on, so no request times out.
-        for (int minute = 0; minute < 8; minute++)
-        {
-            time.Advance(TimeSpan.FromMinutes(1));
-            await Task.Delay(100);
-        }
+        // The binding is refreshed on the maintenance tick at four minutes and the 600 s allocation on the
+        // first tick past 7.5. The clock stops on each tick that starts a request and waits for the
+        // server to have it, so no request times out while the clock moves on.
+        time.Advance(TimeSpan.FromMinutes(4));
+        await server.WhenRefreshedBinding.WaitAsync(TimeSpan.FromSeconds(5));
 
-        for (int wait = 0; wait < 100 && server.Refreshes == 0; wait++)
+        // A tick is skipped while the previous pass is still reading the server's answer, so the clock
+        // keeps moving a tick at a time until the allocation refresh reaches the server.
+        using CancellationTokenSource guard = new(TimeSpan.FromSeconds(5));
+        while (!server.WhenRefreshed.IsCompleted)
         {
-            await Task.Delay(10);
+            time.Advance(TimeSpan.FromSeconds(30));
+
+            // Deliberate: lets the allocation finish reading the answer before the clock moves again.
+            await Task.WhenAny(server.WhenRefreshed, Task.Delay(10, guard.Token));
         }
 
         Assert.IsGreaterThanOrEqualTo(2, server.ChannelBinds);
@@ -181,10 +187,7 @@ public sealed class TurnAllocationTests
         TurnAllocation allocation = await Allocate(server, TurnTransport.Udp, TimeProvider.System);
 
         allocation.Dispose();
-        for (int wait = 0; wait < 100 && server.Deallocations == 0; wait++)
-        {
-            await Task.Delay(10);
-        }
+        await server.WhenDeallocated.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.AreEqual(1, server.Deallocations);
     }
@@ -245,6 +248,8 @@ public sealed class TurnAllocationTests
         for (int attempt = 0; attempt < 100 && !data.Task.IsCompleted; attempt++)
         {
             // The first byte puts the datagram in the RTP range of the demultiplexer.
+            // Deliberate: sends repeat until the relay accepts one, as ICE checks do; nothing signals
+            // that the answerer's relay has permitted the offerer's address.
             await offerer.SendAsync((byte[])[0x80, .. "media"u8]);
             await Task.WhenAny(data.Task, Task.Delay(50));
         }

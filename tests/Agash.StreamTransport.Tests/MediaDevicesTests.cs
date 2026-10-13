@@ -204,7 +204,8 @@ public sealed class TestSignalTests
     public async Task Signal_StraightIntoTheAnalyzer_IsAlignedAndQuick()
     {
         var generator = new TestSignalGenerator();
-        var analyzer = new TestSignalAnalyzer();
+        var watch = new AnalyzerWatch(new TestSignalAnalyzer());
+        TestSignalAnalyzer analyzer = watch.Analyzer;
         using IVideoInput video = await new TestSignalVideoInputProvider(generator).OpenAsync(
             new VideoInputInfo("test", "signal", "Test signal", MediaInputKind.Generated, []),
             new VideoInputRequest { Size = new VideoSize(640, 360), FrameRate = 30 },
@@ -215,13 +216,10 @@ public sealed class TestSignalTests
             CancellationToken.None
         );
 
-        using (video.Connect(analyzer.WrapVideo(), VideoConstraints.Cpu(PixelFormat.Nv12)))
-        using (audio.Connect(analyzer.WrapAudio()))
+        using (video.Connect(watch.WrapVideo(), VideoConstraints.Cpu(PixelFormat.Nv12)))
+        using (audio.Connect(watch.WrapAudio()))
         {
-            while (analyzer.Measure().Pairs < 3)
-            {
-                await Task.Delay(100);
-            }
+            await watch.UntilAsync(m => m.Pairs >= 3, TimeSpan.FromSeconds(15));
         }
 
         TestSignalMeasurement measured = analyzer.Measure();

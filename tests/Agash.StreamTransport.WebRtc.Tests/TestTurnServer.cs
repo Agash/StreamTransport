@@ -67,6 +67,37 @@ internal sealed class TestTurnServer : IAsyncDisposable
     public int ChannelDataFrames;
     public int Deallocations;
 
+    private readonly TaskCompletionSource _channelBound = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    private readonly TaskCompletionSource _channelData = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    private readonly TaskCompletionSource _channelRebound = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    private readonly TaskCompletionSource _refreshed = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
+    private readonly TaskCompletionSource _deallocated = new(
+        TaskCreationOptions.RunContinuationsAsynchronously
+    );
+
+    /// <summary>Completes when the server has accepted its first ChannelBind.</summary>
+    public Task WhenChannelBound => _channelBound.Task;
+
+    /// <summary>Completes when the server has received its first ChannelData frame.</summary>
+    public Task WhenChannelData => _channelData.Task;
+
+    /// <summary>Completes when the server has accepted a second ChannelBind.</summary>
+    public Task WhenRefreshedBinding => _channelRebound.Task;
+
+    /// <summary>Completes when the server has accepted its first Refresh.</summary>
+    public Task WhenRefreshed => _refreshed.Task;
+
+    /// <summary>Completes when the server has released an allocation.</summary>
+    public Task WhenDeallocated => _deallocated.Task;
+
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();
@@ -255,6 +286,7 @@ internal sealed class TestTurnServer : IAsyncDisposable
             )
             {
                 Interlocked.Increment(ref ChannelDataFrames);
+                _ = _channelData.TrySetResult();
                 await bound.Relay.SendToAsync(message.Slice(4, length), SocketFlags.None, peer);
             }
 
@@ -365,10 +397,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
             case StunMethod.Refresh:
             {
                 Interlocked.Increment(ref Refreshes);
+                _ = _refreshed.TrySetResult();
                 request.TryGetUInt32(StunAttributeType.Lifetime, out uint lifetime);
                 if (lifetime == 0 && _allocations.TryRemove(key, out Allocation? released))
                 {
                     Interlocked.Increment(ref Deallocations);
+                    _ = _deallocated.TrySetResult();
                     released.Relay.Dispose();
                 }
 
@@ -401,7 +435,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
                     return Error(request, 400, Nonce);
                 }
 
-                Interlocked.Increment(ref ChannelBinds);
+                if (Interlocked.Increment(ref ChannelBinds) >= 2)
+                {
+                    _ = _channelRebound.TrySetResult();
+                }
+
+                _ = _channelBound.TrySetResult();
                 ushort channel = (ushort)(number >> 16);
                 allocation.Channels[channel] = peer;
                 allocation.ChannelsByPeer[peer] = channel;

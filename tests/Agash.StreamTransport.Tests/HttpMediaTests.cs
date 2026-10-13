@@ -32,7 +32,8 @@ public sealed class HttpMediaTests
     [Timeout(60_000)]
     public async Task Whip_VideoSinkLatency_DelaysAudioToMatch()
     {
-        TestSignalAnalyzer analyzer = new();
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
+        TestSignalAnalyzer analyzer = watch.Analyzer;
         await using WebApplication app = await StartAsync(web =>
             web.MapWhip(
                 "/whip",
@@ -41,8 +42,8 @@ public sealed class HttpMediaTests
                         new HttpMediaSetup(
                             new MediaEndpoints
                             {
-                                VideoSink = analyzer.WrapVideo(new LatentVideoSink()),
-                                AudioSink = analyzer.WrapAudio(),
+                                VideoSink = watch.WrapVideo(new LatentVideoSink()),
+                                AudioSink = watch.WrapAudio(),
                             },
                             Loopback()
                         )
@@ -68,16 +69,17 @@ public sealed class HttpMediaTests
         await using (publishing)
         {
             await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
-            while (analyzer.Measure().Pairs < 1)
-            {
-                await Task.Delay(200);
-            }
-
+            await watch.UntilAsync(
+                m => m.Pairs >= 1,
+                TimeSpan.FromSeconds(30),
+                TestContext.CancellationToken
+            );
             analyzer.Reset();
-            while (analyzer.Measure().Pairs < 3)
-            {
-                await Task.Delay(200);
-            }
+            await watch.UntilAsync(
+                m => m.Pairs >= 3,
+                TimeSpan.FromSeconds(30),
+                TestContext.CancellationToken
+            );
         }
 
         TestSignalMeasurement measured = analyzer.Measure();
@@ -95,10 +97,12 @@ public sealed class HttpMediaTests
     [Timeout(60_000)]
     public async Task Whip_PublishedTestSignal_ArrivesAndIsInSync()
     {
-        TestSignalAnalyzer analyzer = new();
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
+        TestSignalAnalyzer analyzer = watch.Analyzer;
         using MeterRecorder meters = new();
         int measuredFrom = 0;
         int ended = 0;
+        TaskCompletionSource endedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using WebApplication app = await StartAsync(
             web =>
                 web.MapWhip(
@@ -109,8 +113,8 @@ public sealed class HttpMediaTests
                                 ? new HttpMediaSetup(
                                     new MediaEndpoints
                                     {
-                                        VideoSink = analyzer.WrapVideo(),
-                                        AudioSink = analyzer.WrapAudio(),
+                                        VideoSink = watch.WrapVideo(),
+                                        AudioSink = watch.WrapAudio(),
                                     },
                                     Loopback()
                                 )
@@ -118,6 +122,7 @@ public sealed class HttpMediaTests
                                     Ended = () =>
                                     {
                                         Interlocked.Increment(ref ended);
+                                        endedSignal.TrySetResult();
                                         return ValueTask.CompletedTask;
                                     },
                                 }
@@ -150,23 +155,21 @@ public sealed class HttpMediaTests
             await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
 
             // The first second is the session settling; the steady state is what is measured.
-            while (analyzer.Measure().Pairs < 1)
-            {
-                await Task.Delay(200);
-            }
-
+            await watch.UntilAsync(
+                m => m.Pairs >= 1,
+                TimeSpan.FromSeconds(30),
+                TestContext.CancellationToken
+            );
             analyzer.Reset();
             measuredFrom = meters.Count(AvOffset);
-            while (analyzer.Measure().Pairs < 3)
-            {
-                await Task.Delay(200);
-            }
+            await watch.UntilAsync(
+                m => m.Pairs >= 3,
+                TimeSpan.FromSeconds(30),
+                TestContext.CancellationToken
+            );
         }
 
-        for (int wait = 0; wait < 50 && Volatile.Read(ref ended) == 0; wait++)
-        {
-            await Task.Delay(100);
-        }
+        await endedSignal.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.CancellationToken);
 
         TestSignalMeasurement measured = analyzer.Measure();
         Assert.IsLessThan(60, Math.Abs(measured.MeanOffset.TotalMilliseconds), measured.ToString());
@@ -240,16 +243,12 @@ public sealed class HttpMediaTests
                     )
             )
         );
-        TestSignalAnalyzer analyzer = new();
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
 
         HttpMediaSession playing = await WhepClient.PlayAsync(
             app.Services.GetRequiredService<IMediaSessionFactory>(),
             new Uri(Address(app), "/whep"),
-            new MediaEndpoints
-            {
-                VideoSink = analyzer.WrapVideo(),
-                AudioSink = analyzer.WrapAudio(),
-            },
+            new MediaEndpoints { VideoSink = watch.WrapVideo(), AudioSink = watch.WrapAudio() },
             Loopback()
         );
         await using (playing)
@@ -257,11 +256,11 @@ public sealed class HttpMediaTests
             await playing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
 
             // Two A/V pairs can be measured a frame short of a second of video, so both are waited for.
-            using CancellationTokenSource guard = new(TimeSpan.FromSeconds(20));
-            while (analyzer.Measure() is { Pairs: < 2 } or { Frames: <= 30 })
-            {
-                await Task.Delay(200, guard.Token);
-            }
+            await watch.UntilAsync(
+                m => m is { Pairs: >= 2, Frames: > 30 },
+                TimeSpan.FromSeconds(20),
+                TestContext.CancellationToken
+            );
         }
     }
 
@@ -302,14 +301,14 @@ public sealed class HttpMediaTests
     [Timeout(60_000)]
     public async Task Patch_OnALiveResource_TakesTrickledCandidatesForItsIceSession()
     {
-        TestSignalAnalyzer analyzer = new();
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
         await using WebApplication app = await StartAsync(web =>
             web.MapWhip(
                 "/whip",
                 (_, _) =>
                     ValueTask.FromResult<HttpMediaSetup?>(
                         new HttpMediaSetup(
-                            new MediaEndpoints { AudioSink = analyzer.WrapAudio() },
+                            new MediaEndpoints { AudioSink = watch.WrapAudio() },
                             Loopback()
                         )
                     )
@@ -400,7 +399,8 @@ public sealed class HttpMediaTests
     [Timeout(90_000)]
     public async Task Whip_IceRestart_KeepsMediaFlowing()
     {
-        TestSignalAnalyzer analyzer = new();
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
+        TestSignalAnalyzer analyzer = watch.Analyzer;
         await using WebApplication app = await StartAsync(web =>
             web.MapWhip(
                 "/whip",
@@ -409,8 +409,8 @@ public sealed class HttpMediaTests
                         new HttpMediaSetup(
                             new MediaEndpoints
                             {
-                                VideoSink = analyzer.WrapVideo(),
-                                AudioSink = analyzer.WrapAudio(),
+                                VideoSink = watch.WrapVideo(),
+                                AudioSink = watch.WrapAudio(),
                             },
                             Loopback()
                         )
@@ -432,18 +432,19 @@ public sealed class HttpMediaTests
         await using (publishing)
         {
             await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
-            while (analyzer.Measure().Frames < 30)
-            {
-                await Task.Delay(100);
-            }
+            await watch.UntilAsync(
+                m => m.Frames >= 30,
+                TimeSpan.FromSeconds(30),
+                TestContext.CancellationToken
+            );
 
             await publishing.Session.RestartTransportAsync();
             int atRestart = analyzer.Measure().Frames;
-            using CancellationTokenSource guard = new(TimeSpan.FromSeconds(30));
-            while (analyzer.Measure().Frames < atRestart + 60)
-            {
-                await Task.Delay(100, guard.Token);
-            }
+            await watch.UntilAsync(
+                m => m.Frames >= atRestart + 60,
+                TimeSpan.FromSeconds(30),
+                TestContext.CancellationToken
+            );
 
             Assert.AreEqual(TransportState.Connected, publishing.Session.State);
         }

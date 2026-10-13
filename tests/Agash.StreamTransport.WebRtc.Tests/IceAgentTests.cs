@@ -200,11 +200,7 @@ public sealed class IceAgentTests
         // Data over the new pair ends the overlap, and the old socket closes.
         await agents.B.SendAsync(payload);
         _ = await agents.ReceivedByA.ReadAsync().AsTask().WaitAsync(Patience);
-        using CancellationTokenSource closing = new(IceAgent.RestartOverlap + Patience);
-        while (network.BoundOn(before.Address).Contains(before))
-        {
-            await Task.Delay(20, closing.Token);
-        }
+        await network.WhenClosed(before).WaitAsync(IceAgent.RestartOverlap + Patience);
     }
 
     [TestMethod]
@@ -237,6 +233,22 @@ public sealed class IceAgentTests
             addressesOfB: [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
         );
         await agents.BothConnectedAsync();
+        TaskCompletionSource aOnCellular = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource bOnCellular = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        agents.A.SelectedPathChanged += path =>
+        {
+            if (path?.Local.Address.Equals(cellular) == true)
+            {
+                aOnCellular.TrySetResult();
+            }
+        };
+        agents.B.SelectedPathChanged += path =>
+        {
+            if (path?.Remote.Address.Equals(cellular) == true)
+            {
+                bOnCellular.TrySetResult();
+            }
+        };
         List<IceCandidate> trickled = [];
         agents.A.LocalCandidateGathered += c =>
         {
@@ -259,11 +271,7 @@ public sealed class IceAgentTests
         }
 
         agents.A.TriggerRecovery();
-
-        while (agents.A.SelectedPath?.Local.Address.Equals(cellular) != true)
-        {
-            await Task.Delay(20);
-        }
+        await aOnCellular.Task.WaitAsync(Patience);
 
         lock (trickled)
         {
@@ -277,11 +285,7 @@ public sealed class IceAgentTests
             network.BoundOn(wifi),
             "the socket on the address that went away is closed."
         );
-        while (agents.B.SelectedPath?.Remote.Address.Equals(cellular) != true)
-        {
-            await agents.A.SendAsync(new byte[] { 0x80, 1 });
-            await Task.Delay(20);
-        }
+        await bOnCellular.Task.WaitAsync(Patience);
 
         await agents.A.SendAsync(new byte[] { 0x80, 2 });
         await agents.B.SendAsync(new byte[] { 0x80, 3 });

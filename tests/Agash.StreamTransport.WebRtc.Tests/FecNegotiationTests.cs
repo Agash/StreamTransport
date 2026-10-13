@@ -142,9 +142,11 @@ public sealed class FecNegotiationTests
                 _ = sender.TrySendRtp(96, SenderVideo, frame * 3000, packet == 3, payload);
             }
 
+            // Deliberate: paces the sender at 30 fps.
             await Task.Delay(33, TestContext.CancellationToken);
         }
 
+        // Deliberate: a drain window; nothing signals that the last repairs have arrived.
         await Task.Delay(500, TestContext.CancellationToken);
         int recovered = dropped.Keys.Count(arrived.ContainsKey);
         TestContext.WriteLine($"dropped {dropped.Count}, recovered {recovered}");

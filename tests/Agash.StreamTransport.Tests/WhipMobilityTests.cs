@@ -53,8 +53,11 @@ public sealed class WhipMobilityTests
             }
         });
         SimulatedNetworkMonitor monitor = new();
-        ConcurrentQueue<string> patches = [];
-        TestSignalAnalyzer analyzer = new();
+        TaskCompletionSource cellularPatched = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        AnalyzerWatch watch = new(new TestSignalAnalyzer());
+        TestSignalAnalyzer analyzer = watch.Analyzer;
 
         await using WebApplication app = await StartAsync(
             monitor,
@@ -67,7 +70,12 @@ public sealed class WhipMobilityTests
                         {
                             context.Request.EnableBuffering();
                             using StreamReader reader = new(context.Request.Body, leaveOpen: true);
-                            patches.Enqueue(await reader.ReadToEndAsync(context.RequestAborted));
+                            string body = await reader.ReadToEndAsync(context.RequestAborted);
+                            if (body.Contains($" {Cellular} ", StringComparison.Ordinal))
+                            {
+                                _ = cellularPatched.TrySetResult();
+                            }
+
                             context.Request.Body.Position = 0;
                         }
 
@@ -79,7 +87,7 @@ public sealed class WhipMobilityTests
                     (_, _) =>
                         ValueTask.FromResult<HttpMediaSetup?>(
                             new HttpMediaSetup(
-                                new MediaEndpoints { VideoSink = analyzer.WrapVideo() },
+                                new MediaEndpoints { VideoSink = watch.WrapVideo() },
                                 Options(network.Factory(Server))
                             )
                         )
@@ -102,7 +110,7 @@ public sealed class WhipMobilityTests
         await using (publishing)
         {
             await publishing.Session.Connected.WaitAsync(TimeSpan.FromSeconds(20));
-            await FramesAsync(analyzer, 30);
+            await watch.UntilAsync(m => m.Frames >= 30, TimeSpan.FromSeconds(30));
 
             lock (interfaces)
             {
@@ -117,14 +125,10 @@ public sealed class WhipMobilityTests
 
             monitor.Change();
 
-            using CancellationTokenSource patched = new(TimeSpan.FromSeconds(20));
-            while (!patches.Any(p => p.Contains($" {Cellular} ", StringComparison.Ordinal)))
-            {
-                await Task.Delay(50, patched.Token);
-            }
+            await cellularPatched.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
             int atChange = analyzer.Measure().Frames;
-            await FramesAsync(analyzer, atChange + 60);
+            await watch.UntilAsync(m => m.Frames >= atChange + 60, TimeSpan.FromSeconds(30));
             Assert.AreEqual(TransportState.Connected, publishing.Session.State);
             Assert.IsEmpty(network.BoundOn(Wifi), "the socket on the network that went is closed.");
         }
@@ -136,15 +140,6 @@ public sealed class WhipMobilityTests
             VideoCodecs = [VideoCodecId.H264],
             Transport = new WebRtcTransportOptions { SocketFactory = sockets },
         };
-
-    private static async Task FramesAsync(TestSignalAnalyzer analyzer, int count)
-    {
-        using CancellationTokenSource guard = new(TimeSpan.FromSeconds(30));
-        while (analyzer.Measure().Frames < count)
-        {
-            await Task.Delay(100, guard.Token);
-        }
-    }
 
     private static async Task<WebApplication> StartAsync(
         INetworkMonitor monitor,

@@ -57,10 +57,10 @@ public sealed class PathSwitchSessionTests
         await ConnectAsync(sender, receiver);
 
         ConcurrentQueue<CapacityEstimate> estimates = new();
-        int received = 0;
+        CountWatch received = new();
         int keyframeRequests = 0;
         sender.CapacityChanged += estimates.Enqueue;
-        receiver.RtpReceived += (_, _) => Interlocked.Increment(ref received);
+        receiver.RtpReceived += (_, _) => received.Increment();
         sender.KeyframeRequested += _ => Interlocked.Increment(ref keyframeRequests);
 
         using var media = CancellationTokenSource.CreateLinkedTokenSource(
@@ -69,6 +69,8 @@ public sealed class PathSwitchSessionTests
         Task sending = SendAsync(sender, media.Token);
 
         // Warm: the standby pair's keep-alives measure its round trip, feedback moves the estimate.
+        // Deliberate: a warm-up window; the peer connection exposes no signal that the standby pair has
+        // validated and measured its round trip.
         await Task.Delay(TimeSpan.FromSeconds(6), TestContext.CancellationToken);
         IcePath before = sender.SelectedPath!.Value;
         int keyframesBefore = Volatile.Read(ref keyframeRequests);
@@ -78,20 +80,26 @@ public sealed class PathSwitchSessionTests
             cut.Add(before.Local.Address);
         }
 
-        // The path dies silently; ICE moves within seconds.
-        using (CancellationTokenSource guard = new(TimeSpan.FromSeconds(20)))
-        {
-            while (
-                sender.SelectedPath is not { } now || now.Local.Address.Equals(before.Local.Address)
-            )
-            {
-                await Task.Delay(50, guard.Token);
-            }
-        }
-
+        // The path dies silently; ICE moves within seconds, and media reaching the receiver again is
+        // the sign that it has.
+        int receivedAtCut = received.Count;
+        await received.UntilAsync(
+            receivedAtCut + 50,
+            TimeSpan.FromSeconds(20),
+            TestContext.CancellationToken
+        );
         IcePath after = sender.SelectedPath!.Value;
-        int receivedAtSwitch = Volatile.Read(ref received);
-        await Task.Delay(TimeSpan.FromSeconds(2), TestContext.CancellationToken);
+        Assert.AreNotEqual(
+            before.Local.Address,
+            after.Local.Address,
+            "ICE selected the other interface."
+        );
+        int receivedAtSwitch = received.Count;
+        await received.UntilAsync(
+            receivedAtSwitch + 300,
+            TimeSpan.FromSeconds(20),
+            TestContext.CancellationToken
+        );
         await media.CancelAsync();
         await sending;
 
@@ -105,7 +113,7 @@ public sealed class PathSwitchSessionTests
         );
         Assert.IsGreaterThan(
             receivedAtSwitch + 100,
-            Volatile.Read(ref received),
+            received.Count,
             "media carries on over the new path."
         );
         Assert.AreEqual(
@@ -167,10 +175,23 @@ public sealed class PathSwitchSessionTests
             controller: new ScreamCongestionController(Scream)
         );
         ConcurrentDictionary<ushort, byte> arrived = new();
-        receiver.RtpReceived += (header, _) => arrived.TryAdd(header.SequenceNumber, 0);
+        TaskCompletionSource repaired = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool Repaired() =>
+            Volatile.Read(ref repairsOnStandby) > 0
+            && dropped.Keys.Count(arrived.ContainsKey) > dropped.Count / 2;
+        receiver.RtpReceived += (header, _) =>
+        {
+            arrived.TryAdd(header.SequenceNumber, 0);
+            if (dropped.ContainsKey(header.SequenceNumber) && Repaired())
+            {
+                repaired.TrySetResult();
+            }
+        };
         await ConnectAsync(sender, receiver);
 
         // Let the other interface's pairs validate, then stream with loss on the media path.
+        // Deliberate: a warm-up window; the peer connection exposes no signal that the standby pairs
+        // have validated.
         await Task.Delay(TimeSpan.FromSeconds(6), TestContext.CancellationToken);
         mediaPath = sender.SelectedPath!.Value.Local.Address;
         using var media = CancellationTokenSource.CreateLinkedTokenSource(
@@ -178,7 +199,20 @@ public sealed class PathSwitchSessionTests
         );
         media.CancelAfter(TimeSpan.FromSeconds(5));
         await SendAsync(sender, media.Token);
-        await Task.Delay(1000, TestContext.CancellationToken);
+        if (!Repaired())
+        {
+            try
+            {
+                await repaired.Task.WaitAsync(
+                    TimeSpan.FromSeconds(10),
+                    TestContext.CancellationToken
+                );
+            }
+            catch (TimeoutException)
+            {
+                // The assertions below report what had been repaired when the wait ran out.
+            }
+        }
 
         int recovered = dropped.Keys.Count(arrived.ContainsKey);
         TestContext.WriteLine(
