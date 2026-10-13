@@ -33,12 +33,7 @@ public sealed class WebRtcMediaTransportFactory(
         ArgumentNullException.ThrowIfNull(signaling);
         ArgumentNullException.ThrowIfNull(options);
         WebRtcTransportOptions webRtc =
-            options as WebRtcTransportOptions
-            ?? new WebRtcTransportOptions
-            {
-                IceServers = options.IceServers,
-                ForwardErrorCorrection = options.ForwardErrorCorrection,
-            };
+            options as WebRtcTransportOptions ?? new WebRtcTransportOptions(options);
         return new WebRtcMediaTransport(signaling, role, webRtc, _services);
     }
 }

@@ -780,6 +780,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _loggerFactory.CreateLogger<IceAgent>(),
             socketFactory: _options.SocketFactory
                 ?? new UdpIceSocketFactory(_options.LocalAddressPreferences),
+            timings: _options.IceTimings,
             timeProvider: _time,
             transportPolicy: _options.IceTransportPolicy,
             meterFactory: _meterFactory

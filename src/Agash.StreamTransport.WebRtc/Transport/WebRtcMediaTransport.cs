@@ -5,6 +5,7 @@ using System.Net;
 using System.Security.Cryptography;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.Media;
+using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
@@ -367,8 +368,26 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             LocalAddressPreferences = _options.LocalAddressPreferences,
             SocketFactory = _options.SocketFactory,
             RepairOverStandby = _options.RepairOverSecondPath,
+            IceTimings = IceTimingsFor(_options),
         };
     }
+
+    // ICE's timings: as given, or libwebrtc's with the receiving timeout set to the path failover time and a
+    // standby path checked at twice that, so the path media moves to was heard from recently.
+    internal static IceTimings? IceTimingsFor(WebRtcTransportOptions options) =>
+        options.IceTimings
+        ?? (
+            options.PathFailover is { } failover
+                ? IceTimings.Default with
+                {
+                    ReceivingTimeout = failover,
+                    StandbyPingInterval =
+                        failover * 2 > TimeSpan.FromSeconds(1)
+                            ? failover * 2
+                            : TimeSpan.FromSeconds(1),
+                }
+                : null
+        );
 
     private void OnStateChanged(PeerConnectionState state)
     {

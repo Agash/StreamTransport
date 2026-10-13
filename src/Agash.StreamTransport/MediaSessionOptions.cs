@@ -137,6 +137,7 @@ public sealed record MediaSessionOptions
                 {
                     ForwardErrorCorrection = true,
                     RepairOverSecondPath = true,
+                    PathFailover = TimeSpan.FromSeconds(1),
                 },
                 Playout = PlayoutMode.Synced,
                 MaxPlayoutDelay = TimeSpan.FromMilliseconds(800),

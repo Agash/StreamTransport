@@ -6,6 +6,20 @@ namespace Agash.StreamTransport.WebRtc.Transport;
 /// <summary>Per-session settings of the WebRTC transport.</summary>
 public sealed record WebRtcTransportOptions : MediaTransportOptions
 {
+    /// <summary>Options with every setting at its default.</summary>
+    public WebRtcTransportOptions() { }
+
+    /// <summary>The WebRTC options for transport-neutral ones, every neutral setting carried over.</summary>
+    /// <param name="options">The neutral options.</param>
+    public WebRtcTransportOptions(MediaTransportOptions options)
+        : base(options) { }
+
+    /// <summary>
+    /// ICE's pacing and timeouts, for full control; null derives them from
+    /// <see cref="MediaTransportOptions.PathFailover"/>, or uses libwebrtc's values without it.
+    /// </summary>
+    public IceTimings? IceTimings { get; init; }
+
     /// <summary>
     /// Which candidates ICE gathers. <see cref="IceTransportPolicy.Relay"/> sends only through the TURN
     /// servers, which keeps this side's addresses from the peer.

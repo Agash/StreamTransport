@@ -122,6 +122,9 @@ public sealed class PeerConnectionOptions
     /// default; the IRL profile turns it on.
     /// </summary>
     public bool RepairOverStandby { get; init; }
+
+    /// <summary>ICE's pacing and timeouts; libwebrtc's values when null.</summary>
+    public IceTimings? IceTimings { get; init; }
 }
 
 /// <summary>The aggregate connection state of a <see cref="PeerConnection"/> (ICE + DTLS).</summary>

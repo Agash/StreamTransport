@@ -212,6 +212,13 @@ public record MediaTransportOptions
     /// up, so a loss burst on one link is repaired over the other: a field device with two modems.
     /// </summary>
     public bool RepairOverSecondPath { get; init; }
+
+    /// <summary>
+    /// How long the active path may stay silent before media moves to another one that is up, and so how
+    /// fresh a standby path is kept; null for the transport's default. A field device on cellular links
+    /// wants it short, since a silent modem rarely recovers in time to matter.
+    /// </summary>
+    public TimeSpan? PathFailover { get; init; }
 }
 
 /// <summary>
