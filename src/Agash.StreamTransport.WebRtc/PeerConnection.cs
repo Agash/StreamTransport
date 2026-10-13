@@ -1233,7 +1233,18 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Cname = _cname,
             Ecn = LocalEcnCapability,
             Extensions = OfferedExtensions(kind),
+            MediaStreamId = Sends(direction) ? _streamId : null,
+            TrackId = Sends(direction) ? $"{_streamId}-{mid}" : null,
         };
+
+    // The msid stream every sent track belongs to: hex, since an msid is an SDP token (RFC 8866), which
+    // the base64 CNAME's '/' and '=' are not.
+    private readonly string _streamId = Convert.ToHexStringLower(
+        System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)
+    );
+
+    private static bool Sends(SdpDirection direction) =>
+        direction is SdpDirection.SendRecv or SdpDirection.SendOnly;
 
     // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its
     // sections its own way (a browser may put video first), so the kind decides.

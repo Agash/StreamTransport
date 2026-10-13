@@ -25,13 +25,16 @@ public static class SdpWriter
             sb.Append("a=ice-lite\r\n");
         }
 
-        sb.Append("a=group:BUNDLE");
-        foreach (SdpMediaDescription media in description.Media)
+        // RFC 9143 section 7.3: rejected sections leave the group.
+        string[] bundled =
+        [
+            .. description.Media.Where(static m => !m.Rejected).Select(static m => m.Mid),
+        ];
+        if (bundled.Length > 0)
         {
-            sb.Append(CultureInfo.InvariantCulture, $" {media.Mid}");
+            sb.Append("a=group:BUNDLE ").Append(string.Join(' ', bundled)).Append("\r\n");
         }
 
-        sb.Append("\r\n");
         sb.Append("a=msid-semantic: WMS *\r\n");
 
         foreach (SdpMediaDescription media in description.Media)
@@ -60,12 +63,20 @@ public static class SdpWriter
             sb.Append(CultureInfo.InvariantCulture, $" {codec.PayloadType}");
         }
 
+        // RFC 8866 section 5.14: an m= line lists at least one format, a rejected one with nothing to list too.
+        if (media.Codecs.Count == 0)
+        {
+            sb.Append(" 0");
+        }
+
         sb.Append("\r\n");
         sb.Append("c=IN IP4 0.0.0.0\r\n");
         sb.Append("a=rtcp:9 IN IP4 0.0.0.0\r\n");
+        // RFC 8858: RTCP only ever shares the port, which RFC 9725 section 4.4.1 asks of WHIP offers.
         if (media.RtcpMux)
         {
             sb.Append("a=rtcp-mux\r\n");
+            sb.Append("a=rtcp-mux-only\r\n");
         }
 
         if (media.RtcpReducedSize)
@@ -80,6 +91,10 @@ public static class SdpWriter
         sb.Append(CultureInfo.InvariantCulture, $"a=setup:{SetupText(media.Setup)}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=mid:{media.Mid}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a={DirectionText(media.Direction)}\r\n");
+        if (media.MediaStreamId is { } stream && media.TrackId is { } track)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=msid:{stream} {track}\r\n");
+        }
 
         foreach (SdpCodec codec in media.Codecs)
         {

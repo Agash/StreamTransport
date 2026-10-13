@@ -122,6 +122,15 @@ public sealed record SdpMediaDescription
     public bool CongestionControlFeedback { get; init; } = true;
 
     /// <summary>
+    /// The media stream this section's track belongs to (<c>a=msid</c>, RFC 8830): every section a sender
+    /// sends names the same stream, which RFC 9725 section 4.4.2 asks of WHIP offers. Null for none.
+    /// </summary>
+    public string? MediaStreamId { get; init; }
+
+    /// <summary>The track's identifier in <see cref="MediaStreamId"/>; null for none.</summary>
+    public string? TrackId { get; init; }
+
+    /// <summary>
     /// Whether transport-wide congestion control feedback is offered (<c>a=rtcp-fb:&lt;pt&gt; transport-cc</c>,
     /// with the transport-wide sequence header extension), which browsers send where they do not offer
     /// RFC 8888. Offered always; an answer keeps it only when it does not keep

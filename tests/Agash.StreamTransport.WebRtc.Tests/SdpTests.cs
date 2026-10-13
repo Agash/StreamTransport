@@ -80,6 +80,52 @@ public sealed class SdpTests
         StringAssert.Contains(sdp, "a=fmtp:96 profile-level-id=42e01f;packetization-mode=1");
     }
 
+    // RFC 9143 section 7.3, RFC 8866 section 5.14: a rejected section leaves the BUNDLE group and still
+    // lists a format.
+    [TestMethod]
+    public void Write_RejectedSection_LeavesTheBundleAndListsAFormat()
+    {
+        SdpDescription offer = SampleOffer();
+        SdpDescription answer = offer with
+        {
+            Media = [offer.Media[0], offer.Media[1] with { Rejected = true, Codecs = [] }],
+        };
+
+        string sdp = SdpWriter.Write(answer);
+
+        StringAssert.Contains(sdp, "a=group:BUNDLE 0\r\n");
+        StringAssert.Contains(sdp, "m=video 0 UDP/TLS/RTP/SAVPF 0\r\n");
+    }
+
+    // RFC 9725 section 4.4.1 and 4.4.2: muxed RTCP only, and every sent track in one media stream.
+    [TestMethod]
+    public void Write_DeclaresMuxOnlyAndTheMediaStream()
+    {
+        SdpDescription offer = SampleOffer();
+        string sdp = SdpWriter.Write(
+            offer with
+            {
+                Media =
+                [
+                    offer.Media[0] with
+                    {
+                        MediaStreamId = "s1",
+                        TrackId = "s1-0",
+                    },
+                    offer.Media[1] with
+                    {
+                        MediaStreamId = "s1",
+                        TrackId = "s1-1",
+                    },
+                ],
+            }
+        );
+
+        StringAssert.Contains(sdp, "a=rtcp-mux-only");
+        StringAssert.Contains(sdp, "a=msid:s1 s1-0");
+        StringAssert.Contains(sdp, "a=msid:s1 s1-1");
+    }
+
     [TestMethod]
     public void WriteThenParse_RoundTrips()
     {
