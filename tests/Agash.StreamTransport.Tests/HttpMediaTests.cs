@@ -289,13 +289,45 @@ public sealed class HttpMediaTests
             new StringContent("a=candidate", Encoding.UTF8, "application/trickle-ice-sdpfrag")
         );
         using HttpResponseMessage delete = await http.DeleteAsync("/whip/x/abc");
+        using HttpResponseMessage resourceOptions = await http.SendAsync(
+            new HttpRequestMessage(HttpMethod.Options, "/whip/x/abc")
+        );
+        using HttpResponseMessage twoVideos = await http.PostAsync(
+            "/whip/x",
+            new StringContent(TwoVideoOffer, Encoding.UTF8, "application/sdp")
+        );
+        using HttpResponseMessage huge = await http.PostAsync(
+            "/whip/x",
+            new StringContent(new string('a', 70_000), Encoding.UTF8, "application/sdp")
+        );
 
         Assert.AreEqual(HttpStatusCode.UnsupportedMediaType, wrongType.StatusCode);
         Assert.AreEqual(HttpStatusCode.BadRequest, notSdp.StatusCode);
-        Assert.AreEqual(HttpStatusCode.NoContent, options.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, options.StatusCode, "RFC 9725 section 4.2");
+        Assert.AreEqual("application/sdp", options.Headers.GetValues("Accept-Post").Single());
         Assert.AreEqual(HttpStatusCode.NotFound, patch.StatusCode);
         Assert.AreEqual(HttpStatusCode.NotFound, delete.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, resourceOptions.StatusCode, "a browser's preflight");
+        Assert.AreEqual(
+            "application/trickle-ice-sdpfrag",
+            resourceOptions.Headers.GetValues("Accept-Patch").Single()
+        );
+        Assert.AreEqual(
+            HttpStatusCode.UnprocessableEntity,
+            twoVideos.StatusCode,
+            "RFC 9725 section 4.4.2"
+        );
+        Assert.AreEqual(HttpStatusCode.RequestEntityTooLarge, huge.StatusCode);
     }
+
+    private const string TwoVideoOffer =
+        "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+        + "a=fingerprint:sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF\r\n"
+        + "a=ice-ufrag:abcd\r\na=ice-pwd:0123456789abcdef0123456789\r\na=setup:actpass\r\n"
+        + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sendonly\r\na=rtcp-mux\r\n"
+        + "a=rtpmap:96 H264/90000\r\n"
+        + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=sendonly\r\na=rtcp-mux\r\n"
+        + "a=rtpmap:96 H264/90000\r\n";
 
     [TestMethod]
     [Timeout(60_000)]

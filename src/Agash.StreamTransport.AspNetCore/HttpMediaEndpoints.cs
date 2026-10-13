@@ -104,6 +104,7 @@ public static class HttpMediaEndpointRouteBuilderExtensions
         RouteGroupBuilder group = endpoints.MapGroup(pattern);
         group.MapPost("", (RequestDelegate)(context => OfferAsync(context, handler, protocol)));
         group.MapMethods("", [HttpMethods.Options], (RequestDelegate)Options);
+        group.MapMethods("/{resource}", [HttpMethods.Options], (RequestDelegate)ResourceOptions);
         group.MapDelete("/{resource}", (RequestDelegate)DeleteAsync);
         group.MapMethods("/{resource}", [HttpMethods.Patch], (RequestDelegate)TrickleAsync);
         return group;
@@ -128,15 +129,42 @@ public static class HttpMediaEndpointRouteBuilderExtensions
         }
 
         CancellationToken cancellationToken = context.RequestAborted;
-        string offer;
-        using (StreamReader reader = new(context.Request.Body, Encoding.UTF8))
+        if (context.Request.ContentLength > MaxOfferBytes)
         {
-            offer = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            return;
         }
 
-        if (!WebRtcSdp.SdpReader.TryParse(offer, out _))
+        string? offer = await ReadBoundedAsync(context.Request.Body, cancellationToken)
+            .ConfigureAwait(false);
+        if (offer is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            return;
+        }
+
+        if (!WebRtcSdp.SdpReader.TryParse(offer, out WebRtcSdp.SdpDescription? parsed))
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        // RFC 9725 section 4.4.2: one audio and one video track at most.
+        if (
+            parsed.Media.Count(static m => !m.Rejected && m.Kind == WebRtcSdp.SdpMediaKind.Audio)
+                > 1
+            || parsed.Media.Count(static m => !m.Rejected && m.Kind == WebRtcSdp.SdpMediaKind.Video)
+                > 1
+        )
+        {
+            context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            context.Response.ContentType = "text/plain";
+            await context
+                .Response.WriteAsync(
+                    "An offer carries at most one audio and one video section.",
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
             return;
         }
 
@@ -174,11 +202,47 @@ public static class HttpMediaEndpointRouteBuilderExtensions
         await context.Response.WriteAsync(answer, cancellationToken).ConfigureAwait(false);
     }
 
+    // An offer larger than this is refused: SDP for one audio and one video section is a few kilobytes.
+    private const int MaxOfferBytes = 64 * 1024;
+
+    private static async Task<string?> ReadBoundedAsync(
+        Stream body,
+        CancellationToken cancellationToken
+    )
+    {
+        byte[] buffer = new byte[MaxOfferBytes + 1];
+        int read = 0;
+        int got;
+        while (
+            read < buffer.Length
+            && (
+                got = await body.ReadAsync(buffer.AsMemory(read), cancellationToken)
+                    .ConfigureAwait(false)
+            ) > 0
+        )
+        {
+            read += got;
+        }
+
+        return read > MaxOfferBytes ? null : Encoding.UTF8.GetString(buffer, 0, read);
+    }
+
+    // RFC 9725 section 4.2: 200 with Accept-Post, and the ICE servers (section 4.6).
     private static Task Options(HttpContext context)
     {
-        context.Response.StatusCode = StatusCodes.Status204NoContent;
+        context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.Headers["Accept-Post"] = "application/sdp";
         AdvertiseIceServers(context);
+        return Task.CompletedTask;
+    }
+
+    // What the session resource takes, for a browser's preflight before PATCH or DELETE (RFC 5789 section
+    // 3.1).
+    private static Task ResourceOptions(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.Headers.Allow = "OPTIONS, PATCH, DELETE";
+        context.Response.Headers["Accept-Patch"] = TrickleIceFragment.MediaType;
         return Task.CompletedTask;
     }
 
