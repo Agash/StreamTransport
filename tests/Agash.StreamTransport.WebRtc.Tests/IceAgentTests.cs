@@ -161,6 +161,46 @@ public sealed class IceAgentTests
 
     [TestMethod]
     [Timeout(30_000)]
+    public async Task Restart_KeepsMediaOnTheOldPath_UntilTheNewOneCarriesIt()
+    {
+        InMemoryIceNetwork network = new();
+        await using var agents = Agents.Start(network: network);
+        await agents.BothConnectedAsync();
+        IPEndPoint before = agents.A.SelectedPath!.Value.Local;
+
+        // The peer has not had the new credentials yet, as while the restart offer is in flight: the
+        // restarted checks cannot succeed, and media still has to get through both ways.
+        var fresh = IceCredentials.Generate();
+        agents.A.Restart(fresh);
+        Assert.AreEqual(before, agents.A.SelectedPath?.Local, "the old path is still the one in use.");
+        byte[] payload = [0x12];
+        await agents.A.SendAsync(payload);
+        CollectionAssert.AreEqual(
+            payload,
+            await agents.ReceivedByB.ReadAsync().AsTask().WaitAsync(Patience)
+        );
+        await agents.B.SendAsync(payload);
+        CollectionAssert.AreEqual(
+            payload,
+            await agents.ReceivedByA.ReadAsync().AsTask().WaitAsync(Patience)
+        );
+
+        agents.B.SetRemoteCredentials(fresh);
+        await agents.AConnected.ReadAsync().AsTask().WaitAsync(Patience);
+        Assert.AreNotEqual(before, agents.A.SelectedPath?.Local, "the restart moved to new sockets.");
+
+        // Data over the new pair ends the overlap, and the old socket closes.
+        await agents.B.SendAsync(payload);
+        _ = await agents.ReceivedByA.ReadAsync().AsTask().WaitAsync(Patience);
+        using CancellationTokenSource closing = new(IceAgent.RestartOverlap + Patience);
+        while (network.BoundOn(before.Address).Contains(before))
+        {
+            await Task.Delay(20, closing.Token);
+        }
+    }
+
+    [TestMethod]
+    [Timeout(30_000)]
     public async Task NetworkChange_BindsANewInterface_AndMovesOffOneThatWentAway()
     {
         var wifi = IPAddress.Parse("10.0.0.1");

@@ -49,6 +49,13 @@ public sealed partial class IceAgent : IAsyncDisposable
     // The selected pair as one object, so a reader never sees one selection's socket with another's peer.
     private Selection? _selection;
     private Selection? _standby;
+
+    // Make before break across a restart: the previous generation's sockets stay open, and its selected
+    // pair keeps carrying media, until the restarted session selects a pair and that pair carries data
+    // (or a grace period passes). Under the lock.
+    private readonly List<LocalSocket> _retiring = [];
+    private Selection? _carrying;
+    private ITimer? _retireTimer;
     private readonly WebRtcMetrics _metrics;
 
     // Every socket has its own receive loop, and the old path and a warm standby both carry packets
@@ -339,20 +346,31 @@ public sealed partial class IceAgent : IAsyncDisposable
         _wake.Signal();
     }
 
+    /// <summary>How long the previous generation's path is kept once a restart has selected a new one, at most.</summary>
+    /// <remarks>
+    /// Long enough for the peer to select the new pair too, which it does on the same nomination, and
+    /// to move its media there; data arriving on the new pair ends it sooner.
+    /// </remarks>
+    public static readonly TimeSpan RestartOverlap = TimeSpan.FromSeconds(2);
+
     /// <summary>
     /// Full ICE restart (RFC 8445 section 9): fresh local credentials, freshly gathered host candidates
     /// (trickled again), and new checks under the new credentials. The DTLS-SRTP session carries on.
     /// </summary>
+    /// <remarks>
+    /// Make before break, as libwebrtc does: media keeps going over the path selected before the restart
+    /// until the restarted checks select a new one and data arrives over it, or
+    /// <see cref="RestartOverlap"/> after that. A restart that fails ends it too.
+    /// </remarks>
     /// <param name="newLocalCredentials">The new credentials.</param>
     public void Restart(IceCredentials newLocalCredentials)
     {
         lock (_gate)
         {
-            foreach (LocalSocket socket in _sockets.Values)
-            {
-                socket.Socket.Dispose();
-            }
-
+            _retiring.AddRange(_sockets.Values);
+            _carrying = _selection;
+            _retireTimer?.Dispose();
+            _retireTimer = null;
             _sockets.Clear();
             _generation++;
             _machine.Restart(newLocalCredentials);
@@ -398,6 +416,7 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
 
             _sockets.Clear();
+            RetireLocked();
         }
 
         cts.Dispose();
@@ -721,6 +740,16 @@ public sealed partial class IceAgent : IAsyncDisposable
                 lock (_gate)
                 {
                     _machine.NoteDataReceived(local.Handle, result.RemoteEndPoint, Now);
+                    if (
+                        _retiring.Count > 0
+                        && _carrying is null
+                        && _selection is { } selected
+                        && ReferenceEquals(selected.Socket, local)
+                        && selected.Remote.Equals(result.RemoteEndPoint)
+                    )
+                    {
+                        RetireLocked();
+                    }
                 }
 
                 // DTLS or SRTP, in the reused buffer: the handler runs before the next receive. A handler
@@ -763,6 +792,30 @@ public sealed partial class IceAgent : IAsyncDisposable
                 && _sockets.TryGetValue(pair.Local, out LocalSocket? chosen)
                     ? new Selection(chosen, pair.Remote, pair.LocalKind, pair.RemoteKind)
                     : null;
+
+            // Until a restart selects a pair, the previous generation's carries on; once one is selected
+            // the old sockets stay open to receive what the peer sends before it moves.
+            if (_retiring.Count > 0)
+            {
+                if (next is null && _machine.State != IceConnectionState.Failed)
+                {
+                    next = _carrying;
+                }
+                else if (next is null)
+                {
+                    RetireLocked();
+                }
+                else if (_carrying is not null)
+                {
+                    _carrying = null;
+                    _retireTimer = _time.CreateTimer(
+                        static state => ((IceAgent)state!).Retire(),
+                        this,
+                        RestartOverlap,
+                        Timeout.InfiniteTimeSpan
+                    );
+                }
+            }
             pathChanged =
                 !ReferenceEquals(previous?.Socket, next?.Socket)
                 || !Equals(previous?.Remote, next?.Remote);
@@ -814,6 +867,28 @@ public sealed partial class IceAgent : IAsyncDisposable
                 LogEventHandlerFailed(exception);
             }
         }
+    }
+
+    private void Retire()
+    {
+        lock (_gate)
+        {
+            RetireLocked();
+        }
+    }
+
+    // Closes the previous generation's sockets. Called holding the lock.
+    private void RetireLocked()
+    {
+        foreach (LocalSocket socket in _retiring)
+        {
+            socket.Socket.Dispose();
+        }
+
+        _retiring.Clear();
+        _carrying = null;
+        _retireTimer?.Dispose();
+        _retireTimer = null;
     }
 
     // Sends what the machine asked to send.
