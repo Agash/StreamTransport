@@ -112,6 +112,31 @@ internal static unsafe partial class EcnInterop
         }
     }
 
+    // IPV6_DONTFRAG: 14 in Windows' ws2ipdef.h, 62 in Linux's and macOS's netinet/in.h.
+    private const int WINDOWS_IPV6_DONTFRAG = 14;
+    private const int POSIX_IPV6_DONTFRAG = 62;
+
+    /// <summary>
+    /// Stops this host fragmenting the socket's IPv6 datagrams (IPV6_DONTFRAG, RFC 3542 section 11.2), which
+    /// <see cref="Socket.DontFragment"/> does not set for IPv6 on every platform.
+    /// </summary>
+    /// <param name="socket">An IPv6 UDP socket.</param>
+    internal static void SetIpv6DontFragment(Socket socket)
+    {
+        if (IsWindows)
+        {
+            socket.SetSocketOption(
+                SocketOptionLevel.IPv6,
+                (SocketOptionName)WINDOWS_IPV6_DONTFRAG,
+                1
+            );
+        }
+        else
+        {
+            NativeSetSocketOption(socket.Handle, IPPROTO_IPV6, POSIX_IPV6_DONTFRAG, 1);
+        }
+    }
+
     private static void NativeSetSocketOption(nint handle, int level, int option, int value)
     {
         // The managed Socket.SetSocketOption validates option numbers against a known set and rejects the raw

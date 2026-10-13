@@ -198,6 +198,7 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         {
             var raw = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
             raw.Bind(new IPEndPoint(address, 0));
+            ForbidFragmentation(raw);
             // Prefer the native ECN-reading socket on POSIX; Windows has no reliable per-datagram ECN path (see
             // EcnInterop), so it uses the managed socket there - matching libwebrtc, which gates ECN on WEBRTC_POSIX.
             socket = EcnInterop.NativeReceiveSupported
@@ -209,6 +210,33 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         {
             socket = null!;
             return false; // family unavailable / address not bindable.
+        }
+    }
+
+    // RFC 8899 section 3: datagrams leave with the Don't Fragment bit (IPv4) and are never fragmented by this
+    // host (IPv6), so a path MTU probe larger than the path is lost rather than fragmented, delivered and
+    // taken as proof of a larger MTU. Linux sets it on UDP by default; Windows and macOS do not. An
+    // oversize send then fails with EMSGSIZE, which the sender treats as a lost packet.
+    internal static bool ForbidFragmentation(Socket socket)
+    {
+        try
+        {
+            if (socket.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                EcnInterop.SetIpv6DontFragment(socket);
+            }
+            else
+            {
+                socket.DontFragment = true;
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is SocketException or NotSupportedException)
+        {
+            // Deliberately not logged: a stack without the option fragments as before, which path MTU
+            // discovery then cannot see; it would log once for every socket on such a system.
+            return false;
         }
     }
 
