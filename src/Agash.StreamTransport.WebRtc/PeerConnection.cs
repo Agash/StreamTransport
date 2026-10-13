@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
@@ -1155,6 +1156,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             header.Marker
         );
         RecordReceivedForReports(header, arrivalMicros);
+        _ = LearnUnsignalled(header.Ssrc, header.PayloadType);
 
         // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered
         // packet reaches the depacketizer (and the loss tracker) as if it had never been lost. Done into a
@@ -1313,6 +1315,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Dictionary<uint, RtxSender> send = [];
         Dictionary<uint, RtxReceiver> receive = [];
         HashSet<uint> repairable = [];
+        List<UnsignalledRepair> unsignalled = [];
         foreach (NegotiatedMediaInfo media in NegotiatedMedia)
         {
             Dictionary<byte, byte> rtxFor = [];
@@ -1334,16 +1337,24 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 send[media.LocalSsrc] = new RtxSender(localRtx, rtxFor.ToFrozenDictionary());
             }
 
-            if (
-                remote.Media.FirstOrDefault(m => m.Mid == media.Mid) is
-                { Ssrc: { } remoteMedia, RtxSsrc: { } remoteRtx }
-            )
+            SdpMediaDescription? section = remote.Media.FirstOrDefault(m => m.Mid == media.Mid);
+            if (section is { Ssrc: { } remoteMedia, RtxSsrc: { } remoteRtx })
             {
                 receive[remoteRtx] = new RtxReceiver(
                     remoteMedia,
                     rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
                 );
                 _ = repairable.Add(remoteMedia);
+            }
+            else if (section is { Ssrc: null } && section.Direction != SdpDirection.RecvOnly)
+            {
+                unsignalled.Add(
+                    new UnsignalledRepair(
+                        media.Mid,
+                        rtxFor.Keys.ToFrozenSet(),
+                        rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
+                    )
+                );
             }
         }
 
@@ -1354,6 +1365,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 receive.ToFrozenDictionary(),
                 repairable.ToFrozenSet()
             )
+            {
+                Unsignalled = [.. unsignalled],
+            }
         );
         LogRtx(send.Count, receive.Count);
     }
@@ -1475,6 +1489,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         FrozenSet<uint> Repairable
     )
     {
+        // Sections whose SSRCs are learned from the packets.
+        public ImmutableArray<UnsignalledRepair> Unsignalled { get; init; } = [];
+
         public static RtxConfiguration None { get; } = new([], [], []);
     }
 

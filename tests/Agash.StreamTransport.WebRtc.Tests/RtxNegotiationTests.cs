@@ -90,10 +90,13 @@ public sealed class RtxNegotiationTests
     }
 
     // A lost packet is asked for again (NACK), sent on the RTX stream and delivered as the original:
-    // the same sequence number and payload type.
+    // the same sequence number and payload type. Also when the sender's description names no SSRCs, as
+    // SFU-style servers answer, and the receiver learns them from the packets' payload types.
     [TestMethod]
     [Timeout(60_000)]
-    public async Task LostPacket_IsRecoveredThroughNackAndRtx()
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task LostPacket_IsRecoveredThroughNackAndRtx(bool ssrcsSignalled)
     {
         InMemoryIceNetwork network = new();
         PeerConnectionOptions senderOptions = Options(0xAAAA_0001, 0xAAAA_0002);
@@ -128,7 +131,16 @@ public sealed class RtxNegotiationTests
 
         sender.StateChanged += OnState;
         receiver.StateChanged += OnState;
-        receiver.SetRemoteDescription(sender.CreateOffer(), SdpType.Offer);
+        SdpDescription offer = sender.CreateOffer();
+        if (!ssrcsSignalled)
+        {
+            offer = offer with
+            {
+                Media = [.. offer.Media.Select(static m => m with { Ssrc = null, RtxSsrc = null })],
+            };
+        }
+
+        receiver.SetRemoteDescription(offer, SdpType.Offer);
         sender.SetRemoteDescription(receiver.CreateAnswer(), SdpType.Answer);
         await connected.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
