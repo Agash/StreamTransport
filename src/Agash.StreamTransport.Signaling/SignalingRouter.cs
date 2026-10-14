@@ -1,3 +1,7 @@
+using System.Diagnostics.Metrics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Agash.StreamTransport.Signaling;
 
 /// <summary>
@@ -8,23 +12,39 @@ namespace Agash.StreamTransport.Signaling;
 /// </summary>
 public sealed class SignalingRouter : ISignalingRouter
 {
-    private readonly RoomRegistry _rooms = new();
+    private readonly RoomRegistry _rooms;
     private readonly IIceServerProvider _iceServers;
+    private readonly ILogger _logger;
+    private readonly SignalingMetrics _metrics;
 
     /// <summary>Create a router. ICE servers handed to joining peers come from <paramref name="iceServers"/>.</summary>
     /// <param name="iceServers">
     /// Supplies the ICE servers advertised in each <see cref="WelcomeMessage"/>. Pass a STUN or external
     /// TURN provider; when null, peers are told no ICE servers and rely on host-candidate connectivity.
     /// </param>
-    public SignalingRouter(IIceServerProvider? iceServers = null) =>
+    /// <param name="loggerFactory">The logging; none when null.</param>
+    /// <param name="meterFactory">
+    /// Where the metrics' meter comes from (<see cref="SignalingDiagnostics.MeterName"/>); a meter of the
+    /// router's own when null.
+    /// </param>
+    public SignalingRouter(
+        IIceServerProvider? iceServers = null,
+        ILoggerFactory? loggerFactory = null,
+        IMeterFactory? meterFactory = null
+    )
+    {
         _iceServers = iceServers ?? EmptyIceServerProvider.Instance;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<SignalingRouter>();
+        _metrics = new SignalingMetrics(meterFactory);
+        _rooms = new RoomRegistry(_logger, _metrics);
+    }
 
     /// <inheritdoc/>
     public RoomCode CreateRoom() => _rooms.Create().Code;
 
     /// <inheritdoc/>
     public ISignalingSession Connect(ISignalingPeerTransport transport) =>
-        new RouterSession(_rooms, _iceServers, transport);
+        new RouterSession(_rooms, _iceServers, transport, _logger, _metrics);
 
     private sealed class EmptyIceServerProvider : IIceServerProvider
     {
@@ -39,14 +59,17 @@ public sealed class SignalingRouter : ISignalingRouter
 /// and announces join/leave. The host transport feeds inbound messages through
 /// <see cref="ReceiveAsync"/> and disposes the session when the connection closes.
 /// </summary>
-internal sealed class RouterSession(
+internal sealed partial class RouterSession(
     RoomRegistry rooms,
     IIceServerProvider iceServers,
-    ISignalingPeerTransport transport
+    ISignalingPeerTransport transport,
+    ILogger logger,
+    SignalingMetrics metrics
 ) : ISignalingSession
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Room? _room;
+    private PeerRole _role;
     private bool _disposed;
 
     public PeerId? PeerId { get; private set; }
@@ -73,11 +96,11 @@ internal sealed class RouterSession(
             switch (message)
             {
                 case SdpMessage sdp:
-                    await RouteAsync(sdp.To, sdp with { From = PeerId }, cancellationToken)
+                    await RouteAsync(sdp.To, sdp with { From = PeerId }, "sdp", cancellationToken)
                         .ConfigureAwait(false);
                     break;
                 case IceMessage ice:
-                    await RouteAsync(ice.To, ice with { From = PeerId }, cancellationToken)
+                    await RouteAsync(ice.To, ice with { From = PeerId }, "ice", cancellationToken)
                         .ConfigureAwait(false);
                     break;
                 case PeerControlMessage control:
@@ -90,6 +113,7 @@ internal sealed class RouterSession(
                                 {
                                     From = PeerId,
                                 },
+                                "control",
                                 cancellationToken
                             )
                             .ConfigureAwait(false);
@@ -111,6 +135,8 @@ internal sealed class RouterSession(
                     break;
                 default:
                     // Welcome / PeerJoined / PeerLeft / a second Hello are not valid inbound from a peer.
+                    metrics.MessagesDropped.Add(1, SignalingMetrics.Reason("invalid"));
+                    LogInvalidMessage(PeerId.Value, message.GetType().Name);
                     break;
             }
         }
@@ -127,6 +153,8 @@ internal sealed class RouterSession(
     {
         if (message is not HelloMessage hello)
         {
+            metrics.JoinsRefused.Add(1, SignalingMetrics.Reason("invalid"));
+            LogJoinRefused("the first message was not a hello");
             await transport
                 .SendAsync(
                     new SignalingErrorMessage(
@@ -141,6 +169,10 @@ internal sealed class RouterSession(
 
         if (hello.ProtocolVersion != SignalingProtocol.Version)
         {
+            metrics.JoinsRefused.Add(1, SignalingMetrics.Reason("version"));
+            LogJoinRefused(
+                $"protocol v{hello.ProtocolVersion}, router v{SignalingProtocol.Version}"
+            );
             await transport
                 .SendAsync(
                     new SignalingErrorMessage(
@@ -161,6 +193,9 @@ internal sealed class RouterSession(
 
         if (room is null)
         {
+            metrics.JoinsRefused.Add(1, SignalingMetrics.Reason("room_not_found"));
+            LogJoinRefused("no such room");
+            LogUnknownRoom(hello.Room.Value);
             await transport
                 .SendAsync(
                     new SignalingErrorMessage(
@@ -184,6 +219,10 @@ internal sealed class RouterSession(
         await transport.SendAsync(welcome, cancellationToken).ConfigureAwait(false);
 
         room.Add(new Peer(id, hello.Role, transport));
+        _role = hello.Role;
+        metrics.PeersActive.Add(1, SignalingMetrics.Role(hello.Role));
+        LogJoined(id, hello.Role);
+        LogJoinedRoom(id, room.Code.Value);
         await room.BroadcastExceptAsync(
                 id,
                 new PeerJoinedMessage(new PeerInfo(id, hello.Role)),
@@ -195,27 +234,35 @@ internal sealed class RouterSession(
     private async ValueTask RouteAsync(
         PeerId? target,
         SignalingMessage message,
+        string type,
         CancellationToken cancellationToken
     )
     {
         if (target is null || _room is null)
         {
+            metrics.MessagesDropped.Add(1, SignalingMetrics.Reason("no_target"));
             return;
         }
 
         ISignalingPeerTransport? targetTransport = _room.TransportFor(target.Value);
         if (targetTransport is null)
         {
-            return; // raced disconnect or a spoofed target; drop.
+            // A disconnect that raced the message, or a peer naming one that is not in its room.
+            metrics.MessagesDropped.Add(1, SignalingMetrics.Reason("no_target"));
+            LogNoTarget(PeerId!.Value, target.Value, type);
+            return;
         }
 
         try
         {
             await targetTransport.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            metrics.MessagesRouted.Add(1, SignalingMetrics.Type(type));
         }
-        catch (Exception)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // Target link is broken; its own session will clean up.
+            // The target's link is broken; its own session cleans up when its connection ends.
+            metrics.MessagesDropped.Add(1, SignalingMetrics.Reason("link_broken"));
+            LogForwardFailed(exception, PeerId!.Value, target.Value, type);
         }
     }
 
@@ -233,6 +280,8 @@ internal sealed class RouterSession(
             if (PeerId is { } id && _room is { } room)
             {
                 room.Remove(id);
+                metrics.PeersActive.Add(-1, SignalingMetrics.Role(_role));
+                LogLeft(id);
                 await room.BroadcastExceptAsync(id, new PeerLeftMessage(id), CancellationToken.None)
                     .ConfigureAwait(false);
                 rooms.RemoveIfEmpty(room.Code);
@@ -244,4 +293,65 @@ internal sealed class RouterSession(
             _gate.Dispose();
         }
     }
+
+    [LoggerMessage(
+        EventId = 2800,
+        Level = LogLevel.Information,
+        Message = "Peer {PeerId} joined a room as {Role}."
+    )]
+    private partial void LogJoined(PeerId peerId, PeerRole role);
+
+    [LoggerMessage(
+        EventId = 2801,
+        Level = LogLevel.Debug,
+        Message = "Peer {PeerId} is in room {Room}."
+    )]
+    private partial void LogJoinedRoom(PeerId peerId, string room);
+
+    [LoggerMessage(
+        EventId = 2802,
+        Level = LogLevel.Information,
+        Message = "Peer {PeerId} left its room."
+    )]
+    private partial void LogLeft(PeerId peerId);
+
+    [LoggerMessage(
+        EventId = 2803,
+        Level = LogLevel.Warning,
+        Message = "A join was refused: {Reason}."
+    )]
+    private partial void LogJoinRefused(string reason);
+
+    [LoggerMessage(
+        EventId = 2804,
+        Level = LogLevel.Debug,
+        Message = "A join named room {Room}, which does not exist."
+    )]
+    private partial void LogUnknownRoom(string room);
+
+    [LoggerMessage(
+        EventId = 2805,
+        Level = LogLevel.Debug,
+        Message = "Peer {PeerId} sent {Type} for peer {Target}, which is not in its room; dropped."
+    )]
+    private partial void LogNoTarget(PeerId peerId, PeerId target, string type);
+
+    [LoggerMessage(
+        EventId = 2806,
+        Level = LogLevel.Debug,
+        Message = "Forwarding {Type} from peer {PeerId} to peer {Target} failed; its session ends with its connection."
+    )]
+    private partial void LogForwardFailed(
+        Exception exception,
+        PeerId peerId,
+        PeerId target,
+        string type
+    );
+
+    [LoggerMessage(
+        EventId = 2807,
+        Level = LogLevel.Warning,
+        Message = "Peer {PeerId} sent {MessageType}, which only the router sends; dropped."
+    )]
+    private partial void LogInvalidMessage(PeerId peerId, string messageType);
 }

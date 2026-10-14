@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Signaling;
 
@@ -13,7 +14,7 @@ internal sealed record Peer(PeerId Id, PeerRole Role, ISignalingPeerTransport Tr
 /// An in-memory room. Holds the connected peers keyed by id. The router only routes signaling; media
 /// flows peer-to-peer via WebRTC and never touches this process.
 /// </summary>
-internal sealed class Room(RoomCode code)
+internal sealed partial class Room(RoomCode code, ILogger logger, SignalingMetrics metrics)
 {
     private readonly ConcurrentDictionary<PeerId, Peer> _peers = new();
 
@@ -48,19 +49,28 @@ internal sealed class Room(RoomCode code)
             {
                 await peer.Transport.SendAsync(message, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception)
+            catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                // A broken peer link must not abort the broadcast; that peer's own session will clean up.
+                // A broken peer link must not abort the broadcast; that peer's own session cleans up.
+                metrics.MessagesDropped.Add(1, SignalingMetrics.Reason("link_broken"));
+                LogBroadcastFailed(exception, peer.Id);
             }
         }
     }
+
+    [LoggerMessage(
+        EventId = 2812,
+        Level = LogLevel.Debug,
+        Message = "Telling peer {PeerId} about the room failed; its session ends with its connection."
+    )]
+    private partial void LogBroadcastFailed(Exception exception, PeerId peerId);
 }
 
 /// <summary>
 /// The room registry: creates rooms, mints peer ids, and garbage-collects rooms once their last peer
 /// leaves. Thread-safe; a single registry backs the whole router.
 /// </summary>
-internal sealed class RoomRegistry
+internal sealed partial class RoomRegistry(ILogger logger, SignalingMetrics metrics)
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.Ordinal);
     private long _nextPeerId;
@@ -73,9 +83,10 @@ internal sealed class RoomRegistry
         while (true)
         {
             RoomCode code = GenerateCode();
-            var room = new Room(code);
+            var room = new Room(code, logger, metrics);
             if (_rooms.TryAdd(code.Value, room))
             {
+                Opened(room);
                 return room;
             }
         }
@@ -88,8 +99,23 @@ internal sealed class RoomRegistry
     /// owns its room and may have minted the code itself, or be reconnecting after a transient drop that
     /// GC'd the room.
     /// </summary>
-    public Room GetOrCreate(RoomCode code) =>
-        _rooms.GetOrAdd(code.Value, static (_, c) => new Room(c), code);
+    public Room GetOrCreate(RoomCode code)
+    {
+        while (true)
+        {
+            if (_rooms.TryGetValue(code.Value, out Room? existing))
+            {
+                return existing;
+            }
+
+            var room = new Room(code, logger, metrics);
+            if (_rooms.TryAdd(code.Value, room))
+            {
+                Opened(room);
+                return room;
+            }
+        }
+    }
 
     /// <summary>Remove the room if it has no peers left. Idempotent.</summary>
     public void RemoveIfEmpty(RoomCode code)
@@ -97,7 +123,11 @@ internal sealed class RoomRegistry
         if (_rooms.TryGetValue(code.Value, out Room? room) && room.IsEmpty)
         {
             // Re-check emptiness under the removal to avoid evicting a room a peer just joined.
-            _rooms.TryRemove(new KeyValuePair<string, Room>(code.Value, room));
+            if (_rooms.TryRemove(new KeyValuePair<string, Room>(code.Value, room)))
+            {
+                metrics.RoomsActive.Add(-1);
+                LogClosed(code.Value);
+            }
         }
     }
 
@@ -123,4 +153,20 @@ internal sealed class RoomRegistry
 
         return new RoomCode(new string(chars));
     }
+
+    private void Opened(Room room)
+    {
+        metrics.RoomsActive.Add(1);
+        LogOpened(room.Code.Value);
+    }
+
+    [LoggerMessage(EventId = 2810, Level = LogLevel.Debug, Message = "Room {Room} opened.")]
+    private partial void LogOpened(string room);
+
+    [LoggerMessage(
+        EventId = 2811,
+        Level = LogLevel.Debug,
+        Message = "Room {Room} closed with its last peer."
+    )]
+    private partial void LogClosed(string room);
 }

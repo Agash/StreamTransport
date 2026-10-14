@@ -7,9 +7,8 @@ namespace Agash.StreamTransport;
 /// same publisher / subscriber orchestration runs over it.
 /// </summary>
 /// <remarks>
-/// For pure point-to-point with no rendezvous at all, skip this entirely and drive an
-/// <see cref="IMediaTransport"/> sender/receiver directly with your own <see cref="ISignalingChannel"/> -
-/// the room is a convenience for the multi-peer case, not a requirement of the transport.
+/// Point-to-point needs no room: a media session runs over any <see cref="ISignalingChannel"/>. Rooms
+/// serve the multi-peer case.
 /// </remarks>
 public interface IMediaRoom : IAsyncDisposable
 {

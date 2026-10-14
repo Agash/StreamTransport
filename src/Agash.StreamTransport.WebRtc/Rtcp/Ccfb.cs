@@ -16,17 +16,37 @@ public readonly record struct CcfbStreamReport(
 );
 
 /// <summary>
-/// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11) - the modern,
-/// standardized transport feedback this stack uses instead of the legacy transport-wide-cc (TWCC). The
-/// receiver reports per-packet arrival times + ECN keyed on the media RTP sequence number; the sender's
-/// congestion controller consumes them.
+/// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11), the standard
+/// transport feedback and the one this stack prefers; with a peer that offers only transport-wide-cc, as
+/// browsers do, it uses <see cref="TransportFeedback"/>. The receiver reports per-packet arrival times and
+/// ECN keyed on the media RTP sequence number; the sender's congestion controller consumes them.
 /// </summary>
 public static class Ccfb
 {
     private const int Fmt = 11;
 
-    /// <summary>The "received but arrival time unavailable / out of range" ATO sentinel (RFC 8888 §3.1).</summary>
+    /// <summary>
+    /// The ATO for a packet received but whose arrival time is unavailable or after the report time
+    /// (RFC 8888 section 3.1).
+    /// </summary>
     public const ushort ArrivalTimeUnknown = 0x1FFF;
+
+    /// <summary>The ATO for a packet that arrived more than 8189/1024 s before the report (section 3.1).</summary>
+    public const ushort ArrivalTimeOverRange = 0x1FFE;
+
+    /// <summary>Encodes how long before the report a packet arrived, in 1/1024 s, with the sentinels.</summary>
+    /// <param name="ageMicros">The report time less the arrival time, in microseconds.</param>
+    /// <returns>The 13-bit ATO.</returns>
+    public static ushort ArrivalTimeOffset(long ageMicros)
+    {
+        if (ageMicros < 0)
+        {
+            return ArrivalTimeUnknown;
+        }
+
+        long units = ageMicros * 1024 / 1_000_000;
+        return units >= ArrivalTimeOverRange ? ArrivalTimeOverRange : (ushort)units;
+    }
 
     /// <summary>Builds a CCFB packet. Returns the bytes written.</summary>
     public static int Build(

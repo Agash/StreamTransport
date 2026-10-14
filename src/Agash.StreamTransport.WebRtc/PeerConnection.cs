@@ -1,11 +1,22 @@
 using System.Buffers;
+using System.Buffers.Text;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
+using Agash.StreamTransport.WebRtc.Turn;
+using Dtls.Core;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -14,52 +25,140 @@ namespace Agash.StreamTransport.WebRtc;
 /// <summary>
 /// A point-to-point WebRTC peer connection: it composes the ICE agent, the DTLS-SRTP transport, and the
 /// SRTP/RTP layers behind a JSEP-style offer/answer surface. One BUNDLE transport carries all media
-/// (rtcp-mux). Protected media is sent with <see cref="SendRtp"/> and surfaced via <see cref="RtpReceived"/>.
+/// (rtcp-mux). Media is paced and sent with <see cref="TrySendRtp"/> and surfaced via <see cref="RtpReceived"/>.
 /// </summary>
 public sealed partial class PeerConnection : IAsyncDisposable
 {
+    private readonly IMeterFactory? _meterFactory;
+    private readonly WebRtcMetrics _metrics;
+    private Activity? _connecting;
+    private long _connectStarted;
+    private int _connectSettled;
+    private int _disposedForMetrics;
     private readonly PeerConnectionOptions _options;
-    private readonly IDtlsTransportFactory _dtlsFactory;
+    private readonly RtcCertificate _certificate;
     private readonly ILogger _logger;
     private IceCredentials _localIceCredentials = IceCredentials.Generate();
     private readonly List<IceCandidate> _bufferedRemoteCandidates = [];
+    private readonly List<IceCandidate> _localCandidates = [];
     private readonly Dictionary<uint, ushort> _sendSequence = [];
+
+    // UDP over IPv4 and the largest SRTP tag: what each packet costs the budget beyond itself.
+    private static readonly int PacketOverhead = 28 + SrtpSession.MaxProtectionOverhead;
+    private readonly Pacer _pacer;
+    private readonly FrozenSet<uint> _audioSsrcs;
     private readonly ConcurrentDictionary<uint, RtpSendHistory> _sendHistory = new();
-    private readonly Dictionary<uint, RtxState> _rtx = [];
+
+    // Retransmission as negotiated: replaced whole when a description is applied, read without a lock.
+    private RtxConfiguration _rtx = RtxConfiguration.None;
     private readonly Lock _gate = new();
     private uint _rtcpSenderSsrc;
 
     private IceAgent? _iceAgent;
-    private IDtlsTransport? _dtls;
+    private IceDatagramTransport? _dtlsTransport;
+    private DtlsConnection? _dtls;
+    private int _dtlsStarted;
     private SrtpSession? _srtp;
     private SdpDescription? _remoteDescription;
     private DtlsRole _dtlsRole = DtlsRole.Client;
-    private DtlsFingerprint? _expectedRemoteFingerprint;
+
+    // RFC 3264 section 8: one o= session id for the connection, the version one higher per description.
+    private readonly long _sessionId = Random.Shared.NextInt64(1, long.MaxValue);
+    private long _sessionVersion;
+
+    // The role this side answers with: the one an active or passive offer leaves, or for actpass the one
+    // already agreed, the client's at first (RFC 8842 section 5.3).
+    private DtlsRole AnswerRole(SdpSetup offered) =>
+        offered switch
+        {
+            SdpSetup.Active => DtlsRole.Server,
+            SdpSetup.Passive => DtlsRole.Client,
+            _ => _association?.Role ?? DtlsRole.Client,
+        };
+
+    // RFC 8842 section 4: tls-id goes on the section carrying the transport, the first not rejected.
+    private static List<SdpMediaDescription> WithTlsId(
+        List<SdpMediaDescription> media,
+        string tlsId
+    )
+    {
+        int tag = media.FindIndex(static m => !m.Rejected);
+        if (tag >= 0)
+        {
+            media[tag] = media[tag] with { TlsId = tlsId };
+        }
+
+        return media;
+    }
+
+    private SdpDescription Describe(
+        List<SdpMediaDescription> media,
+        IReadOnlyList<string>? bundle
+    ) =>
+        new()
+        {
+            Media = media,
+            SessionId = _sessionId,
+            SessionVersion = Interlocked.Increment(ref _sessionVersion),
+            BundleGroup = bundle is { Count: > 0 } ? bundle : null,
+        };
+
+    private IReadOnlyList<DtlsFingerprint> _expectedRemoteFingerprints = [];
     private int _state = (int)PeerConnectionState.New;
 
-    private readonly ILoggerFactory _loggerFactory;
+    // This side's tls-id (RFC 8842 section 4): 144 random bits, in the attribute's alphabet.
+    private readonly string _localTlsId = Base64Url.EncodeToString(
+        RandomNumberGenerator.GetBytes(18)
+    );
 
-    /// <summary>Creates a peer connection. The DTLS factory supplies the certificate and handshake engine.</summary>
+    // The DTLS association the first offer/answer agreed; later descriptions that would need another
+    // are refused (RFC 8842 sections 3.1 and 5.3).
+    private DtlsAssociation? _association;
+    private bool _refuseNewAssociation;
+
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly TimeProvider _time;
+    private readonly long _origin;
+
+    /// <summary>Creates a peer connection.</summary>
     /// <param name="options">The media and ICE configuration.</param>
-    /// <param name="dtlsFactory">The DTLS-SRTP engine.</param>
+    /// <param name="certificate">The certificate its DTLS handshake authenticates with; not disposed by it.</param>
     /// <param name="loggerFactory">Optional logging.</param>
     /// <param name="controller">
     /// Optional send-side congestion controller. When supplied, inbound RFC 8888 feedback drives it and the
-    /// resulting <see cref="BitrateEstimateChanged"/> estimates retune the encoder/pacer; when null, only
+    /// resulting <see cref="CapacityChanged"/> estimates retune the encoder/pacer; when null, only
     /// receive-side feedback generation runs.
     /// </param>
+    /// <param name="timeProvider">
+    /// The clock behind ICE pacing and consent, congestion feedback and retransmission timing; the system's
+    /// when null.
+    /// </param>
+    /// <param name="meterFactory">Where the metrics' meter comes from (<see cref="WebRtcDiagnostics.MeterName"/>); one shared meter when null.</param>
     public PeerConnection(
         PeerConnectionOptions options,
-        IDtlsTransportFactory dtlsFactory,
+        RtcCertificate certificate,
         ILoggerFactory? loggerFactory = null,
-        INetworkController? controller = null
+        ICongestionController? controller = null,
+        TimeProvider? timeProvider = null,
+        IMeterFactory? meterFactory = null
     )
     {
         _options = options;
-        _dtlsFactory = dtlsFactory;
+        _meterFactory = meterFactory;
+        _metrics = WebRtcMetrics.For(meterFactory);
+        _metrics.ConnectionsActive.Add(1);
+        _time = timeProvider ?? TimeProvider.System;
+        _origin = _time.GetTimestamp();
+        ArgumentNullException.ThrowIfNull(certificate);
+        _certificate = certificate;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<PeerConnection>();
         _controller = controller;
+
+        // Path MTU discovery adapts what a sender sends, so it runs with the sender's controller.
+        _pathMtuOptions = controller is not null ? options.PathMtu : null;
+        _pathMtuOptions?.Validate();
+        _datagramLimit = (options.PathMtu ?? new PathMtuOptions()).BaseSize;
 
         foreach (MediaLine line in options.Media)
         {
@@ -67,11 +166,29 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 _rtcpSenderSsrc = line.LocalSsrc;
             }
+        }
 
-            if (line is { RtxSsrc: { } rtxSsrc, RtxPayloadType: { } rtxPt })
-            {
-                _rtx[line.LocalSsrc] = new RtxState(rtxSsrc, rtxPt);
-            }
+        _audioSsrcs = options
+            .Media.Where(static l => l.Kind == SdpMediaKind.Audio)
+            .Select(static l => l.LocalSsrc)
+            .ToFrozenSet();
+        _pacer = new Pacer(
+            TransmitAsync,
+            PacketOverhead,
+            _time,
+            _loggerFactory.CreateLogger<Pacer>()
+        )
+        {
+            BitsPerSecond = Math.Max(0, controller?.Current.PacingBitsPerSecond ?? 0),
+            Gate = controller is null ? null : MayTransmit,
+        };
+
+        _ecnValidator.StateChanged += OnEcnState;
+
+        // A receive-only endpoint still reports, under an SSRC of its own.
+        while (_rtcpSenderSsrc == 0)
+        {
+            _rtcpSenderSsrc = (uint)Random.Shared.NextInt64(1, uint.MaxValue);
         }
     }
 
@@ -102,7 +219,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     public IReadOnlyList<NegotiatedMediaInfo> NegotiatedMedia { get; private set; } = [];
 
     /// <summary>The local DTLS certificate fingerprint (advertised in offers/answers).</summary>
-    public DtlsFingerprint LocalFingerprint => _dtlsFactory.LocalFingerprint;
+    public DtlsFingerprint LocalFingerprint => _certificate.Fingerprint;
 
     /// <summary>Creates the offer, generates local credentials, and starts gathering ICE candidates.</summary>
     public SdpDescription CreateOffer()
@@ -116,7 +233,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Kind,
                     line.Codecs,
                     line.LocalSsrc,
-                    SdpSetup.ActPass
+                    SdpSetup.ActPass,
+                    line.Direction,
+                    line.RtxSsrc,
+                    line.FecSsrc
                 )
             );
         }
@@ -126,7 +246,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             StartIce(IceRole.Controlling);
         }
 
-        return new SdpDescription { Media = media };
+        return Describe(
+            WithTlsId([.. media.Select(static m => m with { RtcpMuxOnly = true })], _localTlsId),
+            [.. media.Select(static m => m.Mid)]
+        );
     }
 
     /// <summary>Creates the answer to a previously set remote offer, and starts gathering ICE candidates.</summary>
@@ -135,37 +258,293 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SdpDescription offer =
             _remoteDescription ?? throw new InvalidOperationException("No remote offer set.");
 
-        // We answer as DTLS client (a=setup:active) - the common WebRTC arrangement.
-        _dtlsRole = DtlsRole.Client;
+        // RFC 5763 section 5 and RFC 8842 section 5.3: the answer's role follows the offer's. JSEP offers
+        // actpass and this side takes the client; an offer that is active or passive leaves the other.
+        // Once an association stands, an actpass offer keeps the roles it has.
+        SdpMediaDescription offered0 =
+            offer.Media.FirstOrDefault(static m => !m.Rejected) ?? offer.Media[0];
+        _dtlsRole = AnswerRole(offered0.Setup);
+        SdpSetup answerSetup = _dtlsRole == DtlsRole.Client ? SdpSetup.Active : SdpSetup.Passive;
+        _association ??= new DtlsAssociation(offered0.TlsId, [.. offered0.Fingerprints], _dtlsRole);
+
         var media = new List<SdpMediaDescription>(offer.Media.Count);
         var negotiated = new List<NegotiatedMediaInfo>(offer.Media.Count);
+        HashSet<SdpMediaKind> answeredKinds = [];
+        bool bundled = offer.BundleGroup is { Count: > 0 };
         foreach (SdpMediaDescription remote in offer.Media)
         {
             uint ssrc = LocalSsrcFor(remote.Mid, remote.Kind);
 
+            // Sections this endpoint does not run are rejected as offered (RFC 3264 section 6): one already
+            // rejected; one that is not RTP (a data channel); one without rtcp-mux, which JSEP's require
+            // policy refuses (RFC 9429 section 5.8, RFC 8834 section 4.5); a second of one kind, since
+            // sections must not share an SSRC (RFC 9143 section 9.2); and, with no BUNDLE group offered,
+            // every section after the first, as each would need a transport of its own.
+            string? refusal =
+                remote.Rejected ? "rejected in the offer"
+                : _refuseNewAssociation
+                    ? "the offer asks for a new DTLS association, which this connection does not make"
+                : !remote.Protocol.Contains("RTP", StringComparison.Ordinal)
+                    ? $"not RTP ({remote.Protocol})"
+                : !remote.RtcpMux ? "offered without rtcp-mux"
+                : answeredKinds.Contains(remote.Kind) ? "a second section of its kind"
+                : !bundled && answeredKinds.Count > 0 ? "not bundled, and only one transport runs"
+                : null;
+            if (refusal is not null)
+            {
+                LogSectionRefused(_logger, remote.Kind, remote.Mid, refusal);
+                media.Add(Refuse(remote, answerSetup));
+                continue;
+            }
+
             // Answer with the offered codecs we also support (matched by encoding name + clock), keeping the
-            // offerer's payload types and preference order. If we support none, echo the offer (legacy peers).
+            // offerer's payload types and preference order and describing each with our own format
+            // parameters and feedback (RFC 3264). If we support none, echo the offer.
             IReadOnlyList<SdpCodec> local = LocalCodecsFor(remote.Kind);
-            List<SdpCodec> agreed =
-            [
-                .. remote.Codecs.Where(rc => local.Any(lc => CodecsMatch(lc, rc))),
-            ];
-            IReadOnlyList<SdpCodec> answerCodecs = agreed.Count > 0 ? agreed : remote.Codecs;
+            List<SdpCodec> offered = [];
+            List<SdpCodec> answered = [];
+            foreach (SdpCodec rc in remote.Codecs)
+            {
+                // RFC 5761 section 4: with RTCP multiplexed, 64 to 95 are not payload types.
+                if (Rtx.IsRtx(rc) || rc.PayloadType is >= 64 and <= 95)
+                {
+                    continue;
+                }
+
+                foreach (SdpCodec lc in local)
+                {
+                    if (Rtx.IsRtx(lc))
+                    {
+                        continue;
+                    }
+
+                    // One payload type per codec: a browser offers several of each (H.264 profiles and
+                    // packetization modes), and the first that matches is the one used.
+                    if (
+                        CodecsMatch(lc, rc)
+                        && !answered.Exists(a =>
+                            string.Equals(
+                                a.EncodingName,
+                                lc.EncodingName,
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        )
+                    )
+                    {
+                        // RFC 4585 section 4.2: the answer adds no feedback the offer did not list.
+                        offered.Add(rc);
+                        answered.Add(
+                            lc with
+                            {
+                                PayloadType = rc.PayloadType,
+                                RtcpFeedback = AgreedFeedback(lc, rc),
+                            }
+                        );
+                        break;
+                    }
+                }
+            }
+
+            // Retransmission for each answered codec the offer pairs with an rtx codec, when this
+            // endpoint retransmits on the line too (RFC 4588).
+            uint? rtxSsrc = LocalRtxSsrcFor(remote.Mid, remote.Kind);
+            if (rtxSsrc is not null)
+            {
+                foreach (SdpCodec primary in answered.ToArray())
+                {
+                    if (
+                        remote.Codecs.FirstOrDefault(c => Rtx.Repairs(c) == primary.PayloadType) is
+                        { EncodingName: not null } repair
+                    )
+                    {
+                        offered.Add(repair);
+                        answered.Add(Rtx.For(repair.PayloadType, primary.PayloadType));
+                    }
+                }
+            }
+
+            // A section with no codec in common is rejected (RFC 3264 section 6): port 0, listing the
+            // offered formats, and no media negotiated for it.
+            if (answered.Count == 0)
+            {
+                LogSectionRejected(_logger, remote.Kind, remote.Mid);
+                media.Add(Refuse(remote, answerSetup));
+                continue;
+            }
+
+            _ = answeredKinds.Add(remote.Kind);
+
+            bool repairs = answered.Exists(Rtx.IsRtx);
+            bool protects = answered.Exists(FlexFec.IsFlexFec);
+            IReadOnlyList<SdpCodec> answerCodecs = answered;
+            IReadOnlyList<SdpCodec> remoteCodecs = offered;
 
             media.Add(
-                BuildMediaSection(remote.Mid, remote.Kind, answerCodecs, ssrc, SdpSetup.Active)
+                BuildMediaSection(
+                    remote.Mid,
+                    remote.Kind,
+                    answerCodecs,
+                    ssrc,
+                    answerSetup,
+                    Answer(remote.Direction, LocalDirectionFor(remote.Kind)),
+                    repairs ? rtxSsrc : null,
+                    protects ? LocalFecSsrcFor(remote.Mid, remote.Kind) : null
+                ) with
+                {
+                    // An answer carries these only when the offer did (RFC 5506, RFC 8888 section 6).
+                    RtcpReducedSize = remote.RtcpReducedSize,
+                    CongestionControlFeedback = remote.CongestionControlFeedback,
+                    TransportWideFeedback = AnswersTransportFeedback(remote),
+                    Ecn = AnswerEcn(remote.Ecn),
+                    Extensions = AnsweredExtensions(remote),
+                    Protocol = remote.Protocol,
+                    RtcpMux = true,
+                    RtcpMuxOnly = false,
+                }
             );
-            negotiated.Add(new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs));
+            negotiated.Add(
+                new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs, remoteCodecs)
+            );
         }
 
+        AgreeExtensions(new SdpDescription { Media = media });
         NegotiatedMedia = negotiated;
+        ConfigureRtx(offer);
+        ConfigureFec(offer);
         if (_iceAgent is null)
         {
-            StartIce(IceRole.Controlled);
+            // RFC 8445 section 6.1.1: with an ICE lite peer the full agent controls, whoever offered.
+            StartIce(offer.IceLite ? IceRole.Controlling : IceRole.Controlled);
         }
 
-        return new SdpDescription { Media = media };
+        // RFC 8842 section 5.3: tls-id only when the offer carried one.
+        if (offered0.TlsId is not null)
+        {
+            media = WithTlsId(media, _localTlsId);
+        }
+
+        // RFC 9143 section 7.3: a BUNDLE group only when the offer had one, of the sections accepted.
+        return Describe(
+            media,
+            bundled
+                ?
+                [
+                    .. offer.BundleGroup!.Where(mid =>
+                        media.Exists(m => m.Mid == mid && !m.Rejected)
+                    ),
+                ]
+                : null
+        );
     }
+
+    // A section refused as offered: port 0, its protocol and formats, nothing negotiated.
+    private SdpMediaDescription Refuse(SdpMediaDescription remote, SdpSetup setup) =>
+        BuildMediaSection(
+            remote.Mid,
+            remote.Kind,
+            remote.Codecs,
+            ssrc: 0,
+            setup,
+            SdpDirection.Inactive,
+            rtxSsrc: null
+        ) with
+        {
+            Rejected = true,
+            Extensions = [],
+            Protocol = remote.Protocol,
+            Formats = remote.Formats,
+            Codecs = remote.Protocol.Contains("RTP", StringComparison.Ordinal) ? remote.Codecs : [],
+        };
+
+    // The feedback both sides list for a codec pair, the wildcard included (RFC 4585 section 4.2).
+    private static IReadOnlyList<string> AgreedFeedback(SdpCodec local, SdpCodec remote) =>
+        [
+            .. (local.RtcpFeedback ?? []).Where(fb =>
+                (remote.RtcpFeedback ?? []).Contains(fb, StringComparer.OrdinalIgnoreCase)
+            ),
+        ];
+
+    // Whether a negotiated section of the kind agreed the feedback for one of its codecs.
+    private bool FeedbackAgreed(SdpMediaKind kind, string feedback)
+    {
+        foreach (NegotiatedMediaInfo section in NegotiatedMedia)
+        {
+            if (section.Kind != kind)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < section.Codecs.Count && i < section.RemoteCodecs.Count; i++)
+            {
+                if (
+                    (section.Codecs[i].RtcpFeedback ?? []).Contains(
+                        feedback,
+                        StringComparer.OrdinalIgnoreCase
+                    )
+                    && (section.RemoteCodecs[i].RtcpFeedback ?? []).Contains(
+                        feedback,
+                        StringComparer.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Waits until ICE has gathered every local candidate (bounded by <paramref name="limit"/>), for a
+    /// description that carries them all to a peer that does not trickle.
+    /// </summary>
+    /// <param name="limit">The longest to wait.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>A task that completes when gathering finished or the limit passed.</returns>
+    public Task WhenCandidatesGatheredAsync(
+        TimeSpan limit,
+        CancellationToken cancellationToken = default
+    ) => _iceAgent?.WhenGatheredAsync(limit, cancellationToken) ?? Task.CompletedTask;
+
+    /// <summary>A local description with the candidates gathered so far in every section, ending them.</summary>
+    /// <param name="description">The offer or answer.</param>
+    /// <returns>The description with its candidates.</returns>
+    public SdpDescription WithLocalCandidates(SdpDescription description)
+    {
+        ArgumentNullException.ThrowIfNull(description);
+        IceCandidate[] candidates;
+        lock (_localCandidates)
+        {
+            candidates = [.. _localCandidates];
+        }
+
+        return description with
+        {
+            Media =
+            [
+                .. description.Media.Select(m =>
+                    m with
+                    {
+                        Candidates = candidates,
+                        EndOfCandidates = true,
+                    }
+                ),
+            ],
+        };
+    }
+
+    // A restart gathers anew; the old candidates belong to the old credentials.
+    private void ForgetLocalCandidates()
+    {
+        lock (_localCandidates)
+        {
+            _localCandidates.Clear();
+        }
+    }
+
+    /// <summary>The path media takes, once ICE has selected one; null before and during a recovery.</summary>
+    public IcePath? SelectedPath => _iceAgent?.SelectedPath;
 
     /// <summary>
     /// Begin an ICE restart (RFC 8829): adopt fresh local ICE credentials, restart the agent (re-gather), and
@@ -174,7 +553,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// </summary>
     public SdpDescription RestartIce()
     {
+        _restarting = true;
         _localIceCredentials = IceCredentials.Generate();
+        ForgetLocalCandidates();
         _iceAgent?.Restart(_localIceCredentials);
 
         // Build the offer from current media with the new credentials; the agent already exists (restarted),
@@ -188,19 +569,25 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Kind,
                     line.Codecs,
                     line.LocalSsrc,
-                    SdpSetup.ActPass
+                    SdpSetup.ActPass,
+                    line.Direction,
+                    line.RtxSsrc,
+                    line.FecSsrc
                 )
             );
         }
 
-        return new SdpDescription { Media = media };
+        return new SdpDescription { Media = WithTlsId(media, _localTlsId) };
     }
 
     /// <summary>Applies the peer's session description and, for an answer, fixes the DTLS role.</summary>
     public void SetRemoteDescription(SdpDescription description, SdpType type)
     {
         ArgumentNullException.ThrowIfNull(description);
-        SdpMediaDescription first = description.Media[0];
+        // With BUNDLE the offerer-tagged section, the first that is not rejected, carries the transport
+        // (RFC 9143 section 7.3).
+        SdpMediaDescription first =
+            description.Media.FirstOrDefault(static m => !m.Rejected) ?? description.Media[0];
 
         // An offer whose ICE ufrag differs from the established one is an ICE restart (RFC 8829): rotate our
         // own credentials and restart the agent so the answer carries fresh creds + re-gathered candidates.
@@ -210,38 +597,117 @@ public sealed partial class PeerConnection : IAsyncDisposable
             && _remoteDescription is { Media: [{ IceUfrag: { } prevUfrag }, ..] }
             && prevUfrag != first.IceUfrag;
 
+        // RFC 4145 section 4.1: an answer is active or passive, never actpass.
+        if (type == SdpType.Answer && first.Setup == SdpSetup.ActPass)
+        {
+            throw new ArgumentException(
+                "The answer's setup is actpass; an answer is active or passive.",
+                nameof(description)
+            );
+        }
+
+        // RFC 8842 section 3.1: changed roles, a changed fingerprint set or a changed tls-id ask for a
+        // new DTLS association. This connection keeps the one it has: an offer asking for another has
+        // its sections rejected (section 5.3), and an answer asking for one ends the connection.
+        DtlsRole role =
+            type == SdpType.Answer
+                ? first.Setup == SdpSetup.Active
+                    ? DtlsRole.Server
+                    : DtlsRole.Client
+                : AnswerRole(first.Setup);
+        if (_association is { } association && association.AskedToChange(first, role))
+        {
+            LogNewAssociationRefused(_logger, type);
+            if (type == SdpType.Offer)
+            {
+                _refuseNewAssociation = true;
+                _remoteDescription = description;
+                return;
+            }
+
+            Settle("dtls_association_changed");
+            SetState(PeerConnectionState.Failed);
+            return;
+        }
+
+        _refuseNewAssociation = false;
         _remoteDescription = description;
-        _expectedRemoteFingerprint = first.Fingerprint;
+        NoteRtcpCapabilities(description);
+        _expectedRemoteFingerprints = first.Fingerprints;
 
         if (isRestartOffer)
         {
+            _restarting = true;
             _localIceCredentials = IceCredentials.Generate();
+            ForgetLocalCandidates();
             _iceAgent!.Restart(_localIceCredentials);
         }
 
         if (type == SdpType.Answer)
         {
+            AgreeExtensions(description);
+
             // Offerer learns the role from the answerer's choice: their active => we are the DTLS server.
-            _dtlsRole = first.Setup == SdpSetup.Active ? DtlsRole.Server : DtlsRole.Client;
+            _dtlsRole = role;
+            _association ??= new DtlsAssociation(first.TlsId, [.. first.Fingerprints], role);
 
             // Record what the answerer accepted (in our payload-type space) as the negotiated media.
             var negotiated = new List<NegotiatedMediaInfo>(description.Media.Count);
             foreach (SdpMediaDescription answered in description.Media)
             {
+                if (answered.Rejected)
+                {
+                    LogSectionRejected(_logger, answered.Kind, answered.Mid);
+                    continue;
+                }
+
+                IReadOnlyList<SdpCodec> offered = LocalCodecsFor(answered.Kind);
+                List<SdpCodec> ours =
+                [
+                    .. answered.Codecs.Select(ac =>
+                        offered.FirstOrDefault(oc => oc.PayloadType == ac.PayloadType)
+                            is { EncodingName: not null } oc
+                            ? oc
+                            : ac
+                    ),
+                ];
                 negotiated.Add(
                     new NegotiatedMediaInfo(
                         answered.Kind,
                         answered.Mid,
                         LocalSsrcFor(answered.Mid, answered.Kind),
+                        ours,
                         answered.Codecs
                     )
                 );
             }
 
             NegotiatedMedia = negotiated;
+            ConfigureRtx(description);
+            ConfigureFec(description);
         }
 
         _iceAgent?.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
+        _iceAgent?.SetRemoteOptions(first.IceOptions);
+
+        foreach (
+            string ignored in description
+                .Media.SelectMany(static m => m.IgnoredCandidates)
+                .Distinct(StringComparer.Ordinal)
+        )
+        {
+            LogIgnoredCandidate(ignored);
+        }
+
+        // Candidates the description carries, as a peer that does not trickle sends them.
+        foreach (
+            IceCandidate candidate in description
+                .Media.SelectMany(static m => m.Candidates)
+                .Distinct()
+        )
+        {
+            AddRemoteIceCandidate(candidate);
+        }
 
         lock (_gate)
         {
@@ -281,93 +747,90 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends a media payload as a protected RTP packet on the connection's transport. The sequence number
-    /// is managed per SSRC; abs-capture-time is added when configured and <paramref name="captureNtp"/> is set.
+    /// Queues a media payload as an RTP packet at the connection's pacer, which protects and sends it in
+    /// turn with the retransmissions and FEC repairs that share its budget. The sequence number is managed
+    /// per SSRC; the <paramref name="extensions"/> the negotiation agreed on are written into its header.
+    /// The payload is copied once, into the packet.
     /// </summary>
-    public async ValueTask SendRtp(
+    /// <param name="payloadType">The RTP payload type.</param>
+    /// <param name="ssrc">The stream's SSRC.</param>
+    /// <param name="rtpTimestamp">The RTP timestamp.</param>
+    /// <param name="marker">The marker bit.</param>
+    /// <param name="payload">The payload.</param>
+    /// <param name="extensions">
+    /// The header extension values the packet carries, of those negotiated. A packet carrying video-timing
+    /// gets its pacer exit stamped as it leaves, relative to its abs-capture-time.
+    /// </param>
+    /// <returns>False, dropping the packet, when DTLS-SRTP is not established yet.</returns>
+    public bool TrySendRtp(
         byte payloadType,
         uint ssrc,
         uint rtpTimestamp,
         bool marker,
-        ReadOnlyMemory<byte> payload,
-        ulong captureNtp = 0,
-        CancellationToken cancellationToken = default
+        ReadOnlySpan<byte> payload,
+        RtpExtensionValues extensions = default
     )
     {
-        SrtpSession srtp =
-            _srtp ?? throw new InvalidOperationException("DTLS-SRTP is not established.");
-        IceAgent agent = _iceAgent ?? throw new InvalidOperationException("ICE is not started.");
-        byte[]? fecRepair = null;
-
-        ushort sequence;
-        lock (_gate)
+        if (_srtp is null || TransmissionCeased)
         {
-            sequence = _sendSequence.TryGetValue(ssrc, out ushort s)
-                ? s
-                : (ushort)Random.Shared.Next(0, 0x10000);
-            _sendSequence[ssrc] = (ushort)(sequence + 1);
+            return false;
         }
 
-        // RTP header + optional abs-capture-time + payload, with room for the SRTP tag. Rent from the
-        // shared pool so the per-packet send path does not allocate (matters on an SBC's GC).
-        int capacity =
-            RtpPacket.FixedHeaderLength + 16 + payload.Length + SrtpSession.ProtectionOverhead;
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
-        try
+        ushort sequence = NextSequence(ssrc);
+
+        // RTP header + optional abs-capture-time + payload, with room to protect it in place. Rented from
+        // the shared pool so the per-packet path does not allocate (matters on an SBC's GC).
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            RtpPacket.FixedHeaderLength
+                + Volatile.Read(ref _extensions).MaximumBlockLength
+                + payload.Length
+                + SrtpSession.MaxProtectionOverhead
+        );
+        int rtpLength = RtpPacket.WriteWithTimingOffset(
+            buffer,
+            marker,
+            payloadType,
+            sequence,
+            rtpTimestamp,
+            ssrc,
+            payload,
+            Volatile.Read(ref _extensions),
+            extensions,
+            out int timingAt
+        );
+        if (timingAt >= 0 && extensions.AbsoluteCaptureTimeNtp is { } timedCapture)
         {
-            int rtpLength = RtpPacket.Write(
+            NotePacerStamp(ssrc, sequence, timingAt, timedCapture);
+        }
+        ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
+
+        // FlexFEC protects the video stream: the cleartext is what FEC XORs.
+        PacedPacket? fecRepair =
+            Volatile.Read(ref _fec).Send is { } protecting && ssrc == protecting.ProtectedSsrc
+                ? AccumulateFec(packet, protecting)
+                : null;
+
+        // Kept for a NACK-driven RTX retransmission.
+        if (Volatile.Read(ref _rtx).Send.ContainsKey(ssrc))
+        {
+            _sendHistory.GetOrAdd(ssrc, static _ => new RtpSendHistory()).Store(sequence, packet);
+        }
+
+        _pacer.Enqueue(
+            new PacedPacket(
                 buffer,
-                marker,
-                payloadType,
-                sequence,
-                rtpTimestamp,
-                ssrc,
-                payload.Span,
-                captureNtp != 0 ? _options.AbsCaptureTimeExtensionId : 0,
-                captureNtp
-            );
+                rtpLength,
+                _audioSsrcs.Contains(ssrc) ? TrafficClass.Audio : TrafficClass.Video
+            )
+        );
 
-            // FlexFEC: protect the video stream (the cleartext is what FEC XORs; the FEC packet rides FecSsrc).
-            if (FecEnabled && ssrc == _options.FecProtectedSsrc)
-            {
-                fecRepair = AccumulateFec(buffer.AsSpan(0, rtpLength));
-            }
-
-            // Keep the cleartext packet for possible NACK-driven RTX retransmission.
-            if (_rtx.ContainsKey(ssrc))
-            {
-                _sendHistory
-                    .GetOrAdd(ssrc, static _ => new RtpSendHistory())
-                    .Store(sequence, buffer.AsSpan(0, rtpLength));
-            }
-
-            int protectedLength = srtp.ProtectRtp(buffer, rtpLength);
-            RecordSent(ssrc, sequence, protectedLength, NowMicros());
-            Interlocked.Increment(ref _mediaPacketsSent);
-            await agent
-                .SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
+        // The repair rides its own SSRC behind the group it protects, and is not itself protected.
+        if (fecRepair is { } repair)
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            _pacer.Enqueue(repair);
         }
 
-        // Send the FlexFEC repair (if a group just completed) after the media packet, on the same chain - so
-        // SRTP protect is never invoked concurrently. The FEC packet rides its own SSRC and is not FEC-protected.
-        if (fecRepair is not null)
-        {
-            await SendRtp(
-                    _options.FecPayloadType,
-                    _options.FecSsrc,
-                    0,
-                    marker: false,
-                    fecRepair,
-                    0,
-                    cancellationToken
-                )
-                .ConfigureAwait(false);
-        }
+        return true;
     }
 
     /// <summary>
@@ -384,14 +847,40 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(32 + SrtpSession.RtcpProtectionOverhead);
+        // RFC 4585 section 4.2: only feedback the description agreed is sent. PLI when agreed, else FIR
+        // (RFC 5104 section 4.3.1), else nothing: the peer cannot be asked.
+        bool pli = FeedbackAgreed(SdpMediaKind.Video, "nack pli");
+        if (!pli && !FeedbackAgreed(SdpMediaKind.Video, "ccm fir"))
+        {
+            LogKeyframeRequestNotAgreed(_logger, mediaSsrc);
+            return;
+        }
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            FeedbackPrefixCapacity + 32 + SrtpSession.MaxRtcpProtectionOverhead
+        );
         try
         {
-            int length = RtcpFeedback.BuildPli(buffer, _rtcpSenderSsrc, mediaSsrc);
+            int prefix = WriteFeedbackPrefix(buffer);
+            int length =
+                prefix
+                + (
+                    pli
+                        ? RtcpFeedback.BuildPli(buffer.AsSpan(prefix), _rtcpSenderSsrc, mediaSsrc)
+                        : RtcpFeedback.BuildFir(
+                            buffer.AsSpan(prefix),
+                            _rtcpSenderSsrc,
+                            mediaSsrc,
+                            (byte)Interlocked.Increment(ref _firSequence)
+                        )
+                );
             int protectedLength = srtp.ProtectRtcp(buffer, length);
             Interlocked.Increment(ref _keyframeRequestsSent);
             await agent
-                .SendAsync(buffer.AsMemory(0, protectedLength), cancellationToken)
+                .SendAsync(
+                    buffer.AsMemory(0, protectedLength),
+                    cancellationToken: cancellationToken
+                )
                 .ConfigureAwait(false);
         }
         finally
@@ -400,6 +889,150 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
+    // RFC 5104 section 4.3.1.1: the command sequence number, one higher per new request.
+    private int _firSequence;
+
+    private ushort NextSequence(uint ssrc)
+    {
+        lock (_gate)
+        {
+            ushort sequence = _sendSequence.TryGetValue(ssrc, out ushort s)
+                ? s
+                : (ushort)Random.Shared.Next(0, 0x10000);
+            _sendSequence[ssrc] = (ushort)(sequence + 1);
+            return sequence;
+        }
+    }
+
+    // The pacer's send: protect in place, account for it (congestion feedback, sender reports), send.
+    // The pacer runs one send at a time in queue order, so SRTP protection is never concurrent.
+    private ValueTask TransmitAsync(PacedPacket packet, CancellationToken cancellationToken)
+    {
+        if (
+            _srtp is not { } srtp
+            || _iceAgent is not { } agent
+            || TransmissionCeased
+            || !RtpPacket.TryParse(
+                packet.Buffer.AsSpan(0, packet.Length),
+                out RtpHeader header,
+                out ReadOnlySpan<byte> payload
+            )
+        )
+        {
+            if (packet.Class == TrafficClass.Probe)
+            {
+                AbandonProbe();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        int payloadLength = payload.Length;
+        StampPacerExit(packet.Buffer, header.Ssrc, header.SequenceNumber);
+        int length = StampTransportSequence(
+            packet.Buffer,
+            packet.Length,
+            out ushort? transportSequence
+        );
+        if (!srtp.TryProtectRtp(packet.Buffer, length, out int protectedLength))
+        {
+            LogOutOfOrderDropped(_logger, header.Ssrc, header.SequenceNumber);
+            if (packet.Class == TrafficClass.Probe)
+            {
+                AbandonProbe();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        // RFC 8899 section 3, item 1: nothing but a probe goes out larger than the path MTU. After a black
+        // hole falls back, media already packetized for the old size, and repairs of it, would only be lost.
+        if (packet.Class != TrafficClass.Probe && protectedLength > MaximumDatagramSize)
+        {
+            LogAbovePathMtu(_logger, protectedLength, packet.Class, MaximumDatagramSize);
+            return ValueTask.CompletedTask;
+        }
+
+        long now = NowMicros();
+        if (
+            _options.RepairOverStandby
+            && packet.Class is TrafficClass.Retransmission or TrafficClass.Repair
+            && agent.HasStandby
+        )
+        {
+            return SendOnStandbyAsync(
+                agent,
+                packet,
+                protectedLength,
+                header,
+                payloadLength,
+                now,
+                cancellationToken
+            );
+        }
+
+        EcnCodepoint ecn = RecordSent(
+            header.Ssrc,
+            header.SequenceNumber,
+            protectedLength,
+            packet.Class,
+            transportSequence
+        );
+        // Probes are meant to be lost (RFC 8899 section 3); they are not media a breaker watches.
+        if (packet.Class != TrafficClass.Probe)
+        {
+            BreakerOnSent(header.Ssrc, protectedLength);
+        }
+
+        RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
+        if (packet.Class == TrafficClass.Retransmission)
+        {
+            Interlocked.Increment(ref _rtxPacketsSent);
+            _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("sent"));
+        }
+        else if (packet.Class != TrafficClass.Probe)
+        {
+            Interlocked.Increment(ref _mediaPacketsSent);
+            _metrics.PacketsSent.Add(1);
+        }
+
+        return agent.SendAsync(packet.Buffer.AsMemory(0, protectedLength), ecn, cancellationToken);
+    }
+
+    // A repair on the standby path: counted for reports and metrics, kept out of the media path's
+    // congestion control and feedback, and sent on the media path after all if the standby went away.
+    private async ValueTask SendOnStandbyAsync(
+        Ice.IceAgent agent,
+        PacedPacket packet,
+        int protectedLength,
+        RtpHeader header,
+        int payloadLength,
+        long now,
+        CancellationToken cancellationToken
+    )
+    {
+        RecordSentForReports(header.Ssrc, header.PayloadType, header.Timestamp, payloadLength, now);
+        _metrics.StandbyRepairs.Add(1);
+        if (packet.Class == TrafficClass.Retransmission)
+        {
+            Interlocked.Increment(ref _rtxPacketsSent);
+        }
+
+        ReadOnlyMemory<byte> data = packet.Buffer.AsMemory(0, protectedLength);
+        if (!await agent.TrySendOnStandbyAsync(data, cancellationToken).ConfigureAwait(false))
+        {
+            await agent.SendAsync(data, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The bytes the connection has sent in a traffic class, with per-packet overhead; two samples give
+    /// the class's rate.
+    /// </summary>
+    /// <param name="trafficClass">The class.</param>
+    /// <returns>The bytes.</returns>
+    public long SentBytes(TrafficClass trafficClass) => _pacer.SentBytes(trafficClass);
+
     private void StartIce(IceRole role)
     {
         var agent = new IceAgent(
@@ -407,21 +1040,43 @@ public sealed partial class PeerConnection : IAsyncDisposable
             role,
             _options.IncludeLoopback,
             _loggerFactory.CreateLogger<IceAgent>(),
-            socketFactory: new UdpIceSocketFactory(_options.LocalAddressPreferences)
+            socketFactory: _options.SocketFactory
+                ?? new UdpIceSocketFactory(_options.LocalAddressPreferences),
+            timings: _options.IceTimings,
+            timeProvider: _time,
+            transportPolicy: _options.IceTransportPolicy,
+            meterFactory: _meterFactory
         );
         foreach (IPEndPoint stun in _options.StunServers)
         {
             agent.AddStunServer(stun);
         }
 
-        agent.LocalCandidateGathered += c => LocalIceCandidate?.Invoke(c);
+        foreach (TurnServer turn in _options.TurnServers)
+        {
+            agent.AddTurnServer(turn);
+        }
+
+        agent.LocalCandidateGathered += c =>
+        {
+            lock (_localCandidates)
+            {
+                _localCandidates.Add(c);
+            }
+
+            LocalIceCandidate?.Invoke(c);
+        };
+        _dtlsTransport = new IceDatagramTransport(agent);
         agent.DataReceived += OnTransportData;
         agent.StateChanged += OnIceStateChanged;
+        agent.SelectedPathChanged += OnPathChanged;
 
         if (_remoteDescription is { } remote)
         {
-            SdpMediaDescription first = remote.Media[0];
+            SdpMediaDescription first =
+                remote.Media.FirstOrDefault(static m => !m.Rejected) ?? remote.Media[0];
             agent.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
+            agent.SetRemoteOptions(first.IceOptions);
         }
 
         lock (_gate)
@@ -436,17 +1091,112 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _bufferedRemoteCandidates.Clear();
         }
 
+        // From starting ICE to the secure transport being up is one span and one measurement.
+        _connectStarted = _time.GetTimestamp();
+        _connecting = WebRtcDiagnostics.ActivitySource.StartActivity(
+            "streamtransport.webrtc.connect"
+        );
+        _connecting?.SetTag(
+            "streamtransport.webrtc.ice.role",
+            role == IceRole.Controlling ? "controlling" : "controlled"
+        );
         SetState(PeerConnectionState.Connecting);
     }
+
+    // Records how connecting ended and closes its span, once.
+    private void Settle(string outcome, Exception? failure = null)
+    {
+        if (Interlocked.Exchange(ref _connectSettled, 1) != 0 || _connectStarted == 0)
+        {
+            return;
+        }
+
+        IcePath? path = _iceAgent?.SelectedPath;
+        _metrics.ConnectDuration.Record(
+            _time.GetElapsedTime(_connectStarted).TotalSeconds,
+            WebRtcMetrics.Outcome(outcome)
+        );
+        if (_connecting is { } activity)
+        {
+            activity.SetTag("streamtransport.outcome", outcome);
+            if (path is { } selected)
+            {
+                activity.SetTag(
+                    "streamtransport.webrtc.ice.local_kind",
+                    WebRtcMetrics.Name(selected.LocalKind)
+                );
+                activity.SetTag(
+                    "streamtransport.webrtc.ice.remote_kind",
+                    WebRtcMetrics.Name(selected.RemoteKind)
+                );
+                activity.SetTag(
+                    "network.type",
+                    selected.Remote.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        ? "ipv6"
+                        : "ipv4"
+                );
+            }
+
+            if (failure is not null)
+            {
+                activity.AddException(failure);
+                activity.SetStatus(ActivityStatusCode.Error, failure.Message);
+            }
+
+            activity.Stop();
+        }
+    }
+
+    /// <summary>
+    /// Raised when consent to the path media used was lost and no other path is up (RFC 7675). The
+    /// credentials in use cannot reach the peer again, so it takes an ICE restart (<see cref="RestartIce"/>,
+    /// offered to the peer) to carry on; without one the connection fails after
+    /// <see cref="IceTimings.FailureTimeout"/>.
+    /// </summary>
+    public event Action? ConnectivityLost;
+
+    // Whether ICE had connected, and whether a restart this side made or the peer asked for is under way,
+    // so checking again reads as a lost path only when neither explains it.
+    private volatile bool _iceWasConnected;
+    private volatile bool _restarting;
 
     private void OnIceStateChanged(IceConnectionState iceState)
     {
         switch (iceState)
         {
-            case IceConnectionState.Connected when _dtls is null:
-                _ = RunDtlsHandshakeAsync();
+            case IceConnectionState.Connected:
+                _iceWasConnected = true;
+                _restarting = false;
+                if (Interlocked.Exchange(ref _dtlsStarted, 1) == 0)
+                {
+                    _ = RunDtlsHandshakeAsync();
+                }
+                else if (State == PeerConnectionState.Disconnected)
+                {
+                    SetState(PeerConnectionState.Connected);
+                }
+
+                break;
+            case IceConnectionState.Disconnected:
+                if (State == PeerConnectionState.Connected)
+                {
+                    SetState(PeerConnectionState.Disconnected);
+                }
+
+                // An agent that cannot move by itself needs a restart to leave a path that went quiet.
+                if (!_restarting && _iceAgent is { CanMovePath: false })
+                {
+                    LogConnectivityLost(_logger);
+                    ConnectivityLost?.Invoke();
+                }
+
+                break;
+            case IceConnectionState.Checking when _iceWasConnected && !_restarting:
+                LogConnectivityLost(_logger);
+                ConnectivityLost?.Invoke();
                 break;
             case IceConnectionState.Failed:
+                Settle("ice_failed");
                 SetState(PeerConnectionState.Failed);
                 break;
             default:
@@ -456,38 +1206,73 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     private async Task RunDtlsHandshakeAsync()
     {
-        IceAgent agent = _iceAgent!;
-        IDtlsTransport dtls = _dtlsFactory.Create(_dtlsRole, record => _ = agent.SendAsync(record));
-        _dtls = dtls;
+        // The remote certificate is authenticated during the handshake by the fingerprint the peer
+        // signalled; a description without one never reaches here, SdpReader rejects it.
+        RemoteCertificateValidationCallback validate = DtlsFingerprint.CreateValidationCallback(
+            _expectedRemoteFingerprints
+        );
+        IceDatagramTransport transport = _dtlsTransport!;
 
         try
         {
-            SrtpKeyingMaterial keying = await dtls.HandshakeAsync(CancellationToken.None)
-                .ConfigureAwait(false);
+            DtlsConnection dtls =
+                _dtlsRole == DtlsRole.Client
+                    ? await DtlsConnection
+                        .ConnectAsync(transport, ClientOptions(validate))
+                        .ConfigureAwait(false)
+                    : await DtlsConnection
+                        .AcceptAsync(transport, ServerOptions(validate))
+                        .ConfigureAwait(false);
+            _dtls = dtls;
 
-            if (
-                _expectedRemoteFingerprint is { } expected
-                && dtls.RemoteFingerprint is { } actual
-                && !expected
-                    .ToSdpValue()
-                    .Equals(actual.ToSdpValue(), StringComparison.OrdinalIgnoreCase)
-            )
-            {
-                LogFingerprintMismatch(_logger);
-                SetState(PeerConnectionState.Failed);
-                return;
-            }
-
+            SrtpKeyingMaterial keying =
+                dtls.SrtpKeyingMaterial
+                ?? throw new DtlsException("The peer negotiated no SRTP protection profile.");
             _srtp = new SrtpSession(keying, _dtlsRole == DtlsRole.Client);
-            LogConnected(_logger, keying.Profile);
+            LogConnected(_logger, dtls.NegotiatedProtocol, keying.Profile);
+            Settle("connected");
             SetState(PeerConnectionState.Connected);
         }
         catch (Exception ex)
         {
             LogHandshakeFailed(_logger, ex);
+            Settle("dtls_failed", ex);
             SetState(PeerConnectionState.Failed);
         }
     }
+
+    private DtlsClientConnectionOptions ClientOptions(
+        RemoteCertificateValidationCallback validate
+    ) =>
+        new()
+        {
+            SrtpProtectionProfiles = [.. SrtpSession.Profiles],
+            LoggerFactory = _loggerFactory,
+            TimeProvider = _time,
+            ClientAuthenticationOptions = new SslClientAuthenticationOptions
+            {
+                ClientCertificates = [_certificate.Certificate],
+                RemoteCertificateValidationCallback = validate,
+            },
+        };
+
+    // No cookie exchange: ICE connectivity checks have already proven the peer owns its address.
+    private DtlsServerConnectionOptions ServerOptions(
+        RemoteCertificateValidationCallback validate
+    ) =>
+        new()
+        {
+            SrtpProtectionProfiles = [.. SrtpSession.Profiles],
+            LoggerFactory = _loggerFactory,
+            TimeProvider = _time,
+            CookieExchange = false,
+            ServerAuthenticationOptions = new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _certificate.Certificate,
+                ClientCertificateRequired = true,
+                RemoteCertificateValidationCallback = validate,
+            },
+        };
 
     private void OnTransportData(Memory<byte> data, IPEndPoint source, byte ecn)
     {
@@ -500,7 +1285,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         byte first = span[0];
         if (first is >= 20 and <= 63)
         {
-            _dtls?.ReceiveRecord(data); // DTLS record (Memory implicitly converts to ReadOnlyMemory)
+            _dtlsTransport?.Deliver(span);
             return;
         }
 
@@ -533,28 +1318,83 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         ReadOnlySpan<byte> rtcp = span[..length];
-
-        if (RtcpFeedback.ContainsPli(rtcp, out uint pliSsrc))
+        if (RtcpTimeoutFeedback.Resets(rtcp, IsOwnSource))
         {
-            KeyframeRequested?.Invoke(pliSsrc);
+            BreakerOnFeedback();
         }
 
-        var lost = new List<ushort>();
-        if (RtcpFeedback.TryParseNack(rtcp, out uint nackSsrc, lost) && lost.Count > 0)
+        // Every feedback element of the compound, which may carry several for different SSRCs (RFC 8108).
+        List<ushort>? lost = null;
+        List<(uint, byte)>? fir = null;
+        foreach (RtcpElement element in RtcpCompound.Enumerate(rtcp))
         {
-            _ = RetransmitAsync(nackSsrc, lost);
+            if (RtcpFeedback.TryReadPli(element, out uint pliSsrc))
+            {
+                KeyframeRequested?.Invoke(pliSsrc);
+            }
+            else if (RtcpFeedback.TryReadNack(element, out uint nackSsrc, lost ??= []))
+            {
+                if (lost.Count > 0)
+                {
+                    Retransmit(nackSsrc, [.. lost]);
+                }
+
+                lost.Clear();
+            }
+            else if (RtcpFeedback.TryReadFir(element, out uint requester, fir ??= []))
+            {
+                OnFullIntraRequests(requester, fir);
+                fir.Clear();
+            }
         }
 
         // RFC 8888 congestion-control feedback (PT 205, FMT 11) - drives the send-side controller, if any.
         OnCongestionFeedback(rtcp);
+
+        // Sender and receiver reports: the round trip and the peer's sender-report timing.
+        OnReports(rtcp);
     }
 
-    private async Task RetransmitAsync(uint mediaSsrc, List<ushort> lostSequences)
+    // RFC 5104 section 4.3.1.2: a FIR for one of this endpoint's streams with a new command sequence number
+    // from that requester asks for a decoder refresh point; a repeated number is a retransmission of a
+    // request already served.
+    private readonly Dictionary<(uint Requester, uint Target), byte> _firSequences = [];
+
+    private void OnFullIntraRequests(
+        uint requester,
+        List<(uint TargetSsrc, byte Sequence)> requests
+    )
+    {
+        foreach ((uint target, byte sequence) in requests)
+        {
+            if (!IsOwnSource(target))
+            {
+                continue;
+            }
+
+            lock (_firSequences)
+            {
+                if (
+                    _firSequences.TryGetValue((requester, target), out byte last)
+                    && last == sequence
+                )
+                {
+                    continue;
+                }
+
+                _firSequences[(requester, target)] = sequence;
+            }
+
+            KeyframeRequested?.Invoke(target);
+        }
+    }
+
+    // Repairs go through the pacer ahead of new video and inside the same budget (RFC 4588 section 7).
+    private void Retransmit(uint mediaSsrc, List<ushort> lostSequences)
     {
         if (
-            _srtp is not { } srtp
-            || _iceAgent is not { } agent
-            || !_rtx.TryGetValue(mediaSsrc, out RtxState? rtx)
+            !_retransmit
+            || !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
             || !_sendHistory.TryGetValue(mediaSsrc, out RtpSendHistory? history)
         )
         {
@@ -563,62 +1403,44 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         foreach (ushort seq in lostSequences)
         {
-            if (!history.TryGet(seq, out ReadOnlyMemory<byte> original))
+            // The repair travels with the rtx payload type paired with the original's (RFC 4588).
+            if (
+                !history.TryGet(seq, out ReadOnlyMemory<byte> original)
+                || original.Length < 2
+                || !rtx.PayloadTypes.TryGetValue(
+                    (byte)(original.Span[1] & 0x7F),
+                    out byte rtxPayloadType
+                )
+            )
             {
                 continue;
             }
 
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
-                original.Length + 2 + SrtpSession.ProtectionOverhead
+                original.Length + 2 + TransportSequenceRoom + SrtpSession.MaxProtectionOverhead
             );
-            try
-            {
-                if (
-                    !RtxStream.TryWrap(
-                        original.Span,
-                        buffer,
-                        rtx.PayloadType,
-                        rtx.Ssrc,
-                        rtx.NextSequence(),
-                        out int rtxLength
-                    )
+            if (
+                RtxStream.TryWrap(
+                    original.Span,
+                    buffer,
+                    rtxPayloadType,
+                    rtx.Ssrc,
+                    rtx.NextSequence(),
+                    out int rtxLength
                 )
-                {
-                    continue;
-                }
-
-                int protectedLength = srtp.ProtectRtp(buffer, rtxLength);
-                Interlocked.Increment(ref _rtxPacketsSent);
-                await agent.SendAsync(buffer.AsMemory(0, protectedLength)).ConfigureAwait(false);
+            )
+            {
+                _pacer.Enqueue(new PacedPacket(buffer, rtxLength, TrafficClass.Retransmission));
             }
-            finally
+            else
             {
                 ArrayPool<byte>.Shared.Return(buffer);
             }
         }
     }
 
-    // Test-only injected packet loss: STX_RTP_DROP=<0..0.9> drops that fraction of incoming media/RTX/FEC RTP
-    // packets, so loss-resilience (FEC / NACK-RTX / intra-refresh / PLI) can be exercised on a clean loopback.
-    // Parsed once; zero (and no overhead beyond the compare) in production where the env var is unset.
-    private static readonly double s_rtpDropRate =
-        double.TryParse(
-            Environment.GetEnvironmentVariable("STX_RTP_DROP"),
-            System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out double r
-        )
-        && r > 0
-            ? Math.Min(r, 0.9)
-            : 0d;
-
     private void ReceiveRtp(Memory<byte> data, byte ecn)
     {
-        if (s_rtpDropRate > 0d && Random.Shared.NextDouble() < s_rtpDropRate)
-        {
-            return; // injected loss (test-only)
-        }
-
         if (_srtp is not { } srtp)
         {
             return;
@@ -630,6 +1452,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             !srtp.UnprotectRtp(span, span.Length, out int plaintextLength)
             || !RtpPacket.TryParse(
                 span[..plaintextLength],
+                Volatile.Read(ref _extensions),
                 out RtpHeader header,
                 out ReadOnlySpan<byte> payload
             )
@@ -637,6 +1460,20 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             return;
         }
+
+        // Congestion feedback and reception reports cover what crossed the wire, so a retransmission
+        // counts under the RTX stream's SSRC and sequence.
+        long arrivalMicros = NowMicros();
+        RecordArrival(
+            header.Ssrc,
+            header.SequenceNumber,
+            header.Extensions.TransportSequence,
+            arrivalMicros,
+            ecn,
+            header.Marker
+        );
+        RecordReceivedForReports(header, arrivalMicros);
+        _ = LearnUnsignalled(header.Ssrc, header.PayloadType);
 
         // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered
         // packet reaches the depacketizer (and the loss tracker) as if it had never been lost. Done into a
@@ -669,12 +1506,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 )
                 {
                     Interlocked.Increment(ref _rtxPacketsRecovered);
+                    _metrics.Retransmissions.Add(1, WebRtcMetrics.Direction("recovered"));
                     DeliverMedia(
                         rtxHeader,
                         recovered.AsMemory(0, recoveredLength),
                         recoveredLength,
-                        rtxPayload,
-                        ecn
+                        rtxPayload
                     );
                 }
             }
@@ -686,7 +1523,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        DeliverMedia(header, data, plaintextLength, payload, ecn);
+        DeliverMedia(header, data, plaintextLength, payload);
     }
 
     // Common delivery for an original or RTX-recovered media packet: record its arrival for congestion feedback
@@ -695,30 +1532,25 @@ public sealed partial class PeerConnection : IAsyncDisposable
         RtpHeader header,
         Memory<byte> packet,
         int plaintextLength,
-        ReadOnlySpan<byte> payload,
-        byte ecn
+        ReadOnlySpan<byte> payload
     )
     {
-        RecordArrival(header.Ssrc, header.SequenceNumber, NowMicros(), ecn);
-
-        // Loss recovery (NACK): only for media the peer can retransmit (an RTX partner is configured for it).
-        // Remember its PT so an inbound RTX packet can be unwrapped back to the right payload type.
-        if (_rtx.ContainsKey(header.Ssrc))
+        // Loss recovery (NACK): only for media the peer said it retransmits.
+        if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
         {
-            RememberMediaPayloadType(header.Ssrc, header.PayloadType);
             OnMediaSequence(header.Ssrc, header.SequenceNumber);
         }
 
         // FlexFEC: a repair packet recovers a lost media packet; a protected media packet is cached for recovery.
-        if (FecEnabled)
+        if (Volatile.Read(ref _fec).Receive is { } fecFrom)
         {
-            if (header.PayloadType == _options.FecPayloadType)
+            if (header.Ssrc == fecFrom.FecSsrc)
             {
-                OnFecPacket(payload);
+                OnFecPacket(packet.Span[..plaintextLength], payload, fecFrom.ProtectedSsrc);
                 return;
             }
 
-            if (header.Ssrc == _options.FecProtectedSsrc)
+            if (header.Ssrc == fecFrom.ProtectedSsrc)
             {
                 CacheProtectedPacket(packet.Span[..plaintextLength]);
             }
@@ -733,32 +1565,129 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SdpMediaKind kind,
         IReadOnlyList<SdpCodec> codecs,
         uint ssrc,
-        SdpSetup setup
+        SdpSetup setup,
+        SdpDirection direction,
+        uint? rtxSsrc,
+        uint? fecSsrc = null
     ) =>
         new()
         {
             Kind = kind,
             Mid = mid,
+            Direction = direction,
             Codecs = codecs,
             IceUfrag = _localIceCredentials.UsernameFragment,
+            IceOptions = IceOptions.Supported,
             IcePwd = _localIceCredentials.Password,
-            Fingerprint = _dtlsFactory.LocalFingerprint,
+            Fingerprints = [_certificate.Fingerprint],
             Setup = setup,
             Ssrc = ssrc == 0 ? null : ssrc,
-            Cname = "streamtransport",
+            RtxSsrc = ssrc == 0 ? null : rtxSsrc,
+            FecSsrc =
+                ssrc == 0 || direction is SdpDirection.RecvOnly or SdpDirection.Inactive
+                    ? null
+                    : fecSsrc,
+            Cname = _cname,
+            Ecn = LocalEcnCapability,
+            Extensions = OfferedExtensions(kind),
+            MediaStreamId = Sends(direction) ? _streamId : null,
+            TrackId = Sends(direction) ? $"{_streamId}-{mid}" : null,
         };
 
-    private uint LocalSsrcFor(string mid, SdpMediaKind kind)
+    // The msid stream every sent track belongs to: hex, since an msid is an SDP token (RFC 8866), which
+    // the base64 CNAME's '/' and '=' are not.
+    private readonly string _streamId = Convert.ToHexStringLower(
+        System.Security.Cryptography.RandomNumberGenerator.GetBytes(8)
+    );
+
+    private static bool Sends(SdpDirection direction) =>
+        direction is SdpDirection.SendRecv or SdpDirection.SendOnly;
+
+    // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its
+    // sections its own way (a browser may put video first), so the kind decides.
+    private uint LocalSsrcFor(string mid, SdpMediaKind kind) =>
+        (
+            _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
+            ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
+        )?.LocalSsrc
+        ?? 0;
+
+    private uint? LocalFecSsrcFor(string mid, SdpMediaKind kind) =>
+        (
+            _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
+            ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
+        )?.FecSsrc;
+
+    private uint? LocalRtxSsrcFor(string mid, SdpMediaKind kind) =>
+        (
+            _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
+            ?? _options.Media.FirstOrDefault(l => l.Kind == kind)
+        )?.RtxSsrc;
+
+    // What retransmission the negotiation agreed: per line, an rtx codec on both sides for a media
+    // codec. This endpoint sends repairs of its media on its RTX SSRC with the rtx payload type paired
+    // with the original's; it asks for repairs (NACK) of the peer's media the peer announced an RTX SSRC
+    // for, and reads them back by that SSRC.
+    private void ConfigureRtx(SdpDescription remote)
     {
-        foreach (MediaLine line in _options.Media)
+        Dictionary<uint, RtxSender> send = [];
+        Dictionary<uint, RtxReceiver> receive = [];
+        HashSet<uint> repairable = [];
+        List<UnsignalledRepair> unsignalled = [];
+        foreach (NegotiatedMediaInfo media in NegotiatedMedia)
         {
-            if (line.Mid == mid || line.Kind == kind)
+            Dictionary<byte, byte> rtxFor = [];
+            foreach (SdpCodec codec in media.Codecs)
             {
-                return line.LocalSsrc;
+                if (Rtx.Repairs(codec) is { } primary)
+                {
+                    rtxFor[(byte)primary] = (byte)codec.PayloadType;
+                }
+            }
+
+            if (rtxFor.Count == 0)
+            {
+                continue;
+            }
+
+            if (LocalRtxSsrcFor(media.Mid, media.Kind) is { } localRtx && media.LocalSsrc != 0)
+            {
+                send[media.LocalSsrc] = new RtxSender(localRtx, rtxFor.ToFrozenDictionary());
+            }
+
+            SdpMediaDescription? section = remote.Media.FirstOrDefault(m => m.Mid == media.Mid);
+            if (section is { Ssrc: { } remoteMedia, RtxSsrc: { } remoteRtx })
+            {
+                receive[remoteRtx] = new RtxReceiver(
+                    remoteMedia,
+                    rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
+                );
+                _ = repairable.Add(remoteMedia);
+            }
+            else if (section is { Ssrc: null } && section.Direction != SdpDirection.RecvOnly)
+            {
+                unsignalled.Add(
+                    new UnsignalledRepair(
+                        media.Mid,
+                        rtxFor.Keys.ToFrozenSet(),
+                        rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
+                    )
+                );
             }
         }
 
-        return 0;
+        Volatile.Write(
+            ref _rtx,
+            new RtxConfiguration(
+                send.ToFrozenDictionary(),
+                receive.ToFrozenDictionary(),
+                repairable.ToFrozenSet()
+            )
+            {
+                Unsignalled = [.. unsignalled],
+            }
+        );
+        LogRtx(send.Count, receive.Count);
     }
 
     // The codecs this endpoint can handle for a kind, taken from the configured offer lines.
@@ -777,9 +1706,35 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     // Two codecs are the same format when the encoding name (case-insensitive) and clock rate agree. Payload
     // types may differ between offer and local config; the answer keeps the offerer's.
-    private static bool CodecsMatch(SdpCodec a, SdpCodec b) =>
-        string.Equals(a.EncodingName, b.EncodingName, StringComparison.OrdinalIgnoreCase)
-        && a.ClockRate == b.ClockRate;
+    // The same codec: name and clock, and for H.264 the same packetization mode (RFC 6184 section 8.1).
+    // The same codec: name and clock rate, and the parameters its payload format says must agree.
+    private bool CodecsMatch(SdpCodec local, SdpCodec remote) =>
+        string.Equals(local.EncodingName, remote.EncodingName, StringComparison.OrdinalIgnoreCase)
+        && local.ClockRate == remote.ClockRate
+        && (
+            !_options.PayloadFormats.TryGet(local.EncodingName, out RtpPayloadFormat? format)
+            || format.AreCompatible(local.FormatParameters, remote.FormatParameters)
+        );
+
+    // What this endpoint does on a kind of media, from its lines; send and receive when it has none.
+    private SdpDirection LocalDirectionFor(SdpMediaKind kind) =>
+        _options.Media.FirstOrDefault(l => l.Kind == kind)?.Direction ?? SdpDirection.SendRecv;
+
+    // The answer's direction: the offer's mirrored, then only what this endpoint does (RFC 3264 section 6.1).
+    private static SdpDirection Answer(SdpDirection offered, SdpDirection local)
+    {
+        bool send = offered is SdpDirection.SendRecv or SdpDirection.RecvOnly;
+        bool receive = offered is SdpDirection.SendRecv or SdpDirection.SendOnly;
+        send &= local is SdpDirection.SendRecv or SdpDirection.SendOnly;
+        receive &= local is SdpDirection.SendRecv or SdpDirection.RecvOnly;
+        return (send, receive) switch
+        {
+            (true, true) => SdpDirection.SendRecv,
+            (true, false) => SdpDirection.SendOnly,
+            (false, true) => SdpDirection.RecvOnly,
+            _ => SdpDirection.Inactive,
+        };
+    }
 
     private void SetState(PeerConnectionState state)
     {
@@ -788,8 +1743,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
-        Volatile.Write(ref _state, (int)state);
-        if (state == PeerConnectionState.Connected)
+        int previous = Interlocked.Exchange(ref _state, (int)state);
+        if (
+            state == PeerConnectionState.Connected
+            && previous != (int)PeerConnectionState.Disconnected
+        )
         {
             StartCongestionTimers();
         }
@@ -800,41 +1758,172 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposedForMetrics, 1) == 0)
+        {
+            _metrics.ConnectionsActive.Add(-1);
+            Settle("closed");
+        }
+
         DisposeCongestion();
+        await _pacer.DisposeAsync().ConfigureAwait(false);
+        await StopReportsAsync().ConfigureAwait(false);
         SetState(PeerConnectionState.Closed);
         if (_dtls is { } dtls)
         {
             await dtls.DisposeAsync().ConfigureAwait(false);
         }
 
+        _dtlsTransport?.Complete();
+
         if (_iceAgent is { } agent)
         {
             await agent.DisposeAsync().ConfigureAwait(false);
         }
+
+        // After the agent: nothing arrives to unprotect any more, and a send racing the close fails.
+        Interlocked.Exchange(ref _srtp, null)?.Dispose();
     }
 
-    private sealed class RtxState(uint ssrc, byte payloadType)
+    // Repairs of one of this endpoint's media streams: the RTX SSRC, the rtx payload type for each
+    // media payload type, and the RTX stream's own sequence.
+    private sealed class RtxSender(uint ssrc, FrozenDictionary<byte, byte> payloadTypes)
     {
         private int _sequence;
 
         public uint Ssrc { get; } = ssrc;
-        public byte PayloadType { get; } = payloadType;
+
+        public FrozenDictionary<byte, byte> PayloadTypes { get; } = payloadTypes;
 
         public ushort NextSequence() => (ushort)Interlocked.Increment(ref _sequence);
     }
 
+    // The peer's repairs of one of its media streams: the media SSRC, and the original payload type for
+    // each rtx payload type.
+    private sealed record RtxReceiver(
+        uint MediaSsrc,
+        FrozenDictionary<byte, byte> OriginalPayloadTypes
+    );
+
+    private sealed record RtxConfiguration(
+        FrozenDictionary<uint, RtxSender> Send,
+        FrozenDictionary<uint, RtxReceiver> Receive,
+        FrozenSet<uint> Repairable
+    )
+    {
+        // Sections whose SSRCs are learned from the packets.
+        public ImmutableArray<UnsignalledRepair> Unsignalled { get; init; } = [];
+
+        public static RtxConfiguration None { get; } = new([], [], []);
+    }
+
     [LoggerMessage(
+        EventId = 1100,
         Level = LogLevel.Information,
-        Message = "PeerConnection established (SRTP {Profile})"
+        Message = "PeerConnection established ({Protocol}, SRTP {Profile})"
     )]
-    private static partial void LogConnected(ILogger logger, SrtpProtectionProfile profile);
+    private static partial void LogConnected(
+        ILogger logger,
+        DtlsProtocols protocol,
+        SrtpProtectionProfile profile
+    );
 
     [LoggerMessage(
+        EventId = 1101,
         Level = LogLevel.Error,
-        Message = "PeerConnection DTLS fingerprint mismatch - aborting"
+        Message = "PeerConnection DTLS handshake failed"
     )]
-    private static partial void LogFingerprintMismatch(ILogger logger);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "PeerConnection DTLS handshake failed")]
     private static partial void LogHandshakeFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(
+        EventId = 1102,
+        Level = LogLevel.Debug,
+        Message = "Retransmission negotiated: this side repairs {Sent} streams and asks for repairs of {Received}."
+    )]
+    private partial void LogRtx(int sent, int received);
+
+    [LoggerMessage(
+        EventId = 1104,
+        Level = LogLevel.Debug,
+        Message = "FlexFEC negotiated: this side protects its video {Sends}, recovers the peer's {Receives}."
+    )]
+    private partial void LogFec(bool sends, bool receives);
+
+    [LoggerMessage(
+        EventId = 1105,
+        Level = LogLevel.Debug,
+        Message = "Loss repair: FEC group {Group} (0 is off) at loss {Loss:P1}, round trip {RoundTrip}"
+    )]
+    private partial void LogRecoveryPlan(int group, double loss, TimeSpan roundTrip);
+
+    [LoggerMessage(
+        EventId = 1103,
+        Level = LogLevel.Warning,
+        Message = "The {Kind} section {Mid} is rejected: the peers share no codec for it."
+    )]
+    private static partial void LogSectionRejected(ILogger logger, SdpMediaKind kind, string mid);
+
+    [LoggerMessage(
+        EventId = 1188,
+        Level = LogLevel.Warning,
+        Message = "The remote {Type} asks for a new DTLS association (RFC 8842 section 3.1); this connection keeps its own and refuses it"
+    )]
+    private static partial void LogNewAssociationRefused(ILogger logger, SdpType type);
+
+    // What identifies the DTLS association the first exchange agreed (RFC 8842 section 3.1).
+    private sealed record DtlsAssociation(
+        string? RemoteTlsId,
+        DtlsFingerprint[] RemoteFingerprints,
+        DtlsRole Role
+    )
+    {
+        public bool AskedToChange(SdpMediaDescription remote, DtlsRole role) =>
+            role != Role
+            || (RemoteTlsId is not null && remote.TlsId is not null && remote.TlsId != RemoteTlsId)
+            || !RemoteFingerprints.ToHashSet().SetEquals(remote.Fingerprints);
+    }
+
+    [LoggerMessage(
+        EventId = 1180,
+        Level = LogLevel.Warning,
+        Message = "The {Kind} section {Mid} is rejected: {Reason}"
+    )]
+    private static partial void LogSectionRefused(
+        ILogger logger,
+        SdpMediaKind kind,
+        string mid,
+        string reason
+    );
+
+    [LoggerMessage(
+        EventId = 1181,
+        Level = LogLevel.Information,
+        Message = "No keyframe request sent for {Ssrc}: the description agreed neither PLI nor FIR"
+    )]
+    private static partial void LogKeyframeRequestNotAgreed(ILogger logger, uint ssrc);
+
+    [LoggerMessage(
+        EventId = 1182,
+        Level = LogLevel.Debug,
+        Message = "Dropped a {Bytes}-byte {Class} datagram above the path MTU of {Limit} bytes"
+    )]
+    private static partial void LogAbovePathMtu(
+        ILogger logger,
+        int bytes,
+        TrafficClass @class,
+        int limit
+    );
+
+    [LoggerMessage(
+        EventId = 1175,
+        Level = LogLevel.Warning,
+        Message = "Consent to the path was lost and no other path is up; it takes an ICE restart to carry on"
+    )]
+    private static partial void LogConnectivityLost(ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1176,
+        Level = LogLevel.Warning,
+        Message = "RTP sequence {Sequence} on SSRC {Ssrc} reached the wire out of order; it is dropped, as protecting it would reuse an SRTP index"
+    )]
+    private static partial void LogOutOfOrderDropped(ILogger logger, uint ssrc, ushort sequence);
 }

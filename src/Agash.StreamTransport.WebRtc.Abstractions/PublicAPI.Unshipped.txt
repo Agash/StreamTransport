@@ -1,0 +1,82 @@
+#nullable enable
+~override Agash.StreamTransport.WebRtc.NetworkPathInfo.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.NetworkPathInfo.ToString() -> string
+~override Agash.StreamTransport.WebRtc.TransportHealthMetrics.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.TransportHealthMetrics.ToString() -> string
+~override Agash.StreamTransport.WebRtc.TransportLossStats.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.TransportLossStats.ToString() -> string
+Agash.StreamTransport.WebRtc.DtlsRole
+Agash.StreamTransport.WebRtc.DtlsRole.Client = 0 -> Agash.StreamTransport.WebRtc.DtlsRole
+Agash.StreamTransport.WebRtc.DtlsRole.Server = 1 -> Agash.StreamTransport.WebRtc.DtlsRole
+Agash.StreamTransport.WebRtc.IceCandidateKind
+Agash.StreamTransport.WebRtc.IceCandidateKind.Host = 0 -> Agash.StreamTransport.WebRtc.IceCandidateKind
+Agash.StreamTransport.WebRtc.IceCandidateKind.PeerReflexive = 2 -> Agash.StreamTransport.WebRtc.IceCandidateKind
+Agash.StreamTransport.WebRtc.IceCandidateKind.Relayed = 3 -> Agash.StreamTransport.WebRtc.IceCandidateKind
+Agash.StreamTransport.WebRtc.IceCandidateKind.ServerReflexive = 1 -> Agash.StreamTransport.WebRtc.IceCandidateKind
+Agash.StreamTransport.WebRtc.IceRole
+Agash.StreamTransport.WebRtc.IceRole.Controlled = 0 -> Agash.StreamTransport.WebRtc.IceRole
+Agash.StreamTransport.WebRtc.IceRole.Controlling = 1 -> Agash.StreamTransport.WebRtc.IceRole
+Agash.StreamTransport.WebRtc.INetworkMonitor
+Agash.StreamTransport.WebRtc.INetworkMonitor.Current.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.NetworkPathInfo>!
+Agash.StreamTransport.WebRtc.INetworkMonitor.NetworksChanged -> System.Action<System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.NetworkPathInfo>!>?
+Agash.StreamTransport.WebRtc.INetworkMonitor.Start() -> void
+Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkAdapterType.Cellular = 3 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkAdapterType.Ethernet = 1 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkAdapterType.Loopback = 4 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkAdapterType.Other = 5 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkAdapterType.Unknown = 0 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkAdapterType.Wifi = 2 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkPathInfo
+Agash.StreamTransport.WebRtc.NetworkPathInfo.AdapterType.get -> Agash.StreamTransport.WebRtc.NetworkAdapterType
+Agash.StreamTransport.WebRtc.NetworkPathInfo.AdapterType.init -> void
+Agash.StreamTransport.WebRtc.NetworkPathInfo.Deconstruct(out string! Id, out string! Name, out Agash.StreamTransport.WebRtc.NetworkAdapterType AdapterType, out bool IsUp) -> void
+Agash.StreamTransport.WebRtc.NetworkPathInfo.Equals(Agash.StreamTransport.WebRtc.NetworkPathInfo other) -> bool
+Agash.StreamTransport.WebRtc.NetworkPathInfo.Id.get -> string!
+Agash.StreamTransport.WebRtc.NetworkPathInfo.Id.init -> void
+Agash.StreamTransport.WebRtc.NetworkPathInfo.IsUp.get -> bool
+Agash.StreamTransport.WebRtc.NetworkPathInfo.IsUp.init -> void
+Agash.StreamTransport.WebRtc.NetworkPathInfo.Name.get -> string!
+Agash.StreamTransport.WebRtc.NetworkPathInfo.Name.init -> void
+Agash.StreamTransport.WebRtc.NetworkPathInfo.NetworkPathInfo() -> void
+Agash.StreamTransport.WebRtc.NetworkPathInfo.NetworkPathInfo(string! Id, string! Name, Agash.StreamTransport.WebRtc.NetworkAdapterType AdapterType, bool IsUp) -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.BaseRttMicros.get -> long
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.BaseRttMicros.init -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.Deconstruct(out double LossRate, out long SmoothedRttMicros, out long BaseRttMicros, out long TargetBitrateBps, out long PacingRateBps) -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.Equals(Agash.StreamTransport.WebRtc.TransportHealthMetrics other) -> bool
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.LossRate.get -> double
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.LossRate.init -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.PacingRateBps.get -> long
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.PacingRateBps.init -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.QueueDelayMicros.get -> long
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.SmoothedRttMicros.get -> long
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.SmoothedRttMicros.init -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.TargetBitrateBps.get -> long
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.TargetBitrateBps.init -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.TransportHealthMetrics() -> void
+Agash.StreamTransport.WebRtc.TransportHealthMetrics.TransportHealthMetrics(double LossRate, long SmoothedRttMicros, long BaseRttMicros, long TargetBitrateBps, long PacingRateBps) -> void
+Agash.StreamTransport.WebRtc.TransportLossStats
+Agash.StreamTransport.WebRtc.TransportLossStats.Deconstruct(out long MediaPacketsSent, out long RtxPacketsSent, out long NackSequencesRequested, out long RtxPacketsRecovered, out long KeyframeRequestsSent) -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.Equals(Agash.StreamTransport.WebRtc.TransportLossStats other) -> bool
+Agash.StreamTransport.WebRtc.TransportLossStats.KeyframeRequestsSent.get -> long
+Agash.StreamTransport.WebRtc.TransportLossStats.KeyframeRequestsSent.init -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.MediaPacketsSent.get -> long
+Agash.StreamTransport.WebRtc.TransportLossStats.MediaPacketsSent.init -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.NackSequencesRequested.get -> long
+Agash.StreamTransport.WebRtc.TransportLossStats.NackSequencesRequested.init -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.RtxPacketsRecovered.get -> long
+Agash.StreamTransport.WebRtc.TransportLossStats.RtxPacketsRecovered.init -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.RtxPacketsSent.get -> long
+Agash.StreamTransport.WebRtc.TransportLossStats.RtxPacketsSent.init -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.TransportLossStats() -> void
+Agash.StreamTransport.WebRtc.TransportLossStats.TransportLossStats(long MediaPacketsSent, long RtxPacketsSent, long NackSequencesRequested, long RtxPacketsRecovered, long KeyframeRequestsSent) -> void
+override Agash.StreamTransport.WebRtc.NetworkPathInfo.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.TransportHealthMetrics.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.TransportLossStats.GetHashCode() -> int
+static Agash.StreamTransport.WebRtc.NetworkPathInfo.operator !=(Agash.StreamTransport.WebRtc.NetworkPathInfo left, Agash.StreamTransport.WebRtc.NetworkPathInfo right) -> bool
+static Agash.StreamTransport.WebRtc.NetworkPathInfo.operator ==(Agash.StreamTransport.WebRtc.NetworkPathInfo left, Agash.StreamTransport.WebRtc.NetworkPathInfo right) -> bool
+static Agash.StreamTransport.WebRtc.TransportHealthMetrics.operator !=(Agash.StreamTransport.WebRtc.TransportHealthMetrics left, Agash.StreamTransport.WebRtc.TransportHealthMetrics right) -> bool
+static Agash.StreamTransport.WebRtc.TransportHealthMetrics.operator ==(Agash.StreamTransport.WebRtc.TransportHealthMetrics left, Agash.StreamTransport.WebRtc.TransportHealthMetrics right) -> bool
+static Agash.StreamTransport.WebRtc.TransportLossStats.operator !=(Agash.StreamTransport.WebRtc.TransportLossStats left, Agash.StreamTransport.WebRtc.TransportLossStats right) -> bool
+static Agash.StreamTransport.WebRtc.TransportLossStats.operator ==(Agash.StreamTransport.WebRtc.TransportLossStats left, Agash.StreamTransport.WebRtc.TransportLossStats right) -> bool

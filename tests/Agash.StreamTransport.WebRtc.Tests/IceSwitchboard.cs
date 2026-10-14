@@ -1,0 +1,353 @@
+using System.Net;
+using Agash.StreamTransport.Stun;
+using Agash.StreamTransport.WebRtc.Ice;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Agash.StreamTransport.WebRtc.Tests;
+
+/// <summary>
+/// Runs <see cref="IceStateMachine"/>s against each other with no sockets, threads or clock: datagrams are
+/// delivered the instant they are sent, and time jumps straight to the next moment any machine needs it.
+/// A path can be cut, a fraction of datagrams lost (seeded), and datagrams held back to reorder a
+/// handshake, so every run of a scenario is the same run.
+/// </summary>
+internal sealed class IceSwitchboard
+{
+    private readonly List<Peer> _peers = [];
+    private readonly HashSet<IPAddress> _cut = [];
+    private readonly List<(Peer From, IceTransmit Transmit)> _held = [];
+    private Func<IPEndPoint, byte[], bool>? _hold;
+    private Random? _loss;
+    private double _lossRate;
+    private int _nextPort = 50_000;
+
+    public TimeSpan Now { get; private set; }
+
+    /// <summary>How many connectivity checks (binding requests) have been delivered.</summary>
+    public int ChecksDelivered { get; private set; }
+
+    /// <summary>
+    /// Whether gathered candidates reach the other peer, as trickle over signaling does; off, a peer learns
+    /// a new address only from the checks that arrive from it (peer-reflexive).
+    /// </summary>
+    public bool Trickle { get; set; } = true;
+
+    /// <summary>An interface coming up on a peer mid-session, as a modem attaching does.</summary>
+    public void AddInterface(Peer peer, IPAddress address)
+    {
+        Bind(peer, [address]);
+        Exchange();
+    }
+
+    /// <summary>An interface going away on a peer: its endpoint is removed and the address goes dark.</summary>
+    public void RemoveInterface(Peer peer, IPAddress address)
+    {
+        _ = _cut.Add(address);
+        int handle = peer.Endpoints.FindIndex(e => e.Address.Equals(address));
+        peer.Machine.RemoveLocalEndpoint(handle, Now);
+        Exchange();
+    }
+
+    /// <summary>
+    /// A controlling and a controlled machine on the given addresses, trickling to each other, both
+    /// signalling what this stack does (renomination included) unless told otherwise.
+    /// </summary>
+    public (Peer Controlling, Peer Controlled) Pair(
+        IPAddress[] controlling,
+        IPAddress[] controlled,
+        IceTimings? timings = null,
+        IceRole firstRole = IceRole.Controlling,
+        IceRole secondRole = IceRole.Controlled,
+        IceOptions options = IceOptions.Supported
+    )
+    {
+        Peer a = Add(firstRole, controlling, timings ?? IceTimings.Default);
+        Peer b = Add(secondRole, controlled, timings ?? IceTimings.Default);
+        a.Machine.SetRemoteCredentials(b.Machine.LocalCredentials);
+        b.Machine.SetRemoteCredentials(a.Machine.LocalCredentials);
+        a.Machine.SetRemoteOptions(options);
+        b.Machine.SetRemoteOptions(options);
+        a.Remote = b;
+        b.Remote = a;
+        a.Machine.Start(Now);
+        b.Machine.Start(Now);
+        Exchange();
+        return (a, b);
+    }
+
+    /// <summary>Drops everything to and from an address from now on.</summary>
+    public void Cut(IPAddress address) => _cut.Add(address);
+
+    /// <summary>Restores a cut address.</summary>
+    public void Uncut(IPAddress address) => _cut.Remove(address);
+
+    /// <summary>Restarts a peer under new credentials on freshly bound endpoints.</summary>
+    public void Restart(Peer peer, IceCredentials credentials, IPAddress[] addresses)
+    {
+        peer.Machine.Restart(credentials);
+        Bind(peer, addresses);
+        Exchange();
+    }
+
+    /// <summary>Drops a fraction of all datagrams, chosen by a seeded generator.</summary>
+    public void SetLossRate(double rate, int seed = 12345)
+    {
+        _lossRate = rate;
+        _loss = new Random(seed);
+    }
+
+    /// <summary>Holds back the datagrams the predicate (source, data) matches until released.</summary>
+    public void Hold(Func<IPEndPoint, byte[], bool> predicate) => _hold = predicate;
+
+    /// <summary>Delivers everything held, now.</summary>
+    public void ReleaseHeld()
+    {
+        _hold = null;
+        (Peer From, IceTransmit Transmit)[] held = [.. _held];
+        _held.Clear();
+        foreach ((Peer from, IceTransmit transmit) in held)
+        {
+            Deliver(from, transmit);
+        }
+
+        Exchange();
+    }
+
+    /// <summary>Advances time until the condition holds or the budget runs out; returns whether it held.</summary>
+    public bool RunUntil(Func<bool> condition, TimeSpan budget)
+    {
+        TimeSpan end = Now + budget;
+        while (!condition())
+        {
+            if (!Step(end))
+            {
+                return condition();
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Advances time by a duration.</summary>
+    public void Run(TimeSpan duration)
+    {
+        TimeSpan end = Now + duration;
+        while (Step(end)) { }
+
+        Now = end;
+    }
+
+    /// <summary>Sends a media datagram over a peer's selected pair; returns whether it arrived.</summary>
+    public bool SendData(Peer from)
+    {
+        if (from.Machine.Selected is not { } selected)
+        {
+            return false;
+        }
+
+        IPEndPoint source = from.Endpoints[selected.Local];
+        if (!Passes(source, selected.Remote, [0x80]) || Owner(selected.Remote) is not { } to)
+        {
+            return false;
+        }
+
+        to.Peer.Machine.NoteDataReceived(to.Handle, source, Now);
+        return true;
+    }
+
+    /// <summary>Sends a repair over a peer's standby pair; returns whether one existed and it arrived.</summary>
+    public bool SendOnStandby(Peer from)
+    {
+        if (from.Machine.Standby(Now) is not { } standby)
+        {
+            return false;
+        }
+
+        IPEndPoint source = from.Endpoints[standby.Local];
+        if (!Passes(source, standby.Remote, [0x80]) || Owner(standby.Remote) is not { } to)
+        {
+            return false;
+        }
+
+        to.Peer.Machine.NoteDataReceived(to.Handle, source, Now);
+        return true;
+    }
+
+    /// <summary>
+    /// Streams media both ways for a duration, a datagram from each peer every interval, as a call does;
+    /// returns how many of each peer's datagrams arrived.
+    /// </summary>
+    public (int Sent, int FromControlling, int FromControlled) Stream(
+        TimeSpan duration,
+        TimeSpan? interval = null
+    )
+    {
+        TimeSpan step = interval ?? TimeSpan.FromMilliseconds(20);
+        int sent = 0;
+        int a = 0;
+        int b = 0;
+        for (TimeSpan elapsed = TimeSpan.Zero; elapsed < duration; elapsed += step)
+        {
+            sent++;
+            a += SendData(_peers[0]) ? 1 : 0;
+            b += SendData(_peers[1]) ? 1 : 0;
+            Run(step);
+        }
+
+        return (sent, a, b);
+    }
+
+    // Moves time to the next timeout before the end and runs it; false when none is due by then.
+    private bool Step(TimeSpan end)
+    {
+        TimeSpan? next = null;
+        foreach (Peer peer in _peers)
+        {
+            if (peer.Machine.NextTimeout is { } due && (next is null || due < next))
+            {
+                next = due;
+            }
+        }
+
+        if (next is not { } at || at > end)
+        {
+            return false;
+        }
+
+        Now = at;
+        foreach (Peer peer in _peers)
+        {
+            peer.Machine.HandleTimeout(Now);
+        }
+
+        Exchange();
+        return true;
+    }
+
+    private Peer Add(IceRole role, IPAddress[] addresses, IceTimings timings)
+    {
+        Peer peer = new(
+            new IceStateMachine(
+                IceCredentials.Generate(),
+                role,
+                timings,
+                NullLogger.Instance,
+                random: new Random(_peers.Count + 1)
+            )
+        );
+        Bind(peer, addresses);
+        _peers.Add(peer);
+        return peer;
+    }
+
+    // Handles index the peer's endpoints; a restart's endpoints follow the ones it dropped.
+    private void Bind(Peer peer, IPAddress[] addresses)
+    {
+        foreach (IPAddress address in addresses)
+        {
+            IPEndPoint bound = new(address, _nextPort++);
+            int handle = peer.Endpoints.Count;
+            peer.Endpoints.Add(bound);
+            peer.Machine.AddLocalEndpoint(handle, bound);
+        }
+    }
+
+    // Delivers datagrams and events until every machine is quiet.
+    private void Exchange()
+    {
+        bool busy = true;
+        while (busy)
+        {
+            busy = false;
+            foreach (Peer peer in _peers)
+            {
+                while (peer.Machine.TryPollEvent(out IceEvent iceEvent))
+                {
+                    busy = true;
+                    if (iceEvent.Candidate is { } candidate)
+                    {
+                        if (Trickle)
+                        {
+                            peer.Remote?.Machine.AddRemoteCandidate(candidate);
+                        }
+                    }
+                    else
+                    {
+                        peer.States.Add(iceEvent.State);
+                    }
+                }
+
+                while (peer.Machine.TryPollTransmit(out IceTransmit transmit))
+                {
+                    busy = true;
+                    Deliver(peer, transmit);
+                }
+            }
+        }
+    }
+
+    private void Deliver(Peer from, IceTransmit transmit)
+    {
+        IPEndPoint source = from.Endpoints[transmit.Local];
+        if (_hold is not null && _hold(source, transmit.Data))
+        {
+            _held.Add((from, transmit));
+            return;
+        }
+
+        if (
+            !Passes(source, transmit.Destination, transmit.Data)
+            || Owner(transmit.Destination) is not { } to
+        )
+        {
+            return;
+        }
+
+        if (StunMessageReader.TryParse(transmit.Data, out StunMessageReader stun))
+        {
+            if (stun.Class == StunMessageClass.Request)
+            {
+                ChecksDelivered++;
+            }
+
+            to.Peer.Machine.HandleStun(to.Handle, source, stun, Now);
+        }
+    }
+
+    private bool Passes(IPEndPoint source, IPEndPoint destination, byte[] data) =>
+        data.Length > 0
+        && !_cut.Contains(source.Address)
+        && !_cut.Contains(destination.Address)
+        && (_loss is null || _loss.NextDouble() >= _lossRate);
+
+    private (Peer Peer, int Handle)? Owner(IPEndPoint endpoint)
+    {
+        foreach (Peer peer in _peers)
+        {
+            int handle = peer.Endpoints.IndexOf(endpoint);
+            if (handle >= 0)
+            {
+                return (peer, handle);
+            }
+        }
+
+        return null;
+    }
+
+    internal sealed class Peer(IceStateMachine machine)
+    {
+        public IceStateMachine Machine { get; } = machine;
+
+        public List<IPEndPoint> Endpoints { get; } = [];
+
+        public List<IceConnectionState> States { get; } = [];
+
+        public Peer? Remote { get; set; }
+
+        public bool Connected => Machine.State == IceConnectionState.Connected;
+
+        /// <summary>The local address of the selected pair, or null.</summary>
+        public IPAddress? SelectedAddress =>
+            Machine.Selected is { } selected ? Endpoints[selected.Local].Address : null;
+    }
+}

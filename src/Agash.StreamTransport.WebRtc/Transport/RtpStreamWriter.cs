@@ -1,0 +1,99 @@
+using System.Security.Cryptography;
+using Agash.StreamTransport.Media;
+using Agash.StreamTransport.WebRtc.Rtp;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
+
+namespace Agash.StreamTransport.WebRtc.Transport;
+
+/// <summary>
+/// Turns one stream's encoded frames into RTP on a connection: the payload format splits them, the RTP
+/// timestamp is the frame's origin on the stream's clock from a random start (RFC 3550), and the first
+/// packet of each frame carries its abs-capture-time when the frame has a capture time.
+/// </summary>
+/// <remarks>
+/// Timestamps come from each frame's own time, not from adding up durations, so frames an encoder emits
+/// out of capture order and gaps in the source both keep their true spacing.
+/// </remarks>
+internal sealed class RtpStreamWriter(
+    IRtpPacketizer packetizer,
+    byte payloadType,
+    uint ssrc,
+    ClockRate rate,
+    PlayoutDelay? playoutDelay = null
+)
+{
+    private readonly RtpPayloadWriter _payloads = new();
+    private readonly Lock _gate = new();
+    private readonly uint _start = unchecked(
+        (uint)RandomNumberGenerator.GetInt32(int.MinValue, int.MaxValue)
+    );
+    private MediaTime? _first;
+
+    /// <summary>The SSRC the stream sends on.</summary>
+    public uint Ssrc => ssrc;
+
+    /// <summary>Packetizes an encoded frame and queues its packets on the connection, in order.</summary>
+    /// <param name="connection">The connection.</param>
+    /// <param name="frame">The encoded frame.</param>
+    /// <param name="timestamp">When it was made.</param>
+    /// <param name="capture">
+    /// When it was captured, on this side's wall clock; null for a frame whose time was only observed,
+    /// which carries no abs-capture-time and no timing (its deltas are measured from the capture time).
+    /// </param>
+    /// <param name="timing">
+    /// Its encode timing when it is a timing frame: its last packet then carries the video-timing extension,
+    /// with packetization finished now and the pacer exit stamped as it leaves, and its capture time.
+    /// </param>
+    /// <returns>False when the connection could not take the packets.</returns>
+    public bool Write(
+        PeerConnection connection,
+        ReadOnlySpan<byte> frame,
+        MediaTimestamp timestamp,
+        NtpTime? capture,
+        FrameSendTiming? timing = null
+    )
+    {
+        lock (_gate)
+        {
+            packetizer.Packetize(frame, connection.MaximumRtpPayloadSize, _payloads);
+            MediaTime origin = timestamp.Origin;
+            _first ??= origin;
+            uint rtpTimestamp = unchecked(_start + (uint)rate.ToTicks(origin - _first.Value));
+            bool sent = true;
+            int last = _payloads.Count - 1;
+            for (int i = 0; i < _payloads.Count; i++)
+            {
+                RtpExtensionValues extensions =
+                    capture is not { } captured
+                        ? new RtpExtensionValues(PlayoutDelay: i == 0 ? playoutDelay : null)
+                    : i == last && timing is { } timed
+                        ? new RtpExtensionValues(
+                            captured.Value,
+                            new VideoTiming(
+                                (byte)timed.Reasons,
+                                VideoTiming.Delta(timed.EncodeStart),
+                                VideoTiming.Delta(timed.EncodeFinish),
+                                VideoTiming.Delta(
+                                    PeerConnection.NtpDifference(captured.Value, connection.NtpNow)
+                                ),
+                                0,
+                                0,
+                                0
+                            )
+                        )
+                    : i == 0 ? new RtpExtensionValues(captured.Value, PlayoutDelay: playoutDelay)
+                    : default;
+                sent &= connection.TrySendRtp(
+                    payloadType,
+                    ssrc,
+                    rtpTimestamp,
+                    i == last,
+                    _payloads[i].Span,
+                    extensions
+                );
+            }
+
+            return sent;
+        }
+    }
+}

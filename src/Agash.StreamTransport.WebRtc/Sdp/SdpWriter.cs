@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using Agash.StreamTransport.WebRtc.Ice;
+using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Sdp;
 
@@ -15,17 +17,20 @@ public static class SdpWriter
         sb.Append("v=0\r\n");
         sb.Append(
             CultureInfo.InvariantCulture,
-            $"o=- {description.SessionId} 2 IN IP4 127.0.0.1\r\n"
+            $"o=- {description.SessionId} {description.SessionVersion} IN IP4 127.0.0.1\r\n"
         );
         sb.Append("s=-\r\n");
         sb.Append("t=0 0\r\n");
-        sb.Append("a=group:BUNDLE");
-        foreach (SdpMediaDescription media in description.Media)
+        if (description.IceLite)
         {
-            sb.Append(CultureInfo.InvariantCulture, $" {media.Mid}");
+            sb.Append("a=ice-lite\r\n");
         }
 
-        sb.Append("\r\n");
+        if (description.BundleGroup is { Count: > 0 } bundled)
+        {
+            sb.Append("a=group:BUNDLE ").Append(string.Join(' ', bundled)).Append("\r\n");
+        }
+
         sb.Append("a=msid-semantic: WMS *\r\n");
 
         foreach (SdpMediaDescription media in description.Media)
@@ -45,10 +50,27 @@ public static class SdpWriter
             _ => "application",
         };
 
-        sb.Append(CultureInfo.InvariantCulture, $"m={kind} 9 UDP/TLS/RTP/SAVPF");
+        sb.Append(
+            CultureInfo.InvariantCulture,
+            $"m={kind} {(media.Rejected || media.BundleOnly ? 0 : 9)} {media.Protocol}"
+        );
         foreach (SdpCodec codec in media.Codecs)
         {
             sb.Append(CultureInfo.InvariantCulture, $" {codec.PayloadType}");
+        }
+
+        if (media.Codecs.Count == 0)
+        {
+            foreach (string format in media.Formats)
+            {
+                sb.Append(' ').Append(format);
+            }
+        }
+
+        // RFC 8866 section 5.14: an m= line lists at least one format, a rejected one with nothing to list too.
+        if (media.Codecs.Count == 0 && media.Formats.Count == 0)
+        {
+            sb.Append(" 0");
         }
 
         sb.Append("\r\n");
@@ -59,16 +81,46 @@ public static class SdpWriter
             sb.Append("a=rtcp-mux\r\n");
         }
 
+        if (media.RtcpMuxOnly)
+        {
+            sb.Append("a=rtcp-mux-only\r\n");
+        }
+
+        if (media.BundleOnly)
+        {
+            sb.Append("a=bundle-only\r\n");
+        }
+
+        if (media.RtcpReducedSize)
+        {
+            sb.Append("a=rtcp-rsize\r\n");
+        }
+
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-ufrag:{media.IceUfrag}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a=ice-pwd:{media.IcePwd}\r\n");
-        sb.Append("a=ice-options:trickle\r\n");
-        sb.Append(
-            CultureInfo.InvariantCulture,
-            $"a=fingerprint:{media.Fingerprint.ToSdpValue()}\r\n"
-        );
+        if (media.IceOptions != IceOptions.None)
+        {
+            sb.Append(
+                CultureInfo.InvariantCulture,
+                $"a=ice-options:{IceOptionsText.Format(media.IceOptions)}\r\n"
+            );
+        }
+        foreach (DtlsFingerprint fingerprint in media.Fingerprints)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=fingerprint:{fingerprint}\r\n");
+        }
+
         sb.Append(CultureInfo.InvariantCulture, $"a=setup:{SetupText(media.Setup)}\r\n");
+        if (media.TlsId is { } tlsId)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=tls-id:{tlsId}\r\n");
+        }
         sb.Append(CultureInfo.InvariantCulture, $"a=mid:{media.Mid}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a={DirectionText(media.Direction)}\r\n");
+        if (media.MediaStreamId is { } stream && media.TrackId is { } track)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=msid:{stream} {track}\r\n");
+        }
 
         foreach (SdpCodec codec in media.Codecs)
         {
@@ -90,6 +142,14 @@ public static class SdpWriter
                 );
             }
 
+            if (media.TransportWideFeedback)
+            {
+                sb.Append(
+                    CultureInfo.InvariantCulture,
+                    $"a=rtcp-fb:{codec.PayloadType} transport-cc\r\n"
+                );
+            }
+
             if (!string.IsNullOrEmpty(codec.FormatParameters))
             {
                 sb.Append(
@@ -99,12 +159,82 @@ public static class SdpWriter
             }
         }
 
+        if (media.CongestionControlFeedback)
+        {
+            sb.Append("a=rtcp-fb:* ack ccfb\r\n");
+        }
+
+        if (media.ExtmapAllowMixed)
+        {
+            sb.Append("a=extmap-allow-mixed\r\n");
+        }
+
+        foreach (SdpExtension extension in media.Extensions)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=extmap:{extension.Id}");
+            if (extension.Direction is { } direction)
+            {
+                sb.Append('/').Append(DirectionText(direction));
+            }
+
+            sb.Append(' ').Append(extension.Uri).Append("\r\n");
+        }
+
+        if (media.Ecn is { } ecn && !ecn.Methods.IsEmpty)
+        {
+            sb.Append("a=ecn-capable-rtp: ").Append(string.Join(',', ecn.Methods));
+            List<string> parameters = [];
+            if (ecn.Mode is { } mode)
+            {
+                parameters.Add($"mode={mode}");
+            }
+
+            if (ecn.Ect is { } ect)
+            {
+                parameters.Add($"ect={ect}");
+            }
+
+            if (parameters.Count > 0)
+            {
+                sb.Append(' ').Append(string.Join("; ", parameters));
+            }
+
+            sb.Append("\r\n");
+        }
+
+        foreach (Ice.IceCandidate candidate in media.Candidates)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a={candidate.ToSdp()}\r\n");
+        }
+
+        if (media.EndOfCandidates)
+        {
+            sb.Append("a=end-of-candidates\r\n");
+        }
+
         if (media.Ssrc is { } ssrc)
         {
-            sb.Append(
-                CultureInfo.InvariantCulture,
-                $"a=ssrc:{ssrc} cname:{media.Cname ?? "streamtransport"}\r\n"
-            );
+            string cname = media.Cname ?? "streamtransport";
+            if (media.RtxSsrc is { } rtx)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc-group:FID {ssrc} {rtx}\r\n");
+            }
+
+            if (media.FecSsrc is { } fec)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc-group:FEC-FR {ssrc} {fec}\r\n");
+            }
+
+            sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{ssrc} cname:{cname}\r\n");
+            if (media.RtxSsrc is { } rtxSsrc)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{rtxSsrc} cname:{cname}\r\n");
+            }
+
+            if (media.FecSsrc is { } fecSsrc)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{fecSsrc} cname:{cname}\r\n");
+            }
         }
     }
 

@@ -1,0 +1,626 @@
+using System.Collections.Immutable;
+using System.Runtime.Versioning;
+using Agash.StreamTransport.Media;
+using FFmpeg.Interop.Native;
+using static FFmpeg.Interop.D3D11VAExtensions;
+using static FFmpeg.Interop.D3D12VAExtensions;
+using static FFmpeg.Interop.DrmExtensions;
+using static FFmpeg.Interop.VideoToolboxExtensions;
+using FF = FFmpeg.Interop;
+
+namespace Agash.StreamTransport.Codecs.FFmpeg;
+
+// Turns a borrowed Media frame into the FFmpeg frame an encoder takes. One per storage kind, chosen
+// when the encoder opens on its first frame; the frame's device decides the encoder's device, so an
+// input from another GPU than the one it opened on is refused.
+internal abstract class EncoderInput : IDisposable
+{
+    // The pixel format the encoder context is opened with: a hardware format for surface input.
+    public abstract FF.PixelFormat ContextFormat { get; }
+
+    // The surfaces the encoder draws from, for surface input.
+    public virtual FF.HardwareFramePool? Pool => null;
+
+    // The device the encoder runs on, when it needs one given explicitly.
+    public virtual FF.HardwareDevice? Device => null;
+
+    // Fills destination from the frame, sent with a pts; the encoder takes its own reference to what it
+    // keeps.
+    public abstract void Prepare(in VideoFrame frame, long pts, FF.Frame destination);
+
+    // The encoder has read every frame sent up to and including a pts, whose producers get them back
+    // next.
+    public virtual void Read(long pts) { }
+
+    public virtual void Dispose() { }
+}
+
+// System memory straight into the encoder, for encoders that take it; a hardware encoder that does
+// runs on the device given, which it owns.
+internal sealed class SystemMemoryInput(PixelFormat format, FF.HardwareDevice? device = null)
+    : EncoderInput
+{
+    public override FF.PixelFormat ContextFormat { get; } = Formats.ToFFmpeg(format);
+
+    public override FF.HardwareDevice? Device => device;
+
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination) =>
+        FFmpegFrames.CopyFrom(in frame, destination);
+
+    public override void Dispose() => device?.Dispose();
+}
+
+// System memory uploaded into the encoder's surfaces, for encoders that take only surfaces.
+internal sealed class UploadInput : EncoderInput
+{
+    private readonly FF.HardwareDevice _device;
+    private readonly FF.HardwareFramePool _pool;
+    private readonly FF.Frame _staging = new();
+
+    // Takes ownership of the device.
+    public UploadInput(FF.HardwareDevice device, PixelFormat format, VideoSize size)
+    {
+        _device = device;
+        _pool = FF.HardwareFramePool.Create(
+            device,
+            device.SurfaceFormat,
+            Formats.ToFFmpeg(format),
+            size.Width,
+            size.Height
+        );
+    }
+
+    public override FF.PixelFormat ContextFormat => _pool.Format;
+
+    public override FF.HardwareFramePool Pool => _pool;
+
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
+    {
+        FFmpegFrames.CopyFrom(in frame, _staging);
+        _pool.Upload(_staging, destination);
+    }
+
+    public override void Dispose()
+    {
+        _staging.Dispose();
+        _pool.Dispose();
+        _device.Dispose();
+    }
+}
+
+// A Direct3D 11 texture handed to NVENC or AMF on the texture's device: read in place when it is
+// exactly the picture, copied on the GPU into the encoder's surfaces when it is larger.
+[SupportedOSPlatform("windows6.1")]
+internal sealed unsafe class D3D11Input : EncoderInput
+{
+    private const uint BindRenderTarget = 0x20;
+    private const uint BindShaderResource = 0x8;
+    private const uint BindDecoder = 0x200;
+
+    private readonly FF.HardwareDevice _device;
+    private readonly FF.HardwareFramePool _pool;
+    private readonly VideoSize _size;
+
+    public D3D11Input(D3D11Image image, PixelFormat format, VideoSize size)
+    {
+        _size = size;
+        _device = FF.HardwareDevice.FromD3D11Texture(image.Texture);
+        // A fixed texture array, which NVENC and AMF register once. Direct3D 11 needs a bind flag for
+        // one: YUV surfaces are bound as decoder targets, RGB as render targets the encoder samples.
+        FF.PixelFormat software = Formats.SurfaceSoftwareFormat(format);
+        uint bind =
+            software == FF.PixelFormat.Bgra ? BindRenderTarget | BindShaderResource : BindDecoder;
+        _pool = FF.HardwareFramePool.Create(
+            _device,
+            FF.PixelFormat.D3D11,
+            software,
+            size.Width,
+            size.Height,
+            initialSize: 8,
+            configure: pool => ((AVD3D11VAFramesContext*)pool.Context->hwctx)->BindFlags = bind
+        );
+    }
+
+    public override FF.PixelFormat ContextFormat => FF.PixelFormat.D3D11;
+
+    public override FF.HardwareFramePool Pool => _pool;
+
+    public override FF.HardwareDevice Device => _device;
+
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
+    {
+        if (!frame.Storage.TryGetValue(out D3D11Image image))
+        {
+            throw new ArgumentException("The frame is not a Direct3D 11 texture.", nameof(frame));
+        }
+
+        if (image.Sync.Kind != D3D11SyncKind.None)
+        {
+            throw new NotSupportedException(
+                $"Direct3D 11 frames synchronised by {image.Sync.Kind} are not supported; deliver them finished."
+            );
+        }
+
+        // NVENC and AMF read any texture on their device, so a texture of exactly the picture is read in
+        // place; a larger one (a decoder pads its surfaces) is copied, since the encoder reads it whole.
+        if (frame.Format.CodedSize == _size)
+        {
+            _pool.WrapD3D11Texture(image.Texture, image.Subresource, destination);
+        }
+        else
+        {
+            _pool.CopyFromD3D11Texture(image.Texture, image.Subresource, destination);
+        }
+    }
+
+    public override void Dispose()
+    {
+        _pool.Dispose();
+        _device.Dispose();
+    }
+}
+
+// A Direct3D 12 resource handed to a Direct3D 12 encoder as it is, ordered after its producer's queue.
+[SupportedOSPlatform("windows10.0.10240")]
+internal sealed class D3D12Input : EncoderInput
+{
+    private readonly FF.HardwareDevice _device;
+    private readonly FF.HardwareFramePool _pool;
+    private readonly VideoSize _size;
+
+    public D3D12Input(D3D12Image image, PixelFormat format, VideoSize size)
+    {
+        _size = size;
+        _device = FF.HardwareDevice.FromD3D12Resource(image.Resource);
+        _pool = FF.HardwareFramePool.Create(
+            _device,
+            FF.PixelFormat.D3D12,
+            Formats.SurfaceSoftwareFormat(format),
+            size.Width,
+            size.Height
+        );
+    }
+
+    public override FF.PixelFormat ContextFormat => FF.PixelFormat.D3D12;
+
+    public override FF.HardwareFramePool Pool => _pool;
+
+    public override FF.HardwareDevice Device => _device;
+
+    // A single texture whose picture starts at its top-left corner is read in place, a decoder's surface
+    // padded to its block size included: the encoder reads the picture's size from the corner. A slice
+    // of an array is first copied on the GPU, since the encoder reads whole single textures. Either way
+    // the encoder is ordered after the producer on the GPU.
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
+    {
+        if (!frame.Storage.TryGetValue(out D3D12Image image))
+        {
+            throw new ArgumentException("The frame is not a Direct3D 12 resource.", nameof(frame));
+        }
+
+        if (frame.Format.VisibleRect.X != 0 || frame.Format.VisibleRect.Y != 0)
+        {
+            throw new NotSupportedException(
+                "A Direct3D 12 picture is read from its texture's top-left corner; this one is offset."
+            );
+        }
+
+        bool inPlace = image.Subresource == 0;
+        D3D12Sync sync = image.Sync;
+        if (inPlace && sync.Fence != 0 && sync.ProducerQueue == 0)
+        {
+            _pool.WrapD3D12Texture(image.Resource, sync.Fence, sync.Value, destination);
+        }
+        else if (inPlace)
+        {
+            _pool.WrapD3D12Texture(image.Resource, sync.ProducerQueue, destination);
+        }
+        else if (sync.ProducerQueue == 0)
+        {
+            _pool.CopyFromD3D12Texture(
+                image.Resource,
+                image.Subresource,
+                sync.Fence,
+                sync.Value,
+                destination
+            );
+        }
+        else
+        {
+            throw new NotSupportedException(
+                "A Direct3D 12 frame larger than the picture is copied, and the copy is ordered by a fence: give the frame's fence."
+            );
+        }
+    }
+
+    public override void Dispose()
+    {
+        _pool.Dispose();
+        _device.Dispose();
+    }
+}
+
+// A DMA-BUF imported as DRM PRIME and mapped into the encoder's VA-API surfaces, which take the
+// buffer's memory as it is.
+[SupportedOSPlatform("linux")]
+internal sealed class DmaBufInput : EncoderInput
+{
+    private readonly FF.HardwareDevice _device;
+    private readonly FF.HardwareFramePool _pool;
+    private readonly VideoSize _size;
+
+    // Takes ownership of the device.
+    public DmaBufInput(FF.HardwareDevice device, PixelFormat format, VideoSize size)
+    {
+        _device = device;
+        _size = size;
+        _pool = FF.HardwareFramePool.Create(
+            device,
+            device.SurfaceFormat,
+            Formats.ToFFmpeg(format),
+            size.Width,
+            size.Height
+        );
+    }
+
+    public override FF.PixelFormat ContextFormat => _pool.Format;
+
+    public override FF.HardwareFramePool Pool => _pool;
+
+    // VA-API takes buffers as they are, so a picture still being written is waited for in the kernel.
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
+    {
+        DmaBufImage image = DmaBufs.Picture(in frame);
+        DmaBufs.WaitUntilWritten(in image);
+        using var imported = FF.Frame.FromDrmPrime(
+            DmaBufs.ToDrmPrime(image),
+            _size.Width,
+            _size.Height
+        );
+        imported.MapTo(_pool, destination, FF.HardwareMapAccess.Read);
+    }
+
+    public override void Dispose()
+    {
+        _pool.Dispose();
+        _device.Dispose();
+    }
+}
+
+// A DMA-BUF handed to a Vulkan Video encoder in place: its memory is imported as an image made for the
+// encoder's input, taken from its producer while the encoder reads it and given back once the encoder
+// has. Producers cycle a few buffers, so each buffer's import is kept while it keeps coming back. A buffer
+// whose layout this GPU cannot encode from is imported the same way as an image for reads, and copied on
+// the GPU into a surface of the encoder's pool: the copy waits for the producer, the encoder waits for the
+// copy, and the buffer goes back after both, all on the GPU.
+[SupportedOSPlatform("linux")]
+internal sealed class VulkanDmaBufInput : EncoderInput
+{
+    // Imports kept for buffers not in use: a producer's pool is a handful of buffers.
+    private const int KeptImports = 16;
+
+    private readonly FF.HardwareDevice _device;
+    private readonly FF.HardwareFramePool _pool;
+    private readonly FF.VulkanDmaBufImporter _importer;
+    private readonly VideoSize _size;
+    private readonly Dictionary<ImportKey, Import> _imports = [];
+    private readonly Queue<(long Pts, Import Import)> _reading = new();
+    private readonly Action<ulong> _copying;
+    private readonly Func<ulong, bool> _readsInPlace;
+    private readonly Dictionary<ulong, bool> _inPlace = [];
+    private FF.HardwareFramePool? _reads;
+    private FF.VulkanDmaBufImporter? _readImporter;
+    private FF.VulkanFrameCopier? _copier;
+    private long _uses;
+
+    // Takes ownership of the device; copying is told once for each modifier the GPU cannot read in place.
+    // readsInPlace overrides the GPU's answer, for exercising the copy on a GPU that never needs it.
+    public VulkanDmaBufInput(
+        FF.HardwareDevice device,
+        PixelFormat format,
+        VideoSize size,
+        Action<ulong> copying,
+        Func<ulong, bool>? readsInPlace = null
+    )
+    {
+        _device = device;
+        _size = size;
+        _copying = copying;
+        _pool = FF.HardwareFramePool.Create(
+            device,
+            FF.PixelFormat.Vulkan,
+            Formats.ToFFmpeg(format),
+            size.Width,
+            size.Height
+        );
+        _importer = new FF.VulkanDmaBufImporter(_pool);
+        _readsInPlace = readsInPlace ?? _importer.Supports;
+    }
+
+    public override FF.PixelFormat ContextFormat => FF.PixelFormat.Vulkan;
+
+    public override FF.HardwareFramePool Pool => _pool;
+
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
+    {
+        DmaBufImage image = DmaBufs.Picture(in frame);
+        FF.DrmPrimeImage picture = DmaBufs.ToDrmPrime(image);
+        if (picture.Objects.Length != 1)
+        {
+            throw new NotSupportedException(
+                $"A picture in {picture.Objects.Length} DMA-BUFs cannot be encoded: Vulkan reads a picture from one buffer."
+            );
+        }
+
+        if (!_inPlace.TryGetValue(image.Modifier, out bool inPlace))
+        {
+            inPlace = _readsInPlace(image.Modifier);
+            _inPlace.Add(image.Modifier, inPlace);
+            if (!inPlace)
+            {
+                _copying(image.Modifier);
+            }
+        }
+
+        // The modifier is part of the key, so a buffer is always imported by the same importer.
+        var key = ImportKey.Of(image, picture);
+        if (!_imports.TryGetValue(key, out Import? import))
+        {
+            Evict();
+            import = new Import(inPlace ? _importer : ReadImporter());
+            import.Importer.Import(picture, _size.Width, _size.Height, import.Frame);
+            _imports.Add(key, import);
+        }
+
+        if (import.Reading++ == 0)
+        {
+            // The encoder's GPU work waits for the producer's sync point; a device that cannot import
+            // one waits for it here.
+            FF.DrmSyncPoint? ready = null;
+            if (image.Sync is { } sync)
+            {
+                if (import.Importer.WaitsForSyncPoints)
+                {
+                    ready = new FF.DrmSyncPoint(sync.AcquireSyncobj, sync.AcquirePoint);
+                }
+                else
+                {
+                    DmaBufs.WaitUntilWritten(in image);
+                }
+            }
+
+            import.Importer.Acquire(import.Frame, ready);
+        }
+
+        import.LastUse = ++_uses;
+        _reading.Enqueue((pts, import));
+        if (inPlace)
+        {
+            destination.Reference(import.Frame);
+        }
+        else
+        {
+            _pool.GetFrame(destination);
+            _copier ??= new FF.VulkanFrameCopier(_device);
+            _ = _copier.Copy(import.Frame, destination);
+        }
+    }
+
+    public override void Read(long pts)
+    {
+        while (_reading.TryPeek(out (long Pts, Import Import) oldest) && oldest.Pts <= pts)
+        {
+            _ = _reading.Dequeue();
+            if (--oldest.Import.Reading == 0)
+            {
+                oldest.Import.Importer.Release(oldest.Import.Frame);
+            }
+        }
+    }
+
+    public override void Dispose()
+    {
+        // The encoder is closed: whatever it was still reading goes back to its producer.
+        Read(long.MaxValue);
+        foreach (Import import in _imports.Values)
+        {
+            import.Frame.Dispose();
+        }
+
+        _imports.Clear();
+        _copier?.Dispose();
+        _importer.Dispose();
+        _readImporter?.Dispose();
+        _reads?.Dispose();
+        _pool.Dispose();
+        _device.Dispose();
+    }
+
+    // Imports for buffers the encoder cannot read in place: images made for copying from, which take
+    // layouts an encoder's input does not.
+    private unsafe FF.VulkanDmaBufImporter ReadImporter()
+    {
+        if (_readImporter is { } importer)
+        {
+            return importer;
+        }
+
+        _reads = FF.HardwareFramePool.Create(
+            _device,
+            FF.PixelFormat.Vulkan,
+            _pool.SoftwareFormat,
+            _size.Width,
+            _size.Height,
+            configure: static pool =>
+                ((AVVulkanFramesContext*)pool.Context->hwctx)->usage =
+                    VkImageUsageFlagBits.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                    | VkImageUsageFlagBits.VK_IMAGE_USAGE_SAMPLED_BIT
+        );
+        _readImporter = new FF.VulkanDmaBufImporter(_reads);
+        return _readImporter;
+    }
+
+    // Drops the least recently used import no frame is reading, once the producer has shown more buffers
+    // than a pool holds.
+    private void Evict()
+    {
+        if (_imports.Count < KeptImports)
+        {
+            return;
+        }
+
+        KeyValuePair<ImportKey, Import>? oldest = null;
+        foreach (KeyValuePair<ImportKey, Import> entry in _imports)
+        {
+            if (
+                entry.Value.Reading == 0
+                && (oldest is null || entry.Value.LastUse < oldest.Value.Value.LastUse)
+            )
+            {
+                oldest = entry;
+            }
+        }
+
+        if (oldest is { } evicted)
+        {
+            _ = _imports.Remove(evicted.Key);
+            evicted.Value.Frame.Dispose();
+        }
+    }
+
+    private sealed class Import(FF.VulkanDmaBufImporter importer)
+    {
+        public FF.VulkanDmaBufImporter Importer { get; } = importer;
+
+        public FF.Frame Frame { get; } = new();
+
+        // Frames sent to the encoder from this buffer that it has not finished reading.
+        public int Reading { get; set; }
+
+        public long LastUse { get; set; }
+    }
+
+    // A buffer and the layout read from it: the same DMA-BUF described another way is another import.
+    private readonly record struct ImportKey(
+        (ulong Device, ulong Inode) Buffer,
+        ulong Modifier,
+        long Plane0,
+        long Pitch0,
+        long Plane1,
+        long Pitch1
+    )
+    {
+        public static ImportKey Of(DmaBufImage image, FF.DrmPrimeImage picture)
+        {
+            ImmutableArray<FF.DrmPlane> planes = picture.Layers[0].Planes;
+            return new(
+                DmaBufIdentity.Of(picture.Objects[0].FileDescriptor),
+                image.Modifier,
+                planes[0].Offset,
+                planes[0].Pitch,
+                planes.Length > 1 ? planes[1].Offset : -1,
+                planes.Length > 1 ? planes[1].Pitch : -1
+            );
+        }
+    }
+}
+
+// Media's DMA-BUF pictures as FFmpeg describes them.
+[SupportedOSPlatform("linux")]
+internal static class DmaBufs
+{
+    private static readonly TimeSpan WriterTimeout = TimeSpan.FromSeconds(1);
+
+    // The frame's picture.
+    public static DmaBufImage Picture(in VideoFrame frame) =>
+        frame.Storage.TryGetValue(out DmaBufImage image)
+            ? image
+            : throw new ArgumentException("The frame is not a DMA-BUF.", nameof(frame));
+
+    // Blocks until a picture that carries a sync point is written, for a reader that cannot wait on the
+    // GPU; a picture without one is finished when it is delivered.
+    public static void WaitUntilWritten(in DmaBufImage image)
+    {
+        if (image.Sync is { } sync)
+        {
+            DrmSync.Wait(in sync, image.Device, WriterTimeout);
+        }
+    }
+
+    // One layer in the picture's DRM format. Planes in one DMA-BUF are one object, whichever descriptor
+    // each came with: importers take frames made of a single object, and a producer may hand every plane
+    // its own descriptor.
+    public static FF.DrmPrimeImage ToDrmPrime(DmaBufImage image)
+    {
+        var objects = ImmutableArray.CreateBuilder<FF.DrmObject>(image.PlaneCount);
+        var identities = new List<(ulong, ulong)>(image.PlaneCount);
+        var planes = ImmutableArray.CreateBuilder<FF.DrmPlane>(image.PlaneCount);
+        for (int i = 0; i < image.PlaneCount; i++)
+        {
+            DmaBufPlane plane = image[i];
+            (ulong, ulong) identity = DmaBufIdentity.Of(plane.Fd);
+            int index = identities.IndexOf(identity);
+            if (index < 0)
+            {
+                index = objects.Count;
+                identities.Add(identity);
+                objects.Add(new FF.DrmObject(plane.Fd, 0, image.Modifier));
+            }
+
+            planes.Add(new FF.DrmPlane(index, plane.Offset, plane.Stride));
+        }
+
+        return new FF.DrmPrimeImage(
+            objects.DrainToImmutable(),
+            [new FF.DrmLayer(image.DrmFormat, planes.DrainToImmutable())]
+        );
+    }
+}
+
+// An IOSurface wrapped as a VideoToolbox frame without a copy.
+[SupportedOSPlatform("macos")]
+internal sealed class IOSurfaceInput : EncoderInput
+{
+    private readonly FF.HardwareDevice _device;
+    private readonly FF.HardwareFramePool _pool;
+
+    // Takes ownership of the device.
+    public IOSurfaceInput(FF.HardwareDevice device, PixelFormat format, VideoSize size)
+    {
+        _device = device;
+        _pool = FF.HardwareFramePool.Create(
+            device,
+            FF.PixelFormat.VideoToolbox,
+            Formats.ToFFmpeg(format),
+            size.Width,
+            size.Height
+        );
+    }
+
+    public override FF.PixelFormat ContextFormat => FF.PixelFormat.VideoToolbox;
+
+    public override FF.HardwareFramePool Pool => _pool;
+
+    public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
+    {
+        if (!frame.Storage.TryGetValue(out IOSurfaceImage image))
+        {
+            throw new ArgumentException("The frame is not an IOSurface.", nameof(frame));
+        }
+
+        if (image.SharedEvent != 0)
+        {
+            throw new NotSupportedException(
+                "IOSurface frames synchronised by a shared event are not supported yet; deliver them finished."
+            );
+        }
+
+        _pool.WrapIOSurface(image.Surface, destination);
+    }
+
+    public override void Dispose()
+    {
+        _pool.Dispose();
+        _device.Dispose();
+    }
+}

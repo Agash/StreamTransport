@@ -1,3 +1,4 @@
+using Agash.StreamTransport.Media;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 
@@ -53,13 +54,14 @@ public sealed class RtpRtcpTests
             timestamp: 1000,
             ssrc: 0x55667788,
             payload,
-            absCaptureTimeExtensionId: 1,
-            absCaptureTimeNtp: ntp
+            RtpExtensionMap.Offered,
+            new RtpExtensionValues(ntp)
         );
 
         Assert.IsTrue(
             RtpPacket.TryParse(
                 buffer.AsSpan(0, length),
+                RtpExtensionMap.Offered,
                 out RtpHeader header,
                 out ReadOnlySpan<byte> parsedPayload
             )
@@ -67,6 +69,24 @@ public sealed class RtpRtcpTests
         Assert.AreEqual(ntp, header.AbsoluteCaptureTimeNtp);
         Assert.AreEqual(1000u, header.Timestamp);
         CollectionAssert.AreEqual(payload, parsedPayload.ToArray());
+    }
+
+    // RFC 3550 section 5.1: the padding octets the last octet counts are not payload; a count past the
+    // payload makes the packet invalid (A.1), and a padding-only RTX packet carries no original.
+    [TestMethod]
+    public void RtpPacket_TryParse_StripsPaddingAndRejectsAnOverlongCount()
+    {
+        byte[] packet = [0xA0, 96, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0x41, 0x42, 0, 0, 3];
+        Assert.IsTrue(RtpPacket.TryParse(packet, out _, out ReadOnlySpan<byte> payload));
+        CollectionAssert.AreEqual(new byte[] { 0x41, 0x42 }, payload.ToArray());
+
+        packet[^1] = 6;
+        Assert.IsFalse(RtpPacket.TryParse(packet, out _, out _));
+        packet[^1] = 0;
+        Assert.IsFalse(RtpPacket.TryParse(packet, out _, out _));
+
+        byte[] paddingOnlyRtx = [0xA0, 97, 0, 9, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 4];
+        Assert.IsFalse(RtxStream.TryUnwrap(paddingOnlyRtx, new byte[64], 96, 3, out _));
     }
 
     [TestMethod]

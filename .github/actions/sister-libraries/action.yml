@@ -1,0 +1,22 @@
+name: Sister libraries
+description: >-
+  Clones the main branches of the owned libraries StreamTransport builds against and points the build
+  at them, as a development machine with the clones does. They build from source until each is
+  released alongside StreamTransport's pre-release.
+
+runs:
+  using: composite
+  steps:
+    - name: Clone the sister libraries
+      shell: bash
+      run: |
+        for repo in Dtls.Core FFmpeg.Interop PipeWire.NET Spout2.NET Syphon.NET; do
+          git clone --quiet --depth 1 "https://github.com/Agash/$repo.git" "$RUNNER_TEMP/deps/$repo"
+        done
+        {
+          echo "DtlsCoreProject=$RUNNER_TEMP/deps/Dtls.Core/src/Dtls.Core/Dtls.Core.csproj"
+          echo "FFmpegInteropProject=$RUNNER_TEMP/deps/FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj"
+          echo "PipeWireNetMediaProject=$RUNNER_TEMP/deps/PipeWire.NET/src/PipeWire.NET.Media/PipeWire.NET.Media.csproj"
+          echo "Spout2NetProject=$RUNNER_TEMP/deps/Spout2.NET/src/Spout2.NET/Spout2.NET.csproj"
+          echo "SyphonNetProject=$RUNNER_TEMP/deps/Syphon.NET/src/Syphon.NET/Syphon.NET.csproj"
+        } >> "$GITHUB_ENV"

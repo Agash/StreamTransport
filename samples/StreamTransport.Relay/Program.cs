@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.WebSockets;
 using Agash.StreamTransport;
@@ -30,16 +31,20 @@ IIceServerProvider iceProvider = BuildIceProvider(stunUrl);
 
 builder.Services.AddSingleton(iceProvider);
 builder.Services.AddSingleton<ISignalingRouter>(sp => new SignalingRouter(
-    sp.GetRequiredService<IIceServerProvider>()
+    sp.GetRequiredService<IIceServerProvider>(),
+    sp.GetService<ILoggerFactory>(),
+    sp.GetService<IMeterFactory>()
 ));
 if (!stunDisabled)
 {
-    builder.Services.AddSingleton(_ => new StunBindingServer(
-        new IPEndPoint(IPAddress.Any, stunPort)
+    builder.Services.AddSingleton(sp => new StunBindingServer(
+        StunBindingServer.AnyAddress(stunPort),
+        sp.GetService<ILogger<StunBindingServer>>(),
+        sp.GetService<IMeterFactory>()
     ));
 }
 
-string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://0.0.0.0:8080";
+string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://[::]:8080";
 builder.WebHost.UseUrls(urls);
 
 WebApplication app = builder.Build();
@@ -79,7 +84,10 @@ app.Map(
 
         ILogger logger = loggerFactory.CreateLogger("Signaling");
         using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
-        var transport = new WebSocketSignalingTransport(socket);
+        var transport = new WebSocketSignalingTransport(
+            socket,
+            logger: loggerFactory.CreateLogger<WebSocketSignalingTransport>()
+        );
         await using ISignalingSession session = router.Connect(transport);
         transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
 

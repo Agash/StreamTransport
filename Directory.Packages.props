@@ -3,23 +3,21 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
-    <PackageVersion
-      Include="Microsoft.Extensions.DependencyInjection.Abstractions"
-      Version="10.0.12"
-    />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-rc.1.26425.128" />
     <PackageVersion
       Include="Microsoft.Extensions.DependencyInjection"
       Version="11.0.0-rc.1.26425.128"
     />
-    <!-- DTLS 1.2 + use_srtp (RFC 5764) handshake engine - the ONLY third-party crypto dependency,
-         confined to Agash.StreamTransport.WebRtc.Dtls. The BCL has no managed DTLS. -->
-    <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
+    <PackageVersion
+      Include="Microsoft.Extensions.Logging.Console"
+      Version="11.0.0-rc.1.26425.128"
+    />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.10.0" />
+    <PackageVersion Include="Dtls.Core" Version="0.1.0-alpha.1" />
+    <PackageVersion Include="FFmpeg.Interop" Version="0.1.0-alpha.1" />
+    <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.335" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.5" />
     <PackageVersion Include="MinVer" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" />
     <PackageVersion Include="MSTest.TestFramework" Version="4.5.1" />
     <PackageVersion Include="MSTest.TestAdapter" Version="4.5.1" />
     <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.5.1" />
@@ -27,28 +25,12 @@
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Pure-managed Opus, driven directly for stereo. -->
+    <!-- Managed Opus. -->
     <PackageVersion Include="Concentus" Version="2.2.2" />
-    <PackageVersion Include="FFmpeg.AutoGen" Version="9.0.1.1" />
-    <!-- Robust typed D3D11 interop for the Windows zero-copy texture path (Windows runtime only). -->
-    <PackageVersion Include="Vortice.Direct3D11" Version="3.8.3" />
-    <!-- Runtime HLSL compilation for the NV12<->BGRA GPU colour-conversion shaders (publish path). -->
-    <PackageVersion Include="Vortice.D3DCompiler" Version="3.8.3" />
-    <!-- Linux GPU alpha pack/unpack: Vulkan compute over a dmabuf VkImage (zero-copy), with runtime
-         GLSL->SPIR-V via shaderc - the cross-platform parallel to Vortice.Direct3D11 + Vortice.D3DCompiler. -->
-    <PackageVersion Include="Vortice.Vulkan" Version="3.3.0" />
-    <PackageVersion Include="Vortice.ShaderCompiler" Version="1.9.0" />
-    <!-- Friendly console UX for the sample agent. -->
-    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
-    <!-- Windows real audio I/O for the agent: WASAPI render (playout) + capture (mic / loopback). Windows-only;
-         referenced only from the agent's Windows head. The cross-platform analogue is PipeWire (Linux) and the
-         macOS AudioUnit bindings (-macos TFM). -->
-    <PackageVersion Include="NAudio" Version="3.1.1-preview.2" />
-    <!-- Our DevTunnels CLI wrapper, for the agent's sender-hosted tunnel mode. -->
-    <PackageVersion Include="DevTunnels.Client" Version="1.1.0" />
-    <!-- Platform GPU capture/share libraries (the agent's zero-copy sources/sinks). -->
+    <!-- Platform GPU capture and sharing, for the platform packages. -->
     <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha.3" />
     <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.7" />
-    <PackageVersion Include="PipeWire.NET" Version="0.2.2-alpha" />
+    <PackageVersion Include="PipeWire.NET.Media" Version="0.3.0-dev2" />
+    <PackageVersion Include="Vortice.Vulkan" Version="3.3.0" />
   </ItemGroup>
 </Project>

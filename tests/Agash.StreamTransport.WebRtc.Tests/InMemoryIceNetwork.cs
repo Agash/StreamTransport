@@ -1,83 +1,63 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Threading.Channels;
+using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
-/// An in-memory ICE datagram network for deterministic tests: <see cref="IIceSocket"/>s route datagrams to
-/// each other by endpoint with no real sockets or wall-clock timing, and a path can be "cut" to simulate a
-/// link going dark (a cellular handover, a Wi-Fi drop). This is what makes ICE candidate switching / failover
-/// testable - the whole point of abstracting the datagram layer.
+/// An in-memory datagram network: <see cref="IIceSocket"/>s that route datagrams to each other by
+/// endpoint, so an <see cref="IceAgent"/> runs without real sockets.
 /// </summary>
 internal sealed class InMemoryIceNetwork
 {
     private readonly ConcurrentDictionary<IPEndPoint, FakeSocket> _sockets = new();
-    private readonly HashSet<IPAddress> _cut = [];
     private readonly Lock _gate = new();
     private int _nextPort = 50_000;
-    private double _lossRate;
-    private Random? _lossRng;
 
     /// <summary>A socket factory that offers <paramref name="addresses"/> as this agent's local interfaces.</summary>
     public IIceSocketFactory Factory(params IPAddress[] addresses) =>
-        new FakeFactory(this, addresses);
-
-    /// <summary>Cut all traffic to and from <paramref name="address"/> (the path goes dark).</summary>
-    public void Cut(IPAddress address)
-    {
-        lock (_gate)
-        {
-            _cut.Add(address);
-        }
-    }
+        new FakeFactory(this, () => addresses);
 
     /// <summary>
-    /// Drop a fraction (0..1) of datagrams at random to simulate a flaky link that is degraded but not cut - a
-    /// weak cellular signal. Seeded for reproducibility. Unlike <see cref="Cut"/>, the path stays up, so consent
-    /// freshness retries should keep the connection alive.
+    /// A socket factory whose local interfaces are whatever <paramref name="addresses"/> returns when asked,
+    /// so a test can bring interfaces up and take them down.
     /// </summary>
-    public void SetLossRate(double rate, int seed = 12345)
-    {
-        lock (_gate)
-        {
-            _lossRate = rate;
-            _lossRng = new Random(seed);
-        }
-    }
+    public IIceSocketFactory Factory(Func<IEnumerable<IPAddress>> addresses) =>
+        new FakeFactory(this, addresses);
 
-    private bool IsCut(IPAddress address)
-    {
-        lock (_gate)
-        {
-            return _cut.Contains(address);
-        }
-    }
+    /// <summary>The endpoints bound on an address so far.</summary>
+    public IReadOnlyList<IPEndPoint> BoundOn(IPAddress address) =>
+        [.. _sockets.Keys.Where(endpoint => endpoint.Address.Equals(address))];
 
-    private bool ShouldDropRandomly()
-    {
-        lock (_gate)
-        {
-            return _lossRng is not null && _lossRng.NextDouble() < _lossRate;
-        }
-    }
+    /// <summary>A task that completes when the socket bound on the endpoint is closed.</summary>
+    public Task WhenClosed(IPEndPoint endpoint) =>
+        _sockets.TryGetValue(endpoint, out FakeSocket? socket) ? socket.Closed : Task.CompletedTask;
 
-    private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data)
-    {
-        if (IsCut(from.Address) || IsCut(to.Address))
-        {
-            return; // dropped: this path is dark.
-        }
+    /// <summary>Decides which datagrams the network loses: true drops one.</summary>
+    public Func<IPEndPoint, IPEndPoint, byte[], bool>? Drop { get; set; }
 
-        if (ShouldDropRandomly())
+    /// <summary>
+    /// What the network does to a datagram's ECN codepoint on the way, given the datagram: a middlebox that
+    /// clears or rewrites it, or a test that records it. The codepoint arrives as sent when null.
+    /// </summary>
+    public Func<byte[], EcnCodepoint, EcnCodepoint>? Remark { get; set; }
+
+    /// <summary>Puts a datagram on a socket as if it arrived from <paramref name="from"/>.</summary>
+    public void Inject(IPEndPoint from, IPEndPoint to, byte[] data) =>
+        Deliver(from, to, data, EcnCodepoint.NotEct);
+
+    private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data, EcnCodepoint ecn)
+    {
+        if (Drop?.Invoke(from, to, data) == true)
         {
-            return; // dropped: the flaky link lost this datagram.
+            return;
         }
 
         if (_sockets.TryGetValue(to, out FakeSocket? destination))
         {
-            destination.Enqueue(from, data);
+            destination.Enqueue(from, data, Remark?.Invoke(data, ecn) ?? ecn);
         }
     }
 
@@ -94,10 +74,14 @@ internal sealed class InMemoryIceNetwork
         return endpoint;
     }
 
-    private sealed class FakeFactory(InMemoryIceNetwork network, IPAddress[] addresses)
-        : IIceSocketFactory
+    private sealed class FakeFactory(
+        InMemoryIceNetwork network,
+        Func<IEnumerable<IPAddress>> addresses
+    ) : IIceSocketFactory
     {
-        public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback) => addresses;
+        public EcnSupport Ecn => EcnSupport.SetRead;
+
+        public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback) => addresses();
 
         public bool TryBind(IPAddress address, out IIceSocket socket)
         {
@@ -109,10 +93,14 @@ internal sealed class InMemoryIceNetwork
     private sealed class FakeSocket : IIceSocket
     {
         private readonly InMemoryIceNetwork _network;
-        private readonly Channel<(IPEndPoint From, byte[] Data)> _rx = Channel.CreateUnbounded<(
-            IPEndPoint,
-            byte[]
-        )>(new UnboundedChannelOptions { SingleReader = true });
+        private readonly Channel<(IPEndPoint From, byte[] Data, EcnCodepoint Ecn)> _rx =
+            Channel.CreateUnbounded<(IPEndPoint, byte[], EcnCodepoint)>(
+                new UnboundedChannelOptions { SingleReader = true }
+            );
+
+        private readonly TaskCompletionSource _closed = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
 
         public FakeSocket(InMemoryIceNetwork network, IPAddress address)
         {
@@ -122,13 +110,16 @@ internal sealed class InMemoryIceNetwork
 
         public IPEndPoint LocalEndPoint { get; }
 
+        public Task Closed => _closed.Task;
+
         public ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
             IPEndPoint destination,
+            EcnCodepoint ecn,
             CancellationToken cancellationToken = default
         )
         {
-            _network.Deliver(LocalEndPoint, destination, data.ToArray());
+            _network.Deliver(LocalEndPoint, destination, data.ToArray(), ecn);
             return ValueTask.CompletedTask;
         }
 
@@ -137,15 +128,34 @@ internal sealed class InMemoryIceNetwork
             CancellationToken cancellationToken
         )
         {
-            (IPEndPoint from, byte[] data) = await _rx
-                .Reader.ReadAsync(cancellationToken)
-                .ConfigureAwait(false);
+            IPEndPoint from;
+            byte[] data;
+            EcnCodepoint ecn;
+            try
+            {
+                (from, data, ecn) = await _rx
+                    .Reader.ReadAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ChannelClosedException)
+            {
+                // As a closed socket does.
+                throw new ObjectDisposedException(nameof(FakeSocket));
+            }
+
             data.CopyTo(buffer.Span);
-            return new IceReceiveResult(data.Length, from);
+            return new IceReceiveResult(data.Length, from, (byte)ecn);
         }
 
-        public void Enqueue(IPEndPoint from, byte[] data) => _rx.Writer.TryWrite((from, data));
+        public void Enqueue(IPEndPoint from, byte[] data, EcnCodepoint ecn) =>
+            _rx.Writer.TryWrite((from, data, ecn));
 
-        public void Dispose() => _rx.Writer.TryComplete();
+        // Closing unbinds, as a socket does: the address no longer receives on this port.
+        public void Dispose()
+        {
+            _ = _network._sockets.TryRemove(LocalEndPoint, out _);
+            _ = _rx.Writer.TryComplete();
+            _ = _closed.TrySetResult();
+        }
     }
 }

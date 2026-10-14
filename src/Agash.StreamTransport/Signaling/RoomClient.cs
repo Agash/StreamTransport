@@ -6,9 +6,9 @@ namespace Agash.StreamTransport;
 /// <summary>
 /// The client end of the room protocol. Connects to a relay (or a host's own hub) over one duplex
 /// link, performs the hello/welcome handshake, surfaces peer join/leave, and multiplexes the single link
-/// into a per-peer <see cref="ISignalingChannel"/>. That lets the ordinary <see cref="WebRtcMediaSender"/>
-/// and <see cref="WebRtcMediaReceiver"/> drive one peer connection each, unchanged - a publisher creates
-/// a sender per subscriber that joins, a subscriber creates a receiver for the publisher.
+/// into a per-peer <see cref="ISignalingChannel"/>, so each media session with a peer negotiates over
+/// its own channel: a publisher opens a session per subscriber that joins, a subscriber one with the
+/// publisher.
 /// </summary>
 public sealed class RoomClient : IMediaRoom
 {
@@ -55,7 +55,7 @@ public sealed class RoomClient : IMediaRoom
     /// <summary>
     /// Connect to a relay's WebSocket signaling endpoint, join <paramref name="room"/> as
     /// <paramref name="role"/>, and complete the welcome handshake. Convenience over
-    /// <see cref="ConnectAsync(IDuplexSignalingTransport, RoomCode, PeerRole, CancellationToken)"/> for the
+    /// <see cref="JoinAsync"/> for the
     /// common case; the client owns and closes the socket.
     /// </summary>
     public static async Task<RoomClient> ConnectAsync(
@@ -87,7 +87,7 @@ public sealed class RoomClient : IMediaRoom
     /// link - for example plugging in a SignalR connection. The caller owns the transport's
     /// lifetime; disposing this client does not dispose the supplied transport.
     /// </summary>
-    public static Task<RoomClient> ConnectAsync(
+    public static Task<RoomClient> JoinAsync(
         IDuplexSignalingTransport transport,
         RoomCode room,
         PeerRole role,
@@ -131,8 +131,7 @@ public sealed class RoomClient : IMediaRoom
     public IReadOnlyList<PeerInfo> Peers => [.. _peers.Values];
 
     /// <summary>
-    /// The signaling channel for the WebRTC session with <paramref name="peer"/>. Created on first use;
-    /// pass it to a <see cref="WebRtcMediaSender"/> or <see cref="WebRtcMediaReceiver"/>.
+    /// The signaling channel for the media session with <paramref name="peer"/>, created on first use.
     /// </summary>
     public ISignalingChannel ChannelFor(PeerId peer) =>
         _channels.GetOrAdd(
@@ -190,7 +189,7 @@ public sealed class RoomClient : IMediaRoom
             case IceMessage { From: { } from } ice:
                 await ((PeerSignalingChannel)ChannelFor(from))
                     .DispatchIceAsync(
-                        new IceCandidate(ice.Candidate, ice.SdpMid, ice.SdpMLineIndex)
+                        new IceCandidateInit(ice.Candidate, ice.SdpMid, ice.SdpMLineIndex)
                     )
                     .ConfigureAwait(false);
                 break;
@@ -244,9 +243,9 @@ public sealed class RoomClient : IMediaRoom
 internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISignalingChannel
 {
     private readonly Lock _gate = new();
-    private readonly Queue<IceCandidate> _pendingIce = new();
+    private readonly Queue<IceCandidateInit> _pendingIce = new();
     private Func<SessionDescription, Task>? _descriptionReceived;
-    private Func<IceCandidate, Task>? _iceReceived;
+    private Func<IceCandidateInit, Task>? _iceReceived;
     private SessionDescription? _pendingDescription;
 
     // The remote offer (or its ICE) can arrive before the media session attaches its handlers - the
@@ -278,11 +277,11 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         }
     }
 
-    public event Func<IceCandidate, Task>? IceCandidateReceived
+    public event Func<IceCandidateInit, Task>? IceCandidateReceived
     {
         add
         {
-            IceCandidate[] flush;
+            IceCandidateInit[] flush;
             lock (_gate)
             {
                 _iceReceived += value;
@@ -292,7 +291,7 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
 
             if (value is not null)
             {
-                foreach (IceCandidate candidate in flush)
+                foreach (IceCandidateInit candidate in flush)
                 {
                     _ = value(candidate);
                 }
@@ -307,7 +306,7 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         }
     }
 
-    public Task SendAsync(
+    public Task SendDescriptionAsync(
         SessionDescription description,
         CancellationToken cancellationToken = default
     ) =>
@@ -318,7 +317,10 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
             )
             .AsTask();
 
-    public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default) =>
+    public Task SendCandidateAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    ) =>
         room.SendToAsync(
                 peer,
                 new IceMessage(
@@ -346,9 +348,9 @@ internal sealed class PeerSignalingChannel(RoomClient room, PeerId peer) : ISign
         return handler is null ? Task.CompletedTask : handler(description);
     }
 
-    internal Task DispatchIceAsync(IceCandidate candidate)
+    internal Task DispatchIceAsync(IceCandidateInit candidate)
     {
-        Func<IceCandidate, Task>? handler;
+        Func<IceCandidateInit, Task>? handler;
         lock (_gate)
         {
             handler = _iceReceived;

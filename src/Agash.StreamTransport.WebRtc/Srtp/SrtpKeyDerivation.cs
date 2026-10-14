@@ -8,8 +8,8 @@ namespace Agash.StreamTransport.WebRtc.Srtp;
 /// per-session encryption key and salt from a master key + master salt, for a given key-derivation label.
 /// </summary>
 /// <remarks>
-/// The KDF master salt is 112 bits (14 octets). AES-GCM (RFC 7714) exports a 96-bit (12-octet) master
-/// salt; it is zero-padded to 14 octets here, matching libsrtp/libwebrtc. The key-derivation rate is 0
+/// The KDF master salt is 112 bits (14 octets), as the AES-CM profiles export it. AES-GCM (RFC 7714)
+/// exports a 96-bit (12-octet) master salt; it is zero-padded to 14 octets here, matching libsrtp/libwebrtc. The key-derivation rate is 0
 /// (single derivation per master key), as is the SRTP default.
 /// </remarks>
 public static class SrtpKeyDerivation
@@ -17,11 +17,17 @@ public static class SrtpKeyDerivation
     /// <summary>SRTP encryption key label (RFC 3711 §4.3.2).</summary>
     public const byte LabelRtpEncryption = 0x00;
 
+    /// <summary>SRTP authentication key label.</summary>
+    public const byte LabelRtpAuthentication = 0x01;
+
     /// <summary>SRTP salting key label.</summary>
     public const byte LabelRtpSalt = 0x02;
 
     /// <summary>SRTCP encryption key label.</summary>
     public const byte LabelRtcpEncryption = 0x03;
+
+    /// <summary>SRTCP authentication key label.</summary>
+    public const byte LabelRtcpAuthentication = 0x04;
 
     /// <summary>SRTCP salting key label.</summary>
     public const byte LabelRtcpSalt = 0x05;

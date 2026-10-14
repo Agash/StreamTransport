@@ -25,7 +25,7 @@ docker run --rm \
   streamtransport-relay
 ```
 
-Agents then connect with `--relay ws://relay.example.com:8080/ws`.
+Room clients then connect to `ws://relay.example.com:8080/ws`.
 
 ## Configuration
 
