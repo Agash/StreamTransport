@@ -167,7 +167,15 @@ public sealed partial class CoreAudioSource : IAudioSource, IDisposable
             // macOS 27 reports a refused tap as an error; earlier versions raise an exception.
             if (OperatingSystem.IsMacOSVersionAtLeast(27))
             {
-                if (!_engine.InputNode.InstallTapOnBus(0, 4096, null, out NSError? tapError, Deliver))
+                if (
+                    !_engine.InputNode.InstallTapOnBus(
+                        0,
+                        4096,
+                        null,
+                        out NSError? tapError,
+                        Deliver
+                    )
+                )
                 {
                     throw new InvalidOperationException(
                         $"The input tap was refused: {tapError?.LocalizedDescription}"
