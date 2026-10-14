@@ -33,6 +33,9 @@ public sealed partial class IceAgent : IAsyncDisposable
     private readonly IIceSocketFactory _socketFactory;
     private readonly IceTransportPolicy _policy;
     private readonly List<TurnServer> _turnServers = [];
+
+    // Servers not to allocate on again before the time given (RFC 8656 section 7.4).
+    private readonly Dictionary<TurnServer, TimeSpan> _turnHolds = [];
     private readonly WakeSignal _wake;
     private readonly Lock _gate = new();
     private readonly Dictionary<int, LocalSocket> _sockets = [];
@@ -536,6 +539,18 @@ public sealed partial class IceAgent : IAsyncDisposable
 
         foreach (TurnServer server in servers)
         {
+            TimeSpan until;
+            lock (_gate)
+            {
+                until = _turnHolds.GetValueOrDefault(server);
+            }
+
+            if (until > Now)
+            {
+                LogTurnHeld(server.Host, until - Now);
+                continue;
+            }
+
             _ = Interlocked.Increment(ref _pendingRelays);
             _ = TrackAsync(AllocateRelaysAsync(server, generation, cancellationToken));
         }
@@ -567,6 +582,19 @@ public sealed partial class IceAgent : IAsyncDisposable
             }
         }
     }
+
+    // RFC 8656 section 7.4: how long a refusal keeps the client off the server. A mismatch that
+    // survived three client ports keeps it off two minutes, a full server one minute; refused
+    // credentials, a forbidden or malformed request and an unsupported family or transport are not
+    // retried, as nothing this agent can change would make them succeed.
+    private static TimeSpan? HoldFor(int code) =>
+        code switch
+        {
+            437 => TimeSpan.FromMinutes(2),
+            486 or 508 => TimeSpan.FromMinutes(1),
+            400 or 401 or 403 or 440 or 441 or 442 => Timeout.InfiniteTimeSpan,
+            _ => null,
+        };
 
     // One allocation per address family the server resolves to, IPv6 first.
     private async Task AllocateRelaysAsync(
@@ -652,6 +680,15 @@ public sealed partial class IceAgent : IAsyncDisposable
                 WebRtcMetrics.Outcome(exception is TurnException ? "refused" : "unreachable")
             );
             LogTurnFailed(exception, server.Host, endpoint);
+            if (exception is TurnException { Code: var code } && HoldFor(code) is { } hold)
+            {
+                lock (_gate)
+                {
+                    _turnHolds[server] =
+                        hold == Timeout.InfiniteTimeSpan ? TimeSpan.MaxValue : Now + hold;
+                }
+            }
+
             return;
         }
 
@@ -988,6 +1025,13 @@ public sealed partial class IceAgent : IAsyncDisposable
         Message = "TURN allocation on {Server} at {Endpoint} failed; no relayed candidate from it"
     )]
     private partial void LogTurnFailed(Exception exception, string server, IPEndPoint endpoint);
+
+    [LoggerMessage(
+        EventId = 1187,
+        Level = LogLevel.Information,
+        Message = "TURN server {Server} refused an allocation earlier; not asking it again for {Remaining}"
+    )]
+    private partial void LogTurnHeld(string server, TimeSpan remaining);
 
     [LoggerMessage(
         EventId = 1114,

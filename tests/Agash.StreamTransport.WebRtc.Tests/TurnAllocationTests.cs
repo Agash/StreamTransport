@@ -447,6 +447,49 @@ public sealed class TurnAllocationTests
         Assert.AreEqual(1, server.Deallocations);
     }
 
+    // RFC 8656 section 7.4: once three client ports met a 437, the server is left alone for two
+    // minutes, across ICE restarts.
+    [TestMethod]
+    [Timeout(20_000)]
+    public async Task Agent_AllocationMismatchOnEveryPort_LeavesTheServerAloneForTwoMinutes()
+    {
+        var time = new FakeTimeProvider();
+        await using var server = new TestTurnServer(IPAddress.Loopback, mismatches: int.MaxValue);
+        var turn = new TurnServer(
+            "127.0.0.1",
+            server.UdpEndPoint.Port,
+            TurnTransport.Udp,
+            TestTurnServer.Username,
+            TestTurnServer.Password
+        );
+        await using var agent = new IceAgent(
+            IceCredentials.Generate(),
+            IceRole.Controlling,
+            timeProvider: time,
+            transportPolicy: IceTransportPolicy.Relay
+        );
+        agent.AddTurnServer(turn);
+        agent.SetRemoteCredentials(IceCredentials.Generate());
+
+        agent.Start();
+        await agent.WhenGatheredAsync(TimeSpan.FromMinutes(1)).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(
+            6,
+            server.AllocateRequests,
+            "three ports, each challenged and then refused"
+        );
+
+        time.Advance(TimeSpan.FromSeconds(119));
+        agent.Restart(IceCredentials.Generate());
+        await agent.WhenGatheredAsync(TimeSpan.FromMinutes(1)).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(6, server.AllocateRequests, "held off within the two minutes");
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        agent.Restart(IceCredentials.Generate());
+        await agent.WhenGatheredAsync(TimeSpan.FromMinutes(1)).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(12, server.AllocateRequests, "asked again after them");
+    }
+
     [TestMethod]
     [Timeout(30_000)]
     public async Task RelayPolicy_TwoAgents_ConnectThroughTurnAndCarryData()
