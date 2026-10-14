@@ -105,8 +105,16 @@ public static class SdpWriter
                 $"a=ice-options:{IceOptionsText.Format(media.IceOptions)}\r\n"
             );
         }
-        sb.Append(CultureInfo.InvariantCulture, $"a=fingerprint:{media.Fingerprint}\r\n");
+        foreach (DtlsFingerprint fingerprint in media.Fingerprints)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=fingerprint:{fingerprint}\r\n");
+        }
+
         sb.Append(CultureInfo.InvariantCulture, $"a=setup:{SetupText(media.Setup)}\r\n");
+        if (media.TlsId is { } tlsId)
+        {
+            sb.Append(CultureInfo.InvariantCulture, $"a=tls-id:{tlsId}\r\n");
+        }
         sb.Append(CultureInfo.InvariantCulture, $"a=mid:{media.Mid}\r\n");
         sb.Append(CultureInfo.InvariantCulture, $"a={DirectionText(media.Direction)}\r\n");
         if (media.MediaStreamId is { } stream && media.TrackId is { } track)

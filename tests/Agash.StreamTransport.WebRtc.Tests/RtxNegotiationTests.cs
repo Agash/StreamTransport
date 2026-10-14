@@ -225,7 +225,7 @@ public sealed class RtxNegotiationTests
                     Codecs = rtxSsrc is null ? [H264] : [H264, Rtx.For(97, 96)],
                     IceUfrag = "ufrag",
                     IcePwd = "passwordpasswordpassword",
-                    Fingerprint = Certificate.Fingerprint,
+                    Fingerprints = [Certificate.Fingerprint],
                     Ssrc = ssrc,
                     RtxSsrc = rtxSsrc,
                     Cname = "test",

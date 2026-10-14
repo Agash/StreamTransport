@@ -640,8 +640,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.ExtmapAllowMixed.get -> boo
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.ExtmapAllowMixed.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.FecSsrc.get -> uint?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.FecSsrc.init -> void
-Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprint.get -> Dtls.Core.DtlsFingerprint
-Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprint.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprints.get -> System.Collections.Generic.IReadOnlyList<Dtls.Core.DtlsFingerprint>!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Fingerprints.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Formats.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Formats.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.IceOptions.get -> Agash.StreamTransport.WebRtc.Ice.IceOptions
@@ -675,6 +675,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Setup.get -> Agash.StreamTr
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Setup.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Ssrc.get -> uint?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Ssrc.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TlsId.get -> string?
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TlsId.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TrackId.get -> string?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TrackId.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TransportWideFeedback.get -> bool

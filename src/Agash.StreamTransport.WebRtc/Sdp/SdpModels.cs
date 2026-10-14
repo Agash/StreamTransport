@@ -41,7 +41,10 @@ public enum SdpDirection
     Inactive,
 }
 
-/// <summary>The DTLS role advertised by <c>a=setup</c> (RFC 8842).</summary>
+/// <summary>
+/// The DTLS role advertised by <c>a=setup</c> (RFC 4145, RFC 8842 section 5.1). <c>holdconn</c> is not a
+/// value here: DTLS never uses it.
+/// </summary>
 public enum SdpSetup
 {
     /// <summary>actpass - offer the choice (offers).</summary>
@@ -100,8 +103,17 @@ public sealed record SdpMediaDescription
     /// <summary>The ICE password (<c>a=ice-pwd</c>).</summary>
     public required string IcePwd { get; init; }
 
-    /// <summary>The DTLS certificate fingerprint (<c>a=fingerprint</c>).</summary>
-    public required DtlsFingerprint Fingerprint { get; init; }
+    /// <summary>
+    /// The DTLS certificate fingerprints (<c>a=fingerprint</c>, RFC 8122 section 5.1): one or more, of
+    /// one or more hash functions; the peer's certificate has to match one using the strongest.
+    /// </summary>
+    public required IReadOnlyList<DtlsFingerprint> Fingerprints { get; init; }
+
+    /// <summary>
+    /// The DTLS association's identifier on this side (<c>a=tls-id</c>, RFC 8842 section 4), on the
+    /// section carrying the transport; null when not signalled.
+    /// </summary>
+    public string? TlsId { get; init; }
 
     /// <summary>The DTLS setup role (<c>a=setup</c>).</summary>
     public SdpSetup Setup { get; init; } = SdpSetup.ActPass;

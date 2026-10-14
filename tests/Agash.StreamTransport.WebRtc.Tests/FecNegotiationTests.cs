@@ -42,7 +42,7 @@ public sealed class FecNegotiationTests
                     Codecs = [H264, FlexFec.Codec(100)],
                     IceUfrag = "ufrag",
                     IcePwd = "passwordpasswordpassword",
-                    Fingerprint = Certificate.Fingerprint,
+                    Fingerprints = [Certificate.Fingerprint],
                     Ssrc = SenderVideo,
                     FecSsrc = SenderFec,
                     Cname = "test",

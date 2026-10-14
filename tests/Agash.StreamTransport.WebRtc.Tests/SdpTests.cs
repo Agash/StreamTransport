@@ -31,7 +31,7 @@ public sealed class SdpTests
                     ],
                     IceUfrag = "abcd",
                     IcePwd = "0123456789abcdef0123456789",
-                    Fingerprint = fingerprint,
+                    Fingerprints = [fingerprint],
                     Setup = SdpSetup.ActPass,
                     Ssrc = 0x11223344,
                     Cname = "st",
@@ -54,7 +54,7 @@ public sealed class SdpTests
                     ],
                     IceUfrag = "abcd",
                     IcePwd = "0123456789abcdef0123456789",
-                    Fingerprint = fingerprint,
+                    Fingerprints = [fingerprint],
                     Setup = SdpSetup.ActPass,
                     Ssrc = 0x55667788,
                     Cname = "st",
@@ -207,7 +207,7 @@ public sealed class SdpTests
         SdpMediaDescription video = parsed.Media[1];
         Assert.AreEqual("H264", video.Codecs[0].EncodingName);
         CollectionAssert.Contains(video.Codecs[0].RtcpFeedback.ToArray(), "nack pli");
-        Assert.AreEqual(original.Media[1].Fingerprint, video.Fingerprint);
+        Assert.AreEqual(original.Media[1].Fingerprints[0], video.Fingerprints[0]);
     }
 
     [TestMethod]
@@ -227,7 +227,7 @@ public sealed class SdpTests
         SdpMediaDescription audio = parsed.Media[0];
         Assert.AreEqual("sess", audio.IceUfrag);
         Assert.AreEqual("sesspasswordsesspassword00", audio.IcePwd);
-        Assert.AreEqual(HashAlgorithmName.SHA256, audio.Fingerprint.Algorithm);
+        Assert.AreEqual(HashAlgorithmName.SHA256, audio.Fingerprints[0].Algorithm);
         Assert.AreEqual(SdpSetup.Active, audio.Setup);
         Assert.AreEqual(111, audio.Codecs[0].PayloadType);
     }
@@ -257,7 +257,7 @@ public sealed class SdpTests
                     ],
                     IceUfrag = "uf",
                     IcePwd = "pwdpwdpwdpwdpwdpwdpwdpwd00",
-                    Fingerprint = fingerprint,
+                    Fingerprints = [fingerprint],
                     Ssrc = 0xABCDEF01,
                     Cname = "st",
                 },

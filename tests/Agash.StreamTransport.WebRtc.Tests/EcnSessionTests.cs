@@ -38,7 +38,7 @@ public sealed class EcnSessionTests
                     Codecs = codecs,
                     IceUfrag = "ufrag",
                     IcePwd = "passwordpasswordpassword",
-                    Fingerprint = Certificate.Fingerprint,
+                    Fingerprints = [Certificate.Fingerprint],
                     Ecn = new SdpEcnCapability(["rtp", "ice"], "setonly", "1"),
                 },
             ],

@@ -284,7 +284,7 @@ public sealed class RtcpReportTests
                     Codecs = [H264],
                     IceUfrag = "ufrag",
                     IcePwd = "passwordpasswordpassword",
-                    Fingerprint = Certificate.Fingerprint,
+                    Fingerprints = [Certificate.Fingerprint],
                     Ssrc = 0xAAAA_0001,
                     Cname = "test",
                 },

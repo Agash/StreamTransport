@@ -312,7 +312,7 @@ public sealed class RtpExtensionTests
                     Codecs = [H264],
                     IceUfrag = "abcd",
                     IcePwd = "abcdefghijklmnopqrstuvwx",
-                    Fingerprint = Certificate.Fingerprint,
+                    Fingerprints = [Certificate.Fingerprint],
                     Extensions = extensions,
                     ExtmapAllowMixed = allowMixed,
                 },

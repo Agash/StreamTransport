@@ -22,8 +22,8 @@ public static class SdpReader
 
         string sessionUfrag = "",
             sessionPwd = "";
-        DtlsFingerprint? sessionFingerprint = null;
-        SdpSetup sessionSetup = SdpSetup.ActPass;
+        List<DtlsFingerprint> sessionFingerprints = [];
+        SdpSetup? sessionSetup = SdpSetup.ActPass;
         bool iceLite = false;
         List<IceCandidate> sessionCandidates = [];
         List<string> sessionIgnored = [];
@@ -148,7 +148,7 @@ public static class SdpReader
                     line,
                     ref sessionUfrag,
                     ref sessionPwd,
-                    ref sessionFingerprint,
+                    sessionFingerprints,
                     ref sessionSetup
                 );
             }
@@ -166,10 +166,19 @@ public static class SdpReader
         var result = new List<SdpMediaDescription>(media.Count);
         foreach (MediaBuilder m in media)
         {
-            DtlsFingerprint? fingerprint = m.Fingerprint ?? sessionFingerprint;
-            if (fingerprint is null)
+            IReadOnlyList<DtlsFingerprint> fingerprints =
+                m.Fingerprints.Count > 0 ? m.Fingerprints : sessionFingerprints;
+
+            // JSEP: no usable fingerprint is a negotiation failure. RFC 8842 section 5.1: DTLS never uses
+            // holdconn, and a setup value outside RFC 4145's is not SDP this reader can act on. RFC 8842
+            // section 4: a tls-id outside its syntax is malformed.
+            if (
+                fingerprints.Count == 0
+                || (m.SetupSeen ? m.Setup : sessionSetup) is not { } setup
+                || m.InvalidTlsId
+            )
             {
-                return false; // JSEP: absence of a fingerprint is a negotiation failure.
+                return false;
             }
 
             result.Add(
@@ -187,8 +196,9 @@ public static class SdpReader
                     Codecs = m.BuildCodecs(),
                     IceUfrag = m.IceUfrag ?? sessionUfrag,
                     IcePwd = m.IcePwd ?? sessionPwd,
-                    Fingerprint = fingerprint.Value,
-                    Setup = m.Setup ?? sessionSetup,
+                    Fingerprints = fingerprints,
+                    TlsId = m.TlsId,
+                    Setup = setup,
                     RtcpMux = m.RtcpMux,
                     RtcpReducedSize = m.RtcpReducedSize,
                     CongestionControlFeedback = m.CongestionControlFeedback,
@@ -224,8 +234,8 @@ public static class SdpReader
         string line,
         ref string ufrag,
         ref string pwd,
-        ref DtlsFingerprint? fingerprint,
-        ref SdpSetup setup
+        List<DtlsFingerprint> fingerprints,
+        ref SdpSetup? setup
     )
     {
         if (TryValue(line, "a=ice-ufrag:", out string u))
@@ -240,16 +250,11 @@ public static class SdpReader
             TryValue(line, "a=fingerprint:", out string f) && ParseFingerprint(f) is { } parsed
         )
         {
-            fingerprint = parsed;
+            fingerprints.Add(parsed);
         }
         else if (TryValue(line, "a=setup:", out string s))
         {
-            setup = s switch
-            {
-                "active" => SdpSetup.Active,
-                "passive" => SdpSetup.Passive,
-                _ => SdpSetup.ActPass,
-            };
+            setup = ParseSetup(s);
         }
     }
 
@@ -300,8 +305,25 @@ public static class SdpReader
         return false;
     }
 
+    // A fingerprint with a hash function this reader cannot verify (MD5, MD2, an unknown token) is
+    // left out; one of the others has to match (RFC 8122 section 5).
     internal static DtlsFingerprint? ParseFingerprint(string value) =>
         DtlsFingerprint.TryParse(value, out DtlsFingerprint fingerprint) ? fingerprint : null;
+
+    // RFC 4145's values less holdconn, which RFC 8842 section 5.1 forbids for DTLS; null for anything else.
+    private static SdpSetup? ParseSetup(string value) =>
+        value switch
+        {
+            "actpass" => SdpSetup.ActPass,
+            "active" => SdpSetup.Active,
+            "passive" => SdpSetup.Passive,
+            _ => null,
+        };
+
+    // RFC 8842 section 4: tls-id-value = 20*255(ALPHA / DIGIT / "+" / "/" / "-" / "_").
+    internal static bool IsTlsId(string value) =>
+        value.Length is >= 20 and <= 255
+        && value.All(static c => char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '-' or '_');
 
     private sealed class MediaBuilder
     {
@@ -315,8 +337,11 @@ public static class SdpReader
         public SdpDirection Direction { get; private set; } = SdpDirection.SendRecv;
         public string? IceUfrag { get; private set; }
         public string? IcePwd { get; private set; }
-        public DtlsFingerprint? Fingerprint { get; private set; }
+        public List<DtlsFingerprint> Fingerprints { get; } = [];
         public SdpSetup? Setup { get; private set; }
+        public bool SetupSeen { get; private set; }
+        public string? TlsId { get; private set; }
+        public bool InvalidTlsId { get; private set; }
         public bool RtcpMux { get; private set; }
 
         public bool RtcpReducedSize { get; private set; }
@@ -446,17 +471,20 @@ public static class SdpReader
             }
             else if (TryValue(line, "a=fingerprint:", out string f))
             {
-                // One with a hash this reader does not know leaves a known one standing.
-                Fingerprint = ParseFingerprint(f) ?? Fingerprint;
+                if (ParseFingerprint(f) is { } fingerprint)
+                {
+                    Fingerprints.Add(fingerprint);
+                }
             }
             else if (TryValue(line, "a=setup:", out string s))
             {
-                Setup = s switch
-                {
-                    "active" => SdpSetup.Active,
-                    "passive" => SdpSetup.Passive,
-                    _ => SdpSetup.ActPass,
-                };
+                Setup = ParseSetup(s);
+                SetupSeen = true;
+            }
+            else if (TryValue(line, "a=tls-id:", out string tlsId))
+            {
+                TlsId = IsTlsId(tlsId) ? tlsId : null;
+                InvalidTlsId |= TlsId is null;
             }
             else if (line == "a=rtcp-mux")
             {

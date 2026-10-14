@@ -43,7 +43,7 @@ public sealed class DependencyInjectionTests
 
         SdpDescription offer = pc.CreateOffer();
         Assert.AreEqual(1, offer.Media.Count);
-        Assert.AreEqual(certificate.Fingerprint, offer.Media[0].Fingerprint);
+        Assert.AreEqual(certificate.Fingerprint, offer.Media[0].Fingerprints[0]);
         Assert.IsTrue(
             pc.CurrentCapacity.TargetBitsPerSecond > 0,
             "the connection runs the registered congestion controller"

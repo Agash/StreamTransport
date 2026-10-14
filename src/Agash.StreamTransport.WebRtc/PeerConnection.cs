@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Immutable;
@@ -6,6 +7,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Security;
+using System.Security.Cryptography;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
@@ -64,6 +66,31 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly long _sessionId = Random.Shared.NextInt64(1, long.MaxValue);
     private long _sessionVersion;
 
+    // The role this side answers with: the one an active or passive offer leaves, or for actpass the one
+    // already agreed, the client's at first (RFC 8842 section 5.3).
+    private DtlsRole AnswerRole(SdpSetup offered) =>
+        offered switch
+        {
+            SdpSetup.Active => DtlsRole.Server,
+            SdpSetup.Passive => DtlsRole.Client,
+            _ => _association?.Role ?? DtlsRole.Client,
+        };
+
+    // RFC 8842 section 4: tls-id goes on the section carrying the transport, the first not rejected.
+    private static List<SdpMediaDescription> WithTlsId(
+        List<SdpMediaDescription> media,
+        string tlsId
+    )
+    {
+        int tag = media.FindIndex(static m => !m.Rejected);
+        if (tag >= 0)
+        {
+            media[tag] = media[tag] with { TlsId = tlsId };
+        }
+
+        return media;
+    }
+
     private SdpDescription Describe(
         List<SdpMediaDescription> media,
         IReadOnlyList<string>? bundle
@@ -76,8 +103,18 @@ public sealed partial class PeerConnection : IAsyncDisposable
             BundleGroup = bundle is { Count: > 0 } ? bundle : null,
         };
 
-    private DtlsFingerprint? _expectedRemoteFingerprint;
+    private IReadOnlyList<DtlsFingerprint> _expectedRemoteFingerprints = [];
     private int _state = (int)PeerConnectionState.New;
+
+    // This side's tls-id (RFC 8842 section 4): 144 random bits, in the attribute's alphabet.
+    private readonly string _localTlsId = Base64Url.EncodeToString(
+        RandomNumberGenerator.GetBytes(18)
+    );
+
+    // The DTLS association the first offer/answer agreed; later descriptions that would need another
+    // are refused (RFC 8842 sections 3.1 and 5.3).
+    private DtlsAssociation? _association;
+    private bool _refuseNewAssociation;
 
     private readonly ILoggerFactory _loggerFactory;
     private readonly TimeProvider _time;
@@ -210,7 +247,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         return Describe(
-            [.. media.Select(static m => m with { RtcpMuxOnly = true })],
+            WithTlsId([.. media.Select(static m => m with { RtcpMuxOnly = true })], _localTlsId),
             [.. media.Select(static m => m.Mid)]
         );
     }
@@ -223,11 +260,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         // RFC 5763 section 5 and RFC 8842 section 5.3: the answer's role follows the offer's. JSEP offers
         // actpass and this side takes the client; an offer that is active or passive leaves the other.
-        SdpSetup offered0 = (
-            offer.Media.FirstOrDefault(static m => !m.Rejected) ?? offer.Media[0]
-        ).Setup;
-        SdpSetup answerSetup = offered0 == SdpSetup.Active ? SdpSetup.Passive : SdpSetup.Active;
-        _dtlsRole = answerSetup == SdpSetup.Active ? DtlsRole.Client : DtlsRole.Server;
+        // Once an association stands, an actpass offer keeps the roles it has.
+        SdpMediaDescription offered0 =
+            offer.Media.FirstOrDefault(static m => !m.Rejected) ?? offer.Media[0];
+        _dtlsRole = AnswerRole(offered0.Setup);
+        SdpSetup answerSetup = _dtlsRole == DtlsRole.Client ? SdpSetup.Active : SdpSetup.Passive;
+        _association ??= new DtlsAssociation(offered0.TlsId, [.. offered0.Fingerprints], _dtlsRole);
 
         var media = new List<SdpMediaDescription>(offer.Media.Count);
         var negotiated = new List<NegotiatedMediaInfo>(offer.Media.Count);
@@ -244,6 +282,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             // every section after the first, as each would need a transport of its own.
             string? refusal =
                 remote.Rejected ? "rejected in the offer"
+                : _refuseNewAssociation
+                    ? "the offer asks for a new DTLS association, which this connection does not make"
                 : !remote.Protocol.Contains("RTP", StringComparison.Ordinal)
                     ? $"not RTP ({remote.Protocol})"
                 : !remote.RtcpMux ? "offered without rtcp-mux"
@@ -375,6 +415,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             // RFC 8445 section 6.1.1: with an ICE lite peer the full agent controls, whoever offered.
             StartIce(offer.IceLite ? IceRole.Controlling : IceRole.Controlled);
+        }
+
+        // RFC 8842 section 5.3: tls-id only when the offer carried one.
+        if (offered0.TlsId is not null)
+        {
+            media = WithTlsId(media, _localTlsId);
         }
 
         // RFC 9143 section 7.3: a BUNDLE group only when the offer had one, of the sections accepted.
@@ -531,7 +577,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             );
         }
 
-        return new SdpDescription { Media = media };
+        return new SdpDescription { Media = WithTlsId(media, _localTlsId) };
     }
 
     /// <summary>Applies the peer's session description and, for an answer, fixes the DTLS role.</summary>
@@ -551,9 +597,43 @@ public sealed partial class PeerConnection : IAsyncDisposable
             && _remoteDescription is { Media: [{ IceUfrag: { } prevUfrag }, ..] }
             && prevUfrag != first.IceUfrag;
 
+        // RFC 4145 section 4.1: an answer is active or passive, never actpass.
+        if (type == SdpType.Answer && first.Setup == SdpSetup.ActPass)
+        {
+            throw new ArgumentException(
+                "The answer's setup is actpass; an answer is active or passive.",
+                nameof(description)
+            );
+        }
+
+        // RFC 8842 section 3.1: changed roles, a changed fingerprint set or a changed tls-id ask for a
+        // new DTLS association. This connection keeps the one it has: an offer asking for another has
+        // its sections rejected (section 5.3), and an answer asking for one ends the connection.
+        DtlsRole role =
+            type == SdpType.Answer
+                ? first.Setup == SdpSetup.Active
+                    ? DtlsRole.Server
+                    : DtlsRole.Client
+                : AnswerRole(first.Setup);
+        if (_association is { } association && association.AskedToChange(first, role))
+        {
+            LogNewAssociationRefused(_logger, type);
+            if (type == SdpType.Offer)
+            {
+                _refuseNewAssociation = true;
+                _remoteDescription = description;
+                return;
+            }
+
+            Settle("dtls_association_changed");
+            SetState(PeerConnectionState.Failed);
+            return;
+        }
+
+        _refuseNewAssociation = false;
         _remoteDescription = description;
         NoteRtcpCapabilities(description);
-        _expectedRemoteFingerprint = first.Fingerprint;
+        _expectedRemoteFingerprints = first.Fingerprints;
 
         if (isRestartOffer)
         {
@@ -568,7 +648,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             AgreeExtensions(description);
 
             // Offerer learns the role from the answerer's choice: their active => we are the DTLS server.
-            _dtlsRole = first.Setup == SdpSetup.Active ? DtlsRole.Server : DtlsRole.Client;
+            _dtlsRole = role;
+            _association ??= new DtlsAssociation(first.TlsId, [.. first.Fingerprints], role);
 
             // Record what the answerer accepted (in our payload-type space) as the negotiated media.
             var negotiated = new List<NegotiatedMediaInfo>(description.Media.Count);
@@ -1127,9 +1208,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         // The remote certificate is authenticated during the handshake by the fingerprint the peer
         // signalled; a description without one never reaches here, SdpReader rejects it.
-        RemoteCertificateValidationCallback validate = _expectedRemoteFingerprint is { } expected
-            ? expected.CreateValidationCallback()
-            : static (_, _, _, _) => false;
+        RemoteCertificateValidationCallback validate = DtlsFingerprint.CreateValidationCallback(
+            _expectedRemoteFingerprints
+        );
         IceDatagramTransport transport = _dtlsTransport!;
 
         try
@@ -1498,7 +1579,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             IceUfrag = _localIceCredentials.UsernameFragment,
             IceOptions = IceOptions.Supported,
             IcePwd = _localIceCredentials.Password,
-            Fingerprint = _certificate.Fingerprint,
+            Fingerprints = [_certificate.Fingerprint],
             Setup = setup,
             Ssrc = ssrc == 0 ? null : ssrc,
             RtxSsrc = ssrc == 0 ? null : rtxSsrc,
@@ -1780,6 +1861,26 @@ public sealed partial class PeerConnection : IAsyncDisposable
         Message = "The {Kind} section {Mid} is rejected: the peers share no codec for it."
     )]
     private static partial void LogSectionRejected(ILogger logger, SdpMediaKind kind, string mid);
+
+    [LoggerMessage(
+        EventId = 1188,
+        Level = LogLevel.Warning,
+        Message = "The remote {Type} asks for a new DTLS association (RFC 8842 section 3.1); this connection keeps its own and refuses it"
+    )]
+    private static partial void LogNewAssociationRefused(ILogger logger, SdpType type);
+
+    // What identifies the DTLS association the first exchange agreed (RFC 8842 section 3.1).
+    private sealed record DtlsAssociation(
+        string? RemoteTlsId,
+        DtlsFingerprint[] RemoteFingerprints,
+        DtlsRole Role
+    )
+    {
+        public bool AskedToChange(SdpMediaDescription remote, DtlsRole role) =>
+            role != Role
+            || (RemoteTlsId is not null && remote.TlsId is not null && remote.TlsId != RemoteTlsId)
+            || !RemoteFingerprints.ToHashSet().SetEquals(remote.Fingerprints);
+    }
 
     [LoggerMessage(
         EventId = 1180,
