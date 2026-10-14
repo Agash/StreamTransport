@@ -72,7 +72,12 @@ public sealed class StunBindingServerTests
         Assert.AreEqual(StunMessageClass.ErrorResponse, reader.Class);
         Assert.IsTrue(reader.TryGetErrorCode(out int code));
         Assert.AreEqual(420, code);
-        Assert.IsTrue(reader.TryFindAttribute(StunAttributeType.UnknownAttributes, out ReadOnlySpan<byte> types));
+        Assert.IsTrue(
+            reader.TryFindAttribute(
+                StunAttributeType.UnknownAttributes,
+                out ReadOnlySpan<byte> types
+            )
+        );
         Assert.AreEqual(0x7F01, (types[0] << 8) | types[1]);
     }
 
