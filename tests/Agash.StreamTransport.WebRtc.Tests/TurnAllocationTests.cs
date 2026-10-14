@@ -117,6 +117,261 @@ public sealed class TurnAllocationTests
             )
         );
         Assert.AreEqual(401, refused.Code);
+        Assert.AreEqual(2, server.AllocateRequests, "the challenge answered once, then refused");
+    }
+
+    // RFC 8656 section 11.1: nothing is relayed to a peer before its permission is installed. The
+    // first datagram waits for the CreatePermission and then goes, so one send is enough.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task SendAsync_NoPermissionYet_InstallsItBeforeRelaying()
+    {
+        await using var server = new TestTurnServer(IPAddress.Loopback);
+        using TurnAllocation allocation = await Allocate(
+            server,
+            TurnTransport.Udp,
+            TimeProvider.System
+        );
+        _ = Pump(allocation);
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+
+        await allocation.SendAsync(
+            "once"u8.ToArray(),
+            (IPEndPoint)peer.LocalEndPoint!,
+            EcnCodepoint.NotEct
+        );
+
+        byte[] buffer = new byte[64];
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        SocketReceiveFromResult arrived = await peer.ReceiveFromAsync(
+            buffer,
+            SocketFlags.None,
+            new IPEndPoint(IPAddress.Any, 0),
+            timeout.Token
+        );
+        CollectionAssert.AreEqual("once"u8.ToArray(), buffer[..arrived.ReceivedBytes]);
+        Assert.AreEqual(1, server.CreatePermissions);
+        Assert.AreEqual(
+            0,
+            server.RefusedSends,
+            "no Send indication went out ahead of the permission"
+        );
+    }
+
+    // RFC 8656 section 11.4: a Data indication from an address with no active permission is dropped.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task ReceiveAsync_DataFromAnAddressWithoutPermission_IsDropped()
+    {
+        await using var server = new TestTurnServer(IPAddress.Loopback);
+        using TurnAllocation allocation = await Allocate(
+            server,
+            TurnTransport.Udp,
+            TimeProvider.System
+        );
+        Channel<(byte[] Data, IPEndPoint Source)> received = Pump(allocation);
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var peerEndPoint = (IPEndPoint)peer.LocalEndPoint!;
+        await allocation.SendAsync("hello"u8.ToArray(), peerEndPoint, EcnCodepoint.NotEct);
+        _ = await peer.ReceiveFromAsync(
+                new byte[64],
+                SocketFlags.None,
+                new IPEndPoint(IPAddress.Any, 0)
+            )
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        await server.InjectDataAsync(
+            new IPEndPoint(IPAddress.Parse("192.0.2.1"), 9),
+            "forged"u8.ToArray()
+        );
+        _ = await peer.SendToAsync("real"u8.ToArray(), SocketFlags.None, allocation.LocalEndPoint);
+
+        (byte[] data, IPEndPoint source) = await received
+            .Reader.ReadAsync()
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        CollectionAssert.AreEqual("real"u8.ToArray(), data, "the forged datagram came first");
+        Assert.AreEqual(peerEndPoint, source);
+    }
+
+    // RFC 8656 section 8.3: a 437 to a Refresh means the allocation no longer exists. The relay's
+    // receive loop then fails as a closed connection does, and sends are dropped.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task Refresh_AllocationGone_FailsTheRelay()
+    {
+        var time = new FakeTimeProvider();
+        await using var server = new TestTurnServer(IPAddress.Loopback);
+        using TurnAllocation allocation = await Allocate(server, TurnTransport.Udp, time);
+        Channel<(byte[] Data, IPEndPoint Source)> received = Pump(allocation);
+
+        server.ForgetAllocations();
+        time.Advance(TimeSpan.FromSeconds(540));
+
+        ChannelClosedException closed = await Assert.ThrowsExactlyAsync<ChannelClosedException>(
+            () =>
+                received.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5))
+        );
+        Assert.IsInstanceOfType<IOException>(closed.InnerException);
+        await allocation.SendAsync(
+            "x"u8.ToArray(),
+            new IPEndPoint(IPAddress.Loopback, 9),
+            EcnCodepoint.NotEct
+        );
+    }
+
+    // RFC 8656 section 8: the refresh is due before the granted lifetime ends; a lifetime under two
+    // minutes is refreshed at half, as libwebrtc does.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task Refresh_ShortLifetime_IsDueAtHalfOfIt()
+    {
+        var time = new FakeTimeProvider();
+        await using var server = new TestTurnServer(IPAddress.Loopback, lifetime: 60);
+        using TurnAllocation allocation = await Allocate(server, TurnTransport.Udp, time);
+        _ = Pump(allocation);
+
+        time.Advance(TimeSpan.FromSeconds(29));
+
+        // Deliberate: gives a refresh that was wrongly due the chance to reach the server.
+        await Task.Delay(200);
+        Assert.AreEqual(0, server.Refreshes);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await server.WhenRefreshed.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(1, server.Refreshes);
+    }
+
+    // RFC 8656 section 7.4: a 437 to an Allocate is retried from another client port, three ports in
+    // all, before giving up on the server.
+    [TestMethod]
+    [Timeout(10_000)]
+    [DataRow(2, true)]
+    [DataRow(3, false)]
+    public async Task AllocateAsync_AllocationMismatch_TriesAnotherClientPort(
+        int mismatches,
+        bool allocates
+    )
+    {
+        await using var server = new TestTurnServer(IPAddress.Loopback, mismatches: mismatches);
+        if (allocates)
+        {
+            using TurnAllocation allocation = await Allocate(
+                server,
+                TurnTransport.Udp,
+                TimeProvider.System
+            );
+            Assert.AreEqual(1, server.Allocations);
+        }
+        else
+        {
+            TurnException refused = await Assert.ThrowsExactlyAsync<TurnException>(() =>
+                Allocate(server, TurnTransport.Udp, TimeProvider.System)
+            );
+            Assert.AreEqual(437, refused.Code);
+            Assert.AreEqual(0, server.Allocations);
+        }
+    }
+
+    // RFC 8489 section 10: a 300 sends the same request to the ALTERNATE-SERVER.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task AllocateAsync_TryAlternate_AllocatesOnTheAlternateServer()
+    {
+        await using var alternate = new TestTurnServer(IPAddress.Loopback);
+        await using var server = new TestTurnServer(
+            IPAddress.Loopback,
+            alternate: alternate.UdpEndPoint
+        );
+
+        using TurnAllocation allocation = await Allocate(
+            server,
+            TurnTransport.Udp,
+            TimeProvider.System
+        );
+
+        Assert.AreEqual(0, server.Allocations);
+        Assert.AreEqual(1, alternate.Allocations);
+    }
+
+    // RFC 8489 section 6.2.1: over UDP a request goes out Rc = 7 times, the RTO doubling from 500 ms,
+    // and the last one is waited on for Rm = 16 RTOs: 39.5 s in all.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task AllocateAsync_SilentServer_TransmitsSevenTimesOver39Point5Seconds()
+    {
+        var time = new FakeTimeProvider();
+        using var silent = new Socket(
+            AddressFamily.InterNetwork,
+            SocketType.Dgram,
+            ProtocolType.Udp
+        );
+        silent.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var endpoint = (IPEndPoint)silent.LocalEndPoint!;
+        var turn = new TurnServer("127.0.0.1", endpoint.Port, TurnTransport.Udp, "u", "p");
+        Task<TurnAllocation> allocating = TurnAllocation.AllocateAsync(
+            turn,
+            endpoint,
+            time,
+            NullLogger.Instance,
+            CancellationToken.None
+        );
+
+        byte[] buffer = new byte[2048];
+        TimeSpan[] waits =
+        [
+            .. new[] { 500, 1000, 2000, 4000, 8000, 16000, 8000 }.Select(ms =>
+                TimeSpan.FromMilliseconds(ms)
+            ),
+        ];
+        foreach (TimeSpan wait in waits)
+        {
+            _ = await silent.ReceiveAsync(buffer).WaitAsync(TimeSpan.FromSeconds(5));
+            time.Advance(wait);
+        }
+
+        TurnException failed = await Assert.ThrowsExactlyAsync<TurnException>(() =>
+            allocating.WaitAsync(TimeSpan.FromSeconds(5))
+        );
+        Assert.AreEqual(0, failed.Code);
+        Assert.AreEqual(0, silent.Available, "no eighth transmission");
+    }
+
+    // RFC 8656 section 9: permissions last 300 s, so each is refreshed with CreatePermission before
+    // then, whether or not its peer has a channel.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task Maintenance_RefreshesPermissionsBeforeTheyLapse()
+    {
+        var time = new FakeTimeProvider();
+        await using var server = new TestTurnServer(IPAddress.Loopback);
+        using TurnAllocation allocation = await Allocate(server, TurnTransport.Udp, time);
+        _ = Pump(allocation);
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        await allocation.SendAsync(
+            "x"u8.ToArray(),
+            (IPEndPoint)peer.LocalEndPoint!,
+            EcnCodepoint.NotEct
+        );
+        _ = await peer.ReceiveFromAsync(
+                new byte[64],
+                SocketFlags.None,
+                new IPEndPoint(IPAddress.Any, 0)
+            )
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        using CancellationTokenSource guard = new(TimeSpan.FromSeconds(5));
+        time.Advance(TimeSpan.FromMinutes(4));
+        while (server.CreatePermissions < 2)
+        {
+            // Deliberate: lets the refresh reach the server before checking again.
+            await Task.Delay(10, guard.Token);
+        }
+
+        Assert.AreEqual(2, server.CreatePermissions);
     }
 
     [TestMethod]
@@ -362,7 +617,7 @@ public sealed class TurnAllocationTests
                             or OperationCanceledException
                 )
             {
-                received.Writer.TryComplete();
+                received.Writer.TryComplete(exception is IOException ? exception : null);
             }
         });
         return received;

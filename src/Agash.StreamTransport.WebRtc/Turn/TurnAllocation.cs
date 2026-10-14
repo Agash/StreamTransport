@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Agash.StreamTransport.Adaptation;
@@ -13,28 +14,48 @@ namespace Agash.StreamTransport.WebRtc.Turn;
 
 /// <summary>
 /// A TURN allocation (RFC 8656): a UDP relay address on a TURN server, used by ICE as a local socket.
-/// Sending to a peer goes through a channel once one is bound (four octets of overhead) and as a Send
-/// indication until then; what peers send comes back unwrapped, with the peer as the source. The
-/// allocation, its channels and their permissions are refreshed on the injected clock.
+/// A peer's IP address gets a permission (CreatePermission) before anything is relayed to it; data to a
+/// peer then goes through a channel once one is bound (four octets of overhead) and as a Send indication
+/// until then. What peers send comes back unwrapped, with the peer as the source. The allocation, its
+/// permissions and its channels are refreshed on the injected clock.
 /// </summary>
 /// <remarks>
 /// After <see cref="AllocateAsync"/> returns, the ICE receive loop drives the connection through
 /// <see cref="ReceiveAsync"/>: it returns peer data and completes the allocation's own transactions on
-/// the way, so no second reader competes for the connection.
+/// the way, so no second reader competes for the connection. When the server reports the allocation
+/// gone, <see cref="ReceiveAsync"/> throws <see cref="IOException"/> and sends are dropped, so the
+/// relay's pairs fail as a closed TCP or TLS connection's do.
 /// </remarks>
 internal sealed partial class TurnAllocation : IIceSocket
 {
     private const uint RequestedLifetime = 600;
-    private const int MaxUdpTransmits = 5;
     private const ushort FirstChannel = 0x4000;
     private const ushort LastChannel = 0x4FFF;
 
-    // Permissions last five minutes and a ChannelBind refreshes both its channel and its permission.
-    private static readonly TimeSpan BindingRefresh = TimeSpan.FromMinutes(4);
-    private static readonly TimeSpan BindingRetry = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan MaintenanceTick = TimeSpan.FromSeconds(30);
+    // RFC 8489 section 6.2.1: Rc transmissions over UDP, the last one waited on for Rm times the
+    // initial RTO; over TCP and TLS one transmission and a 39.5 s timeout (Ti).
+    private const int UdpTransmissions = 7;
+    private const int LastWaitFactor = 16;
     private static readonly TimeSpan InitialRto = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan ReliableTimeout = TimeSpan.FromSeconds(39.5);
+
+    // RFC 8656 section 9: permissions last 300 s. They and channels (10 minutes, section 12) are
+    // refreshed a minute before the permission would lapse, as libwebrtc does.
+    private static readonly TimeSpan PermissionRefresh = TimeSpan.FromMinutes(4);
+    private static readonly TimeSpan FailureRetry = TimeSpan.FromSeconds(5);
+
+    // Datagrams waiting for their peer's permission; checks retransmit, so a few suffice.
+    private const int MaxQueuedPerPermission = 8;
+
+    private static readonly byte[] s_software = Encoding.UTF8.GetBytes(
+        "Agash.StreamTransport "
+            + (
+                typeof(TurnAllocation)
+                    .Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion.Split('+')[0]
+                ?? "0"
+            )
+    );
 
     private readonly TurnServer _server;
     private readonly TurnConnection _connection;
@@ -44,6 +65,7 @@ internal sealed partial class TurnAllocation : IIceSocket
     private readonly Lock _gate = new();
     private readonly Dictionary<IPEndPoint, Peer> _peers = [];
     private readonly Dictionary<ushort, IPEndPoint> _channels = [];
+    private readonly Dictionary<IPAddress, Permission> _permissions = [];
     private readonly Dictionary<UInt128, TaskCompletionSource<byte[]>> _pending = [];
     private readonly CancellationTokenSource _lifetime = new();
     private ITimer? _maintenance;
@@ -52,6 +74,8 @@ internal sealed partial class TurnAllocation : IIceSocket
     private byte[] _nonce = [];
     private ushort _nextChannel = FirstChannel;
     private TimeSpan _expires;
+    private TimeSpan _refreshAt;
+    private string? _gone;
     private int _maintaining;
     private int _disposed;
 
@@ -81,7 +105,9 @@ internal sealed partial class TurnAllocation : IIceSocket
 
     /// <summary>
     /// Connects to <paramref name="server"/> at <paramref name="endpoint"/> and allocates a relay of the
-    /// endpoint's address family, answering the server's long-term credential challenge.
+    /// endpoint's address family, answering the server's long-term credential challenge. A 437 is
+    /// retried from two more client ports and a 300 follows the server's ALTERNATE-SERVER once
+    /// (RFC 8656 section 7.4, RFC 8489 section 10).
     /// </summary>
     /// <param name="server">The server and credentials.</param>
     /// <param name="endpoint">The server address to use.</param>
@@ -98,27 +124,46 @@ internal sealed partial class TurnAllocation : IIceSocket
         CancellationToken cancellationToken
     )
     {
-        TurnConnection connection = await TurnConnection
-            .ConnectAsync(server, endpoint, cancellationToken)
-            .ConfigureAwait(false);
-        var allocation = new TurnAllocation(server, connection, time, logger);
-        try
+        HashSet<IPEndPoint> redirected = [endpoint];
+        int mismatches = 0;
+        while (true)
         {
-            await allocation
-                .RequestAllocationAsync(endpoint.AddressFamily, cancellationToken)
+            TurnConnection connection = await TurnConnection
+                .ConnectAsync(server, endpoint, cancellationToken)
                 .ConfigureAwait(false);
-            allocation._maintenance = time.CreateTimer(
-                static state => ((TurnAllocation)state!).Maintain(),
-                allocation,
-                MaintenanceTick,
-                MaintenanceTick
-            );
-            return allocation;
-        }
-        catch
-        {
-            allocation.Dispose();
-            throw;
+            var allocation = new TurnAllocation(server, connection, time, logger);
+            try
+            {
+                await allocation
+                    .RequestAllocationAsync(endpoint.AddressFamily, cancellationToken)
+                    .ConfigureAwait(false);
+                allocation._maintenance = time.CreateTimer(
+                    static state => ((TurnAllocation)state!).Maintain(),
+                    allocation,
+                    allocation.NextDue(),
+                    Timeout.InfiniteTimeSpan
+                );
+                return allocation;
+            }
+            catch (TurnException exception) when (exception.Code == 437 && ++mismatches < 3)
+            {
+                // RFC 8656 section 7.4: the server sees this 5-tuple in use; try another client port.
+                allocation.LogAllocationMismatch(server.Host, mismatches);
+                allocation.Dispose();
+            }
+            catch (TurnException exception)
+                when (exception.AlternateServer is { } alternate && redirected.Add(alternate))
+            {
+                // RFC 8489 section 10: the same request and credentials, to the alternate server.
+                allocation.LogRedirected(server.Host, alternate);
+                allocation.Dispose();
+                endpoint = alternate;
+            }
+            catch
+            {
+                allocation.Dispose();
+                throw;
+            }
         }
     }
 
@@ -132,47 +177,60 @@ internal sealed partial class TurnAllocation : IIceSocket
     {
         Peer peer;
         bool bind;
+        bool request = false;
         lock (_gate)
         {
-            if (!_peers.TryGetValue(destination, out peer!))
+            // A relay that is gone, or a peer of the other address family (RFC 8656 section 10.1),
+            // loses the datagram as a network would; ICE's checks and consent notice.
+            if (_gone is not null || destination.AddressFamily != LocalEndPoint.AddressFamily)
             {
-                if (_nextChannel > LastChannel)
-                {
-                    // Every channel is taken; this peer is reached by Send indications alone.
-                    peer = new Peer(destination, 0);
-                }
-                else
-                {
-                    peer = new Peer(destination, _nextChannel++);
-                    _channels[peer.Channel] = destination;
-                }
-
-                _peers[destination] = peer;
+                return;
             }
 
-            bind = peer.Channel != 0 && !peer.Binding && Now >= peer.RetryAt && !peer.Bound;
+            if (
+                !_permissions.TryGetValue(destination.Address, out Permission? permission)
+                || permission.State != PermissionState.Installed
+            )
+            {
+                // RFC 8656 section 11.1: nothing is relayed to a peer without a permission. The
+                // datagram waits for it, and the first one asks for it.
+                if (permission is null || permission.State == PermissionState.Failed)
+                {
+                    if (permission is not null && Now < permission.RetryAt)
+                    {
+                        return;
+                    }
+
+                    permission = new Permission();
+                    _permissions[destination.Address] = permission;
+                    request = true;
+                }
+
+                if (permission.Queue.Count == MaxQueuedPerPermission)
+                {
+                    _ = permission.Queue.Dequeue();
+                }
+
+                permission.Queue.Enqueue((destination, data.ToArray()));
+                if (request)
+                {
+                    _ = RequestPermissionAsync(destination.Address);
+                }
+
+                return;
+            }
+
+            peer = PeerFor(destination);
+            bind = peer.Channel != 0 && !peer.Binding && !peer.Bound && Now >= peer.RetryAt;
             peer.Binding |= bind;
         }
 
         if (bind)
         {
-            _ = BindAsync(peer, cancellationToken);
+            _ = BindAsync(peer);
         }
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(data.Length + 64);
-        try
-        {
-            int length = peer.Bound
-                ? WriteChannelData(buffer, peer.Channel, data.Span)
-                : WriteSendIndication(buffer, destination, data.Span);
-            await _connection
-                .SendAsync(buffer.AsMemory(0, length), cancellationToken)
-                .ConfigureAwait(false);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        await RelayAsync(peer, data, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -183,9 +241,24 @@ internal sealed partial class TurnAllocation : IIceSocket
     {
         while (true)
         {
-            int length = await _connection
-                .ReceiveAsync(buffer, cancellationToken)
-                .ConfigureAwait(false);
+            int length;
+            try
+            {
+                ThrowIfGone();
+                length = await _connection
+                    .ReceiveAsync(buffer, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (Volatile.Read(ref _gone) is not null
+                    && exception is ObjectDisposedException or SocketException
+                )
+            {
+                // Deliberately not logged here: Fail logged why the connection was closed.
+                ThrowIfGone();
+                throw;
+            }
+
             if (Unwrap(buffer.Span[..length], out int dataLength) is { } source)
             {
                 return new IceReceiveResult(dataLength, source);
@@ -203,46 +276,42 @@ internal sealed partial class TurnAllocation : IIceSocket
 
         _maintenance?.Dispose();
         _lifetime.Cancel();
-        try
+        if (Volatile.Read(ref _gone) is null && _key.Length > 0)
         {
-            // Releases the relay now instead of when its lifetime runs out.
-            byte[] buffer = new byte[1024];
-            int length = WriteRequest(
-                buffer,
-                StunMethod.Refresh,
-                NewTransaction(),
-                static (ref w) => w.AddUInt32(StunAttributeType.Lifetime, 0)
-            );
-            _connection.SendFinal(buffer.AsSpan(0, length));
-        }
-        catch (Exception exception)
-            when (exception is IOException or SocketException or ObjectDisposedException)
-        {
-            LogDeallocateFailed(exception, _server.Host);
-        }
-
-        lock (_gate)
-        {
-            foreach (TaskCompletionSource<byte[]> pending in _pending.Values)
+            try
             {
-                _ = pending.TrySetCanceled();
+                // Releases the relay now instead of when its lifetime runs out. A 437 answer means it
+                // was already gone, which is as good (RFC 8656 section 8.3), so nothing waits for one.
+                byte[] buffer = new byte[1024];
+                int length = WriteRequest(
+                    buffer,
+                    StunMethod.Refresh,
+                    NewTransaction(),
+                    static (ref w) => w.AddUInt32(StunAttributeType.Lifetime, 0)
+                );
+                _connection.SendFinal(buffer.AsSpan(0, length));
             }
-
-            _pending.Clear();
+            catch (Exception exception)
+                when (exception is IOException or SocketException or ObjectDisposedException)
+            {
+                LogDeallocateFailed(exception, _server.Host);
+            }
         }
 
+        CancelPending();
         _connection.Dispose();
         _lifetime.Dispose();
     }
 
-    // Allocate, answering the 401 challenge and a stale nonce once each. The ICE loop is not reading yet,
-    // so each exchange reads its own response.
+    // Allocate, answering the long-term credential challenge (RFC 8489 section 9.2.5). The ICE loop
+    // is not reading yet, so each exchange reads its own response.
     private async Task RequestAllocationAsync(
         AddressFamily family,
         CancellationToken cancellationToken
     )
     {
-        for (int attempt = 0; attempt < 3; attempt++)
+        Challenge challenge = default;
+        while (true)
         {
             byte[] response = await ExchangeDirectAsync(
                     transaction => BuildAllocate(transaction, family),
@@ -270,37 +339,74 @@ internal sealed partial class TurnAllocation : IIceSocket
                     );
                 }
 
+                // RFC 8656 section 7.3: the relayed address is of the family that was asked for.
+                if (relayed.AddressFamily != family)
+                {
+                    throw new TurnException(
+                        0,
+                        $"The TURN server relayed {relayed.AddressFamily} where {family} was asked for."
+                    );
+                }
+
                 LocalEndPoint = relayed;
                 MappedAddress = message.TryGetXorMappedAddress(out IPEndPoint mapped)
                     ? mapped
                     : relayed;
-                _expires = Now + Lifetime(message);
+                Renew(Lifetime(message));
                 LogAllocated(_server.Host, relayed, MappedAddress);
                 return;
             }
 
-            if (!HandleChallenge(message, out int code))
+            if (!HandleChallenge(message, ref challenge, out int code))
             {
-                throw new TurnException(code, $"The TURN server refused the allocation ({code}).");
+                throw new TurnException(code, $"The TURN server refused the allocation ({code}).")
+                {
+                    AlternateServer =
+                        code == 300
+                        && message.TryGetAddress(
+                            StunAttributeType.AlternateServer,
+                            out IPEndPoint alternate
+                        )
+                        && alternate.AddressFamily == family
+                            ? alternate
+                            : null,
+                };
             }
         }
-
-        throw new TurnException(401, "The TURN server rejected the credentials.");
     }
 
-    // A 401 carries the realm and nonce to authenticate with, a 438 a fresh nonce. Either way the request
-    // is sent again; any other error ends it.
-    private bool HandleChallenge(StunMessageReader message, out int code)
+    // RFC 8489 section 9.2.5: a 401 to a request without credentials carries the realm and nonce to
+    // authenticate with, and is answered once; a 401 to one with credentials means they were refused.
+    // A 438 carries a fresh nonce and is answered once per request.
+    private bool HandleChallenge(StunMessageReader message, ref Challenge challenge, out int code)
     {
         _ = message.TryGetErrorCode(out code);
-        if (
-            code is not (401 or 438)
-            || !message.TryFindAttribute(StunAttributeType.Nonce, out ReadOnlySpan<byte> nonce)
-        )
+        if (!message.TryFindAttribute(StunAttributeType.Nonce, out ReadOnlySpan<byte> nonce))
         {
             return false;
         }
 
+        bool answer = code switch
+        {
+            401 => !challenge.Unauthorized && _key.Length == 0,
+            438 => !challenge.StaleNonce,
+            _ => false,
+        };
+        if (!answer)
+        {
+            return false;
+        }
+
+        challenge =
+            code == 401
+                ? challenge with
+                {
+                    Unauthorized = true,
+                }
+                : challenge with
+                {
+                    StaleNonce = true,
+                };
         lock (_gate)
         {
             _nonce = nonce.ToArray();
@@ -323,15 +429,10 @@ internal sealed partial class TurnAllocation : IIceSocket
         UInt128 transaction = NewTransaction();
         byte[] request = build(transaction);
         byte[] buffer = new byte[2048];
-        TimeSpan rto = _connection.IsReliable ? ReliableTimeout : InitialRto;
-        for (
-            int transmit = 0;
-            transmit < (_connection.IsReliable ? 1 : MaxUdpTransmits);
-            transmit++
-        )
+        foreach (TimeSpan wait in Waits())
         {
             await _connection.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            using var timeout = new CancellationTokenSource(rto, _time);
+            using var timeout = new CancellationTokenSource(wait, _time);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(
                 timeout.Token,
                 cancellationToken
@@ -351,24 +452,24 @@ internal sealed partial class TurnAllocation : IIceSocket
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                // No answer within the retransmission timeout: send again, waiting twice as long.
-                LogRetransmitting(_server.Host, rto);
-                rto *= 2;
+                // No answer within this wait: the next transmission waits twice as long.
+                LogRetransmitting(_server.Host, wait);
             }
         }
 
         throw new TurnException(0, $"The TURN server {_server.Host} did not answer.");
     }
 
-    // Sends an authenticated request whose response the ICE receive loop delivers, retrying once on a
-    // stale nonce. Returns the success response, or null with the error logged.
-    private async Task<bool> TransactAsync(
+    // Sends an authenticated request whose response the ICE receive loop delivers, answering the
+    // credential challenge as RequestAllocationAsync does.
+    private async Task<Outcome> TransactAsync(
         StunMethod method,
         WriteAttributes attributes,
         CancellationToken cancellationToken
     )
     {
-        for (int attempt = 0; attempt < 2; attempt++)
+        Challenge challenge = default;
+        while (true)
         {
             UInt128 transaction = NewTransaction();
             byte[] buffer = new byte[1024];
@@ -384,26 +485,20 @@ internal sealed partial class TurnAllocation : IIceSocket
             byte[]? response = null;
             try
             {
-                TimeSpan rto = _connection.IsReliable ? ReliableTimeout : InitialRto;
-                for (
-                    int transmit = 0;
-                    transmit < (_connection.IsReliable ? 1 : MaxUdpTransmits);
-                    transmit++
-                )
+                foreach (TimeSpan wait in Waits())
                 {
                     await _connection.SendAsync(request, cancellationToken).ConfigureAwait(false);
                     try
                     {
                         response = await completion
-                            .Task.WaitAsync(rto, _time, cancellationToken)
+                            .Task.WaitAsync(wait, _time, cancellationToken)
                             .ConfigureAwait(false);
                         break;
                     }
                     catch (TimeoutException)
                     {
-                        // No answer within the retransmission timeout: send again, waiting twice as long.
-                        LogRetransmitting(_server.Host, rto);
-                        rto *= 2;
+                        // Deliberately not rethrown: the next transmission waits twice as long.
+                        LogRetransmitting(_server.Host, wait);
                     }
                 }
             }
@@ -418,87 +513,216 @@ internal sealed partial class TurnAllocation : IIceSocket
             if (response is null)
             {
                 LogRequestTimedOut(method, _server.Host);
-                return false;
+                return Outcome.TimedOut;
             }
 
             if (!StunMessageReader.TryParse(response, out StunMessageReader message))
             {
-                return false;
+                return new Outcome(false, 0, null);
             }
 
             if (message.Class == StunMessageClass.SuccessResponse)
             {
                 if (!VerifyIntegrity(message))
                 {
-                    return false;
+                    LogUnverifiedResponse(method, _server.Host);
+                    return new Outcome(false, 0, null);
                 }
 
-                if (method == StunMethod.Refresh)
-                {
-                    _expires = Now + Lifetime(message);
-                }
-
-                return true;
+                return new Outcome(true, 0, Lifetime(message));
             }
 
-            if (!HandleChallenge(message, out int code))
+            if (!HandleChallenge(message, ref challenge, out int code))
             {
                 LogRequestRefused(method, code, _server.Host);
-                return false;
+                return new Outcome(false, code, null);
+            }
+        }
+    }
+
+    // CreatePermission for one peer address (RFC 8656 section 10), then the datagrams that waited.
+    private async Task RequestPermissionAsync(IPAddress address)
+    {
+        Outcome outcome = await TransactSafelyAsync(
+                StunMethod.CreatePermission,
+                (ref w) => w.AddXorAddress(StunAttributeType.XorPeerAddress, new(address, 0))
+            )
+            .ConfigureAwait(false);
+        List<(IPEndPoint Destination, byte[] Data)> waiting;
+        lock (_gate)
+        {
+            if (!_permissions.TryGetValue(address, out Permission? permission))
+            {
+                return;
+            }
+
+            waiting = [.. permission.Queue];
+            permission.Queue.Clear();
+            if (outcome.Succeeded)
+            {
+                permission.State = PermissionState.Installed;
+                permission.RefreshAt = Now + PermissionRefresh;
+            }
+            else
+            {
+                permission.State = PermissionState.Failed;
+                permission.RetryAt = Now + FailureRetry;
+                waiting.Clear();
             }
         }
 
-        return false;
+        if (!outcome.Succeeded)
+        {
+            if (outcome.Code == 437)
+            {
+                Fail($"The TURN server {_server.Host} no longer has the allocation (437).");
+            }
+            else
+            {
+                LogPermissionFailed(address, outcome.Code, _server.Host);
+            }
+
+            return;
+        }
+
+        Reschedule();
+        foreach ((IPEndPoint destination, byte[] data) in waiting)
+        {
+            try
+            {
+                await SendAsync(data, destination, EcnCodepoint.NotEct, _lifetime.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (exception
+                        is OperationCanceledException
+                            or ObjectDisposedException
+                            or IOException
+                            or SocketException
+                )
+            {
+                // Deliberately not logged: a datagram that waited for its permission is lost as any
+                // datagram is; the sender retransmits what matters.
+                return;
+            }
+        }
     }
 
-    // Binds the peer's channel, which also installs its permission. A failure is retried after a pause
-    // on the next send; Send indications carry the traffic meanwhile.
-    private async Task BindAsync(Peer peer, CancellationToken cancellationToken)
+    // Binds the peer's channel, which also refreshes its permission. A failure is retried after a
+    // pause on the next send; Send indications carry the traffic meanwhile.
+    private async Task BindAsync(Peer peer)
     {
-        bool bound = false;
-        try
-        {
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                _lifetime.Token
-            );
-            bound = await TransactAsync(
-                    StunMethod.ChannelBind,
-                    (ref w) =>
-                    {
-                        w.AddUInt32(StunAttributeType.ChannelNumber, (uint)peer.Channel << 16);
-                        w.AddXorAddress(StunAttributeType.XorPeerAddress, peer.Endpoint);
-                    },
-                    linked.Token
-                )
-                .ConfigureAwait(false);
-        }
-        catch (Exception exception)
-            when (exception is OperationCanceledException or ObjectDisposedException)
-        {
-            // Deliberately not logged: the allocation or the send that asked for the binding is closing.
-        }
-        catch (Exception exception) when (exception is IOException or SocketException)
-        {
-            LogBindFailed(exception, peer.Endpoint, _server.Host);
-        }
-
+        Outcome outcome = await TransactSafelyAsync(
+                StunMethod.ChannelBind,
+                (ref w) =>
+                {
+                    w.AddUInt32(StunAttributeType.ChannelNumber, (uint)peer.Channel << 16);
+                    w.AddXorAddress(StunAttributeType.XorPeerAddress, peer.Endpoint);
+                }
+            )
+            .ConfigureAwait(false);
         lock (_gate)
         {
             peer.Binding = false;
-            if (bound)
+            if (outcome.Succeeded)
             {
                 peer.Bound = true;
                 peer.BoundAt = Now;
             }
             else
             {
-                peer.RetryAt = Now + BindingRetry;
+                peer.RetryAt = Now + FailureRetry;
             }
+        }
+
+        switch (outcome.Code)
+        {
+            case 437:
+                Fail($"The TURN server {_server.Host} no longer has the allocation (437).");
+                break;
+            case 400 when peer.Bound:
+                // RFC 8656 section 12.3: a refused refresh of a bound channel means client and server
+                // disagree on the channels; the allocation is deleted and started afresh.
+                Fail(
+                    $"The TURN server {_server.Host} and this client disagree on channel {peer.Channel}."
+                );
+                break;
+            default:
+                if (outcome.Succeeded)
+                {
+                    Reschedule();
+                }
+
+                break;
         }
     }
 
-    // Refreshes the allocation before it expires and every binding before its permission does.
+    // Runs a transaction from a background task, where cancellation or a closed connection is how
+    // the allocation ends.
+    private async Task<Outcome> TransactSafelyAsync(StunMethod method, WriteAttributes attributes)
+    {
+        try
+        {
+            return await TransactAsync(method, attributes, _lifetime.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+            when (exception is OperationCanceledException or ObjectDisposedException)
+        {
+            // Deliberately not logged: the allocation is closing.
+            return Outcome.TimedOut;
+        }
+        catch (Exception exception) when (exception is IOException or SocketException)
+        {
+            LogTransactionFailed(exception, method, _server.Host);
+            return Outcome.TimedOut;
+        }
+    }
+
+    private Peer PeerFor(IPEndPoint destination)
+    {
+        if (!_peers.TryGetValue(destination, out Peer? peer))
+        {
+            // Channel numbers are never reused, which keeps clear of the five minutes a released one
+            // must rest (RFC 8656 section 12). With every number taken, a peer is reached by Send
+            // indications alone.
+            peer =
+                _nextChannel > LastChannel
+                    ? new Peer(destination, 0)
+                    : new Peer(destination, _nextChannel++);
+            if (peer.Channel != 0)
+            {
+                _channels[peer.Channel] = destination;
+            }
+
+            _peers[destination] = peer;
+        }
+
+        return peer;
+    }
+
+    private async ValueTask RelayAsync(
+        Peer peer,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken
+    )
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(data.Length + 64);
+        try
+        {
+            int length = peer.Bound
+                ? WriteChannelData(buffer, peer.Channel, data.Span)
+                : WriteSendIndication(buffer, peer.Endpoint, data.Span);
+            await _connection
+                .SendAsync(buffer.AsMemory(0, length), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    // The timer's callback: one maintenance pass at a time.
     private void Maintain()
     {
         if (Interlocked.Exchange(ref _maintaining, 1) != 0)
@@ -509,54 +733,237 @@ internal sealed partial class TurnAllocation : IIceSocket
         _ = MaintainAsync();
     }
 
+    // Refreshes the allocation a minute before it expires (RFC 8656 section 8), and the permissions
+    // and channels a minute before their permissions would lapse.
     private async Task MaintainAsync()
     {
         try
         {
-            CancellationToken cancellationToken = _lifetime.Token;
-            if (_expires - Now < TimeSpan.FromSeconds(RequestedLifetime / 4))
+            if (Now >= _refreshAt)
             {
-                _ = await TransactAsync(
-                        StunMethod.Refresh,
-                        static (ref w) =>
-                            w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime),
-                        cancellationToken
-                    )
-                    .ConfigureAwait(false);
+                await RefreshAsync().ConfigureAwait(false);
             }
 
-            List<Peer> due;
+            List<IPAddress> permissions;
+            List<Peer> channels;
             lock (_gate)
             {
-                due =
+                if (_gone is not null)
+                {
+                    return;
+                }
+
+                TimeSpan now = Now;
+                channels =
                 [
                     .. _peers.Values.Where(p =>
-                        p.Bound && !p.Binding && Now - p.BoundAt >= BindingRefresh
+                        p.Bound && !p.Binding && now - p.BoundAt >= PermissionRefresh
                     ),
                 ];
-                foreach (Peer peer in due)
+                foreach (Peer peer in channels)
                 {
                     peer.Binding = true;
                 }
+
+                permissions =
+                [
+                    .. _permissions
+                        .Where(p =>
+                            p.Value.State == PermissionState.Installed && now >= p.Value.RefreshAt
+                        )
+                        .Select(p => p.Key),
+                ];
             }
 
-            foreach (Peer peer in due)
+            if (permissions.Count > 0)
             {
-                await BindAsync(peer, cancellationToken).ConfigureAwait(false);
+                await RefreshPermissionsAsync(permissions).ConfigureAwait(false);
             }
-        }
-        catch (Exception exception)
-            when (exception is OperationCanceledException or ObjectDisposedException)
-        {
-            // Deliberately not logged: the allocation is closing.
-        }
-        catch (Exception exception) when (exception is IOException or SocketException)
-        {
-            LogRefreshFailed(exception, _server.Host);
+
+            foreach (Peer peer in channels)
+            {
+                await BindAsync(peer).ConfigureAwait(false);
+            }
         }
         finally
         {
             Volatile.Write(ref _maintaining, 0);
+            Reschedule();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        Outcome outcome = await TransactSafelyAsync(
+                StunMethod.Refresh,
+                static (ref w) =>
+                {
+                    w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime);
+                    w.AddAttribute(StunAttributeType.Software, s_software);
+                }
+            )
+            .ConfigureAwait(false);
+        if (outcome.Succeeded)
+        {
+            Renew(outcome.Lifetime ?? TimeSpan.FromSeconds(RequestedLifetime));
+            return;
+        }
+
+        if (outcome.Code == 437 || Now >= _expires)
+        {
+            // RFC 8656 section 8.3: a 437 to a refresh means the allocation no longer exists.
+            Fail(
+                outcome.Code == 437
+                    ? $"The TURN server {_server.Host} no longer has the allocation (437)."
+                    : $"The TURN allocation on {_server.Host} expired without a refresh."
+            );
+            return;
+        }
+
+        // Unanswered or refused: tried again shortly while the allocation lives.
+        lock (_gate)
+        {
+            _refreshAt = Now + FailureRetry;
+        }
+    }
+
+    // One CreatePermission refreshes every address that is due (RFC 8656 section 10.1 allows several
+    // XOR-PEER-ADDRESS attributes).
+    private async Task RefreshPermissionsAsync(List<IPAddress> addresses)
+    {
+        Outcome outcome = await TransactSafelyAsync(
+                StunMethod.CreatePermission,
+                (ref w) =>
+                {
+                    foreach (IPAddress address in addresses)
+                    {
+                        w.AddXorAddress(StunAttributeType.XorPeerAddress, new(address, 0));
+                    }
+                }
+            )
+            .ConfigureAwait(false);
+        if (outcome.Code == 437)
+        {
+            Fail($"The TURN server {_server.Host} no longer has the allocation (437).");
+            return;
+        }
+
+        lock (_gate)
+        {
+            foreach (IPAddress address in addresses)
+            {
+                if (_permissions.TryGetValue(address, out Permission? permission))
+                {
+                    if (outcome.Succeeded)
+                    {
+                        permission.RefreshAt = Now + PermissionRefresh;
+                    }
+                    else
+                    {
+                        // Lapses at the server within a minute; the next send asks again.
+                        permission.State = PermissionState.Failed;
+                        permission.RetryAt = Now + FailureRetry;
+                    }
+                }
+            }
+        }
+
+        if (!outcome.Succeeded)
+        {
+            LogPermissionFailed(addresses[0], outcome.Code, _server.Host);
+        }
+    }
+
+    // When the server granted a lifetime, the refresh is due a minute before it ends; short lifetimes
+    // refresh at half, long ones are capped at an hour, as libwebrtc does.
+    private void Renew(TimeSpan lifetime)
+    {
+        TimeSpan delay =
+            lifetime < TimeSpan.FromMinutes(2) ? lifetime / 2
+            : lifetime > TimeSpan.FromHours(1) ? TimeSpan.FromMinutes(59)
+            : lifetime - TimeSpan.FromMinutes(1);
+        lock (_gate)
+        {
+            _expires = Now + lifetime;
+            _refreshAt = Now + delay;
+        }
+    }
+
+    // The time until the next refresh, permission or channel falls due.
+    private TimeSpan NextDue()
+    {
+        lock (_gate)
+        {
+            TimeSpan next = _refreshAt;
+            foreach (Permission permission in _permissions.Values)
+            {
+                if (permission.State == PermissionState.Installed && permission.RefreshAt < next)
+                {
+                    next = permission.RefreshAt;
+                }
+            }
+
+            foreach (Peer peer in _peers.Values)
+            {
+                if (peer.Bound && peer.BoundAt + PermissionRefresh < next)
+                {
+                    next = peer.BoundAt + PermissionRefresh;
+                }
+            }
+
+            TimeSpan due = next - Now;
+            return due > TimeSpan.Zero ? due : TimeSpan.Zero;
+        }
+    }
+
+    private void Reschedule()
+    {
+        if (Volatile.Read(ref _disposed) == 0 && Volatile.Read(ref _gone) is null)
+        {
+            try
+            {
+                _ = _maintenance?.Change(NextDue(), Timeout.InfiniteTimeSpan);
+            }
+            catch (ObjectDisposedException)
+            {
+                // Deliberately not logged: Dispose stopped the timer between the check and the change.
+            }
+        }
+    }
+
+    // The allocation is gone at the server: the receive loop learns it as a closed connection, and
+    // nothing more is sent.
+    private void Fail(string reason)
+    {
+        if (Interlocked.CompareExchange(ref _gone, reason, null) is not null)
+        {
+            return;
+        }
+
+        LogAllocationGone(_server.Host, reason);
+        _maintenance?.Dispose();
+        CancelPending();
+        _connection.Dispose();
+    }
+
+    private void ThrowIfGone()
+    {
+        if (Volatile.Read(ref _gone) is { } reason)
+        {
+            throw new IOException(reason);
+        }
+    }
+
+    private void CancelPending()
+    {
+        lock (_gate)
+        {
+            foreach (TaskCompletionSource<byte[]> pending in _pending.Values)
+            {
+                _ = pending.TrySetCanceled();
+            }
+
+            _pending.Clear();
         }
     }
 
@@ -600,6 +1007,18 @@ internal sealed partial class TurnAllocation : IIceSocket
                 return null;
             }
 
+            // RFC 8656 section 11.4: data from an address without an active permission is dropped.
+            lock (_gate)
+            {
+                if (
+                    !_permissions.TryGetValue(peer.Address, out Permission? permission)
+                    || permission.State != PermissionState.Installed
+                )
+                {
+                    return null;
+                }
+            }
+
             dataLength = data.Length;
             data.CopyTo(message);
             return peer;
@@ -617,6 +1036,26 @@ internal sealed partial class TurnAllocation : IIceSocket
         }
 
         return null;
+    }
+
+    // How long to wait after each transmission: RTO doubling over UDP, the last wait Rm times the
+    // initial RTO (RFC 8489 section 6.2.1); one wait of Ti over TCP and TLS.
+    private IEnumerable<TimeSpan> Waits()
+    {
+        if (_connection.IsReliable)
+        {
+            yield return ReliableTimeout;
+            yield break;
+        }
+
+        TimeSpan rto = InitialRto;
+        for (int transmission = 1; transmission < UdpTransmissions; transmission++)
+        {
+            yield return rto;
+            rto *= 2;
+        }
+
+        yield return InitialRto * LastWaitFactor;
     }
 
     private bool VerifyIntegrity(StunMessageReader message) =>
@@ -639,6 +1078,7 @@ internal sealed partial class TurnAllocation : IIceSocket
                         family == AddressFamily.InterNetworkV6 ? 0x02u << 24 : 0x01u << 24
                     );
                     w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime);
+                    w.AddAttribute(StunAttributeType.Software, s_software);
                 }
             )
         ];
@@ -763,16 +1203,20 @@ internal sealed partial class TurnAllocation : IIceSocket
     [LoggerMessage(
         EventId = 1153,
         Level = LogLevel.Warning,
-        Message = "TURN channel bind for {Peer} on {Server} failed"
+        Message = "TURN {Method} to {Server} failed"
     )]
-    private partial void LogBindFailed(Exception exception, IPEndPoint peer, string server);
+    private partial void LogTransactionFailed(
+        Exception exception,
+        StunMethod method,
+        string server
+    );
 
     [LoggerMessage(
         EventId = 1154,
         Level = LogLevel.Warning,
-        Message = "TURN refresh on {Server} failed"
+        Message = "TURN allocation on {Server} is gone: {Reason}"
     )]
-    private partial void LogRefreshFailed(Exception exception, string server);
+    private partial void LogAllocationGone(string server, string reason);
 
     [LoggerMessage(
         EventId = 1155,
@@ -788,7 +1232,63 @@ internal sealed partial class TurnAllocation : IIceSocket
     )]
     private partial void LogRetransmitting(string server, TimeSpan timeout);
 
+    [LoggerMessage(
+        EventId = 1183,
+        Level = LogLevel.Warning,
+        Message = "TURN permission for {Peer} on {Server} failed ({Code}); traffic to it is dropped until it is asked for again"
+    )]
+    private partial void LogPermissionFailed(IPAddress peer, int code, string server);
+
+    [LoggerMessage(
+        EventId = 1184,
+        Level = LogLevel.Information,
+        Message = "TURN server {Server} sees this 5-tuple in use (437, attempt {Attempt}); allocating from another port"
+    )]
+    private partial void LogAllocationMismatch(string server, int attempt);
+
+    [LoggerMessage(
+        EventId = 1185,
+        Level = LogLevel.Information,
+        Message = "TURN server {Server} redirected the allocation to {Alternate}"
+    )]
+    private partial void LogRedirected(string server, IPEndPoint alternate);
+
+    [LoggerMessage(
+        EventId = 1186,
+        Level = LogLevel.Warning,
+        Message = "TURN {Method} response from {Server} did not verify; it is ignored"
+    )]
+    private partial void LogUnverifiedResponse(StunMethod method, string server);
+
     private delegate void WriteAttributes(ref StunMessageWriter writer);
+
+    // What a transaction came to: success with the granted lifetime, or the error code (0 when the
+    // server did not answer or the answer did not verify).
+    private readonly record struct Outcome(bool Succeeded, int Code, TimeSpan? Lifetime)
+    {
+        public static Outcome TimedOut => new(false, 0, null);
+    }
+
+    // Which challenges a request has answered.
+    private readonly record struct Challenge(bool Unauthorized, bool StaleNonce);
+
+    private enum PermissionState
+    {
+        Requesting,
+        Installed,
+        Failed,
+    }
+
+    private sealed class Permission
+    {
+        public PermissionState State { get; set; }
+
+        public TimeSpan RefreshAt { get; set; }
+
+        public TimeSpan RetryAt { get; set; }
+
+        public Queue<(IPEndPoint Destination, byte[] Data)> Queue { get; } = new();
+    }
 
     private sealed class Peer(IPEndPoint endpoint, ushort channel)
     {
@@ -831,4 +1331,7 @@ public sealed class TurnException : Exception
 
     /// <summary>The STUN error code (RFC 8489 section 14.8), or 0 when the server sent none.</summary>
     public int Code { get; }
+
+    // The server a 300 (Try Alternate) pointed to, of the request's address family.
+    internal IPEndPoint? AlternateServer { get; init; }
 }

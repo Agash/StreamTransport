@@ -35,10 +35,29 @@ internal sealed class TestTurnServer : IAsyncDisposable
         Encoding.UTF8.GetBytes($"{Username}:{Realm}:{Password}")
     );
     private int _staleNonces;
+    private int _mismatches;
+    private readonly uint _lifetime;
+    private readonly IPEndPoint? _alternate;
 
-    public TestTurnServer(IPAddress address, bool tls = false, int staleNonces = 0)
+    /// <param name="address">Where to listen.</param>
+    /// <param name="tls">Whether to listen for TLS as well.</param>
+    /// <param name="staleNonces">How many requests after the Allocate to answer 438 first.</param>
+    /// <param name="mismatches">How many Allocates to answer 437, as for a 5-tuple in use.</param>
+    /// <param name="lifetime">The lifetime to grant allocations, in seconds.</param>
+    /// <param name="alternate">Answers every Allocate 300 with this ALTERNATE-SERVER.</param>
+    public TestTurnServer(
+        IPAddress address,
+        bool tls = false,
+        int staleNonces = 0,
+        int mismatches = 0,
+        uint lifetime = 600,
+        IPEndPoint? alternate = null
+    )
     {
         _staleNonces = staleNonces;
+        _mismatches = mismatches;
+        _lifetime = lifetime;
+        _alternate = alternate;
         _udp = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         _udp.Bind(new IPEndPoint(address, 0));
         _tcp = new TcpListener(address, 0);
@@ -61,6 +80,9 @@ internal sealed class TestTurnServer : IAsyncDisposable
     public IPEndPoint TlsEndPoint => (IPEndPoint)_tls!.LocalEndpoint;
 
     public int Allocations;
+    public int AllocateRequests;
+    public int CreatePermissions;
+    public int RefusedSends;
     public int ChannelBinds;
     public int Refreshes;
     public int SendIndications;
@@ -338,6 +360,11 @@ internal sealed class TestTurnServer : IAsyncDisposable
                 Interlocked.Increment(ref SendIndications);
                 forward = (data.ToArray(), peer, allocation);
             }
+            else
+            {
+                // RFC 8656 section 11.2: no permission, no relaying.
+                Interlocked.Increment(ref RefusedSends);
+            }
 
             return null;
         }
@@ -345,6 +372,21 @@ internal sealed class TestTurnServer : IAsyncDisposable
         if (request.Class != StunMessageClass.Request)
         {
             return null;
+        }
+
+        if (request.Method == StunMethod.Allocate)
+        {
+            Interlocked.Increment(ref AllocateRequests);
+            if (_alternate is { } alternate)
+            {
+                return Error(
+                    request,
+                    300,
+                    Nonce,
+                    (ref StunMessageWriter w) =>
+                        w.AddAddress(StunAttributeType.AlternateServer, alternate)
+                );
+            }
         }
 
         if (!request.TryFindAttribute(StunAttributeType.MessageIntegrity, out _))
@@ -366,6 +408,11 @@ internal sealed class TestTurnServer : IAsyncDisposable
         {
             case StunMethod.Allocate:
             {
+                if (Interlocked.Decrement(ref _mismatches) >= 0)
+                {
+                    return Error(request, 437, Nonce);
+                }
+
                 if (allocation is null)
                 {
                     var relay = new Socket(
@@ -374,7 +421,7 @@ internal sealed class TestTurnServer : IAsyncDisposable
                         ProtocolType.Udp
                     );
                     relay.Bind(new IPEndPoint(((IPEndPoint)_udp.LocalEndPoint!).Address, 0));
-                    allocation = new Allocation(relay);
+                    allocation = new Allocation(relay, reply);
                     _allocations[key] = allocation;
                     _loops.Add(RelayLoopAsync(allocation, reply));
                     Interlocked.Increment(ref Allocations);
@@ -389,10 +436,14 @@ internal sealed class TestTurnServer : IAsyncDisposable
                             (IPEndPoint)allocation.Relay.LocalEndPoint!
                         );
                         w.AddXorMappedAddress(client);
-                        w.AddUInt32(StunAttributeType.Lifetime, 600);
+                        w.AddUInt32(StunAttributeType.Lifetime, _lifetime);
                     }
                 );
             }
+
+            // RFC 8656 section 8.2: a Refresh for no allocation is a 437.
+            case StunMethod.Refresh when allocation is null:
+                return Error(request, 437, Nonce);
 
             case StunMethod.Refresh:
             {
@@ -406,14 +457,16 @@ internal sealed class TestTurnServer : IAsyncDisposable
                     released.Relay.Dispose();
                 }
 
+                uint granted = lifetime == 0 ? 0 : _lifetime;
                 return Success(
                     request,
-                    (ref StunMessageWriter w) => w.AddUInt32(StunAttributeType.Lifetime, lifetime)
+                    (ref StunMessageWriter w) => w.AddUInt32(StunAttributeType.Lifetime, granted)
                 );
             }
 
             case StunMethod.CreatePermission when allocation is not null:
             {
+                Interlocked.Increment(ref CreatePermissions);
                 if (request.TryGetXorAddress(StunAttributeType.XorPeerAddress, out IPEndPoint peer))
                 {
                     allocation.Permissions[peer.Address] = true;
@@ -547,7 +600,12 @@ internal sealed class TestTurnServer : IAsyncDisposable
         return buffer[..writer.Length];
     }
 
-    private static byte[] Error(StunMessageReader request, int code, byte[] nonce)
+    private static byte[] Error(
+        StunMessageReader request,
+        int code,
+        byte[] nonce,
+        Attributes? extra = null
+    )
     {
         byte[] buffer = new byte[512];
         StunMessageWriter writer = new(
@@ -559,13 +617,49 @@ internal sealed class TestTurnServer : IAsyncDisposable
         writer.AddErrorCode(code, code == 438 ? "Stale Nonce" : "Unauthorized");
         writer.AddAttribute(StunAttributeType.Realm, Encoding.UTF8.GetBytes(Realm));
         writer.AddAttribute(StunAttributeType.Nonce, nonce);
+        extra?.Invoke(ref writer);
         writer.AddFingerprint();
         return buffer[..writer.Length];
     }
 
-    private sealed class Allocation(Socket relay)
+    /// <summary>
+    /// Sends every client a Data indication from <paramref name="peer"/>, permission or not, as a
+    /// misbehaving server or an attacker on the path might.
+    /// </summary>
+    public async Task InjectDataAsync(IPEndPoint peer, byte[] data)
+    {
+        foreach (Allocation allocation in _allocations.Values)
+        {
+            byte[] frame = new byte[data.Length + 64];
+            StunMessageWriter writer = new(
+                frame,
+                StunMessageClass.Indication,
+                StunMethod.Data,
+                RandomNumberGenerator.GetBytes(12)
+            );
+            writer.AddXorAddress(StunAttributeType.XorPeerAddress, peer);
+            writer.AddAttribute(StunAttributeType.Data, data);
+            _ = await allocation.Reply(frame.AsMemory(0, writer.Length));
+        }
+    }
+
+    /// <summary>Forgets every allocation, as a server that restarted or expired them would.</summary>
+    public void ForgetAllocations()
+    {
+        foreach (object key in _allocations.Keys)
+        {
+            if (_allocations.TryRemove(key, out Allocation? allocation))
+            {
+                allocation.Relay.Dispose();
+            }
+        }
+    }
+
+    private sealed class Allocation(Socket relay, Func<ReadOnlyMemory<byte>, ValueTask<int>> reply)
     {
         public Socket Relay { get; } = relay;
+
+        public Func<ReadOnlyMemory<byte>, ValueTask<int>> Reply { get; } = reply;
 
         public ConcurrentDictionary<IPAddress, bool> Permissions { get; } = new();
 
