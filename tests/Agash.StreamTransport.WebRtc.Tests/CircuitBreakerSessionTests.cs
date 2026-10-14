@@ -93,6 +93,10 @@ public sealed class CircuitBreakerSessionTests
         var senderAddress = IPAddress.Parse("10.0.0.1");
         network.Drop = (from, _, _) => from.Address.Equals(senderAddress);
         await opened.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // A send that passed the gate just before the trip may still be on its way out; once it is,
+        // nothing more goes.
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
         long sentWhileOpen = sender.SentBytes(TrafficClass.Video);
         await Task.Delay(TimeSpan.FromSeconds(1));
         Assert.AreEqual(sentWhileOpen, sender.SentBytes(TrafficClass.Video), "media ceased");
