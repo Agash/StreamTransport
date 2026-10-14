@@ -46,7 +46,20 @@ public sealed partial class CoreAudioSink : IAudioSink, IDisposable
         using AVAudioFormat format = new(Format.SampleRate, 2);
         _node = new AVAudioSourceNode(format, new AVAudioSourceNodeRenderHandlerRaw(Render));
         _engine.AttachNode(_node);
-        _engine.Connect(_node, _engine.MainMixerNode, format);
+        // macOS 27 reports a refused connection as an error; earlier versions raise an exception.
+        if (OperatingSystem.IsMacOSVersionAtLeast(27))
+        {
+            if (!_engine.Connect(_node, _engine.MainMixerNode, format, out NSError? error))
+            {
+                throw new InvalidOperationException(
+                    $"The output node did not connect: {error?.LocalizedDescription}"
+                );
+            }
+        }
+        else
+        {
+            _engine.Connect(_node, _engine.MainMixerNode, format);
+        }
         _changes = NSNotificationCenter.DefaultCenter.AddObserver(
             AVAudioEngine.ConfigurationChangeNotification,
             _ => Restart(),

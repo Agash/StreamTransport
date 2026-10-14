@@ -164,7 +164,20 @@ public sealed partial class CoreAudioSource : IAudioSource, IDisposable
                 throw new InvalidOperationException("The system has no audio input device.");
             }
 
-            _engine.InputNode.InstallTapOnBus(0, 4096, null, Deliver);
+            // macOS 27 reports a refused tap as an error; earlier versions raise an exception.
+            if (OperatingSystem.IsMacOSVersionAtLeast(27))
+            {
+                if (!_engine.InputNode.InstallTapOnBus(0, 4096, null, out NSError? tapError, Deliver))
+                {
+                    throw new InvalidOperationException(
+                        $"The input tap was refused: {tapError?.LocalizedDescription}"
+                    );
+                }
+            }
+            else
+            {
+                _engine.InputNode.InstallTapOnBus(0, 4096, null, Deliver);
+            }
             if (!_engine.StartAndReturnError(out NSError? error))
             {
                 _engine.InputNode.RemoveTapOnBus(0);
