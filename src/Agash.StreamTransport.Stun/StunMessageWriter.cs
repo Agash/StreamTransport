@@ -65,6 +65,23 @@ public ref struct StunMessageWriter
         AddXorAddress(StunAttributeType.XorMappedAddress, endpoint);
 
     /// <summary>
+    /// Appends an address attribute in the plain MAPPED-ADDRESS format (RFC 8489 §14.1), such as
+    /// ALTERNATE-SERVER (§14.15).
+    /// </summary>
+    public void AddAddress(StunAttributeType type, IPEndPoint endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+
+        bool ipv6 = endpoint.AddressFamily == AddressFamily.InterNetworkV6;
+        Span<byte> value = stackalloc byte[20];
+        value[0] = 0;
+        value[1] = (byte)(ipv6 ? 0x02 : 0x01);
+        BinaryPrimitives.WriteUInt16BigEndian(value[2..], (ushort)endpoint.Port);
+        _ = endpoint.Address.TryWriteBytes(value[4..], out int written);
+        AddAttribute(type, value[..(4 + written)]);
+    }
+
+    /// <summary>
     /// Appends an XOR-encoded address attribute: XOR-MAPPED-ADDRESS, or TURN's XOR-PEER-ADDRESS and
     /// XOR-RELAYED-ADDRESS, which share its encoding (RFC 8489 §14.2).
     /// </summary>

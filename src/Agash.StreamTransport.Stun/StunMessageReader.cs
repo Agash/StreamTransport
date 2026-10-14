@@ -222,6 +222,32 @@ public readonly ref struct StunMessageReader
         return false;
     }
 
+    /// <summary>
+    /// Decodes an address attribute in the plain MAPPED-ADDRESS format (RFC 8489 §14.1), such as
+    /// ALTERNATE-SERVER (§14.15), into an <see cref="IPEndPoint"/>.
+    /// </summary>
+    public bool TryGetAddress(StunAttributeType type, out IPEndPoint endpoint)
+    {
+        endpoint = default!;
+        if (!TryFindAttribute(type, out ReadOnlySpan<byte> value) || value.Length < 8)
+        {
+            return false;
+        }
+
+        int port = BinaryPrimitives.ReadUInt16BigEndian(value[2..]);
+        switch (value[1])
+        {
+            case 0x01:
+                endpoint = new IPEndPoint(new IPAddress(value.Slice(4, 4)), port);
+                return true;
+            case 0x02 when value.Length >= 20:
+                endpoint = new IPEndPoint(new IPAddress(value.Slice(4, 16)), port);
+                return true;
+            default:
+                return false;
+        }
+    }
+
     /// <summary>Reads ERROR-CODE (RFC 8489 §14.8): the class times 100 plus the number.</summary>
     public bool TryGetErrorCode(out int code)
     {

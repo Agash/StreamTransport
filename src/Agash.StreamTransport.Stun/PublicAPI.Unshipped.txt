@@ -49,6 +49,7 @@ Agash.StreamTransport.Stun.StunMessageReader.Raw.get -> System.ReadOnlySpan<byte
 Agash.StreamTransport.Stun.StunMessageReader.StunMessageReader() -> void
 Agash.StreamTransport.Stun.StunMessageReader.TransactionId.get -> System.ReadOnlySpan<byte>
 Agash.StreamTransport.Stun.StunMessageReader.TryFindAttribute(Agash.StreamTransport.Stun.StunAttributeType type, out System.ReadOnlySpan<byte> value) -> bool
+Agash.StreamTransport.Stun.StunMessageReader.TryGetAddress(Agash.StreamTransport.Stun.StunAttributeType type, out System.Net.IPEndPoint! endpoint) -> bool
 Agash.StreamTransport.Stun.StunMessageReader.TryGetErrorCode(out int code) -> bool
 Agash.StreamTransport.Stun.StunMessageReader.TryGetUInt32(Agash.StreamTransport.Stun.StunAttributeType type, out uint value) -> bool
 Agash.StreamTransport.Stun.StunMessageReader.TryGetXorAddress(Agash.StreamTransport.Stun.StunAttributeType type, out System.Net.IPEndPoint! endpoint) -> bool
@@ -56,6 +57,7 @@ Agash.StreamTransport.Stun.StunMessageReader.TryGetXorMappedAddress(out System.N
 Agash.StreamTransport.Stun.StunMessageReader.VerifyFingerprint() -> bool
 Agash.StreamTransport.Stun.StunMessageReader.VerifyMessageIntegrity(System.ReadOnlySpan<byte> key) -> bool
 Agash.StreamTransport.Stun.StunMessageWriter
+Agash.StreamTransport.Stun.StunMessageWriter.AddAddress(Agash.StreamTransport.Stun.StunAttributeType type, System.Net.IPEndPoint! endpoint) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddAttribute(Agash.StreamTransport.Stun.StunAttributeType type, scoped System.ReadOnlySpan<byte> value) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddErrorCode(int code, string! reason) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddFingerprint() -> void
