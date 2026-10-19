@@ -172,6 +172,21 @@ public readonly ref struct VideoFrame
         _retainer = retainer;
     }
 
+    private VideoFrame(VideoFrame frame, VideoOrientation orientation)
+    {
+        _plane0 = frame._plane0;
+        _plane1 = frame._plane1;
+        _plane2 = frame._plane2;
+        _plane3 = frame._plane3;
+        _retainer = frame._retainer;
+        Storage = frame.Storage;
+        Format = frame.Format;
+        Timestamp = frame.Timestamp;
+        Color = frame.Color;
+        Orientation = orientation;
+        Duration = frame.Duration;
+    }
+
     /// <summary>
     /// Where the pixels are. A CPU frame's layout has zero offsets: <see cref="GetPlane"/> returns each
     /// plane from its first row.
@@ -189,6 +204,11 @@ public readonly ref struct VideoFrame
 
     /// <summary>How to turn the buffer upright.</summary>
     public VideoOrientation Orientation { get; }
+
+    /// <summary>The same frame, same pixels, with another orientation: no copy.</summary>
+    /// <param name="orientation">How to turn the buffer upright.</param>
+    /// <returns>The frame.</returns>
+    public VideoFrame WithOrientation(VideoOrientation orientation) => new(this, orientation);
 
     /// <summary>How long the frame is shown; zero when unknown.</summary>
     public TimeSpan Duration { get; }

@@ -120,6 +120,12 @@ public readonly ref struct EncodedVideoFrame(
     /// <summary>The timestamp of the frame it encodes.</summary>
     public MediaTimestamp Timestamp { get; } = timestamp;
 
+    /// <summary>
+    /// How to turn the decoded picture upright: the orientation of the frame it encodes, which the transport
+    /// signals beside the picture (RFC 7742 section 4) rather than rotating it.
+    /// </summary>
+    public VideoOrientation Orientation { get; init; }
+
     /// <summary>Keeps the access unit past the call, in pooled memory.</summary>
     /// <returns>A lease, released exactly once by disposing it.</returns>
     public EncodedVideoFrameLease Retain() => new(in this);
@@ -140,7 +146,11 @@ public sealed class EncodedVideoFrameLease : IDisposable
         Codec = frame.Codec;
         Keyframe = frame.Keyframe;
         Timestamp = frame.Timestamp;
+        Orientation = frame.Orientation;
     }
+
+    /// <summary>How to turn the decoded picture upright.</summary>
+    public VideoOrientation Orientation { get; }
 
     /// <summary>The codec.</summary>
     public VideoCodecId Codec { get; }
@@ -158,7 +168,10 @@ public sealed class EncodedVideoFrameLease : IDisposable
         get
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            return new EncodedVideoFrame(_buffer.AsSpan(0, _length), Codec, Keyframe, Timestamp);
+            return new EncodedVideoFrame(_buffer.AsSpan(0, _length), Codec, Keyframe, Timestamp)
+            {
+                Orientation = Orientation,
+            };
         }
     }
 
@@ -298,6 +311,9 @@ public readonly ref struct EncodedAudioFrame(
 
     /// <summary>How long it plays.</summary>
     public TimeSpan Duration { get; } = duration;
+
+    /// <summary>The level of the audio it encodes (RFC 6464), when measured.</summary>
+    public AudioLevel? Level { get; init; }
 }
 
 /// <summary>Receives encoded audio.</summary>

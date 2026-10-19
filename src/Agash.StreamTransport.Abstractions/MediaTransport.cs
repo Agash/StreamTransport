@@ -175,11 +175,13 @@ public interface IReceivedMediaConsumer
     /// <param name="keyframe">Whether it can be decoded on its own.</param>
     /// <param name="capture">When the sender captured it, on the sender's wall clock, when known.</param>
     /// <param name="timing">The frame's timing, when the sender timed it.</param>
+    /// <param name="orientation">How to turn the decoded picture upright, as the sender signals it.</param>
     void OnVideoFrame(
         EncodedFrameBuffer frame,
         bool keyframe,
         NtpTime? capture,
-        VideoReceiveTiming? timing
+        VideoReceiveTiming? timing,
+        VideoOrientation orientation
     );
 
     /// <summary>An audio packet.</summary>
@@ -187,11 +189,13 @@ public interface IReceivedMediaConsumer
     /// <param name="sequence">Its number in the stream, so a gap shows how many were lost.</param>
     /// <param name="position">Where it starts on the stream's timeline.</param>
     /// <param name="capture">When the sender captured its first sample, when known.</param>
+    /// <param name="level">Its audio level (RFC 6464), when the sender measured it.</param>
     void OnAudioPacket(
         EncodedFrameBuffer packet,
         long sequence,
         TimeSpan position,
-        NtpTime? capture
+        NtpTime? capture,
+        AudioLevel? level
     );
 
     /// <summary>The sender asked for its video to play within a delay range, or changed the range it asked for.</summary>

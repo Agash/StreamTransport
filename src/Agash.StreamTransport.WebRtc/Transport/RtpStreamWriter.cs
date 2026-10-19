@@ -28,6 +28,7 @@ internal sealed class RtpStreamWriter(
         (uint)RandomNumberGenerator.GetInt32(int.MinValue, int.MaxValue)
     );
     private MediaTime? _first;
+    private byte _lastOrientation;
 
     /// <summary>The SSRC the stream sends on.</summary>
     public uint Ssrc => ssrc;
@@ -44,13 +45,22 @@ internal sealed class RtpStreamWriter(
     /// Its encode timing when it is a timing frame: its last packet then carries the video-timing extension,
     /// with packetization finished now and the pacer exit stamped as it leaves, and its capture time.
     /// </param>
+    /// <param name="audioLevel">The audio level byte every packet of an audio frame carries (RFC 6464).</param>
+    /// <param name="orientation">
+    /// A video frame's CVO byte: on the frame's last packet when the frame is a keyframe, is turned, or
+    /// turns differently from the last (3GPP TS 26.114 section 7.4.5, as libwebrtc sends it).
+    /// </param>
+    /// <param name="keyframe">Whether the video frame decodes on its own.</param>
     /// <returns>False when the connection could not take the packets.</returns>
     public bool Write(
         PeerConnection connection,
         ReadOnlySpan<byte> frame,
         MediaTimestamp timestamp,
         NtpTime? capture,
-        FrameSendTiming? timing = null
+        FrameSendTiming? timing = null,
+        byte? audioLevel = null,
+        byte? orientation = null,
+        bool keyframe = false
     )
     {
         lock (_gate)
@@ -61,6 +71,11 @@ internal sealed class RtpStreamWriter(
             uint rtpTimestamp = unchecked(_start + (uint)rate.ToTicks(origin - _first.Value));
             bool sent = true;
             int last = _payloads.Count - 1;
+            byte? cvo =
+                orientation is { } turned && (keyframe || turned != 0 || turned != _lastOrientation)
+                    ? turned
+                    : null;
+            _lastOrientation = orientation ?? _lastOrientation;
             for (int i = 0; i < _payloads.Count; i++)
             {
                 RtpExtensionValues extensions =
@@ -83,6 +98,11 @@ internal sealed class RtpStreamWriter(
                         )
                     : i == 0 ? new RtpExtensionValues(captured.Value, PlayoutDelay: playoutDelay)
                     : default;
+                extensions = extensions with
+                {
+                    AudioLevel = audioLevel,
+                    VideoOrientation = i == last ? cvo : null,
+                };
                 sent &= connection.TrySendRtp(
                     payloadType,
                     ssrc,

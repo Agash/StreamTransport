@@ -413,6 +413,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         AgreeExtensions(new SdpDescription { Media = media });
         NegotiatedMedia = negotiated;
         ApplyRemoteBandwidth(offer);
+        NoteVoiceActivity(offer);
         BuildSectionTables();
         ConfigureRtx(offer);
         ConfigureFec(offer);
@@ -692,6 +693,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
             NegotiatedMedia = negotiated;
             ApplyRemoteBandwidth(description);
+            NoteVoiceActivity(description);
             BuildSectionTables();
             ConfigureRtx(description);
             ConfigureFec(description);

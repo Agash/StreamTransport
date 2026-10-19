@@ -201,13 +201,27 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         }
 
         connection.NoteMediaFrame(frame.Data.Length);
-        return writer.Write(connection, frame.Data, frame.Timestamp, capture, timing);
+        return writer.Write(
+            connection,
+            frame.Data,
+            frame.Timestamp,
+            capture,
+            timing,
+            orientation: MediaExtensionValues.ToCvo(frame.Orientation),
+            keyframe: frame.Keyframe
+        );
     }
 
     public bool TrySendAudio(in EncodedAudioFrame frame, NtpTime? capture) =>
         _audioWriter is { } writer
         && _connection is { } connection
-        && writer.Write(connection, frame.Data, frame.Timestamp, capture);
+        && writer.Write(
+            connection,
+            frame.Data,
+            frame.Timestamp,
+            capture,
+            audioLevel: frame.Level is { } level ? MediaExtensionValues.ToAudioLevel(level) : null
+        );
 
     public void RequestKeyframe()
     {
@@ -736,6 +750,9 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         private long? _gapSince;
         private PlayoutDelay? _playoutDelay;
 
+        // TS 26.114 section 7.4.5: an orientation holds until the sender signals another.
+        private VideoOrientation _orientation;
+
         public void OnPacket(in RtpHeader header, ReadOnlySpan<byte> payload)
         {
             var arrived = NtpTime.From(owner._time.GetUtcNow());
@@ -756,6 +773,11 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             {
                 _captureTimes = true;
                 _aligner.Record(new NtpTime(ntp), header.Timestamp);
+            }
+
+            if (header.Extensions.VideoOrientation is { } cvo)
+            {
+                _orientation = MediaExtensionValues.FromCvo(cvo);
             }
 
             if (header.Extensions.PlayoutDelay is { } asked && asked != _playoutDelay)
@@ -790,7 +812,13 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                             arrival.Last
                         )
                         : null;
-                owner._receiver!.OnVideoFrame(frame.Frame, frame.IsKeyframe, capture, timing);
+                owner._receiver!.OnVideoFrame(
+                    frame.Frame,
+                    frame.IsKeyframe,
+                    capture,
+                    timing,
+                    _orientation
+                );
             }
 
             long now = owner._time.GetTimestamp();
@@ -865,7 +893,13 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 new EncodedFrameBuffer(buffer, payload.Length),
                 _sequence,
                 rate.ToTimeSpan(position),
-                capture
+                capture,
+                header.Extensions.AudioLevel is { } level
+                    ? MediaExtensionValues.FromAudioLevel(
+                        level,
+                        owner._connection?.PeerSignalsVoiceActivity ?? false
+                    )
+                    : null
             );
         }
 

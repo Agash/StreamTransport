@@ -76,6 +76,12 @@ public interface IMediaSession : IAsyncDisposable
     event Action<CircuitBreakerState>? CircuitBreakerChanged;
 
     /// <summary>
+    /// Raised for each received audio packet that carries its level (RFC 6464), on the receive thread:
+    /// how loud the peer is without decoding, for meters and speaker detection.
+    /// </summary>
+    event Action<AudioLevel>? AudioLevelReceived;
+
+    /// <summary>
     /// Raised for each received timing frame once it is presented, with where its latency went from capture
     /// on: the sender times a frame every 200 ms and any unusually large one. Raised on the playout thread;
     /// a handler must return quickly.

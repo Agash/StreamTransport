@@ -28,6 +28,18 @@ public static class RtpExtensionUris
     /// (section 9.1).
     /// </summary>
     public const string Mid = "urn:ietf:params:rtp-hdrext:sdes:mid";
+
+    /// <summary>
+    /// The level of the audio in the packet (RFC 6464), which WebRTC endpoints implement (RFC 8834 section
+    /// 5.2.2).
+    /// </summary>
+    public const string AudioLevel = "urn:ietf:params:rtp-hdrext:ssrc-audio-level";
+
+    /// <summary>
+    /// Coordination of video orientation (3GPP TS 26.114 section 7.4.5), which WebRTC endpoints sending or
+    /// receiving video implement (RFC 7742 section 4, RFC 8834 section 5.2.5).
+    /// </summary>
+    public const string VideoOrientation = "urn:3gpp:video-orientation";
 }
 
 /// <summary>
@@ -139,12 +151,18 @@ public readonly record struct PlayoutDelay(TimeSpan Minimum, TimeSpan Maximum)
 /// <see cref="RtpExtensionMap.InsertTransportSequence"/>).
 /// </param>
 /// <param name="Mid">The media section the stream belongs to (RFC 9143 section 15.2).</param>
+/// <param name="AudioLevel">The audio level byte (RFC 6464 section 3): the V bit, then -dBov in 7 bits.</param>
+/// <param name="VideoOrientation">
+/// The CVO byte (3GPP TS 26.114 section 7.4.5): camera, flip, then the rotation in R1 R0.
+/// </param>
 public readonly record struct RtpExtensionValues(
     ulong? AbsoluteCaptureTimeNtp = null,
     VideoTiming? VideoTiming = null,
     PlayoutDelay? PlayoutDelay = null,
     ushort? TransportSequence = null,
-    RtpMid? Mid = null
+    RtpMid? Mid = null,
+    byte? AudioLevel = null,
+    byte? VideoOrientation = null
 )
 {
     /// <summary>Whether the packet carries none.</summary>
@@ -153,7 +171,9 @@ public readonly record struct RtpExtensionValues(
         && VideoTiming is null
         && PlayoutDelay is null
         && TransportSequence is null
-        && Mid is null;
+        && Mid is null
+        && AudioLevel is null
+        && VideoOrientation is null;
 }
 
 /// <summary>
@@ -168,12 +188,16 @@ public readonly record struct RtpExtensionValues(
 /// <param name="PlayoutDelay">The playout-delay identifier.</param>
 /// <param name="TransportSequence">The transport-wide sequence number's identifier.</param>
 /// <param name="Mid">The MID's identifier (RFC 9143 section 15.2).</param>
+/// <param name="AudioLevel">The audio level's identifier (RFC 6464).</param>
+/// <param name="VideoOrientation">The video orientation's identifier (CVO).</param>
 public sealed record RtpExtensionMap(
     int AbsoluteCaptureTime,
     int VideoTiming,
     int PlayoutDelay,
     int TransportSequence = 0,
-    int Mid = 0
+    int Mid = 0,
+    int AudioLevel = 0,
+    int VideoOrientation = 0
 )
 {
     // The transport-wide sequence number's value.
@@ -183,10 +207,10 @@ public sealed record RtpExtensionMap(
     private const ushort TwoByteProfile = 0x1000;
 
     /// <summary>No extensions.</summary>
-    public static RtpExtensionMap None { get; } = new(0, 0, 0, 0, 0);
+    public static RtpExtensionMap None { get; } = new(0, 0, 0);
 
     /// <summary>The identifiers this endpoint offers.</summary>
-    public static RtpExtensionMap Offered { get; } = new(1, 2, 3, 4, 5);
+    public static RtpExtensionMap Offered { get; } = new(1, 2, 3, 4, 5, 6, 7);
 
     /// <summary>Whether any extension is in use.</summary>
     public bool IsEmpty =>
@@ -194,7 +218,9 @@ public sealed record RtpExtensionMap(
         && VideoTiming == 0
         && PlayoutDelay == 0
         && TransportSequence == 0
-        && Mid == 0;
+        && Mid == 0
+        && AudioLevel == 0
+        && VideoOrientation == 0;
 
     /// <summary>The most bytes the extension block of a packet takes, its 4-byte header included.</summary>
     public int MaximumBlockLength
@@ -207,7 +233,9 @@ public sealed record RtpExtensionMap(
                 + (VideoTiming != 0 ? element + Rtp.VideoTiming.Length : 0)
                 + (PlayoutDelay != 0 ? element + Rtp.PlayoutDelay.Length : 0)
                 + (TransportSequence != 0 ? element + TransportSequenceLength : 0)
-                + (Mid != 0 ? element + RtpMid.MaximumLength : 0);
+                + (Mid != 0 ? element + RtpMid.MaximumLength : 0)
+                + (AudioLevel != 0 ? element + 1 : 0)
+                + (VideoOrientation != 0 ? element + 1 : 0);
             return data == 0 ? 0 : 4 + ((data + 3) / 4 * 4);
         }
     }
@@ -217,7 +245,9 @@ public sealed record RtpExtensionMap(
         || VideoTiming > 14
         || PlayoutDelay > 14
         || TransportSequence > 14
-        || Mid > 14;
+        || Mid > 14
+        || AudioLevel > 14
+        || VideoOrientation > 14;
 
     /// <summary>The identifiers of the extensions this endpoint understands among SDP's mappings.</summary>
     /// <param name="extensions">The section's mappings.</param>
@@ -230,6 +260,8 @@ public sealed record RtpExtensionMap(
         int delay = 0;
         int transport = 0;
         int mid = 0;
+        int level = 0;
+        int orientation = 0;
         foreach (SdpExtension extension in extensions)
         {
             if (extension.Id is < 1 or > 255 || extension.Direction == SdpDirection.Inactive)
@@ -254,12 +286,18 @@ public sealed record RtpExtensionMap(
                 case RtpExtensionUris.Mid:
                     mid = extension.Id;
                     break;
+                case RtpExtensionUris.AudioLevel:
+                    level = extension.Id;
+                    break;
+                case RtpExtensionUris.VideoOrientation:
+                    orientation = extension.Id;
+                    break;
                 default:
                     break;
             }
         }
 
-        return new RtpExtensionMap(capture, timing, delay, transport, mid);
+        return new RtpExtensionMap(capture, timing, delay, transport, mid, level, orientation);
     }
 
     /// <summary>
@@ -302,6 +340,18 @@ public sealed record RtpExtensionMap(
             at += mid.CopyTo(destination[at..]);
         }
 
+        if (AudioLevel != 0 && values.AudioLevel is { } level)
+        {
+            at = Element(destination, at, AudioLevel, 1, twoByte);
+            destination[at++] = level;
+        }
+
+        if (VideoOrientation != 0 && values.VideoOrientation is { } orientation)
+        {
+            at = Element(destination, at, VideoOrientation, 1, twoByte);
+            destination[at++] = orientation;
+        }
+
         if (at == 4)
         {
             return 0;
@@ -339,6 +389,8 @@ public sealed record RtpExtensionMap(
         PlayoutDelay? delay = null;
         ushort? transport = null;
         RtpMid? mid = null;
+        byte? level = null;
+        byte? orientation = null;
         int i = 0;
         while (i < data.Length)
         {
@@ -400,11 +452,20 @@ public sealed record RtpExtensionMap(
             {
                 mid = tag;
             }
+            else if (id == AudioLevel && length >= 1)
+            {
+                // RFC 6464 section 3: one byte; the two-byte form may pad it.
+                level = value[0];
+            }
+            else if (id == VideoOrientation && length >= 1)
+            {
+                orientation = value[0];
+            }
 
             i += length;
         }
 
-        return new RtpExtensionValues(capture, timing, delay, transport, mid);
+        return new RtpExtensionValues(capture, timing, delay, transport, mid, level, orientation);
     }
 
     /// <summary>

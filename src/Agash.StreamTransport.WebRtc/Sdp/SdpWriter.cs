@@ -201,7 +201,13 @@ public static class SdpWriter
                 sb.Append('/').Append(DirectionText(direction));
             }
 
-            sb.Append(' ').Append(extension.Uri).Append("\r\n");
+            sb.Append(' ').Append(extension.Uri);
+            if (extension.Attributes is { Length: > 0 } attributes)
+            {
+                sb.Append(' ').Append(attributes);
+            }
+
+            sb.Append("\r\n");
         }
 
         if (media.Ecn is { } ecn && !ecn.Methods.IsEmpty)

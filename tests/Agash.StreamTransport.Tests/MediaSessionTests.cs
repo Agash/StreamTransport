@@ -72,6 +72,73 @@ public sealed class MediaSessionTests
         }
     }
 
+    // RFC 8834 sections 5.2.2 and 5.2.5: the receiver learns the sender's audio level without decoding
+    // (RFC 6464: a half-scale sine is -9 dBov) and shows a camera mounted sideways upright from the
+    // orientation the sender signals (CVO, RFC 7742 section 4), the picture itself sent as captured.
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task Session_LevelAndOrientation_ReachTheReceiver()
+    {
+        await using ServiceProvider services = MediaServices.Create();
+        IMediaSessionFactory factory = services.GetRequiredService<IMediaSessionFactory>();
+        MediaSessionOptions options = MediaServices.Loopback(new MediaSessionOptions());
+        RecordingVideoSink video = new(target: 20);
+        RecordingAudioSink audio = new(target: 50);
+        VideoOrientation sideways = new(VideoRotation.Clockwise90, Mirrored: true);
+        List<AudioLevel> levels = [];
+        (LoopbackSignaling offer, LoopbackSignaling answer) = LoopbackSignaling.Pair();
+        await using (offer)
+        await using (answer)
+        {
+            await using IMediaSession sender = factory.Create(
+                offer,
+                MediaSessionRole.Offerer,
+                new MediaEndpoints
+                {
+                    VideoSource = new GradientSource(TimeSpan.FromMilliseconds(33), sideways),
+                    AudioSource = new ToneSource(),
+                },
+                options
+            );
+            await using IMediaSession receiver = factory.Create(
+                answer,
+                MediaSessionRole.Answerer,
+                new MediaEndpoints { VideoSink = video, AudioSink = audio },
+                options
+            );
+            receiver.AudioLevelReceived += level =>
+            {
+                lock (levels)
+                {
+                    levels.Add(level);
+                }
+            };
+
+            await receiver.StartAsync();
+            await sender.StartAsync();
+            await Task.WhenAll(video.Reached, audio.Reached).WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.AreEqual(sideways, video.LastOrientation);
+            Assert.AreEqual(
+                GradientSource.Width,
+                video.LastFormat.VisibleRect.Width,
+                "sent as captured"
+            );
+            AudioLevel[] heard;
+            lock (levels)
+            {
+                heard = [.. levels];
+            }
+
+            Assert.IsGreaterThan(10, heard.Length);
+            Assert.IsTrue(
+                heard.Skip(2).All(static l => l.DecibelsBelowOverload is >= 8 and <= 10),
+                string.Join(", ", heard.Select(static l => l.DecibelsBelowOverload))
+            );
+            Assert.IsTrue(heard.All(static l => l.Voice is null), "vad=off: no V bit");
+        }
+    }
+
     // A 44.1 kHz mono source into 48 kHz Opus, played to a sink that takes only 44.1 kHz stereo: both
     // ends convert, and the tone keeps its level and its pitch.
     [TestMethod]

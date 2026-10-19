@@ -101,6 +101,8 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     public event Action<CircuitBreakerState>? CircuitBreakerChanged;
 
+    public event Action<AudioLevel>? AudioLevelReceived;
+
     public event Action<VideoFrameTimingReport>? VideoFrameTimed;
 
     public Task Connected => _connected.Task;
@@ -228,12 +230,13 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         EncodedFrameBuffer frame,
         bool keyframe,
         NtpTime? capture,
-        VideoReceiveTiming? timing
+        VideoReceiveTiming? timing,
+        VideoOrientation orientation
     )
     {
         if (Volatile.Read(ref _videoReceive) is { } stream)
         {
-            stream.OnEncodedFrame(frame, keyframe, capture, timing);
+            stream.OnEncodedFrame(frame, keyframe, capture, timing, orientation);
         }
         else
         {
@@ -248,9 +251,15 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         EncodedFrameBuffer packet,
         long sequence,
         TimeSpan position,
-        NtpTime? capture
+        NtpTime? capture,
+        AudioLevel? level
     )
     {
+        if (level is { } heard)
+        {
+            AudioLevelReceived?.Invoke(heard);
+        }
+
         if (Volatile.Read(ref _audioReceive) is { } stream)
         {
             stream.OnPacket(packet, sequence, position, capture);

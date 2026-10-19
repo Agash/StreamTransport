@@ -35,6 +35,11 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
     private readonly ILogger _logger;
     private readonly WakeSignal _wake;
     private readonly Lock _gate = new();
+
+    // The orientation of each frame in the encoder that is not upright, by its time; bounded, as a frame
+    // the encoder drops leaves its entry behind.
+    private readonly Lock _orientationGate = new();
+    private readonly Dictionary<MediaTime, VideoOrientation> _orientations = [];
     private readonly CancellationTokenSource _stop = new();
     private readonly EncodedConsumer _encoded;
     private readonly HashSet<string> _refused = new(StringComparer.Ordinal);
@@ -286,6 +291,19 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
         }
 
         bool keyframe = Interlocked.Exchange(ref _keyframeRequested, 0) == 1;
+        if (frame.Orientation != default)
+        {
+            lock (_orientationGate)
+            {
+                if (_orientations.Count > 64)
+                {
+                    _orientations.Clear();
+                }
+
+                _orientations[frame.Timestamp.Origin] = frame.Orientation;
+            }
+        }
+
         try
         {
             MediaTime started = _clock.Now;
@@ -468,7 +486,22 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             FramesPerSecond,
             _clock.Now
         );
-        _send(in frame, timing);
+        VideoOrientation orientation = default;
+        lock (_orientationGate)
+        {
+            if (_orientations.Count > 0)
+            {
+                _ = _orientations.Remove(frame.Timestamp.Origin, out orientation);
+            }
+        }
+
+        _send(
+            new EncodedVideoFrame(frame.Data, frame.Codec, frame.Keyframe, frame.Timestamp)
+            {
+                Orientation = orientation,
+            },
+            timing
+        );
         Interlocked.Increment(ref _framesSent);
         _metrics.VideoFramesSent.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
     }

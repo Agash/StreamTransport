@@ -46,6 +46,7 @@ Agash.StreamTransport.Http.TrickleIceFragment.UsernameFragment.init -> void
 Agash.StreamTransport.Http.WhepClient
 Agash.StreamTransport.Http.WhipClient
 Agash.StreamTransport.IMediaSession
+Agash.StreamTransport.IMediaSession.AudioLevelReceived -> System.Action<Agash.StreamTransport.Media.AudioLevel>?
 Agash.StreamTransport.IMediaSession.AudioOutputOffset.get -> System.TimeSpan?
 Agash.StreamTransport.IMediaSession.AudioOutputOffset.set -> void
 Agash.StreamTransport.IMediaSession.CircuitBreakerChanged -> System.Action<Agash.StreamTransport.Adaptation.CircuitBreakerState>?

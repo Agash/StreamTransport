@@ -18,6 +18,11 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     private readonly IDisposable _connection;
     private bool _disposed;
 
+    // The audio taken by the encoder and not yet in a packet: its squared samples, sample count and length.
+    private double _pendingSquares;
+    private long _pendingSamples;
+    private TimeSpan _pendingDuration;
+
     /// <summary>Opens an encoder for the source's format and connects the source.</summary>
     /// <param name="source">The audio source.</param>
     /// <param name="format">The negotiated codec and its parameters.</param>
@@ -93,15 +98,45 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     /// <inheritdoc/>
     public void OnEncoded(in EncodedAudioFrame frame)
     {
-        _send(in frame);
+        _send(
+            new EncodedAudioFrame(frame.Data, frame.Codec, frame.Timestamp, frame.Duration)
+            {
+                Level = frame.Level ?? TakeLevel(frame.Duration),
+            }
+        );
         Interlocked.Increment(ref _framesSent);
         _metrics.AudioFramesSent.Add(1, StreamTransportMetrics.Codec(_codec));
     }
 
-    // Frames as the encoder takes them.
+    // RFC 6464 section 3: the RMS of the samples the packet encodes. The encoder takes audio in its own
+    // frames, so the packet's share of what it took is its duration's share.
+    private AudioLevel TakeLevel(TimeSpan duration)
+    {
+        if (_pendingSamples == 0 || _pendingDuration <= TimeSpan.Zero)
+        {
+            return AudioLevel.Silence;
+        }
+
+        double share = Math.Min(1, duration / _pendingDuration);
+        double squares = _pendingSquares * share;
+        long samples = Math.Max(1, (long)(_pendingSamples * share));
+        _pendingSquares -= squares;
+        _pendingSamples -= samples;
+        _pendingDuration -= duration < _pendingDuration ? duration : _pendingDuration;
+        return AudioLevel.FromMeanSquare(squares / samples);
+    }
+
+    // Frames as the encoder takes them, measured on the way in.
     private sealed class EncoderInput(AudioSendStream stream) : IAudioFrameConsumer
     {
-        public void OnFrame(in AudioFrame frame) => stream._encoder.Encode(in frame, stream);
+        public void OnFrame(in AudioFrame frame)
+        {
+            (double squares, long samples) = AudioLevel.Measure(in frame);
+            stream._pendingSquares += squares;
+            stream._pendingSamples += samples;
+            stream._pendingDuration += frame.Duration;
+            stream._encoder.Encode(in frame, stream);
+        }
     }
 
     /// <inheritdoc/>

@@ -124,6 +124,12 @@ Agash.StreamTransport.Media.AudioInputInfo.Name.get -> string!
 Agash.StreamTransport.Media.AudioInputInfo.Name.init -> void
 Agash.StreamTransport.Media.AudioInputInfo.Provider.get -> string!
 Agash.StreamTransport.Media.AudioInputInfo.Provider.init -> void
+Agash.StreamTransport.Media.AudioLevel
+Agash.StreamTransport.Media.AudioLevel.AudioLevel() -> void
+Agash.StreamTransport.Media.AudioLevel.AudioLevel(int decibelsBelowOverload, bool? voice = null) -> void
+Agash.StreamTransport.Media.AudioLevel.DecibelsBelowOverload.get -> int
+Agash.StreamTransport.Media.AudioLevel.Equals(Agash.StreamTransport.Media.AudioLevel other) -> bool
+Agash.StreamTransport.Media.AudioLevel.Voice.get -> bool?
 Agash.StreamTransport.Media.AudioOutput
 Agash.StreamTransport.Media.AudioOutput.AudioOutput(Agash.StreamTransport.Media.IAudioSink! sink, string! provider, string! name, System.IDisposable? owner = null) -> void
 Agash.StreamTransport.Media.AudioOutput.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
@@ -276,6 +282,8 @@ Agash.StreamTransport.Media.EncodedAudioFrame.Data.get -> System.ReadOnlySpan<by
 Agash.StreamTransport.Media.EncodedAudioFrame.Duration.get -> System.TimeSpan
 Agash.StreamTransport.Media.EncodedAudioFrame.EncodedAudioFrame() -> void
 Agash.StreamTransport.Media.EncodedAudioFrame.EncodedAudioFrame(System.ReadOnlySpan<byte> data, Agash.StreamTransport.Media.AudioCodecId codec, Agash.StreamTransport.Media.MediaTimestamp timestamp, System.TimeSpan duration) -> void
+Agash.StreamTransport.Media.EncodedAudioFrame.Level.get -> Agash.StreamTransport.Media.AudioLevel?
+Agash.StreamTransport.Media.EncodedAudioFrame.Level.init -> void
 Agash.StreamTransport.Media.EncodedAudioFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
 Agash.StreamTransport.Media.EncodedFrameBuffer
 Agash.StreamTransport.Media.EncodedFrameBuffer.Dispose() -> void
@@ -291,6 +299,8 @@ Agash.StreamTransport.Media.EncodedVideoFrame.Data.get -> System.ReadOnlySpan<by
 Agash.StreamTransport.Media.EncodedVideoFrame.EncodedVideoFrame() -> void
 Agash.StreamTransport.Media.EncodedVideoFrame.EncodedVideoFrame(System.ReadOnlySpan<byte> data, Agash.StreamTransport.Media.VideoCodecId codec, bool keyframe, Agash.StreamTransport.Media.MediaTimestamp timestamp) -> void
 Agash.StreamTransport.Media.EncodedVideoFrame.Keyframe.get -> bool
+Agash.StreamTransport.Media.EncodedVideoFrame.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.EncodedVideoFrame.Orientation.init -> void
 Agash.StreamTransport.Media.EncodedVideoFrame.Retain() -> Agash.StreamTransport.Media.EncodedVideoFrameLease!
 Agash.StreamTransport.Media.EncodedVideoFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
 Agash.StreamTransport.Media.EncodedVideoFrameLease
@@ -298,6 +308,7 @@ Agash.StreamTransport.Media.EncodedVideoFrameLease.Codec.get -> Agash.StreamTran
 Agash.StreamTransport.Media.EncodedVideoFrameLease.Dispose() -> void
 Agash.StreamTransport.Media.EncodedVideoFrameLease.Frame.get -> Agash.StreamTransport.Media.EncodedVideoFrame
 Agash.StreamTransport.Media.EncodedVideoFrameLease.Keyframe.get -> bool
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
 Agash.StreamTransport.Media.EncodedVideoFrameLease.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
 Agash.StreamTransport.Media.GpuIdentity
 Agash.StreamTransport.Media.GpuIdentity.Deconstruct(out Agash.StreamTransport.Media.GpuIdentityKind Kind, out ulong Value) -> void
@@ -639,6 +650,7 @@ Agash.StreamTransport.Media.VideoFrame.Storage.get -> Agash.StreamTransport.Medi
 Agash.StreamTransport.Media.VideoFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
 Agash.StreamTransport.Media.VideoFrame.VideoFrame() -> void
 Agash.StreamTransport.Media.VideoFrame.VideoFrame(Agash.StreamTransport.Media.VideoStorage storage, Agash.StreamTransport.Media.VideoFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp, System.ReadOnlySpan<byte> cpuData = default(System.ReadOnlySpan<byte>), Agash.StreamTransport.Media.VideoColor color = default(Agash.StreamTransport.Media.VideoColor), Agash.StreamTransport.Media.VideoOrientation orientation = default(Agash.StreamTransport.Media.VideoOrientation), System.TimeSpan duration = default(System.TimeSpan), Agash.StreamTransport.Media.IVideoFrameRetainer? retainer = null) -> void
+Agash.StreamTransport.Media.VideoFrame.WithOrientation(Agash.StreamTransport.Media.VideoOrientation orientation) -> Agash.StreamTransport.Media.VideoFrame
 Agash.StreamTransport.Media.VideoFrameLease
 Agash.StreamTransport.Media.VideoFrameLease.Color.get -> Agash.StreamTransport.Media.VideoColor
 Agash.StreamTransport.Media.VideoFrameLease.Dispose() -> void
@@ -823,6 +835,7 @@ Agash.StreamTransport.Media.VideoTarget.VideoTarget() -> void
 Agash.StreamTransport.Media.VideoTarget.VideoTarget(Agash.StreamTransport.Media.VideoStorage Storage, Agash.StreamTransport.Media.VideoFormat Format) -> void
 Agash.StreamTransport.Media.VideoTargetRenderer<TState>
 abstract Agash.StreamTransport.Media.VideoFrameLease.Release() -> void
+const Agash.StreamTransport.Media.AudioLevel.Silent = 127 -> int
 const Agash.StreamTransport.Media.ColorConversion.ChromaCentre = 0.5019608 -> float
 const Agash.StreamTransport.Media.DmaBufImage.LinearModifier = 0 -> ulong
 const Agash.StreamTransport.Media.H264ProfileLevelId.ParameterName = "profile-level-id" -> string!
@@ -849,6 +862,7 @@ override Agash.StreamTransport.Media.AudioFormat.GetHashCode() -> int
 override Agash.StreamTransport.Media.AudioInputInfo.Equals(object? obj) -> bool
 override Agash.StreamTransport.Media.AudioInputInfo.GetHashCode() -> int
 override Agash.StreamTransport.Media.AudioInputInfo.ToString() -> string!
+override Agash.StreamTransport.Media.AudioLevel.GetHashCode() -> int
 override Agash.StreamTransport.Media.ClockRate.GetHashCode() -> int
 override Agash.StreamTransport.Media.CpuImage.GetHashCode() -> int
 override Agash.StreamTransport.Media.D3D11Image.GetHashCode() -> int
@@ -933,6 +947,11 @@ static Agash.StreamTransport.Media.AudioFormat.operator !=(Agash.StreamTransport
 static Agash.StreamTransport.Media.AudioFormat.operator ==(Agash.StreamTransport.Media.AudioFormat left, Agash.StreamTransport.Media.AudioFormat right) -> bool
 static Agash.StreamTransport.Media.AudioInputInfo.operator !=(Agash.StreamTransport.Media.AudioInputInfo? left, Agash.StreamTransport.Media.AudioInputInfo? right) -> bool
 static Agash.StreamTransport.Media.AudioInputInfo.operator ==(Agash.StreamTransport.Media.AudioInputInfo? left, Agash.StreamTransport.Media.AudioInputInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioLevel.FromMeanSquare(double meanSquare) -> Agash.StreamTransport.Media.AudioLevel
+static Agash.StreamTransport.Media.AudioLevel.Measure(in Agash.StreamTransport.Media.AudioFrame frame) -> (double SumOfSquares, long Samples)
+static Agash.StreamTransport.Media.AudioLevel.Silence.get -> Agash.StreamTransport.Media.AudioLevel
+static Agash.StreamTransport.Media.AudioLevel.operator !=(Agash.StreamTransport.Media.AudioLevel left, Agash.StreamTransport.Media.AudioLevel right) -> bool
+static Agash.StreamTransport.Media.AudioLevel.operator ==(Agash.StreamTransport.Media.AudioLevel left, Agash.StreamTransport.Media.AudioLevel right) -> bool
 static Agash.StreamTransport.Media.ClockRate.operator !=(Agash.StreamTransport.Media.ClockRate left, Agash.StreamTransport.Media.ClockRate right) -> bool
 static Agash.StreamTransport.Media.ClockRate.operator ==(Agash.StreamTransport.Media.ClockRate left, Agash.StreamTransport.Media.ClockRate right) -> bool
 static Agash.StreamTransport.Media.ColorConversion.RgbToYCbCr(Agash.StreamTransport.Media.VideoColor color) -> (System.Numerics.Vector4 Y, System.Numerics.Vector4 Cb, System.Numerics.Vector4 Cr)
@@ -1060,6 +1079,8 @@ virtual Agash.StreamTransport.Media.VideoFrameLease.KeepAgain.get -> Agash.Strea
 virtual Agash.StreamTransport.Media.VideoTargetRenderer<TState>.Invoke(in Agash.StreamTransport.Media.VideoTarget target, scoped in TState state) -> bool
 ~override Agash.StreamTransport.Media.AudioFormat.Equals(object obj) -> bool
 ~override Agash.StreamTransport.Media.AudioFormat.ToString() -> string
+~override Agash.StreamTransport.Media.AudioLevel.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.AudioLevel.ToString() -> string
 ~override Agash.StreamTransport.Media.ClockRate.Equals(object obj) -> bool
 ~override Agash.StreamTransport.Media.ClockRate.ToString() -> string
 ~override Agash.StreamTransport.Media.CpuImage.Equals(object obj) -> bool

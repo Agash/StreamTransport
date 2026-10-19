@@ -51,6 +51,9 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private readonly Lock _timingGate = new();
     private readonly Dictionary<MediaTimestamp, PendingTiming> _timings = [];
 
+    // The orientation of each frame in the decoder that is not upright, by its stamp; bounded like timings.
+    private readonly Dictionary<MediaTimestamp, VideoOrientation> _orientations = [];
+
     private readonly Channel<(
         EncodedFrameBuffer Frame,
         bool Keyframe,
@@ -116,14 +119,29 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <param name="keyframe">Whether it can be decoded on its own.</param>
     /// <param name="capture">When the sender captured it, when known.</param>
     /// <param name="timing">The frame's timing, when the sender timed it.</param>
+    /// <param name="orientation">How to turn the decoded picture upright.</param>
     public void OnEncodedFrame(
         EncodedFrameBuffer frame,
         bool keyframe,
         NtpTime? capture,
-        VideoReceiveTiming? timing = null
+        VideoReceiveTiming? timing = null,
+        VideoOrientation orientation = default
     )
     {
         MediaTimestamp stamp = _stamps.Stamp(capture);
+        if (orientation != default)
+        {
+            lock (_timingGate)
+            {
+                if (_orientations.Count > 64)
+                {
+                    _orientations.Clear();
+                }
+
+                _orientations[stamp] = orientation;
+            }
+        }
+
         if (timing is { } received && capture is { } captured && _timingSetup is not null)
         {
             lock (_timingGate)
@@ -155,6 +173,18 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <param name="frame">The decoded frame.</param>
     public void OnFrame(in VideoFrame frame)
     {
+        VideoFrame shown = frame;
+        lock (_timingGate)
+        {
+            if (
+                _orientations.Count > 0
+                && _orientations.Remove(frame.Timestamp, out VideoOrientation orientation)
+            )
+            {
+                shown = frame.WithOrientation(orientation);
+            }
+        }
+
         Action? presented = null;
         if (_timingSetup is { } setup)
         {
@@ -169,7 +199,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             }
         }
 
-        _playout.Video(in frame, _stamps.TakeCapture(frame.Timestamp), _presenter, presented);
+        _playout.Video(in shown, _stamps.TakeCapture(shown.Timestamp), _presenter, presented);
     }
 
     private void Report(VideoTimingSetup setup, PendingTiming pending)

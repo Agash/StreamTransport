@@ -240,7 +240,16 @@ public sealed record SdpMediaDescription
 /// <param name="Id">The identifier: 1 to 14 for the one-byte form, up to 255 for the two-byte form.</param>
 /// <param name="Uri">The URI naming the extension.</param>
 /// <param name="Direction">The direction, when the mapping states one; otherwise the section's.</param>
-public readonly record struct SdpExtension(int Id, string Uri, SdpDirection? Direction = null);
+/// <param name="Attributes">
+/// The extension's own attributes after the URI, as written (<c>vad=off</c> for the audio level); null
+/// for none.
+/// </param>
+public readonly record struct SdpExtension(
+    int Id,
+    string Uri,
+    SdpDirection? Direction = null,
+    string? Attributes = null
+);
 
 /// <summary>A WebRTC session description: the BUNDLE group plus its media sections (JSEP, RFC 8829).</summary>
 public sealed record SdpDescription

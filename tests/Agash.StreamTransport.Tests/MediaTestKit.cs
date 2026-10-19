@@ -71,8 +71,10 @@ internal static class MediaServices
         };
 }
 
-// A moving gradient pushed at a steady rate from a timer, in the first CPU format the consumer takes.
-internal sealed class GradientSource(TimeSpan interval) : IVideoSource
+// A moving gradient pushed at a steady rate from a timer, in the first CPU format the consumer takes,
+// in the orientation given (a camera mounted sideways).
+internal sealed class GradientSource(TimeSpan interval, VideoOrientation orientation = default)
+    : IVideoSource
 {
     public const int Width = 320;
     public const int Height = 240;
@@ -89,7 +91,7 @@ internal sealed class GradientSource(TimeSpan interval) : IVideoSource
             format = PixelFormat.I420;
         }
 
-        return new Pusher(consumer, format, interval);
+        return new Pusher(consumer, format, interval, orientation);
     }
 
     public static byte Luma(int index, int x, int y) => (byte)(32 + ((x + y + (index * 3)) % 192));
@@ -113,8 +115,12 @@ internal sealed class GradientSource(TimeSpan interval) : IVideoSource
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _loop;
 
-        public Pusher(IVideoFrameConsumer consumer, PixelFormat format, TimeSpan interval) =>
-            _loop = Task.Run(() => RunAsync(consumer, format, interval, _stop.Token));
+        public Pusher(
+            IVideoFrameConsumer consumer,
+            PixelFormat format,
+            TimeSpan interval,
+            VideoOrientation orientation
+        ) => _loop = Task.Run(() => RunAsync(consumer, format, interval, orientation, _stop.Token));
 
         public void Dispose()
         {
@@ -135,6 +141,7 @@ internal sealed class GradientSource(TimeSpan interval) : IVideoSource
             IVideoFrameConsumer consumer,
             PixelFormat format,
             TimeSpan interval,
+            VideoOrientation orientation,
             CancellationToken cancellationToken
         )
         {
@@ -157,7 +164,8 @@ internal sealed class GradientSource(TimeSpan interval) : IVideoSource
                         new VideoFormat(format, Width, Height),
                         MediaTimestamp.Captured(MediaClock.System.Now),
                         pixels,
-                        VideoColor.Bt709
+                        VideoColor.Bt709,
+                        orientation
                     )
                 );
             }
@@ -267,6 +275,8 @@ internal sealed class RecordingVideoSink : IVideoSink
 
     public VideoFormat LastFormat { get; private set; }
 
+    public VideoOrientation LastOrientation { get; private set; }
+
     public void OnFrame(in VideoFrame frame)
     {
         _ = frame.Storage.TryGetValue(out CpuImage image);
@@ -284,6 +294,7 @@ internal sealed class RecordingVideoSink : IVideoSink
         lock (_gate)
         {
             LastFormat = frame.Format;
+            LastOrientation = frame.Orientation;
             _lumas.Add(
                 sum / (double)(frame.Format.VisibleRect.Width * frame.Format.VisibleRect.Height)
             );

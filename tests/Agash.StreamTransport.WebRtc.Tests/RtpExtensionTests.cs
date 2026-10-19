@@ -267,6 +267,7 @@ public sealed class RtpExtensionTests
                 RtpExtensionUris.PlayoutDelay,
                 RtpExtensionUris.TransportWideSequence,
                 RtpExtensionUris.Mid,
+                RtpExtensionUris.VideoOrientation,
             },
             offer.Media[0].Extensions.Select(static e => e.Uri).ToArray()
         );

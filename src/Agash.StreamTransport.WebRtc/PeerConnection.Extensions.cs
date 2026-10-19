@@ -16,9 +16,13 @@ public sealed partial class PeerConnection
     /// <summary>The header extensions the two sides agreed, empty before negotiation completes.</summary>
     public RtpExtensionMap NegotiatedExtensions => Volatile.Read(ref _extensions);
 
+    // RFC 6464 section 4: this endpoint runs no voice activity detector, so it says the V bit is unused.
+    private const string NoVoiceActivity = "vad=off";
+
     // What an offer maps for a section: capture times for both kinds (lip sync), the transport-wide
     // sequence number transport feedback needs and the MID every bundled section maps (RFC 9143 section
-    // 9.1), and for video the per-frame timing and the playout delay the sender asks for.
+    // 9.1); for audio the audio level (RFC 8834 section 5.2.2), and for video the orientation (section
+    // 5.2.5), the per-frame timing and the playout delay the sender asks for.
     private static IReadOnlyList<SdpExtension> OfferedExtensions(SdpMediaKind kind)
     {
         RtpExtensionMap ids = RtpExtensionMap.Offered;
@@ -30,14 +34,34 @@ public sealed partial class PeerConnection
                 new SdpExtension(ids.PlayoutDelay, RtpExtensionUris.PlayoutDelay),
                 new SdpExtension(ids.TransportSequence, RtpExtensionUris.TransportWideSequence),
                 new SdpExtension(ids.Mid, RtpExtensionUris.Mid),
+                new SdpExtension(ids.VideoOrientation, RtpExtensionUris.VideoOrientation),
             ]
             :
             [
                 new SdpExtension(ids.AbsoluteCaptureTime, RtpExtensionUris.AbsoluteCaptureTime),
                 new SdpExtension(ids.TransportSequence, RtpExtensionUris.TransportWideSequence),
                 new SdpExtension(ids.Mid, RtpExtensionUris.Mid),
+                new SdpExtension(
+                    ids.AudioLevel,
+                    RtpExtensionUris.AudioLevel,
+                    Attributes: NoVoiceActivity
+                ),
             ];
     }
+
+    /// <summary>
+    /// Whether the peer sets the audio level's V bit: its mapping does not say <c>vad=off</c>, the default
+    /// being on (RFC 6464 section 4). False before a description arrives.
+    /// </summary>
+    internal bool PeerSignalsVoiceActivity { get; private set; }
+
+    private void NoteVoiceActivity(SdpDescription remote) =>
+        PeerSignalsVoiceActivity = remote.Media.Any(m =>
+            m.Extensions.Any(e =>
+                e.Uri == RtpExtensionUris.AudioLevel
+                && !string.Equals(e.Attributes?.Trim(), NoVoiceActivity, StringComparison.Ordinal)
+            )
+        );
 
     // Transport feedback is answered only where the offer did not also offer RFC 8888, which is preferred.
     private static bool AnswersTransportFeedback(SdpMediaDescription offer) =>
@@ -64,6 +88,8 @@ public sealed partial class PeerConnection
                 answered.Add(
                     offered with
                     {
+                        // The attributes describe what this side sends: its own, never the offerer's.
+                        Attributes = ours.First(o => o.Uri == offered.Uri).Attributes,
                         Direction = offered.Direction switch
                         {
                             SdpDirection.SendOnly => SdpDirection.RecvOnly,

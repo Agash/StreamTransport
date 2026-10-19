@@ -70,9 +70,9 @@ Agash.StreamTransport.IMediaTransport.TrySendVideo(in Agash.StreamTransport.Medi
 Agash.StreamTransport.IMediaTransportFactory
 Agash.StreamTransport.IMediaTransportFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaTransportOptions! options) -> Agash.StreamTransport.IMediaTransport!
 Agash.StreamTransport.IReceivedMediaConsumer
-Agash.StreamTransport.IReceivedMediaConsumer.OnAudioPacket(Agash.StreamTransport.Media.EncodedFrameBuffer packet, long sequence, System.TimeSpan position, Agash.StreamTransport.Media.NtpTime? capture) -> void
+Agash.StreamTransport.IReceivedMediaConsumer.OnAudioPacket(Agash.StreamTransport.Media.EncodedFrameBuffer packet, long sequence, System.TimeSpan position, Agash.StreamTransport.Media.NtpTime? capture, Agash.StreamTransport.Media.AudioLevel? level) -> void
 Agash.StreamTransport.IReceivedMediaConsumer.OnPlayoutDelayRequested(Agash.StreamTransport.PlayoutDelayRange range) -> void
-Agash.StreamTransport.IReceivedMediaConsumer.OnVideoFrame(Agash.StreamTransport.Media.EncodedFrameBuffer frame, bool keyframe, Agash.StreamTransport.Media.NtpTime? capture, Agash.StreamTransport.VideoReceiveTiming? timing) -> void
+Agash.StreamTransport.IReceivedMediaConsumer.OnVideoFrame(Agash.StreamTransport.Media.EncodedFrameBuffer frame, bool keyframe, Agash.StreamTransport.Media.NtpTime? capture, Agash.StreamTransport.VideoReceiveTiming? timing, Agash.StreamTransport.Media.VideoOrientation orientation) -> void
 Agash.StreamTransport.ISignalingChannel
 Agash.StreamTransport.ISignalingChannel.DescriptionReceived -> System.Func<Agash.StreamTransport.SessionDescription, System.Threading.Tasks.Task!>?
 Agash.StreamTransport.ISignalingChannel.IceCandidateReceived -> System.Func<Agash.StreamTransport.IceCandidateInit, System.Threading.Tasks.Task!>?

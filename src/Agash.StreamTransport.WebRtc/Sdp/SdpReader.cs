@@ -315,7 +315,7 @@ public static class SdpReader
     // "<id>[/<direction>] <uri> [<attributes>]" (RFC 8285 section 8); malformed mappings are ignored.
     internal static SdpExtension? ParseExtmap(string value)
     {
-        string[] parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string[] parts = value.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length < 2)
         {
             return null;
@@ -344,7 +344,7 @@ public static class SdpReader
                     _ => SdpDirection.SendRecv,
                 }
                 : null;
-        return new SdpExtension(id, parts[1], direction);
+        return new SdpExtension(id, parts[1], direction, parts.Length > 2 ? parts[2].Trim() : null);
     }
 
     internal static bool TryValue(string line, string prefix, out string value)

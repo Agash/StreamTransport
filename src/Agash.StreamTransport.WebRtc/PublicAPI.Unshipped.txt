@@ -466,7 +466,9 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.<Clone>$() -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AbsoluteCaptureTime.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AbsoluteCaptureTime.init -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Deconstruct(out int AbsoluteCaptureTime, out int VideoTiming, out int PlayoutDelay, out int TransportSequence, out int Mid) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AudioLevel.get -> int
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AudioLevel.init -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Deconstruct(out int AbsoluteCaptureTime, out int VideoTiming, out int PlayoutDelay, out int TransportSequence, out int Mid, out int AudioLevel, out int VideoOrientation) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? other) -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.InsertTransportSequence(System.Span<byte> packet, int length, ushort sequence) -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.IsEmpty.get -> bool
@@ -476,9 +478,11 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Mid.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.PlayoutDelay.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.PlayoutDelay.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Read(ushort profile, System.ReadOnlySpan<byte> data) -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, int PlayoutDelay, int TransportSequence = 0, int Mid = 0) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, int PlayoutDelay, int TransportSequence = 0, int Mid = 0, int AudioLevel = 0, int VideoOrientation = 0) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.TransportSequence.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.TransportSequence.init -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.VideoOrientation.get -> int
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.VideoOrientation.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.VideoTiming.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.VideoTiming.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Write(System.Span<byte> destination, in Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues values, out int videoTimingAt) -> int
@@ -486,7 +490,9 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.AbsoluteCaptureTimeNtp.get -> ulong?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.AbsoluteCaptureTimeNtp.init -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Deconstruct(out ulong? AbsoluteCaptureTimeNtp, out Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming, out Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay, out ushort? TransportSequence, out Agash.StreamTransport.WebRtc.Rtp.RtpMid? Mid) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.AudioLevel.get -> byte?
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.AudioLevel.init -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Deconstruct(out ulong? AbsoluteCaptureTimeNtp, out Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming, out Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay, out ushort? TransportSequence, out Agash.StreamTransport.WebRtc.Rtp.RtpMid? Mid, out byte? AudioLevel, out byte? VideoOrientation) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues other) -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.IsEmpty.get -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Mid.get -> Agash.StreamTransport.WebRtc.Rtp.RtpMid?
@@ -494,9 +500,11 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Mid.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.PlayoutDelay.get -> Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.PlayoutDelay.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.RtpExtensionValues() -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.RtpExtensionValues(ulong? AbsoluteCaptureTimeNtp = null, Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming = null, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay = null, ushort? TransportSequence = null, Agash.StreamTransport.WebRtc.Rtp.RtpMid? Mid = null) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.RtpExtensionValues(ulong? AbsoluteCaptureTimeNtp = null, Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming = null, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay = null, ushort? TransportSequence = null, Agash.StreamTransport.WebRtc.Rtp.RtpMid? Mid = null, byte? AudioLevel = null, byte? VideoOrientation = null) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.TransportSequence.get -> ushort?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.TransportSequence.init -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.VideoOrientation.get -> byte?
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.VideoOrientation.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.VideoTiming.get -> Agash.StreamTransport.WebRtc.Rtp.VideoTiming?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.VideoTiming.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer
@@ -651,14 +659,16 @@ Agash.StreamTransport.WebRtc.Sdp.SdpEcnCapability.Mode.get -> string?
 Agash.StreamTransport.WebRtc.Sdp.SdpEcnCapability.Mode.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpEcnCapability.SdpEcnCapability(System.Collections.Immutable.ImmutableArray<string!> Methods, string? Mode, string? Ect) -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension
-Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Deconstruct(out int Id, out string! Uri, out Agash.StreamTransport.WebRtc.Sdp.SdpDirection? Direction) -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Attributes.get -> string?
+Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Attributes.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Deconstruct(out int Id, out string! Uri, out Agash.StreamTransport.WebRtc.Sdp.SdpDirection? Direction, out string? Attributes) -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Direction.get -> Agash.StreamTransport.WebRtc.Sdp.SdpDirection?
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Direction.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Equals(Agash.StreamTransport.WebRtc.Sdp.SdpExtension other) -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Id.get -> int
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Id.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.SdpExtension() -> void
-Agash.StreamTransport.WebRtc.Sdp.SdpExtension.SdpExtension(int Id, string! Uri, Agash.StreamTransport.WebRtc.Sdp.SdpDirection? Direction = null) -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpExtension.SdpExtension(int Id, string! Uri, Agash.StreamTransport.WebRtc.Sdp.SdpDirection? Direction = null, string? Attributes = null) -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Uri.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpExtension.Uri.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription
@@ -825,9 +835,11 @@ const Agash.StreamTransport.WebRtc.Rtp.FlexFec.MaxRepairOverhead = 28 -> int
 const Agash.StreamTransport.WebRtc.Rtp.FlexFec.RepairWindowMicros = 1000000 -> int
 const Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Length = 3 -> int
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.AbsoluteCaptureTime = "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time" -> string!
+const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.AudioLevel = "urn:ietf:params:rtp-hdrext:ssrc-audio-level" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.Mid = "urn:ietf:params:rtp-hdrext:sdes:mid" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.PlayoutDelay = "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.TransportWideSequence = "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01" -> string!
+const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.VideoOrientation = "urn:3gpp:video-orientation" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.VideoTiming = "http://www.webrtc.org/experiments/rtp-hdrext/video-timing" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpMid.MaximumLength = 16 -> int
 const Agash.StreamTransport.WebRtc.Rtp.RtpPacket.FixedHeaderLength = 12 -> int
