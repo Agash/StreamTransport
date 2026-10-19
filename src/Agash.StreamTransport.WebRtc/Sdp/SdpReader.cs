@@ -37,6 +37,7 @@ public static class SdpReader
         long sessionId = 0;
         long sessionVersion = 0;
         List<string>? bundleGroup = null;
+        SdpBandwidth sessionBandwidth = default;
 
         foreach (string raw in sdp.Split('\n'))
         {
@@ -81,6 +82,25 @@ public static class SdpReader
                         CultureInfo.InvariantCulture,
                         out sessionVersion
                     );
+                }
+
+                continue;
+            }
+
+            if (TryValue(line, "b=", out string bandwidthLine))
+            {
+                // RFC 8829 section 5.10: a malformed or negative value fails the description; an unknown
+                // type, and AS at session level, is ignored.
+                if (current is null)
+                {
+                    if (!TryApplyBandwidth(bandwidthLine, ref sessionBandwidth, session: true))
+                    {
+                        return false;
+                    }
+                }
+                else if (!current.ApplyBandwidth(bandwidthLine))
+                {
+                    return false;
                 }
 
                 continue;
@@ -215,6 +235,7 @@ public static class SdpReader
                     IgnoredCandidates = [.. sessionIgnored, .. m.IgnoredCandidates],
                     IceOptions = m.IceOptions ?? sessionIceOptions,
                     EndOfCandidates = m.EndOfCandidates,
+                    Bandwidth = m.Bandwidth,
                 }
             );
         }
@@ -226,6 +247,39 @@ public static class SdpReader
             BundleGroup = bundleGroup,
             SessionId = sessionId,
             SessionVersion = sessionVersion,
+            Bandwidth = sessionBandwidth,
+        };
+        return true;
+    }
+
+    // One "b=<type>:<value>" line (RFC 8866 section 5.8) into the bandwidth it belongs to, in bits per
+    // second; false when the value is not a non-negative integer.
+    private static bool TryApplyBandwidth(string line, ref SdpBandwidth bandwidth, bool session)
+    {
+        int colon = line.IndexOf(':', StringComparison.Ordinal);
+        if (
+            colon <= 0
+            || !long.TryParse(
+                line.AsSpan(colon + 1).Trim(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out long value
+            )
+        )
+        {
+            return false;
+        }
+
+        // AS and CT count kilobits; saturate rather than overflow.
+        long kilobits = value > long.MaxValue / 1000 ? long.MaxValue : value * 1000;
+        bandwidth = line[..colon] switch
+        {
+            "AS" when !session => bandwidth with { ApplicationSpecific = kilobits },
+            "CT" when session => bandwidth with { ConferenceTotal = kilobits },
+            "TIAS" when !session => bandwidth with { TransportIndependent = value },
+            "RS" => bandwidth with { RtcpSenders = value },
+            "RR" => bandwidth with { RtcpReceivers = value },
+            _ => bandwidth,
         };
         return true;
     }
@@ -342,6 +396,16 @@ public static class SdpReader
         public bool SetupSeen { get; private set; }
         public string? TlsId { get; private set; }
         public bool InvalidTlsId { get; private set; }
+        public SdpBandwidth Bandwidth { get; private set; }
+
+        public bool ApplyBandwidth(string line)
+        {
+            SdpBandwidth bandwidth = Bandwidth;
+            bool read = TryApplyBandwidth(line, ref bandwidth, session: false);
+            Bandwidth = bandwidth;
+            return read;
+        }
+
         public bool RtcpMux { get; private set; }
 
         public bool RtcpReducedSize { get; private set; }

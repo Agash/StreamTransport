@@ -87,8 +87,14 @@ public sealed record MediaSessionOptions
     /// </summary>
     public AlphaLayout Alpha { get; init; } = AlphaLayout.None;
 
-    /// <summary>The audio encoder's target bit rate.</summary>
+    /// <summary>The audio encoder's target bit rate; lower when the peer takes less (its <c>b=TIAS</c>).</summary>
     public int AudioBitsPerSecond { get; init; } = 64_000;
+
+    /// <summary>
+    /// The most video the peer may send this side, in bits per second, signalled in the session description
+    /// (<c>b=TIAS</c>); null leaves the rate to congestion control alone.
+    /// </summary>
+    public long? MaximumReceiveVideoBitsPerSecond { get; init; }
 
     /// <summary>What the audio is.</summary>
     public AudioContent AudioContent { get; init; } = AudioContent.Music;

@@ -8,6 +8,28 @@ namespace Agash.StreamTransport.WebRtc.Sdp;
 /// <summary>Serializes a <see cref="SdpDescription"/> to the SDP text a WebRTC peer (including a browser) expects.</summary>
 public static class SdpWriter
 {
+    // RFC 8866 section 5.8: b= lines follow c=; AS and CT count kilobits per second, rounded up so the
+    // written limit never undercuts the configured one; TIAS, RS and RR count bits (RFC 3890, RFC 3556).
+    private static void WriteBandwidth(StringBuilder sb, SdpBandwidth bandwidth)
+    {
+        Line(sb, "CT", bandwidth.ConferenceTotal, kilobits: true);
+        Line(sb, "AS", bandwidth.ApplicationSpecific, kilobits: true);
+        Line(sb, "TIAS", bandwidth.TransportIndependent, kilobits: false);
+        Line(sb, "RS", bandwidth.RtcpSenders, kilobits: false);
+        Line(sb, "RR", bandwidth.RtcpReceivers, kilobits: false);
+
+        static void Line(StringBuilder sb, string type, long? bits, bool kilobits)
+        {
+            if (bits is { } value)
+            {
+                sb.Append(
+                    CultureInfo.InvariantCulture,
+                    $"b={type}:{(kilobits ? (value + 999) / 1000 : value)}\r\n"
+                );
+            }
+        }
+    }
+
     /// <summary>Renders the session description as SDP (CRLF-terminated lines, RFC 8866).</summary>
     public static string Write(SdpDescription description)
     {
@@ -21,6 +43,7 @@ public static class SdpWriter
         );
         sb.Append("s=-\r\n");
         sb.Append("t=0 0\r\n");
+        WriteBandwidth(sb, description.Bandwidth);
         if (description.IceLite)
         {
             sb.Append("a=ice-lite\r\n");
@@ -75,6 +98,7 @@ public static class SdpWriter
 
         sb.Append("\r\n");
         sb.Append("c=IN IP4 0.0.0.0\r\n");
+        WriteBandwidth(sb, media.Bandwidth);
         sb.Append("a=rtcp:9 IN IP4 0.0.0.0\r\n");
         if (media.RtcpMux)
         {

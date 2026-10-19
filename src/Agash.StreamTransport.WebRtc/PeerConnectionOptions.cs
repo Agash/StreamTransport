@@ -36,6 +36,13 @@ public sealed record MediaLine(
 
     /// <summary>Whether this endpoint sends, receives or both on the line.</summary>
     public SdpDirection Direction { get; init; } = SdpDirection.SendRecv;
+
+    /// <summary>
+    /// The most the peer may send on the line, in bits per second of RTP: written as <c>b=TIAS</c>
+    /// (RFC 3890) and the <c>b=AS</c> that JSEP derives the same limit from (RFC 8829 section 5.10), on a
+    /// line this endpoint receives. Null for no limit.
+    /// </summary>
+    public long? MaximumReceiveBitsPerSecond { get; init; }
 }
 
 /// <summary>
@@ -55,11 +62,36 @@ public sealed record NegotiatedMediaInfo(
     uint LocalSsrc,
     IReadOnlyList<SdpCodec> Codecs,
     IReadOnlyList<SdpCodec> RemoteCodecs
-);
+)
+{
+    /// <summary>
+    /// The most RTP this endpoint may send on the section, in bits per second, as the peer's
+    /// <c>b=TIAS</c> or <c>b=AS</c> sets it (RFC 8829 section 5.10); null for no limit.
+    /// </summary>
+    public long? SendLimitBitsPerSecond { get; init; }
+}
 
 /// <summary>Configuration for a <see cref="PeerConnection"/>.</summary>
 public sealed class PeerConnectionOptions
 {
+    /// <summary>
+    /// The least time between regular RTCP reports (RFC 4585 section 3.5.3's T_rr_interval): the RTCP
+    /// schedule scales with the session's members and bandwidth (RFC 3550 section 6.3), and under RTP/AVPF
+    /// its minimum is 0, so this bounds how often full reports go out; feedback packets do not wait for it.
+    /// One second by default; zero leaves the RFC 3550 schedule alone. RFC 8083 section 4.1 asks for no more
+    /// than 4 s, so the peer's RTCP timeout does not end the session first.
+    /// </summary>
+    public TimeSpan RegularRtcpInterval
+    {
+        get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, TimeSpan.Zero);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, TimeSpan.FromSeconds(4));
+            field = value;
+        }
+    } = TimeSpan.FromSeconds(1);
+
     /// <summary>The RFC 8083 circuit breakers' tunables; the RFC's defaults when null.</summary>
     public Adaptation.CircuitBreakerOptions? CircuitBreaker { get; init; }
 

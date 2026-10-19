@@ -272,6 +272,37 @@ public sealed class RtcpReportTests
         }
     }
 
+    // RFC 3550 section 6.2 with RFC 4585 section 3.5.3: the RTCP bandwidth the peer grants (b=RS, b=RR)
+    // sets how often reports go; T_rr_interval caps it. Same session, same bandwidth: without the cap the
+    // sender reports many times a second, with the default 1 s cap about once.
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task RegularInterval_BoundsTheReportRateTheBandwidthAllows()
+    {
+        SdpBandwidth generous = new(RtcpSenders: 80_000, RtcpReceivers: 240_000);
+        int uncapped = await CountSenderReportsAsync(TimeSpan.Zero, generous);
+        int capped = await CountSenderReportsAsync(TimeSpan.FromSeconds(1), generous);
+
+        Assert.IsGreaterThan(20, uncapped, $"{uncapped} reports in 2 s without T_rr_interval");
+        Assert.IsLessThanOrEqualTo(5, capped, $"{capped} reports in 2 s with a 1 s T_rr_interval");
+    }
+
+    private async Task<int> CountSenderReportsAsync(TimeSpan regular, SdpBandwidth bandwidth)
+    {
+        await using Pair pair = await Pair.ConnectAsync(true, regular, bandwidth);
+        int before = pair.FirstTypesFrom("10.0.0.1")
+            .Count(static t => t == RtcpPacketType.SenderReport);
+        using PeriodicTimer frames = new(TimeSpan.FromMilliseconds(20));
+        for (int i = 0; i < 100; i++)
+        {
+            _ = await frames.WaitForNextTickAsync(TestContext.CancellationToken);
+            _ = pair.Sender.TrySendRtp(96, 0xAAAA_0001, (uint)(i * 1800), true, [0x65, 1]);
+        }
+
+        return pair.FirstTypesFrom("10.0.0.1").Count(static t => t == RtcpPacketType.SenderReport)
+            - before;
+    }
+
     private static SdpDescription Offer() =>
         new()
         {
@@ -307,7 +338,11 @@ public sealed class RtcpReportTests
 
         public PeerConnection Receiver { get; }
 
-        public static async Task<Pair> ConnectAsync(bool reducedSize)
+        public static async Task<Pair> ConnectAsync(
+            bool reducedSize,
+            TimeSpan? regularInterval = null,
+            SdpBandwidth answerBandwidth = default
+        )
         {
             InMemoryIceNetwork network = new();
             PeerConnection sender = new(
@@ -315,6 +350,7 @@ public sealed class RtcpReportTests
                 {
                     Media = [new MediaLine("0", SdpMediaKind.Video, 0xAAAA_0001, [H264])],
                     SocketFactory = network.Factory(IPAddress.Parse("10.0.0.1")),
+                    RegularRtcpInterval = regularInterval ?? TimeSpan.FromSeconds(1),
                 },
                 Certificate,
                 controller: new ScreamCongestionController()
@@ -367,7 +403,14 @@ public sealed class RtcpReportTests
             }
 
             receiver.SetRemoteDescription(offer, SdpType.Offer);
-            sender.SetRemoteDescription(receiver.CreateAnswer(), SdpType.Answer);
+            SdpDescription answer = receiver.CreateAnswer();
+            sender.SetRemoteDescription(
+                answer with
+                {
+                    Media = [.. answer.Media.Select(m => m with { Bandwidth = answerBandwidth })],
+                },
+                SdpType.Answer
+            );
             await connected.Task.WaitAsync(TimeSpan.FromSeconds(30));
             return pair;
         }

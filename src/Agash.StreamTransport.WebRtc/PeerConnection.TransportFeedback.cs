@@ -120,6 +120,7 @@ public sealed partial class PeerConnection
                     );
                 start += Math.Max(1, consumed);
                 int protectedLength = srtp.ProtectRtcp(buffer, length);
+                CountRtcpSent(protectedLength);
                 _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)

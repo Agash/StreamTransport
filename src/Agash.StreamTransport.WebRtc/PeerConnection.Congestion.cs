@@ -121,7 +121,7 @@ public sealed partial class PeerConnection
     // A new estimate retunes the pacer here, so media and repairs follow it, then the media layer.
     private void OnEstimate(CapacityEstimate estimate)
     {
-        estimate = ApplyBreakerCap(estimate);
+        estimate = ApplySendLimit(ApplyBreakerCap(estimate));
         _pacer.BitsPerSecond = Math.Max(0, estimate.PacingBitsPerSecond);
 
         // Feedback may have opened the send window.
@@ -492,6 +492,7 @@ public sealed partial class PeerConnection
                 prefix
                 + Ccfb.Build(buffer.AsSpan(prefix), _rtcpSenderSsrc, reports, reportTimestamp);
             int protectedLength = srtp.ProtectRtcp(buffer, length);
+            CountRtcpSent(protectedLength);
             _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

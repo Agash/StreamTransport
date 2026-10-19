@@ -304,6 +304,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 new MediaLine("0", SdpMediaKind.Audio, NewSsrc(), codecs)
                 {
                     Direction = Direction(audio.Sends, audio.Receives),
+                    MaximumReceiveBitsPerSecond = audio.MaximumReceiveBitsPerSecond,
                 }
             );
         }
@@ -355,6 +356,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                     RtxSsrc = NewSsrc(),
                     FecSsrc = _options.ForwardErrorCorrection && video.Sends ? NewSsrc() : null,
                     Direction = Direction(video.Sends, video.Receives),
+                    MaximumReceiveBitsPerSecond = video.MaximumReceiveBitsPerSecond,
                 }
             );
         }
@@ -484,7 +486,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 video = new NegotiatedVideo(
                     new VideoCodecFormat(codec, SendParameters(codec, remote.FormatParameters)),
                     new VideoCodecFormat(codec, CodecParameters(remote.FormatParameters)),
-                    alpha
+                    alpha,
+                    media.SendLimitBitsPerSecond
                 );
                 _videoPayloadType = local.PayloadType;
                 if (videoOffer.Sends)
@@ -510,7 +513,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                     new AudioCodecFormat(
                         new AudioCodecId(local.EncodingName),
                         CodecParameters(local.FormatParameters)
-                    )
+                    ),
+                    media.SendLimitBitsPerSecond
                 );
                 _audioPayloadType = local.PayloadType;
                 if (audioOffer.Sends)

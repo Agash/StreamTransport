@@ -49,6 +49,10 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
     private int _disposed;
     private VideoSendStream? _videoSend;
     private AudioSendStream? _audioSend;
+    private int _audioBitsPerSecond;
+
+    // The most video the peer takes (RFC 8829 section 5.10), or no limit.
+    private long _videoSendLimit = long.MaxValue;
     private VideoReceiveStream? _videoReceive;
     private AudioReceiveStream? _audioReceive;
 
@@ -312,7 +316,8 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
                         .Select(c => new VideoCodecOffer(new VideoCodecFormat(c), AlphaWays(c))),
                 ],
                 _endpoints.VideoSource is not null,
-                _endpoints.VideoSink is not null
+                _endpoints.VideoSink is not null,
+                _endpoints.VideoSink is null ? null : _options.MaximumReceiveVideoBitsPerSecond
             );
         }
 
@@ -370,14 +375,15 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
         if (_endpoints.VideoSource is { } source)
         {
-            long start = _transport.Capacity.TargetBitsPerSecond;
+            _videoSendLimit = video.SendLimitBitsPerSecond ?? long.MaxValue;
+            long start = Math.Min(_transport.Capacity.TargetBitsPerSecond, _videoSendLimit);
 
             // The stream is encoded for what the receiver declared it decodes: its profile and level.
             _videoSend = new VideoSendStream(
                 source,
                 new VideoSendSetup(
                     video.Encode,
-                    start > 0 ? start : DefaultStartBitsPerSecond,
+                    start > 0 ? start : Math.Min(DefaultStartBitsPerSecond, _videoSendLimit),
                     video.Alpha
                 ),
                 _services.Codecs,
@@ -420,11 +426,20 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
     {
         if (_endpoints.AudioSource is { } source)
         {
+            // The peer's limit lowers the encoder's rate (RFC 8829 section 5.10).
+            _audioBitsPerSecond = (int)
+                Math.Min(
+                    _options.AudioBitsPerSecond,
+                    audio.SendLimitBitsPerSecond ?? long.MaxValue
+                );
             _audioSend = new AudioSendStream(
                 source,
                 audio.Format,
                 _services.Codecs,
-                _options,
+                _options with
+                {
+                    AudioBitsPerSecond = _audioBitsPerSecond,
+                },
                 SendAudio,
                 _services.Metrics
             );
@@ -492,12 +507,15 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     private void OnCapacity(CapacityEstimate estimate)
     {
-        long audio = _audioSend is null ? 0 : _options.AudioBitsPerSecond;
+        long audio = _audioSend is null ? 0 : _audioBitsPerSecond;
         _videoSend?.SetBitrate(
-            _allocator.VideoBitsPerSecond(
-                estimate.TargetBitsPerSecond,
-                audio,
-                MinimumVideoBitsPerSecond
+            Math.Min(
+                _allocator.VideoBitsPerSecond(
+                    estimate.TargetBitsPerSecond,
+                    audio,
+                    MinimumVideoBitsPerSecond
+                ),
+                _videoSendLimit
             )
         );
     }

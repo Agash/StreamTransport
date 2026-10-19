@@ -52,13 +52,29 @@ public sealed record VideoCodecOffer(VideoCodecFormat Format, ImmutableArray<Alp
 /// <param name="Codecs">The codecs, most preferred first.</param>
 /// <param name="Sends">Whether this side sends video.</param>
 /// <param name="Receives">Whether this side receives video.</param>
-public sealed record VideoOffer(ImmutableArray<VideoCodecOffer> Codecs, bool Sends, bool Receives);
+/// <param name="MaximumReceiveBitsPerSecond">
+/// The most video the peer may send this side, in bits per second; null for no limit.
+/// </param>
+public sealed record VideoOffer(
+    ImmutableArray<VideoCodecOffer> Codecs,
+    bool Sends,
+    bool Receives,
+    long? MaximumReceiveBitsPerSecond = null
+);
 
 /// <summary>What a session offers for audio.</summary>
 /// <param name="Codecs">The codecs, most preferred first.</param>
 /// <param name="Sends">Whether this side sends audio.</param>
 /// <param name="Receives">Whether this side receives audio.</param>
-public sealed record AudioOffer(ImmutableArray<AudioCodecFormat> Codecs, bool Sends, bool Receives);
+/// <param name="MaximumReceiveBitsPerSecond">
+/// The most audio the peer may send this side, in bits per second; null for no limit.
+/// </param>
+public sealed record AudioOffer(
+    ImmutableArray<AudioCodecFormat> Codecs,
+    bool Sends,
+    bool Receives,
+    long? MaximumReceiveBitsPerSecond = null
+);
 
 /// <summary>What a session offers to send and receive.</summary>
 /// <param name="Video">The video, or null for none.</param>
@@ -69,15 +85,22 @@ public sealed record MediaOffer(VideoOffer? Video, AudioOffer? Audio);
 /// <param name="Encode">The format to encode, holding what the receiver declared it decodes.</param>
 /// <param name="Decode">The format to decode.</param>
 /// <param name="Alpha">How alpha travels.</param>
+/// <param name="SendLimitBitsPerSecond">
+/// The most video the peer takes from this side, in bits per second; null for no limit.
+/// </param>
 public sealed record NegotiatedVideo(
     VideoCodecFormat Encode,
     VideoCodecFormat Decode,
-    AlphaLayout Alpha
+    AlphaLayout Alpha,
+    long? SendLimitBitsPerSecond = null
 );
 
 /// <summary>What both sides agreed for audio.</summary>
 /// <param name="Format">The codec and its parameters.</param>
-public sealed record NegotiatedAudio(AudioCodecFormat Format);
+/// <param name="SendLimitBitsPerSecond">
+/// The most audio the peer takes from this side, in bits per second; null for no limit.
+/// </param>
+public sealed record NegotiatedAudio(AudioCodecFormat Format, long? SendLimitBitsPerSecond = null);
 
 /// <summary>What both sides agreed.</summary>
 /// <param name="Video">The video, or null when none was agreed.</param>

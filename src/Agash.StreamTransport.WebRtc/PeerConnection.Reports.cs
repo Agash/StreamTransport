@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
@@ -7,16 +9,22 @@ using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.WebRtc;
 
-// RTCP reports (RFC 3550 section 6, RFC 8834 section 4.1): a compound report about once a second, a sender
-// report for each source this endpoint sends and a receiver report otherwise, with a reception block for
-// each source it receives and the CNAME; feedback packets go out alone only where both sides listed
-// rtcp-rsize (RFC 5506), otherwise behind a receiver report and the CNAME. One NTP clock stamps the sender
-// reports and the congestion-control feedback (RFC 8888 section 3.1).
+// RTCP reports (RFC 3550 section 6, RFC 8834 section 4.1): a compound report on the RTCP schedule (see
+// RtcpScheduler), a sender report for each source this endpoint sends and a receiver report for its
+// receiving source, with a reception block for each source it receives and the CNAME and MID of each;
+// feedback packets go out alone only where both sides listed rtcp-rsize (RFC 5506), otherwise behind a
+// receiver report and the CNAME. The member table counts every source heard, drops one after its BYE or
+// its timeout (RFC 3550 sections 6.3.3 to 6.3.5), and one NTP clock stamps the sender reports and the
+// congestion-control feedback (RFC 8888 section 3.1).
 public sealed partial class PeerConnection
 {
-    // The reporting interval's mean; each interval is drawn from half to one and a half times it (RFC 3550
-    // section 6.3.1), so endpoints that started together do not report in lockstep.
-    private static readonly TimeSpan ReportInterval = TimeSpan.FromSeconds(1);
+    // RFC 3550 section 6.2: what a session with no stated bandwidth is taken to have at least, as GStreamer's
+    // rtpsession does; the measured media rate counts when higher.
+    private const long MinimumSessionBitsPerSecond = 64_000;
+
+    // UDP and IP headers, which RFC 3550 section 6.2 counts in the average RTCP packet size.
+    private const int UdpIpv4Overhead = 28;
+    private const int UdpIpv6Overhead = 48;
 
     // Room the receiver report and CNAME take in front of a feedback packet.
     private const int FeedbackPrefixCapacity = 64;
@@ -27,6 +35,14 @@ public sealed partial class PeerConnection
     private readonly Lock _reportGate = new();
     private readonly Dictionary<uint, SendStatistics> _sendStatistics = [];
     private readonly Dictionary<uint, RtpReceiveStatistics> _receiveStatistics = [];
+    private readonly Dictionary<uint, RemoteMember> _remoteMembers = [];
+    private RtcpScheduler? _rtcpScheduler;
+    private RtcpMembership _membership = new(2, 0, false);
+    private long _bytesSent;
+    private long _bytesReceived;
+    private long _rateSampledAt = -1;
+    private long _rateBytes;
+    private double _mediaBitsPerSecond;
     private ulong _ntpOrigin;
     private ITimer? _reportTimer;
     private volatile bool _rtcpReducedSize;
@@ -89,14 +105,16 @@ public sealed partial class PeerConnection
 
             statistics.Packets++;
             statistics.Octets += payloadLength;
+            _ = Interlocked.Add(ref _bytesSent, payloadLength);
             statistics.RtpTimestamp = rtpTimestamp;
             statistics.SentMicros = nowMicros;
         }
     }
 
-    // Notes a received media packet for the reception report.
-    private void RecordReceivedForReports(RtpHeader header, long nowMicros)
+    // Notes a received media packet for the reception report and the member table.
+    private void RecordReceivedForReports(RtpHeader header, int length, long nowMicros)
     {
+        _ = Interlocked.Add(ref _bytesReceived, length);
         lock (_reportGate)
         {
             if (!_receiveStatistics.TryGetValue(header.Ssrc, out RtpReceiveStatistics? statistics))
@@ -108,6 +126,12 @@ public sealed partial class PeerConnection
             }
 
             statistics.OnPacket(header.SequenceNumber, header.Timestamp, nowMicros);
+            ref RemoteMember member = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                _remoteMembers,
+                header.Ssrc,
+                out _
+            );
+            member = new RemoteMember(nowMicros, nowMicros);
         }
     }
 
@@ -130,9 +154,10 @@ public sealed partial class PeerConnection
 
     // The peer's sender reports start the round trip it measures; its reception blocks about this
     // endpoint's sources close the ones this endpoint started.
-    private void OnReports(ReadOnlySpan<byte> rtcp)
+    private void OnReports(ReadOnlySpan<byte> rtcp, int wireLength)
     {
         long now = NowMicros();
+        NoteRtcpMembers(rtcp, wireLength, now);
         foreach (RtcpElement element in RtcpCompound.Enumerate(rtcp))
         {
             ReadOnlySpan<byte> body = element.Body;
@@ -215,26 +240,292 @@ public sealed partial class PeerConnection
 
     private void StartReports()
     {
-        _reportTimer ??= _time.CreateTimer(
-            static s => ((PeerConnection)s!).SendReport(goodbye: false),
+        if (_reportTimer is not null)
+        {
+            return;
+        }
+
+        long now = NowMicros();
+        lock (_reportGate)
+        {
+            _rtcpScheduler = new RtcpScheduler(_options.RegularRtcpInterval);
+            _membership = Membership(now);
+            _rtcpScheduler.Start(now, _membership, RtcpBandwidthAt(now));
+        }
+
+        _reportTimer = _time.CreateTimer(
+            static s => ((PeerConnection)s!).OnReportTimer(),
             this,
-            NextReportDelay(),
+            Timeout.InfiniteTimeSpan,
             Timeout.InfiniteTimeSpan
+        );
+        Reschedule(now);
+    }
+
+    // RFC 3550 section 6.3.6: on expiry, time out silent members, reconsider, and send when due.
+    private void OnReportTimer()
+    {
+        long now = NowMicros();
+        bool send;
+        lock (_reportGate)
+        {
+            if (_rtcpScheduler is not { } scheduler)
+            {
+                return;
+            }
+
+            RtcpBandwidth bandwidth = RtcpBandwidthAt(now);
+            TimeOutMembers(now, scheduler, bandwidth);
+            _membership = Membership(now);
+            send = scheduler.Expire(now, _membership, bandwidth);
+            if (send)
+            {
+                scheduler.Sent(now, _membership, bandwidth);
+            }
+        }
+
+        if (send)
+        {
+            SendReport(goodbye: false);
+        }
+
+        Reschedule(now);
+    }
+
+    private void Reschedule(long now)
+    {
+        long next;
+        lock (_reportGate)
+        {
+            next = _rtcpScheduler?.Next ?? -1;
+        }
+
+        if (next >= 0)
+        {
+            _ = _reportTimer?.Change(
+                TimeSpan.FromMicroseconds(Math.Max(0, next - now)),
+                Timeout.InfiniteTimeSpan
+            );
+        }
+    }
+
+    // The members as RFC 3550 section 6.3 counts them: every local reporting source and every remote
+    // source heard; senders are those that sent RTP within the sender timeout (section 6.3.8).
+    private RtcpMembership Membership(long now)
+    {
+        long senderTimeout =
+            _rtcpScheduler?.SenderTimeout(_membership, RtcpBandwidthAt(now)) ?? long.MaxValue;
+        int local = _sendStatistics.ContainsKey(_rtcpSenderSsrc) ? 0 : 1;
+        int localSenders = 0;
+        foreach (SendStatistics statistics in _sendStatistics.Values)
+        {
+            local++;
+            if (now - statistics.SentMicros <= senderTimeout)
+            {
+                localSenders++;
+            }
+        }
+
+        int remoteSenders = 0;
+        foreach (RemoteMember member in _remoteMembers.Values)
+        {
+            if (member.LastRtp >= 0 && now - member.LastRtp <= senderTimeout)
+            {
+                remoteSenders++;
+            }
+        }
+
+        return new RtcpMembership(
+            local + _remoteMembers.Count,
+            localSenders + remoteSenders,
+            localSenders > 0
         );
     }
 
-    private static TimeSpan NextReportDelay() =>
-        ReportInterval * (0.5 + Random.Shared.NextDouble());
-
-    // A compound report: sender reports (or a receiver report), reception blocks, the CNAME, and a BYE when
-    // the connection closes.
-    private void SendReport(bool goodbye)
+    // RFC 3550 section 6.3.5: a remote source silent for the member timeout leaves, and section 6.3.4's
+    // reverse reconsideration follows.
+    private void TimeOutMembers(long now, RtcpScheduler scheduler, RtcpBandwidth bandwidth)
     {
-        if (!goodbye)
+        long timeout = scheduler.MemberTimeout(_membership, bandwidth);
+        int before = _membership.Members;
+        int removed = 0;
+        foreach ((uint ssrc, RemoteMember member) in _remoteMembers)
         {
-            _ = _reportTimer?.Change(NextReportDelay(), Timeout.InfiniteTimeSpan);
+            if (now - member.LastActivity > timeout)
+            {
+                _ = _remoteMembers.Remove(ssrc);
+                _ = _receiveStatistics.Remove(ssrc);
+                LogMemberTimedOut(_logger, ssrc);
+                removed++;
+            }
         }
 
+        if (removed > 0)
+        {
+            scheduler.MembersLeft(now, before - removed, before);
+        }
+    }
+
+    // A received compound packet: its size into the average (RFC 8108 section 5.3.1 divides it by the
+    // sources reporting in it), its senders into the member table, and a BYE's sources out of it.
+    private void NoteRtcpMembers(ReadOnlySpan<byte> rtcp, int wireLength, long now)
+    {
+        int reporting = 0;
+        lock (_reportGate)
+        {
+            int before = _remoteMembers.Count;
+            foreach (RtcpElement element in RtcpCompound.Enumerate(rtcp))
+            {
+                if (element.Body.Length < 4)
+                {
+                    continue;
+                }
+
+                uint sender = BinaryPrimitives.ReadUInt32BigEndian(element.Body);
+                if (element.PacketType == RtcpPacketType.Goodbye)
+                {
+                    for (
+                        int i = 0;
+                        i < element.ReportCount && (i + 1) * 4 <= element.Body.Length;
+                        i++
+                    )
+                    {
+                        uint leaving = BinaryPrimitives.ReadUInt32BigEndian(
+                            element.Body[(i * 4)..]
+                        );
+                        if (_remoteMembers.Remove(leaving))
+                        {
+                            _ = _receiveStatistics.Remove(leaving);
+                            LogMemberLeft(_logger, leaving);
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (
+                    element.PacketType
+                    is RtcpPacketType.SenderReport
+                        or RtcpPacketType.ReceiverReport
+                )
+                {
+                    reporting++;
+                }
+
+                if (
+                    element.PacketType != RtcpPacketType.SourceDescription
+                    && sender != _rtcpSenderSsrc
+                    && !_sendStatistics.ContainsKey(sender)
+                )
+                {
+                    ref RemoteMember member = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                        _remoteMembers,
+                        sender,
+                        out bool known
+                    );
+                    member = new RemoteMember(now, known ? member.LastRtp : -1);
+                }
+            }
+
+            _rtcpScheduler?.Count(wireLength + UdpIpOverhead, reporting);
+            if (_remoteMembers.Count < before && _rtcpScheduler is { } scheduler)
+            {
+                int members = _membership.Members - (before - _remoteMembers.Count);
+                scheduler.MembersLeft(now, members, _membership.Members);
+                _membership = _membership with { Members = members };
+            }
+        }
+    }
+
+    // A sent feedback packet counts into the average RTCP size too (RFC 4585 section 3.5.4).
+    private void CountRtcpSent(int protectedLength, int reportingSources = 1)
+    {
+        lock (_reportGate)
+        {
+            _rtcpScheduler?.Count(protectedLength + UdpIpOverhead, reportingSources);
+        }
+    }
+
+    private int UdpIpOverhead =>
+        _iceAgent?.SelectedPath is { } path
+        && path.Local.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? UdpIpv6Overhead
+            : UdpIpv4Overhead;
+
+    // RTCP's bandwidth (RFC 3556): the peer's RS and RR when it states them, else 5% of the session
+    // bandwidth, which is the peer's CT, the sum of its sections' AS (RFC 8859 section 6.2 sums them under
+    // BUNDLE), or the measured media rate both ways.
+    private RtcpBandwidth RtcpBandwidthAt(long now)
+    {
+        SdpDescription? remote = _remoteDescription;
+        long? senders = remote?.Bandwidth.RtcpSenders ?? SumOf(remote, static b => b.RtcpSenders);
+        long? receivers =
+            remote?.Bandwidth.RtcpReceivers ?? SumOf(remote, static b => b.RtcpReceivers);
+        long session =
+            remote?.Bandwidth.ConferenceTotal
+            ?? SumOf(remote, static b => b.ApplicationSpecific)
+            ?? MeasuredBitsPerSecond(now);
+        return RtcpBandwidth.From(
+            Math.Max(session, MinimumSessionBitsPerSecond),
+            senders,
+            receivers
+        );
+    }
+
+    // A bandwidth every section states, summed; null when one does not.
+    private static long? SumOf(SdpDescription? description, Func<SdpBandwidth, long?> select)
+    {
+        if (description is null || description.Media.Count == 0)
+        {
+            return null;
+        }
+
+        long sum = 0;
+        foreach (SdpMediaDescription media in description.Media)
+        {
+            if (media.Rejected)
+            {
+                continue;
+            }
+
+            if (select(media.Bandwidth) is not { } value)
+            {
+                return null;
+            }
+
+            sum = sum > long.MaxValue - value ? long.MaxValue : sum + value;
+        }
+
+        return sum;
+    }
+
+    // The media rate both ways, averaged over about a second.
+    private long MeasuredBitsPerSecond(long now)
+    {
+        long bytes = Interlocked.Read(ref _bytesSent) + Interlocked.Read(ref _bytesReceived);
+        if (_rateSampledAt < 0)
+        {
+            _rateSampledAt = now;
+            _rateBytes = bytes;
+            return 0;
+        }
+
+        long elapsed = now - _rateSampledAt;
+        if (elapsed >= 100_000)
+        {
+            double rate = (bytes - _rateBytes) * 8e6 / elapsed;
+            _mediaBitsPerSecond += (1 - Math.Exp(-elapsed / 1e6)) * (rate - _mediaBitsPerSecond);
+            _rateSampledAt = now;
+            _rateBytes = bytes;
+        }
+
+        return (long)_mediaBitsPerSecond;
+    }
+
+    // A compound report: sender reports and a receiver report for the receiving source, reception blocks,
+    // the CNAME and MIDs, and a BYE when the connection closes.
+    private void SendReport(bool goodbye)
+    {
         if (_srtp is not { } srtp || _iceAgent is not { } agent)
         {
             return;
@@ -243,8 +534,9 @@ public sealed partial class PeerConnection
         byte[] buffer = ArrayPool<byte>.Shared.Rent(1400);
         try
         {
-            int length = WriteReports(buffer, goodbye);
+            int length = WriteReports(buffer, goodbye, out int reporting);
             int protectedLength = srtp.ProtectRtcp(buffer, length);
+            CountRtcpSent(protectedLength, reporting);
             _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -257,7 +549,7 @@ public sealed partial class PeerConnection
         }
     }
 
-    private int WriteReports(Span<byte> destination, bool goodbye)
+    private int WriteReports(Span<byte> destination, bool goodbye, out int reporting)
     {
         long now = NowMicros();
         ulong ntp = NtpAt(now);
@@ -280,13 +572,18 @@ public sealed partial class PeerConnection
         }
 
         int offset = 0;
-        if (senders.Count == 0)
+        reporting = senders.Count;
+        bool receiverReports = !senders.Exists(s => s.Ssrc == _rtcpSenderSsrc);
+        if (receiverReports)
         {
+            // The receiving source reports too, as the member it is (RFC 8108 section 5.1), and its report
+            // carries the reception blocks.
             offset += new RtcpReceiverReport(_rtcpSenderSsrc, blocks).Write(destination);
+            reporting++;
         }
-        else
+
         {
-            // The reception blocks ride on the first sender report; the others report only themselves.
+            // The reception blocks ride on one report; the others report only themselves.
             for (int i = 0; i < senders.Count; i++)
             {
                 (uint ssrc, SendStatistics statistics) = senders[i];
@@ -299,7 +596,7 @@ public sealed partial class PeerConnection
                     rtpTimestamp,
                     (uint)statistics.Packets,
                     (uint)statistics.Octets,
-                    i == 0 ? blocks : []
+                    i == 0 && !receiverReports ? blocks : []
                 ).Write(destination[offset..]);
             }
         }
@@ -376,6 +673,23 @@ public sealed partial class PeerConnection
             SendReport(goodbye: true);
         }
     }
+
+    // A remote source in the member table: when it was last heard, and when it last sent RTP (-1 never).
+    private readonly record struct RemoteMember(long LastActivity, long LastRtp);
+
+    [LoggerMessage(
+        EventId = 1190,
+        Level = LogLevel.Debug,
+        Message = "RTP source {Ssrc} left the session (BYE, RFC 3550 section 6.3.7)"
+    )]
+    private static partial void LogMemberLeft(ILogger logger, uint ssrc);
+
+    [LoggerMessage(
+        EventId = 1191,
+        Level = LogLevel.Debug,
+        Message = "RTP source {Ssrc} timed out of the session (RFC 3550 section 6.3.5)"
+    )]
+    private static partial void LogMemberTimedOut(ILogger logger, uint ssrc);
 
     private sealed class SendStatistics(int clockRate)
     {

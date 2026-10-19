@@ -1,11 +1,13 @@
 #nullable enable
 Agash.StreamTransport.AudioOffer
 Agash.StreamTransport.AudioOffer.<Clone>$() -> Agash.StreamTransport.AudioOffer!
-Agash.StreamTransport.AudioOffer.AudioOffer(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!> Codecs, bool Sends, bool Receives) -> void
+Agash.StreamTransport.AudioOffer.AudioOffer(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!> Codecs, bool Sends, bool Receives, long? MaximumReceiveBitsPerSecond = null) -> void
 Agash.StreamTransport.AudioOffer.Codecs.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!>
 Agash.StreamTransport.AudioOffer.Codecs.init -> void
-Agash.StreamTransport.AudioOffer.Deconstruct(out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!> Codecs, out bool Sends, out bool Receives) -> void
+Agash.StreamTransport.AudioOffer.Deconstruct(out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!> Codecs, out bool Sends, out bool Receives, out long? MaximumReceiveBitsPerSecond) -> void
 Agash.StreamTransport.AudioOffer.Equals(Agash.StreamTransport.AudioOffer? other) -> bool
+Agash.StreamTransport.AudioOffer.MaximumReceiveBitsPerSecond.get -> long?
+Agash.StreamTransport.AudioOffer.MaximumReceiveBitsPerSecond.init -> void
 Agash.StreamTransport.AudioOffer.Receives.get -> bool
 Agash.StreamTransport.AudioOffer.Receives.init -> void
 Agash.StreamTransport.AudioOffer.Sends.get -> bool
@@ -159,11 +161,13 @@ Agash.StreamTransport.MediaTransportOptions.RequestedPlayoutDelay.get -> Agash.S
 Agash.StreamTransport.MediaTransportOptions.RequestedPlayoutDelay.init -> void
 Agash.StreamTransport.NegotiatedAudio
 Agash.StreamTransport.NegotiatedAudio.<Clone>$() -> Agash.StreamTransport.NegotiatedAudio!
-Agash.StreamTransport.NegotiatedAudio.Deconstruct(out Agash.StreamTransport.Media.AudioCodecFormat! Format) -> void
+Agash.StreamTransport.NegotiatedAudio.Deconstruct(out Agash.StreamTransport.Media.AudioCodecFormat! Format, out long? SendLimitBitsPerSecond) -> void
 Agash.StreamTransport.NegotiatedAudio.Equals(Agash.StreamTransport.NegotiatedAudio? other) -> bool
 Agash.StreamTransport.NegotiatedAudio.Format.get -> Agash.StreamTransport.Media.AudioCodecFormat!
 Agash.StreamTransport.NegotiatedAudio.Format.init -> void
-Agash.StreamTransport.NegotiatedAudio.NegotiatedAudio(Agash.StreamTransport.Media.AudioCodecFormat! Format) -> void
+Agash.StreamTransport.NegotiatedAudio.NegotiatedAudio(Agash.StreamTransport.Media.AudioCodecFormat! Format, long? SendLimitBitsPerSecond = null) -> void
+Agash.StreamTransport.NegotiatedAudio.SendLimitBitsPerSecond.get -> long?
+Agash.StreamTransport.NegotiatedAudio.SendLimitBitsPerSecond.init -> void
 Agash.StreamTransport.NegotiatedMedia
 Agash.StreamTransport.NegotiatedMedia.<Clone>$() -> Agash.StreamTransport.NegotiatedMedia!
 Agash.StreamTransport.NegotiatedMedia.Audio.get -> Agash.StreamTransport.NegotiatedAudio?
@@ -179,11 +183,13 @@ Agash.StreamTransport.NegotiatedVideo.Alpha.get -> Agash.StreamTransport.Media.A
 Agash.StreamTransport.NegotiatedVideo.Alpha.init -> void
 Agash.StreamTransport.NegotiatedVideo.Decode.get -> Agash.StreamTransport.Media.VideoCodecFormat!
 Agash.StreamTransport.NegotiatedVideo.Decode.init -> void
-Agash.StreamTransport.NegotiatedVideo.Deconstruct(out Agash.StreamTransport.Media.VideoCodecFormat! Encode, out Agash.StreamTransport.Media.VideoCodecFormat! Decode, out Agash.StreamTransport.Media.AlphaLayout Alpha) -> void
+Agash.StreamTransport.NegotiatedVideo.Deconstruct(out Agash.StreamTransport.Media.VideoCodecFormat! Encode, out Agash.StreamTransport.Media.VideoCodecFormat! Decode, out Agash.StreamTransport.Media.AlphaLayout Alpha, out long? SendLimitBitsPerSecond) -> void
 Agash.StreamTransport.NegotiatedVideo.Encode.get -> Agash.StreamTransport.Media.VideoCodecFormat!
 Agash.StreamTransport.NegotiatedVideo.Encode.init -> void
 Agash.StreamTransport.NegotiatedVideo.Equals(Agash.StreamTransport.NegotiatedVideo? other) -> bool
-Agash.StreamTransport.NegotiatedVideo.NegotiatedVideo(Agash.StreamTransport.Media.VideoCodecFormat! Encode, Agash.StreamTransport.Media.VideoCodecFormat! Decode, Agash.StreamTransport.Media.AlphaLayout Alpha) -> void
+Agash.StreamTransport.NegotiatedVideo.NegotiatedVideo(Agash.StreamTransport.Media.VideoCodecFormat! Encode, Agash.StreamTransport.Media.VideoCodecFormat! Decode, Agash.StreamTransport.Media.AlphaLayout Alpha, long? SendLimitBitsPerSecond = null) -> void
+Agash.StreamTransport.NegotiatedVideo.SendLimitBitsPerSecond.get -> long?
+Agash.StreamTransport.NegotiatedVideo.SendLimitBitsPerSecond.init -> void
 Agash.StreamTransport.PeerControlMessage
 Agash.StreamTransport.PeerControlMessage.Deconstruct(out string! Topic, out string! Payload, out Agash.StreamTransport.PeerId? From, out Agash.StreamTransport.PeerId? To) -> void
 Agash.StreamTransport.PeerControlMessage.Equals(Agash.StreamTransport.PeerControlMessage? other) -> bool
@@ -340,13 +346,15 @@ Agash.StreamTransport.VideoOffer
 Agash.StreamTransport.VideoOffer.<Clone>$() -> Agash.StreamTransport.VideoOffer!
 Agash.StreamTransport.VideoOffer.Codecs.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.VideoCodecOffer!>
 Agash.StreamTransport.VideoOffer.Codecs.init -> void
-Agash.StreamTransport.VideoOffer.Deconstruct(out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.VideoCodecOffer!> Codecs, out bool Sends, out bool Receives) -> void
+Agash.StreamTransport.VideoOffer.Deconstruct(out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.VideoCodecOffer!> Codecs, out bool Sends, out bool Receives, out long? MaximumReceiveBitsPerSecond) -> void
 Agash.StreamTransport.VideoOffer.Equals(Agash.StreamTransport.VideoOffer? other) -> bool
+Agash.StreamTransport.VideoOffer.MaximumReceiveBitsPerSecond.get -> long?
+Agash.StreamTransport.VideoOffer.MaximumReceiveBitsPerSecond.init -> void
 Agash.StreamTransport.VideoOffer.Receives.get -> bool
 Agash.StreamTransport.VideoOffer.Receives.init -> void
 Agash.StreamTransport.VideoOffer.Sends.get -> bool
 Agash.StreamTransport.VideoOffer.Sends.init -> void
-Agash.StreamTransport.VideoOffer.VideoOffer(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.VideoCodecOffer!> Codecs, bool Sends, bool Receives) -> void
+Agash.StreamTransport.VideoOffer.VideoOffer(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.VideoCodecOffer!> Codecs, bool Sends, bool Receives, long? MaximumReceiveBitsPerSecond = null) -> void
 Agash.StreamTransport.VideoReceiveTiming
 Agash.StreamTransport.VideoReceiveTiming.Deconstruct(out Agash.StreamTransport.FrameTimingReasons Reasons, out System.TimeSpan EncodeStart, out System.TimeSpan EncodeFinish, out System.TimeSpan PacketizationFinish, out System.TimeSpan PacerExit, out Agash.StreamTransport.Media.NtpTime FirstPacketReceived, out Agash.StreamTransport.Media.NtpTime LastPacketReceived) -> void
 Agash.StreamTransport.VideoReceiveTiming.EncodeFinish.get -> System.TimeSpan

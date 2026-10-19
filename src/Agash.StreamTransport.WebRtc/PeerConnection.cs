@@ -404,11 +404,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
             );
             negotiated.Add(
                 new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs, remoteCodecs)
+                {
+                    SendLimitBitsPerSecond = remote.Bandwidth.MaximumRtpBitsPerSecond,
+                }
             );
         }
 
         AgreeExtensions(new SdpDescription { Media = media });
         NegotiatedMedia = negotiated;
+        ApplyRemoteBandwidth(offer);
         BuildSectionTables();
         ConfigureRtx(offer);
         ConfigureFec(offer);
@@ -680,10 +684,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
                         ours,
                         answered.Codecs
                     )
+                    {
+                        SendLimitBitsPerSecond = answered.Bandwidth.MaximumRtpBitsPerSecond,
+                    }
                 );
             }
 
             NegotiatedMedia = negotiated;
+            ApplyRemoteBandwidth(description);
             BuildSectionTables();
             ConfigureRtx(description);
             ConfigureFec(description);
@@ -882,6 +890,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                         )
                 );
             int protectedLength = srtp.ProtectRtcp(buffer, length);
+            CountRtcpSent(protectedLength);
             Interlocked.Increment(ref _keyframeRequestsSent);
             await agent
                 .SendAsync(
@@ -1366,8 +1375,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // RFC 8888 congestion-control feedback (PT 205, FMT 11) - drives the send-side controller, if any.
         OnCongestionFeedback(rtcp);
 
-        // Sender and receiver reports: the round trip and the peer's sender-report timing.
-        OnReports(rtcp);
+        // Sender and receiver reports: the round trip, the peer's sender-report timing and the members.
+        OnReports(rtcp, data.Length);
     }
 
     // RFC 5104 section 4.3.1.2: a FIR for one of this endpoint's streams with a new command sequence number
@@ -1487,7 +1496,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ecn,
             header.Marker
         );
-        RecordReceivedForReports(header, arrivalMicros);
+        RecordReceivedForReports(header, plaintextLength, arrivalMicros);
         _ = LearnUnsignalled(header.Ssrc, header.PayloadType);
 
         // RTX retransmission (RFC 4588): unwrap to the original packet and deliver that, so a NACK-recovered
@@ -1617,6 +1626,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Cname = _cname,
             Ecn = LocalEcnCapability,
             Extensions = OfferedExtensions(kind),
+            Bandwidth = ReceiveBandwidth(mid, kind, direction),
             MediaStreamId = Sends(direction) ? _streamId : null,
             TrackId = Sends(direction) ? $"{_streamId}-{mid}" : null,
         };

@@ -225,6 +225,12 @@ public sealed record SdpMediaDescription
 
     /// <summary>Whether the section says no more candidates follow (<c>a=end-of-candidates</c>).</summary>
     public bool EndOfCandidates { get; init; }
+
+    /// <summary>
+    /// The section's bandwidth lines: in a remote description, <c>TIAS</c> or <c>AS</c> limit what this
+    /// side sends on the section (RFC 8829 section 5.10); in a local one, what this side takes.
+    /// </summary>
+    public SdpBandwidth Bandwidth { get; init; }
 }
 
 /// <summary>
@@ -259,6 +265,62 @@ public sealed record SdpDescription
 
     /// <summary>Whether the peer runs ICE-lite (<c>a=ice-lite</c>), answering checks without making its own.</summary>
     public bool IceLite { get; init; }
+
+    /// <summary>
+    /// The session-level bandwidth lines: <c>CT</c> for all sections together, and <c>RS</c> and <c>RR</c>
+    /// for the RTP session's RTCP. A session-level <c>AS</c> is not read (RFC 8829 section 5.10).
+    /// </summary>
+    public SdpBandwidth Bandwidth { get; init; }
+}
+
+/// <summary>
+/// The bandwidth lines of a description or a section (<c>b=</c>, RFC 8866 section 5.8), all in bits per
+/// second: <c>AS</c> and <c>CT</c> are written in kilobits per second, <c>TIAS</c> (RFC 3890) and <c>RS</c>
+/// and <c>RR</c> (RFC 3556) in bits per second. A section carries <c>AS</c>, <c>TIAS</c>, <c>RS</c> and
+/// <c>RR</c>; a description <c>CT</c>, <c>RS</c> and <c>RR</c>, as JSEP (RFC 8829 section 5.10) applies them.
+/// Null where the line is absent.
+/// </summary>
+/// <param name="ApplicationSpecific">
+/// <c>b=AS</c>: the most the section's media may take, transport overhead included.
+/// </param>
+/// <param name="TransportIndependent">
+/// <c>b=TIAS</c>: the most the section's media may take without transport overhead.
+/// </param>
+/// <param name="RtcpSenders">
+/// <c>b=RS</c>: the RTCP bandwidth for active senders (RFC 3556 section 2).
+/// </param>
+/// <param name="RtcpReceivers">
+/// <c>b=RR</c>: the RTCP bandwidth for the other participants (RFC 3556 section 2).
+/// </param>
+/// <param name="ConferenceTotal">
+/// <c>b=CT</c>, session level: the most all sections together may take.
+/// </param>
+public readonly record struct SdpBandwidth(
+    long? ApplicationSpecific = null,
+    long? TransportIndependent = null,
+    long? RtcpSenders = null,
+    long? RtcpReceivers = null,
+    long? ConferenceTotal = null
+)
+{
+    /// <summary>Whether no bandwidth line is present.</summary>
+    public bool IsEmpty =>
+        ApplicationSpecific is null
+        && TransportIndependent is null
+        && RtcpSenders is null
+        && RtcpReceivers is null
+        && ConferenceTotal is null;
+
+    /// <summary>
+    /// The most RTP the section's sender may send, in bits per second (RFC 8829 section 5.10): the
+    /// <c>TIAS</c> value, or one derived from <c>AS</c> as 95% of it (5% is RTCP's) less 50 packets a second
+    /// of 40-byte headers. Null when the section sets neither.
+    /// </summary>
+    public long? MaximumRtpBitsPerSecond =>
+        TransportIndependent
+        ?? (
+            ApplicationSpecific is { } bits ? Math.Max(0, (bits / 100 * 95) - (50 * 40 * 8)) : null
+        );
 }
 
 /// <summary>An <c>a=ecn-capable-rtp:</c> attribute (RFC 6679 section 6.1).</summary>

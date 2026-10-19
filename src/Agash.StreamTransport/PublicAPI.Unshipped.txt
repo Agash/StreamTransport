@@ -129,6 +129,8 @@ Agash.StreamTransport.MediaSessionOptions.MaxFrameRate.get -> double?
 Agash.StreamTransport.MediaSessionOptions.MaxFrameRate.init -> void
 Agash.StreamTransport.MediaSessionOptions.MaxPlayoutDelay.get -> System.TimeSpan
 Agash.StreamTransport.MediaSessionOptions.MaxPlayoutDelay.init -> void
+Agash.StreamTransport.MediaSessionOptions.MaximumReceiveVideoBitsPerSecond.get -> long?
+Agash.StreamTransport.MediaSessionOptions.MaximumReceiveVideoBitsPerSecond.init -> void
 Agash.StreamTransport.MediaSessionOptions.MediaSessionOptions() -> void
 Agash.StreamTransport.MediaSessionOptions.MinPlayoutDelay.get -> System.TimeSpan
 Agash.StreamTransport.MediaSessionOptions.MinPlayoutDelay.init -> void
