@@ -1254,7 +1254,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         new()
         {
             SrtpProtectionProfiles = [.. SrtpSession.Profiles],
-            // ICE consent validates every path (RFC 7675), so DTLS needs no return routability check.
+            // ICE consent validates every path (RFC 7675), so DTLS needs no return routability check. No
+            // connection ID either: records travel the ICE agent's selected pair, which ICE moves on its own,
+            // so the association is never keyed to an address (RFC 9146 section 1's problem).
             PeerAddressValidation = DtlsPeerAddressValidation.Application,
             LoggerFactory = _loggerFactory,
             TimeProvider = _time,
@@ -1272,7 +1274,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         new()
         {
             SrtpProtectionProfiles = [.. SrtpSession.Profiles],
-            // ICE consent validates every path (RFC 7675), so DTLS needs no return routability check.
+            // ICE consent validates every path (RFC 7675), so DTLS needs no return routability check. No
+            // connection ID either: records travel the ICE agent's selected pair, which ICE moves on its own,
+            // so the association is never keyed to an address (RFC 9146 section 1's problem).
             PeerAddressValidation = DtlsPeerAddressValidation.Application,
             LoggerFactory = _loggerFactory,
             TimeProvider = _time,

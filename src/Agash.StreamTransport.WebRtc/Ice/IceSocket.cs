@@ -204,8 +204,8 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
             var raw = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
             raw.Bind(new IPEndPoint(address, 0));
             ForbidFragmentation(raw);
-            // Prefer the native ECN-reading socket on POSIX; Windows has no reliable per-datagram ECN path (see
-            // EcnInterop), so it uses the managed socket there - matching libwebrtc, which gates ECN on WEBRTC_POSIX.
+            // The native socket reads and sets the ECN field per datagram (recvmsg/sendmsg on POSIX, WSARecvMsg
+            // and WSASendMsg on Windows 10 build 20348 and later); older Windows gets the managed socket.
             socket = EcnInterop.NativeReceiveSupported
                 ? new EcnUdpSocket(raw)
                 : new UdpIceSocket(raw);
@@ -274,10 +274,9 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
                 .SendToAsync(data, SocketFlags.None, destination, cancellationToken)
                 .ConfigureAwait(false);
 
-        // The managed Socket API does not surface the received IP TOS/Traffic-Class byte (ReceiveMessageFrom
-        // exposes only IPPacketInformation, never the cmsg control buffer where ECN lives), so a real socket
-        // reports Ecn=0. Reading L4S ECN-CE on hardware needs per-platform recvmsg/cmsg P/Invoke; the rest of
-        // the congestion loop already consumes IceReceiveResult.Ecn, so an ECN-capable source drops straight in.
+        // The managed Socket API does not surface the received ECN field (ReceiveMessageFrom exposes only
+        // IPPacketInformation, never the control messages that carry it), so this socket reports Not-ECT and
+        // the session runs without ECN (RFC 6679 section 7.2's fallback).
         public async ValueTask<IceReceiveResult> ReceiveAsync(
             Memory<byte> buffer,
             CancellationToken cancellationToken
