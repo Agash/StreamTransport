@@ -205,7 +205,7 @@ public sealed class TrickleIceTests
 
         Assert.HasCount(2, server.Patches);
         (string body, string? ifMatch, string? type, Uri uri) = server.Patches[0];
-        Assert.AreEqual(new Uri("http://whip.example/whip/live/r1"), uri);
+        Assert.AreEqual(new Uri("https://whip.example/whip/live/r1"), uri);
         Assert.AreEqual("\"r1\"", ifMatch);
         Assert.AreEqual(TrickleIceFragment.MediaType, type);
         Assert.IsTrue(TrickleIceFragment.TryParse(body, out TrickleIceFragment first));
@@ -246,7 +246,7 @@ public sealed class TrickleIceTests
     {
         RedirectingHandler server = new();
         await using HttpSdpChannel channel = new(
-            new Uri("http://edge.example/whip/live"),
+            new Uri("https://edge.example/whip/live"),
             new HttpSignalingOptions
             {
                 HttpClient = new HttpClient(server),
@@ -260,11 +260,63 @@ public sealed class TrickleIceTests
             TestContext.CancellationToken
         );
 
-        Assert.AreEqual(new Uri("http://origin.example/whip/live/r1"), channel.Resource);
+        Assert.AreEqual(new Uri("https://origin.example/whip/live/r1"), channel.Resource);
         Assert.AreEqual("Bearer secret", server.OriginAuthorization);
     }
 
-    private sealed class RedirectingHandler : HttpMessageHandler
+    // RFC 9725 section 7: a redirect to plain http is refused before anything, the bearer token
+    // included, goes there.
+    [TestMethod]
+    public async Task Client_RedirectToPlainHttp_IsRefused()
+    {
+        RedirectingHandler server = new("http://origin.example/whip/live");
+        await using HttpSdpChannel channel = new(
+            new Uri("https://edge.example/whip/live"),
+            new HttpSignalingOptions
+            {
+                HttpClient = new HttpClient(server),
+                BearerToken = "secret",
+            },
+            NullLogger.Instance
+        );
+
+        _ = await Assert.ThrowsExactlyAsync<HttpRequestException>(() =>
+            channel.SendDescriptionAsync(
+                new SessionDescription(SdpKind.Offer, Offer),
+                TestContext.CancellationToken
+            )
+        );
+        Assert.IsNull(server.OriginAuthorization, "the token never reached the http server");
+    }
+
+    [TestMethod]
+    [DataRow("https://whip.example/live", false, true)]
+    [DataRow("http://127.0.0.1:8080/live", false, true)]
+    [DataRow("http://[::1]:8080/live", false, true)]
+    [DataRow("http://whip.example/live", false, false)]
+    [DataRow("http://whip.example/live", true, true)]
+    [DataRow("ftp://whip.example/live", true, false)]
+    public void RequireSecure_AcceptsHttpsLoopbackOrAnExplicitOptIn(
+        string url,
+        bool allowInsecure,
+        bool accepted
+    )
+    {
+        HttpSignalingOptions options = new() { AllowInsecureHttp = allowInsecure };
+        if (accepted)
+        {
+            Assert.AreEqual(new Uri(url), HttpSdpChannel.RequireSecure(new Uri(url), options));
+        }
+        else
+        {
+            _ = Assert.ThrowsExactly<HttpRequestException>(() =>
+                HttpSdpChannel.RequireSecure(new Uri(url), options)
+            );
+        }
+    }
+
+    private sealed class RedirectingHandler(string target = "https://origin.example/whip/live")
+        : HttpMessageHandler
     {
         public string? OriginAuthorization { get; private set; }
 
@@ -276,7 +328,7 @@ public sealed class TrickleIceTests
             if (request.RequestUri!.Host == "edge.example")
             {
                 HttpResponseMessage moved = new(HttpStatusCode.TemporaryRedirect);
-                moved.Headers.Location = new Uri("http://origin.example/whip/live");
+                moved.Headers.Location = new Uri(target);
                 return Task.FromResult(moved);
             }
 
@@ -297,7 +349,7 @@ public sealed class TrickleIceTests
 
     private static HttpSdpChannel Channel(RecordingHandler server) =>
         new(
-            new Uri("http://whip.example/whip/live"),
+            new Uri("https://whip.example/whip/live"),
             new HttpSignalingOptions { HttpClient = new HttpClient(server) },
             NullLogger.Instance
         );

@@ -24,6 +24,14 @@ public sealed record HttpSignalingOptions
 
     /// <summary>The clock the timeouts run on; the system's when null.</summary>
     public TimeProvider? TimeProvider { get; init; }
+
+    /// <summary>
+    /// Lets the endpoint, the URLs a redirect names and the session's resource use plain <c>http</c> on a
+    /// host other than this machine's loopback. RFC 9725 section 7 requires HTTPS: the exchange carries the
+    /// ICE password, the bearer token and the server's TURN credentials. For a test server on a trusted
+    /// network only.
+    /// </summary>
+    public bool AllowInsecureHttp { get; init; }
 }
 
 /// <summary>
@@ -71,7 +79,9 @@ public sealed class HttpMediaSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(options);
-        HttpSdpChannel channel = new(endpoint, signaling ?? new HttpSignalingOptions(), logger);
+        signaling ??= new HttpSignalingOptions();
+        HttpSdpChannel.RequireSecure(endpoint, signaling);
+        HttpSdpChannel channel = new(endpoint, signaling, logger);
         if (options.Transport.IceServers.IsEmpty)
         {
             // The server's own STUN and TURN servers, when it advertises them.
@@ -266,7 +276,7 @@ internal sealed partial class HttpSdpChannel(
             }
 
             Resource = response.Headers.Location is { } location
-                ? new Uri(_endpoint, location)
+                ? RequireSecure(new Uri(_endpoint, location), options)
                 : null;
             _offer = description.Sdp;
             _iceSession = response.Headers.ETag;
@@ -290,6 +300,24 @@ internal sealed partial class HttpSdpChannel(
         }
 
         await TrickleAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // RFC 9725 section 7: HTTPS, since the requests carry the ICE password and the bearer token and the
+    // answers TURN credentials. Plain http only to this machine's loopback, or when the application allows
+    // it; a server cannot downgrade the client by redirecting it or by naming an http resource.
+    internal static Uri RequireSecure(Uri uri, HttpSignalingOptions options)
+    {
+        if (
+            uri.Scheme == Uri.UriSchemeHttps
+            || (uri.Scheme == Uri.UriSchemeHttp && (uri.IsLoopback || options.AllowInsecureHttp))
+        )
+        {
+            return uri;
+        }
+
+        throw new HttpRequestException(
+            $"WHIP and WHEP go over HTTPS (RFC 9725 section 7); {uri.GetLeftPart(UriPartial.Authority)} is not."
+        );
     }
 
     // RFC 9725 section 4.5: a 307 or 308 moves the offer to another URL, the bearer token with it, and later
@@ -316,7 +344,7 @@ internal sealed partial class HttpSdpChannel(
             }
 
             response.Dispose();
-            _endpoint = new Uri(_endpoint, location);
+            _endpoint = RequireSecure(new Uri(_endpoint, location), options);
             LogRedirected(_endpoint);
         }
     }

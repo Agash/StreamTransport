@@ -5,6 +5,8 @@ Agash.StreamTransport.Http.HttpMediaSession.Resource.get -> System.Uri?
 Agash.StreamTransport.Http.HttpMediaSession.Session.get -> Agash.StreamTransport.IMediaSession!
 Agash.StreamTransport.Http.HttpSignalingOptions
 Agash.StreamTransport.Http.HttpSignalingOptions.<Clone>$() -> Agash.StreamTransport.Http.HttpSignalingOptions!
+Agash.StreamTransport.Http.HttpSignalingOptions.AllowInsecureHttp.get -> bool
+Agash.StreamTransport.Http.HttpSignalingOptions.AllowInsecureHttp.init -> void
 Agash.StreamTransport.Http.HttpSignalingOptions.BearerToken.get -> string?
 Agash.StreamTransport.Http.HttpSignalingOptions.BearerToken.init -> void
 Agash.StreamTransport.Http.HttpSignalingOptions.Equals(Agash.StreamTransport.Http.HttpSignalingOptions? other) -> bool
@@ -349,7 +351,7 @@ static Agash.StreamTransport.MediaSessionStatistics.operator !=(Agash.StreamTran
 static Agash.StreamTransport.MediaSessionStatistics.operator ==(Agash.StreamTransport.MediaSessionStatistics left, Agash.StreamTransport.MediaSessionStatistics right) -> bool
 static Agash.StreamTransport.PublishedSession.operator !=(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
 static Agash.StreamTransport.PublishedSession.operator ==(Agash.StreamTransport.PublishedSession left, Agash.StreamTransport.PublishedSession right) -> bool
-static Agash.StreamTransport.RoomClient.ConnectAsync(System.Uri! relayWebSocketUrl, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
+static Agash.StreamTransport.RoomClient.ConnectAsync(System.Uri! relayWebSocketUrl, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, bool allowInsecureWebSocket = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
 static Agash.StreamTransport.RoomClient.JoinAsync(Agash.StreamTransport.IDuplexSignalingTransport! transport, Agash.StreamTransport.RoomCode room, Agash.StreamTransport.PeerRole role, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.RoomClient!>!
 static Agash.StreamTransport.TestSignal.TestSignalGenerator.Fill(System.Span<float> samples, int channels, int sampleRate, long firstSample) -> void
 static Agash.StreamTransport.TestSignal.TestSignalGenerator.TryReadBarcode(System.ReadOnlySpan<byte> luma, int stride, Agash.StreamTransport.Media.VideoSize size, System.DateTimeOffset near, out System.DateTimeOffset sent) -> bool
