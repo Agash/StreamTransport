@@ -495,6 +495,8 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             }
         }
 
+        // Counted before it is handed over, so whoever the hand-over wakes sees it counted.
+        Interlocked.Increment(ref _framesSent);
         _send(
             new EncodedVideoFrame(frame.Data, frame.Codec, frame.Keyframe, frame.Timestamp)
             {
@@ -502,7 +504,6 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             },
             timing
         );
-        Interlocked.Increment(ref _framesSent);
         _metrics.VideoFramesSent.Add(1, StreamTransportMetrics.Codec(_setup.Format.Codec));
     }
 

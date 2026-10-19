@@ -98,13 +98,14 @@ internal sealed class AudioSendStream : IAudioFrameConsumer, IEncodedAudioConsum
     /// <inheritdoc/>
     public void OnEncoded(in EncodedAudioFrame frame)
     {
+        // Counted before it is handed over, so whoever the hand-over wakes sees it counted.
+        Interlocked.Increment(ref _framesSent);
         _send(
             new EncodedAudioFrame(frame.Data, frame.Codec, frame.Timestamp, frame.Duration)
             {
                 Level = frame.Level ?? TakeLevel(frame.Duration),
             }
         );
-        Interlocked.Increment(ref _framesSent);
         _metrics.AudioFramesSent.Add(1, StreamTransportMetrics.Codec(_codec));
     }
 
