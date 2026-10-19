@@ -63,7 +63,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private DtlsRole _dtlsRole = DtlsRole.Client;
 
     // RFC 3264 section 8: one o= session id for the connection, the version one higher per description.
-    private readonly long _sessionId = Random.Shared.NextInt64(1, long.MaxValue);
+    private readonly long _sessionId = SecureRandom.SessionId();
     private long _sessionVersion;
 
     // The role this side answers with: the one an active or passive offer leaves, or for actpass the one
@@ -188,7 +188,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // A receive-only endpoint still reports, under an SSRC of its own.
         while (_rtcpSenderSsrc == 0)
         {
-            _rtcpSenderSsrc = (uint)Random.Shared.NextInt64(1, uint.MaxValue);
+            _rtcpSenderSsrc = SecureRandom.Ssrc();
         }
     }
 
@@ -898,7 +898,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             ushort sequence = _sendSequence.TryGetValue(ssrc, out ushort s)
                 ? s
-                : (ushort)Random.Shared.Next(0, 0x10000);
+                : SecureRandom.SequenceNumber();
             _sendSequence[ssrc] = (ushort)(sequence + 1);
             return sequence;
         }

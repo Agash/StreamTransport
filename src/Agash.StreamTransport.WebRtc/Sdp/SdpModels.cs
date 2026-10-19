@@ -243,7 +243,7 @@ public sealed record SdpDescription
     public required IReadOnlyList<SdpMediaDescription> Media { get; init; }
 
     /// <summary>The session identifier for the <c>o=</c> line.</summary>
-    public long SessionId { get; init; } = Random.Shared.NextInt64(1, long.MaxValue);
+    public long SessionId { get; init; } = SecureRandom.SessionId();
 
     /// <summary>
     /// The <c>o=</c> session version: the same session id across a connection's descriptions, the version

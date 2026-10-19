@@ -23,7 +23,7 @@ public sealed partial class PeerConnection
     private readonly TransportFeedbackTracker _transportFeedback = new();
     private readonly List<TransportPacketArrival> _transportScratch = [];
     private volatile bool _transportFeedbackNegotiated;
-    private ushort _nextTransportSequence = (ushort)Random.Shared.Next(0, 0x10000);
+    private ushort _nextTransportSequence = SecureRandom.SequenceNumber();
     private byte _transportFeedbackCount;
     private uint _lastReceivedSsrc;
 
