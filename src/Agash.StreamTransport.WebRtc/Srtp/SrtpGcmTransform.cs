@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics.Tensors;
 using System.Security.Cryptography;
+using Agash.StreamTransport.WebRtc.Rtp;
 
 namespace Agash.StreamTransport.WebRtc.Srtp;
 
@@ -32,6 +33,7 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
     private readonly AesGcm _rtcp;
     private readonly byte[] _rtpSalt;
     private readonly byte[] _rtcpSalt;
+    private HeaderExtensionEncryption? _header;
     private bool _disposed;
 
     /// <summary>A transform from session keys directly, as the RFC 7714 test vectors give them.</summary>
@@ -85,11 +87,20 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
                 SrtpKeyDerivation.LabelRtcpSalt,
                 SaltLength
             )
-        );
+        )
+        {
+            _header = HeaderExtensionEncryption.FromMaster(masterKey, masterSalt, SaltLength),
+        };
     }
 
     /// <inheritdoc/>
-    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length, bool cryptex)
+    public int ProtectRtp(
+        uint rolloverCounter,
+        Span<byte> packet,
+        int length,
+        bool cryptex,
+        RtpExtensionIdSet encrypted = default
+    )
     {
         // RFC 9335 section 6.2: under Cryptex the associated data is the fixed and extension headers.
         bool encryptsHeader = cryptex && Cryptex.CanProtect(packet, length);
@@ -112,6 +123,13 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
         lock (_rtpGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+
+            // RFC 7714 section 8.3: chosen elements are encrypted before the AEAD covers them.
+            if (!encryptsHeader)
+            {
+                _header?.Apply(packet, length, rolloverCounter, encrypted);
+            }
+
             _rtp.Encrypt(
                 iv,
                 payload,
@@ -134,7 +152,8 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
         uint rolloverCounter,
         Span<byte> packet,
         int length,
-        out int plaintextLength
+        out int plaintextLength,
+        RtpExtensionIdSet encrypted = default
     )
     {
         plaintextLength = 0;
@@ -178,6 +197,10 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
                     cipher,
                     packet[..headerLength]
                 );
+                if (!encryptsHeader)
+                {
+                    _header?.Apply(packet, length - TagLength, rolloverCounter, encrypted);
+                }
             }
         }
         catch (AuthenticationTagMismatchException)
@@ -289,6 +312,7 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
 
                 _disposed = true;
                 _rtp.Dispose();
+                _header?.Dispose();
                 _rtcp.Dispose();
             }
     }

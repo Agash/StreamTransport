@@ -82,6 +82,14 @@ public sealed class PeerConnectionOptions
     public bool Cryptex { get; init; } = true;
 
     /// <summary>
+    /// Whether to offer the capture time, video timing and audio level encrypted one by one (RFC 6904), for
+    /// peers that encrypt elements but not whole blocks. Whatever this says, an offer of encrypted elements
+    /// is answered and read (RFC 8834 section 5.2.2); a packet sent as Cryptex is never also encrypted this
+    /// way (RFC 9335 section 5). Off by default, as Cryptex covers every extension.
+    /// </summary>
+    public bool EncryptHeaderExtensions { get; init; }
+
+    /// <summary>
     /// The least time between regular RTCP reports (RFC 4585 section 3.5.3's T_rr_interval): the RTCP
     /// schedule scales with the session's members and bandwidth (RFC 3550 section 6.3), and under RTP/AVPF
     /// its minimum is 0, so this bounds how often full reports go out; feedback packets do not wait for it.

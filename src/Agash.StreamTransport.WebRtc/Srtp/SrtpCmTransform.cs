@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
+using System.Numerics.Tensors;
 using System.Security.Cryptography;
+using Agash.StreamTransport.WebRtc.Rtp;
 
 namespace Agash.StreamTransport.WebRtc.Srtp;
 
@@ -35,6 +37,7 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
     private readonly byte[] _rtcpSalt;
     private readonly IncrementalHash _rtpMac;
     private readonly IncrementalHash _rtcpMac;
+    private readonly HeaderExtensionEncryption? _header;
     private byte[] _keystream = new byte[1536];
     private bool _disposed;
 
@@ -79,7 +82,7 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
                 SrtpKeyDerivation.LabelRtcpAuthentication,
                 AuthKeyLength
             )
-        ) { }
+        ) => _header = HeaderExtensionEncryption.FromMaster(masterKey, masterSalt, SaltLength);
 
     /// <summary>A transform from session keys directly, as the RFC 3711 test vectors give them.</summary>
     internal SrtpCmTransform(
@@ -108,7 +111,13 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
     public int RtcpOverhead => IndexLength + TagLength;
 
     /// <inheritdoc/>
-    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length, bool cryptex)
+    public int ProtectRtp(
+        uint rolloverCounter,
+        Span<byte> packet,
+        int length,
+        bool cryptex,
+        RtpExtensionIdSet encrypted = default
+    )
     {
         // RFC 9335 section 6.2: under Cryptex the keystream also covers the CSRCs and extension data.
         bool encryptsHeader = cryptex && Cryptex.CanProtect(packet, length);
@@ -125,6 +134,13 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+
+            // RFC 6904 section 3: chosen elements are encrypted before the tag covers them.
+            if (!encryptsHeader)
+            {
+                _header?.Apply(packet, length, rolloverCounter, encrypted);
+            }
+
             Crypt(
                 _rtpCipher,
                 _rtpSalt,
@@ -148,7 +164,8 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
         uint rolloverCounter,
         Span<byte> packet,
         int length,
-        out int plaintextLength
+        out int plaintextLength,
+        RtpExtensionIdSet encrypted = default
     )
     {
         plaintextLength = 0;
@@ -197,6 +214,11 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
             if (encryptsHeader)
             {
                 Cryptex.EndUnprotect(packet);
+            }
+            else
+            {
+                // Section 3: decrypted only once the packet authenticated.
+                _header?.Apply(packet, authenticated, rolloverCounter, encrypted);
             }
         }
 
@@ -309,10 +331,7 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
         }
 
         _ = cipher.EncryptEcb(counters, counters, PaddingMode.None);
-        for (int i = 0; i < data.Length; i++)
-        {
-            data[i] ^= counters[i];
-        }
+        TensorPrimitives.Xor(data, counters[..data.Length], data);
     }
 
     // HMAC-SHA1 over the authenticated portion and the rollover counter, truncated to the tag.

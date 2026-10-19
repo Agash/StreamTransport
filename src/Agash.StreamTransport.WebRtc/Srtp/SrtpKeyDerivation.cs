@@ -32,6 +32,12 @@ public static class SrtpKeyDerivation
     /// <summary>SRTCP salting key label.</summary>
     public const byte LabelRtcpSalt = 0x05;
 
+    /// <summary>SRTP header extension encryption key label (RFC 6904 section 3).</summary>
+    public const byte LabelRtpHeaderEncryption = 0x06;
+
+    /// <summary>SRTP header extension salting key label (RFC 6904 section 3).</summary>
+    public const byte LabelRtpHeaderSalt = 0x07;
+
     private const int KdfSaltLength = 14;
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using Agash.StreamTransport.WebRtc.Rtp;
 using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Srtp;
@@ -77,6 +78,12 @@ public sealed class SrtpSession : IDisposable
     public bool SendCryptex { get; set; }
 
     /// <summary>
+    /// The header extension identifiers whose elements travel encrypted one by one (RFC 6904), as the two
+    /// sides mapped them with <c>urn:ietf:params:rtp-hdrext:encrypt</c>; both directions share the map.
+    /// </summary>
+    public RtpExtensionIdSet EncryptedExtensions { get; set; }
+
+    /// <summary>
     /// Protects an RTP packet in place, returning the protected length. <paramref name="packet"/> needs
     /// <see cref="ProtectionOverhead"/> spare octets.
     /// </summary>
@@ -108,7 +115,7 @@ public sealed class SrtpSession : IDisposable
             return false;
         }
 
-        protectedLength = _send.ProtectRtp(roc, packet, length, SendCryptex);
+        protectedLength = _send.ProtectRtp(roc, packet, length, SendCryptex, EncryptedExtensions);
         return true;
     }
 
@@ -136,7 +143,13 @@ public sealed class SrtpSession : IDisposable
             ulong index = state.Estimate(seq);
             if (
                 state.Window.IsReplay(index)
-                || !_receive.UnprotectRtp((uint)(index >> 16), packet, length, out plaintextLength)
+                || !_receive.UnprotectRtp(
+                    (uint)(index >> 16),
+                    packet,
+                    length,
+                    out plaintextLength,
+                    EncryptedExtensions
+                )
             )
             {
                 return false;

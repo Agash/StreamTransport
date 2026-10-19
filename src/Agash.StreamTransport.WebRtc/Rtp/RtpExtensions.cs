@@ -40,6 +40,12 @@ public static class RtpExtensionUris
     /// receiving video implement (RFC 7742 section 4, RFC 8834 section 5.2.5).
     /// </summary>
     public const string VideoOrientation = "urn:3gpp:video-orientation";
+
+    /// <summary>
+    /// The mapping of an extension whose elements travel encrypted (RFC 6904 section 4): the extension's own
+    /// URI and attributes follow in the mapping's attributes.
+    /// </summary>
+    public const string Encrypted = "urn:ietf:params:rtp-hdrext:encrypt";
 }
 
 /// <summary>
@@ -222,6 +228,12 @@ public sealed record RtpExtensionMap(
         && AudioLevel == 0
         && VideoOrientation == 0;
 
+    /// <summary>
+    /// The identifiers whose elements travel encrypted one by one (RFC 6904), from mappings under
+    /// <see cref="RtpExtensionUris.Encrypted"/>.
+    /// </summary>
+    public RtpExtensionIdSet Encrypted { get; init; }
+
     /// <summary>The most bytes the extension block of a packet takes, its 4-byte header included.</summary>
     public int MaximumBlockLength
     {
@@ -262,11 +274,24 @@ public sealed record RtpExtensionMap(
         int mid = 0;
         int level = 0;
         int orientation = 0;
-        foreach (SdpExtension extension in extensions)
+        RtpExtensionIdSet encrypted = default;
+        foreach (SdpExtension mapping in extensions)
         {
-            if (extension.Id is < 1 or > 255 || extension.Direction == SdpDirection.Inactive)
+            if (mapping.Id is < 1 or > 255 || mapping.Direction == SdpDirection.Inactive)
             {
                 continue;
+            }
+
+            SdpExtension extension = mapping;
+            if (mapping.Uri == RtpExtensionUris.Encrypted)
+            {
+                if (Unwrap(mapping) is not { } inner)
+                {
+                    continue;
+                }
+
+                extension = inner;
+                encrypted = encrypted.With(mapping.Id);
             }
 
             switch (extension.Uri)
@@ -297,7 +322,37 @@ public sealed record RtpExtensionMap(
             }
         }
 
-        return new RtpExtensionMap(capture, timing, delay, transport, mid, level, orientation);
+        // Only the identifiers that ended up mapped stay encrypted.
+        RtpExtensionIdSet used = default;
+        foreach (int id in (int[])[capture, timing, delay, transport, mid, level, orientation])
+        {
+            if (id != 0 && encrypted.Contains(id))
+            {
+                used = used.With(id);
+            }
+        }
+
+        return new RtpExtensionMap(capture, timing, delay, transport, mid, level, orientation)
+        {
+            Encrypted = used,
+        };
+    }
+
+    /// <summary>
+    /// The extension an encrypted mapping (RFC 6904 section 4) stands for: its URI and attributes, from the
+    /// mapping's attributes; null when they name none.
+    /// </summary>
+    /// <param name="mapping">The <see cref="RtpExtensionUris.Encrypted"/> mapping.</param>
+    /// <returns>The extension under the same identifier and direction.</returns>
+    public static SdpExtension? Unwrap(SdpExtension mapping)
+    {
+        if (mapping.Attributes is not { Length: > 0 } attributes)
+        {
+            return null;
+        }
+
+        string[] parts = attributes.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        return mapping with { Uri = parts[0], Attributes = parts.Length > 1 ? parts[1] : null };
     }
 
     /// <summary>

@@ -217,6 +217,8 @@ Agash.StreamTransport.WebRtc.PeerConnectionOptions.CircuitBreaker.get -> Agash.S
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.CircuitBreaker.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.Cryptex.get -> bool
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.Cryptex.init -> void
+Agash.StreamTransport.WebRtc.PeerConnectionOptions.EncryptHeaderExtensions.get -> bool
+Agash.StreamTransport.WebRtc.PeerConnectionOptions.EncryptHeaderExtensions.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.IceTimings.get -> Agash.StreamTransport.WebRtc.Ice.IceTimings?
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.IceTimings.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.IceTransportPolicy.get -> Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy
@@ -464,6 +466,12 @@ Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Minimum.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Minimum.init -> void
 Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.PlayoutDelay() -> void
 Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.PlayoutDelay(System.TimeSpan Minimum, System.TimeSpan Maximum) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.Contains(int id) -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet other) -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.IsEmpty.get -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.RtpExtensionIdSet() -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.With(int id) -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.<Clone>$() -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AbsoluteCaptureTime.get -> int
@@ -471,6 +479,8 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AbsoluteCaptureTime.init -> voi
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AudioLevel.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AudioLevel.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Deconstruct(out int AbsoluteCaptureTime, out int VideoTiming, out int PlayoutDelay, out int TransportSequence, out int Mid, out int AudioLevel, out int VideoOrientation) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Encrypted.get -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Encrypted.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? other) -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.InsertTransportSequence(System.Span<byte> packet, int length, ushort sequence) -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.IsEmpty.get -> bool
@@ -759,6 +769,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpWriter
 Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.Dispose() -> void
+Agash.StreamTransport.WebRtc.Srtp.SrtpSession.EncryptedExtensions.get -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet
+Agash.StreamTransport.WebRtc.Srtp.SrtpSession.EncryptedExtensions.set -> void
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectRtcp(System.Span<byte> packet, int length) -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectRtp(System.Span<byte> packet, int length) -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectionOverhead.get -> int
@@ -842,6 +854,7 @@ const Agash.StreamTransport.WebRtc.Rtp.FlexFec.RepairWindowMicros = 1000000 -> i
 const Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Length = 3 -> int
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.AbsoluteCaptureTime = "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.AudioLevel = "urn:ietf:params:rtp-hdrext:ssrc-audio-level" -> string!
+const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.Encrypted = "urn:ietf:params:rtp-hdrext:encrypt" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.Mid = "urn:ietf:params:rtp-hdrext:sdes:mid" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.PlayoutDelay = "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.TransportWideSequence = "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01" -> string!
@@ -859,6 +872,8 @@ const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtcpEncryption = 
 const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtcpSalt = 5 -> byte
 const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpAuthentication = 1 -> byte
 const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpEncryption = 0 -> byte
+const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpHeaderEncryption = 6 -> byte
+const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpHeaderSalt = 7 -> byte
 const Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.LabelRtpSalt = 2 -> byte
 const Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ReplayWindowSize = 1024 -> int
 const Agash.StreamTransport.WebRtc.Turn.TurnServer.DefaultPort = 3478 -> int
@@ -922,6 +937,7 @@ override Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.OpusPayloadFormat.Forma
 override Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.OpusPayloadFormat.Kind.get -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind
 override Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.ToString() -> string!
 override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Equals(object? obj) -> bool
 override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.ToString() -> string!
@@ -1025,9 +1041,12 @@ static Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.OpusPayloadFormat.Instanc
 static Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry.BuiltIn.get -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry!
 static Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.operator !=(Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay left, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.operator ==(Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay left, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay right) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.operator !=(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet right) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.operator ==(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.From(System.Collections.Generic.IEnumerable<Agash.StreamTransport.WebRtc.Sdp.SdpExtension>! extensions) -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.None.get -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Offered.get -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
+static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Unwrap(Agash.StreamTransport.WebRtc.Sdp.SdpExtension mapping) -> Agash.StreamTransport.WebRtc.Sdp.SdpExtension?
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.operator !=(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.operator ==(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.operator !=(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues right) -> bool
@@ -1111,6 +1130,8 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFee
 ~override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.AssembledFrame.Equals(object obj) -> bool

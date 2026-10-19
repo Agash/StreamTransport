@@ -1251,6 +1251,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _srtp = new SrtpSession(keying, _dtlsRole == DtlsRole.Client)
             {
                 SendCryptex = _sendCryptex,
+                EncryptedExtensions = Volatile.Read(ref _extensions).Encrypted,
             };
             LogConnected(_logger, dtls.NegotiatedProtocol, keying.Profile);
             Settle("connected");

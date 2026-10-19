@@ -1,3 +1,5 @@
+using Agash.StreamTransport.WebRtc.Rtp;
+
 namespace Agash.StreamTransport.WebRtc.Srtp;
 
 /// <summary>
@@ -19,8 +21,17 @@ internal interface ISrtpTransform
     /// <param name="cryptex">
     /// Whether to encrypt its header extensions too (RFC 9335), when it has any.
     /// </param>
+    /// <param name="encrypted">
+    /// The extension elements to encrypt one by one (RFC 6904) when the packet does not go as Cryptex.
+    /// </param>
     /// <returns>The protected length.</returns>
-    int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length, bool cryptex);
+    int ProtectRtp(
+        uint rolloverCounter,
+        Span<byte> packet,
+        int length,
+        bool cryptex,
+        RtpExtensionIdSet encrypted = default
+    );
 
     /// <summary>
     /// Authenticates and decrypts an RTP packet in place, its header extensions too when it was sent as
@@ -30,8 +41,15 @@ internal interface ISrtpTransform
     /// <param name="packet">The protected packet.</param>
     /// <param name="length">Its length.</param>
     /// <param name="plaintextLength">The recovered packet's length.</param>
+    /// <param name="encrypted">The extension elements encrypted one by one (RFC 6904).</param>
     /// <returns>False when authentication fails.</returns>
-    bool UnprotectRtp(uint rolloverCounter, Span<byte> packet, int length, out int plaintextLength);
+    bool UnprotectRtp(
+        uint rolloverCounter,
+        Span<byte> packet,
+        int length,
+        out int plaintextLength,
+        RtpExtensionIdSet encrypted = default
+    );
 
     /// <summary>Protects an RTCP packet in place; the buffer has <see cref="RtcpOverhead"/> spare octets.</summary>
     /// <param name="srtcpIndex">The packet's SRTCP index.</param>

@@ -24,7 +24,46 @@ public sealed partial class PeerConnection
     // sequence number transport feedback needs and the MID every bundled section maps (RFC 9143 section
     // 9.1); for audio the audio level (RFC 8834 section 5.2.2), and for video the orientation (section
     // 5.2.5), the per-frame timing and the playout delay the sender asks for.
-    private static IReadOnlyList<SdpExtension> OfferedExtensions(SdpMediaKind kind)
+    private IReadOnlyList<SdpExtension> OfferedExtensions(SdpMediaKind kind)
+    {
+        IReadOnlyList<SdpExtension> plain = PlainExtensions(kind);
+        if (!_options.EncryptHeaderExtensions)
+        {
+            return plain;
+        }
+
+        // RFC 6904 section 4: the encrypted forms of the extensions that tell about the media, under
+        // identifiers of their own beside the plain ones; the answer keeps one of each.
+        int next = EncryptedIdBase;
+        List<SdpExtension> offered = [.. plain];
+        foreach (SdpExtension extension in plain)
+        {
+            if (
+                extension.Uri
+                is RtpExtensionUris.AudioLevel
+                    or RtpExtensionUris.AbsoluteCaptureTime
+                    or RtpExtensionUris.VideoTiming
+            )
+            {
+                offered.Add(Encrypt(extension, next++));
+            }
+        }
+
+        return offered;
+    }
+
+    // Encrypted forms take identifiers after the plain ones, still in the one-byte range.
+    private const int EncryptedIdBase = 8;
+
+    private static SdpExtension Encrypt(SdpExtension extension, int id) =>
+        new(
+            id,
+            RtpExtensionUris.Encrypted,
+            extension.Direction,
+            extension.Attributes is { } attributes ? $"{extension.Uri} {attributes}" : extension.Uri
+        );
+
+    private static IReadOnlyList<SdpExtension> PlainExtensions(SdpMediaKind kind)
     {
         RtpExtensionMap ids = RtpExtensionMap.Offered;
         return kind == SdpMediaKind.Video
@@ -58,6 +97,15 @@ public sealed partial class PeerConnection
 
     // RFC 9335 section 4: Cryptex goes out only when the peer receives it in every RTP section, which BUNDLE
     // requires of it anyway; packets this side reads carry their own marking.
+    // RFC 6904 section 4: the elements the agreed map encrypts, both ways.
+    private void NoteEncryptedExtensions()
+    {
+        if (_srtp is { } srtp)
+        {
+            srtp.EncryptedExtensions = Volatile.Read(ref _extensions).Encrypted;
+        }
+    }
+
     private void NoteCryptex(SdpDescription remote)
     {
         List<SdpMediaDescription> rtp =
@@ -74,8 +122,13 @@ public sealed partial class PeerConnection
     private void NoteVoiceActivity(SdpDescription remote) =>
         PeerSignalsVoiceActivity = remote.Media.Any(m =>
             m.Extensions.Any(e =>
-                e.Uri == RtpExtensionUris.AudioLevel
-                && !string.Equals(e.Attributes?.Trim(), NoVoiceActivity, StringComparison.Ordinal)
+                (e.Uri == RtpExtensionUris.Encrypted ? RtpExtensionMap.Unwrap(e) : e) is { } level
+                && level.Uri == RtpExtensionUris.AudioLevel
+                && !string.Equals(
+                    level.Attributes?.Trim(),
+                    NoVoiceActivity,
+                    StringComparison.Ordinal
+                )
             )
         );
 
@@ -84,13 +137,38 @@ public sealed partial class PeerConnection
         offer.TransportWideFeedback && !offer.CongestionControlFeedback;
 
     // The answer's mappings: each offered extension this endpoint offers for the kind too, under the
-    // offerer's identifier, with the direction mirrored (RFC 8285 section 7).
+    // offerer's identifier, with the direction mirrored (RFC 8285 section 7). An extension offered both in
+    // the clear and encrypted (RFC 6904 section 4) is answered encrypted: every RFC 6904 endpoint can read
+    // that form, and it keeps the value from the path where Cryptex is not used.
     private static IReadOnlyList<SdpExtension> AnsweredExtensions(SdpMediaDescription offer)
     {
-        IReadOnlyList<SdpExtension> ours = OfferedExtensions(offer.Kind);
-        List<SdpExtension> answered = [];
+        IReadOnlyList<SdpExtension> ours = PlainExtensions(offer.Kind);
+        HashSet<string> encryptedOffered = [];
         foreach (SdpExtension offered in offer.Extensions)
         {
+            if (
+                offered.Uri == RtpExtensionUris.Encrypted
+                && offered.Direction != SdpDirection.Inactive
+                && RtpExtensionMap.Unwrap(offered) is { } inner
+            )
+            {
+                _ = encryptedOffered.Add(inner.Uri);
+            }
+        }
+
+        List<SdpExtension> answered = [];
+        foreach (SdpExtension mapping in offer.Extensions)
+        {
+            bool encrypted = mapping.Uri == RtpExtensionUris.Encrypted;
+            SdpExtension? unwrapped = encrypted ? RtpExtensionMap.Unwrap(mapping) : mapping;
+            if (
+                unwrapped is not { } offered
+                || (!encrypted && encryptedOffered.Contains(offered.Uri))
+            )
+            {
+                continue;
+            }
+
             if (
                 offered.Id is >= 1 and <= 255
                 && offered.Direction != SdpDirection.Inactive
@@ -101,11 +179,14 @@ public sealed partial class PeerConnection
                 )
             )
             {
+                SdpExtension own = ours.First(o => o.Uri == offered.Uri);
                 answered.Add(
-                    offered with
+                    mapping with
                     {
                         // The attributes describe what this side sends: its own, never the offerer's.
-                        Attributes = ours.First(o => o.Uri == offered.Uri).Attributes,
+                        Attributes = encrypted
+                            ? Encrypt(own, mapping.Id).Attributes
+                            : own.Attributes,
                         Direction = offered.Direction switch
                         {
                             SdpDirection.SendOnly => SdpDirection.RecvOnly,
@@ -122,9 +203,12 @@ public sealed partial class PeerConnection
     }
 
     // The agreed map: the extensions the answer kept, across every section it accepted.
-    private void AgreeExtensions(SdpDescription answer) =>
+    private void AgreeExtensions(SdpDescription answer)
+    {
         Volatile.Write(
             ref _extensions,
             RtpExtensionMap.From(answer.Media.Where(m => !m.Rejected).SelectMany(m => m.Extensions))
         );
+        NoteEncryptedExtensions();
+    }
 }
