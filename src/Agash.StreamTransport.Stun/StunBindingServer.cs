@@ -23,7 +23,7 @@ public sealed partial class StunBindingServer : IAsyncDisposable
     /// <summary>The meter the server reports on: <c>Agash.StreamTransport.Stun</c>.</summary>
     public const string MeterName = "Agash.StreamTransport.Stun";
 
-    private readonly UdpClient _udp;
+    private readonly Socket _socket;
     private readonly ILogger _logger;
     private readonly Meter? _ownMeter;
     private readonly Counter<long> _requests;
@@ -69,7 +69,7 @@ public sealed partial class StunBindingServer : IAsyncDisposable
             throw;
         }
 
-        _udp = new UdpClient { Client = socket };
+        _socket = socket;
         ListenEndPoint = (IPEndPoint)socket.LocalEndPoint!;
     }
 
@@ -93,14 +93,21 @@ public sealed partial class StunBindingServer : IAsyncDisposable
         }
     }
 
+    // One loop serves the socket, so its buffers and the sender's address are reused for every request.
     private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
     {
+        byte[] datagram = new byte[MaxDatagram];
+        byte[] response = new byte[MaxResponse];
+        SocketAddress sender = new(_socket.AddressFamily);
+        IPEndPoint template = ListenEndPoint;
         while (!cancellationToken.IsCancellationRequested)
         {
-            UdpReceiveResult received;
+            int received;
             try
             {
-                received = await _udp.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                received = await _socket
+                    .ReceiveFromAsync(datagram, SocketFlags.None, sender, cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -114,8 +121,12 @@ public sealed partial class StunBindingServer : IAsyncDisposable
                 continue;
             }
 
-            byte[]? response = TryBuildBindingResponse(received.Buffer, received.RemoteEndPoint);
-            if (response is null)
+            int length = TryBuildBindingResponse(
+                datagram.AsSpan(0, received),
+                (IPEndPoint)template.Create(sender),
+                response
+            );
+            if (length == 0)
             {
                 _requests.Add(
                     1,
@@ -126,12 +137,23 @@ public sealed partial class StunBindingServer : IAsyncDisposable
 
             try
             {
-                await _udp.SendAsync(response, response.Length, received.RemoteEndPoint)
+                _ = await _socket
+                    .SendToAsync(
+                        response.AsMemory(0, length),
+                        SocketFlags.None,
+                        sender,
+                        cancellationToken
+                    )
                     .ConfigureAwait(false);
                 _requests.Add(
                     1,
                     new KeyValuePair<string, object?>("streamtransport.outcome", "answered")
                 );
+            }
+            catch (OperationCanceledException)
+            {
+                // Deliberately not logged: the server is being disposed.
+                return;
             }
             catch (SocketException exception)
             {
@@ -145,7 +167,17 @@ public sealed partial class StunBindingServer : IAsyncDisposable
         }
     }
 
-    private static byte[]? TryBuildBindingResponse(byte[] datagram, IPEndPoint from)
+    // A STUN request is a UDP datagram; the answers are a binding response or a 420 naming up to eight
+    // attributes.
+    private const int MaxDatagram = 2048;
+    private const int MaxResponse = 128;
+
+    // The response's length in the buffer, or 0 when the datagram is not a binding request to answer.
+    private static int TryBuildBindingResponse(
+        ReadOnlySpan<byte> datagram,
+        IPEndPoint from,
+        Span<byte> response
+    )
     {
         if (
             !StunMessageReader.TryParse(datagram, out StunMessageReader request)
@@ -157,7 +189,7 @@ public sealed partial class StunBindingServer : IAsyncDisposable
             )
         )
         {
-            return null;
+            return 0;
         }
 
         // RFC 8489 section 6.3.1: a comprehension-required attribute this server does not know is answered
@@ -166,9 +198,8 @@ public sealed partial class StunBindingServer : IAsyncDisposable
         int count = request.CollectUnknownRequired([], unknown);
         if (count > 0)
         {
-            byte[] error = new byte[64 + (count * 2)];
             var refusal = new StunMessageWriter(
-                error,
+                response,
                 StunMessageClass.ErrorResponse,
                 StunMethod.Binding,
                 request.TransactionId
@@ -176,10 +207,9 @@ public sealed partial class StunBindingServer : IAsyncDisposable
             refusal.AddErrorCode(420, "Unknown Attribute");
             refusal.AddUnknownAttributes(unknown[..count]);
             refusal.AddFingerprint();
-            return error[..refusal.Length];
+            return refusal.Length;
         }
 
-        byte[] response = new byte[64];
         var writer = new StunMessageWriter(
             response,
             StunMessageClass.SuccessResponse,
@@ -194,7 +224,7 @@ public sealed partial class StunBindingServer : IAsyncDisposable
         );
         // No message-integrity key; append a FINGERPRINT so clients can validate the response.
         writer.AddFingerprint();
-        return response[..writer.Length];
+        return writer.Length;
     }
 
     /// <inheritdoc/>
@@ -213,7 +243,7 @@ public sealed partial class StunBindingServer : IAsyncDisposable
             // Loop teardown races are benign.
         }
 
-        _udp.Dispose();
+        _socket.Dispose();
         _cts.Dispose();
         _ownMeter?.Dispose();
     }

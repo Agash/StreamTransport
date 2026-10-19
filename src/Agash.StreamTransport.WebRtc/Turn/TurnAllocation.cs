@@ -66,7 +66,7 @@ internal sealed partial class TurnAllocation : IIceSocket
     private readonly Dictionary<IPEndPoint, Peer> _peers = [];
     private readonly Dictionary<ushort, IPEndPoint> _channels = [];
     private readonly Dictionary<IPAddress, Permission> _permissions = [];
-    private readonly Dictionary<UInt128, TaskCompletionSource<byte[]>> _pending = [];
+    private readonly Dictionary<UInt128, TaskCompletionSource<Response>> _pending = [];
     private readonly CancellationTokenSource _lifetime = new();
     private ITimer? _maintenance;
     private byte[] _key = [];
@@ -208,10 +208,12 @@ internal sealed partial class TurnAllocation : IIceSocket
 
                 if (permission.Queue.Count == MaxQueuedPerPermission)
                 {
-                    _ = permission.Queue.Dequeue();
+                    ArrayPool<byte>.Shared.Return(permission.Queue.Dequeue().Data);
                 }
 
-                permission.Queue.Enqueue((destination, data.ToArray()));
+                byte[] waiting = ArrayPool<byte>.Shared.Rent(data.Length);
+                data.Span.CopyTo(waiting);
+                permission.Queue.Enqueue((destination, waiting, data.Length));
                 if (request)
                 {
                     _ = RequestPermissionAsync(destination.Address);
@@ -282,14 +284,14 @@ internal sealed partial class TurnAllocation : IIceSocket
             {
                 // Releases the relay now instead of when its lifetime runs out. A 437 answer means it
                 // was already gone, which is as good (RFC 8656 section 8.3), so nothing waits for one.
-                byte[] buffer = new byte[1024];
+                Span<byte> buffer = stackalloc byte[RequestCapacity];
                 int length = WriteRequest(
                     buffer,
                     StunMethod.Refresh,
                     NewTransaction(),
                     static (ref w) => w.AddUInt32(StunAttributeType.Lifetime, 0)
                 );
-                _connection.SendFinal(buffer.AsSpan(0, length));
+                _connection.SendFinal(buffer[..length]);
             }
             catch (Exception exception)
                 when (exception is IOException or SocketException or ObjectDisposedException)
@@ -311,14 +313,39 @@ internal sealed partial class TurnAllocation : IIceSocket
     )
     {
         Challenge challenge = default;
+        byte[] response = ArrayPool<byte>.Shared.Rent(ResponseCapacity);
+        try
+        {
+            await ExchangeAllocationAsync(family, response, challenge, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(response);
+        }
+    }
+
+    private async Task ExchangeAllocationAsync(
+        AddressFamily family,
+        byte[] response,
+        Challenge challenge,
+        CancellationToken cancellationToken
+    )
+    {
         while (true)
         {
-            byte[] response = await ExchangeDirectAsync(
-                    transaction => BuildAllocate(transaction, family),
+            int length = await ExchangeDirectAsync(
+                    (transaction, buffer) => BuildAllocate(transaction, family, buffer),
+                    response,
                     cancellationToken
                 )
                 .ConfigureAwait(false);
-            if (!StunMessageReader.TryParse(response, out StunMessageReader message))
+            if (
+                !StunMessageReader.TryParse(
+                    response.AsSpan(0, length),
+                    out StunMessageReader message
+                )
+            )
             {
                 throw new TurnException(0, "The TURN server sent a malformed response.");
             }
@@ -421,14 +448,33 @@ internal sealed partial class TurnAllocation : IIceSocket
     }
 
     // Sends a request and reads the connection until its response arrives, retransmitting on UDP.
-    private async Task<byte[]> ExchangeDirectAsync(
-        Func<UInt128, byte[]> build,
+    private async Task<int> ExchangeDirectAsync(
+        BuildRequest build,
+        byte[] buffer,
         CancellationToken cancellationToken
     )
     {
         UInt128 transaction = NewTransaction();
-        byte[] request = build(transaction);
-        byte[] buffer = new byte[2048];
+        byte[] rented = ArrayPool<byte>.Shared.Rent(RequestCapacity);
+        try
+        {
+            ReadOnlyMemory<byte> request = rented.AsMemory(0, build(transaction, rented));
+            return await ExchangeDirectAsync(request, transaction, buffer, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private async Task<int> ExchangeDirectAsync(
+        ReadOnlyMemory<byte> request,
+        UInt128 transaction,
+        byte[] buffer,
+        CancellationToken cancellationToken
+    )
+    {
         foreach (TimeSpan wait in Waits())
         {
             await _connection.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -446,7 +492,7 @@ internal sealed partial class TurnAllocation : IIceSocket
                         .ConfigureAwait(false);
                     if (IsResponseTo(buffer.AsSpan(0, length), transaction))
                     {
-                        return buffer[..length];
+                        return length;
                     }
                 }
             }
@@ -472,9 +518,12 @@ internal sealed partial class TurnAllocation : IIceSocket
         while (true)
         {
             UInt128 transaction = NewTransaction();
-            byte[] buffer = new byte[1024];
-            byte[] request = buffer[..WriteRequest(buffer, method, transaction, attributes)];
-            var completion = new TaskCompletionSource<byte[]>(
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(RequestCapacity);
+            ReadOnlyMemory<byte> request = buffer.AsMemory(
+                0,
+                WriteRequest(buffer, method, transaction, attributes)
+            );
+            var completion = new TaskCompletionSource<Response>(
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
             lock (_gate)
@@ -482,7 +531,7 @@ internal sealed partial class TurnAllocation : IIceSocket
                 _pending[transaction] = completion;
             }
 
-            byte[]? response = null;
+            Response? response = null;
             try
             {
                 foreach (TimeSpan wait in Waits())
@@ -508,15 +557,18 @@ internal sealed partial class TurnAllocation : IIceSocket
                 {
                     _ = _pending.Remove(transaction);
                 }
+
+                ArrayPool<byte>.Shared.Return(buffer);
             }
 
-            if (response is null)
+            if (response is not { } received)
             {
                 LogRequestTimedOut(method, _server.Host);
                 return Outcome.TimedOut;
             }
 
-            if (!StunMessageReader.TryParse(response, out StunMessageReader message))
+            using Response owned = received;
+            if (!StunMessageReader.TryParse(owned.Span, out StunMessageReader message))
             {
                 return new Outcome(false, 0, null);
             }
@@ -548,7 +600,7 @@ internal sealed partial class TurnAllocation : IIceSocket
                 (ref w) => w.AddXorAddress(StunAttributeType.XorPeerAddress, new(address, 0))
             )
             .ConfigureAwait(false);
-        List<(IPEndPoint Destination, byte[] Data)> waiting;
+        List<(IPEndPoint Destination, byte[] Data, int Length)> waiting;
         lock (_gate)
         {
             if (!_permissions.TryGetValue(address, out Permission? permission))
@@ -567,6 +619,11 @@ internal sealed partial class TurnAllocation : IIceSocket
             {
                 permission.State = PermissionState.Failed;
                 permission.RetryAt = Now + FailureRetry;
+                foreach ((IPEndPoint _, byte[] data, int _) in waiting)
+                {
+                    ArrayPool<byte>.Shared.Return(data);
+                }
+
                 waiting.Clear();
             }
         }
@@ -586,23 +643,30 @@ internal sealed partial class TurnAllocation : IIceSocket
         }
 
         Reschedule();
-        foreach ((IPEndPoint destination, byte[] data) in waiting)
+        try
         {
-            try
+            foreach ((IPEndPoint destination, byte[] data, int length) in waiting)
             {
-                await SendAsync(data, destination, default, _lifetime.Token).ConfigureAwait(false);
+                await SendAsync(data.AsMemory(0, length), destination, default, _lifetime.Token)
+                    .ConfigureAwait(false);
             }
-            catch (Exception exception)
-                when (exception
-                        is OperationCanceledException
-                            or ObjectDisposedException
-                            or IOException
-                            or SocketException
-                )
+        }
+        catch (Exception exception)
+            when (exception
+                    is OperationCanceledException
+                        or ObjectDisposedException
+                        or IOException
+                        or SocketException
+            )
+        {
+            // Deliberately not logged: a datagram that waited for its permission is lost as any
+            // datagram is; the sender retransmits what matters.
+        }
+        finally
+        {
+            foreach ((IPEndPoint _, byte[] data, int _) in waiting)
             {
-                // Deliberately not logged: a datagram that waited for its permission is lost as any
-                // datagram is; the sender retransmits what matters.
-                return;
+                ArrayPool<byte>.Shared.Return(data);
             }
         }
     }
@@ -957,7 +1021,7 @@ internal sealed partial class TurnAllocation : IIceSocket
     {
         lock (_gate)
         {
-            foreach (TaskCompletionSource<byte[]> pending in _pending.Values)
+            foreach (TaskCompletionSource<Response> pending in _pending.Values)
             {
                 _ = pending.TrySetCanceled();
             }
@@ -1025,13 +1089,23 @@ internal sealed partial class TurnAllocation : IIceSocket
 
         if (stun.Class is StunMessageClass.SuccessResponse or StunMessageClass.ErrorResponse)
         {
-            TaskCompletionSource<byte[]>? pending;
+            TaskCompletionSource<Response>? pending;
             lock (_gate)
             {
                 _ = _pending.TryGetValue(ReadTransaction(stun.TransactionId), out pending);
             }
 
-            _ = pending?.TrySetResult(stun.Raw.ToArray());
+            if (pending is not null)
+            {
+                // The receive buffer is reused: the waiter gets a pooled copy and returns it; a late
+                // response nobody waits for any more goes straight back.
+                byte[] copy = ArrayPool<byte>.Shared.Rent(stun.Raw.Length);
+                stun.Raw.CopyTo(copy);
+                if (!pending.TrySetResult(new Response(copy, stun.Raw.Length)))
+                {
+                    ArrayPool<byte>.Shared.Return(copy);
+                }
+            }
         }
 
         return null;
@@ -1060,27 +1134,36 @@ internal sealed partial class TurnAllocation : IIceSocket
     private bool VerifyIntegrity(StunMessageReader message) =>
         _key.Length > 0 && message.VerifyMessageIntegrity(_key);
 
-    private byte[] BuildAllocate(UInt128 transaction, AddressFamily family)
+    private int BuildAllocate(UInt128 transaction, AddressFamily family, Span<byte> buffer) =>
+        WriteRequest(
+            buffer,
+            StunMethod.Allocate,
+            transaction,
+            (ref w) =>
+            {
+                // UDP relaying (protocol 17), of the family the client reached the server with.
+                w.AddUInt32(StunAttributeType.RequestedTransport, 17u << 24);
+                w.AddUInt32(
+                    StunAttributeType.RequestedAddressFamily,
+                    family == AddressFamily.InterNetworkV6 ? 0x02u << 24 : 0x01u << 24
+                );
+                w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime);
+                w.AddAttribute(StunAttributeType.Software, s_software);
+            }
+        );
+
+    // The most a request or response here takes: STUN over UDP stays well within a datagram.
+    private const int RequestCapacity = 1024;
+    private const int ResponseCapacity = 2048;
+
+    private delegate int BuildRequest(UInt128 transaction, Span<byte> buffer);
+
+    // A response a transaction waits for, in a pooled buffer its reader returns.
+    private readonly record struct Response(byte[] Buffer, int Length) : IDisposable
     {
-        byte[] buffer = new byte[1024];
-        return buffer[
-            ..WriteRequest(
-                buffer,
-                StunMethod.Allocate,
-                transaction,
-                (ref w) =>
-                {
-                    // UDP relaying (protocol 17), of the family the client reached the server with.
-                    w.AddUInt32(StunAttributeType.RequestedTransport, 17u << 24);
-                    w.AddUInt32(
-                        StunAttributeType.RequestedAddressFamily,
-                        family == AddressFamily.InterNetworkV6 ? 0x02u << 24 : 0x01u << 24
-                    );
-                    w.AddUInt32(StunAttributeType.Lifetime, RequestedLifetime);
-                    w.AddAttribute(StunAttributeType.Software, s_software);
-                }
-            )
-        ];
+        public ReadOnlySpan<byte> Span => Buffer.AsSpan(0, Length);
+
+        public void Dispose() => ArrayPool<byte>.Shared.Return(Buffer);
     }
 
     // Writes a request with the long-term credential attributes once the server has challenged.
@@ -1286,7 +1369,8 @@ internal sealed partial class TurnAllocation : IIceSocket
 
         public TimeSpan RetryAt { get; set; }
 
-        public Queue<(IPEndPoint Destination, byte[] Data)> Queue { get; } = new();
+        // Datagrams waiting for the permission, in pooled buffers.
+        public Queue<(IPEndPoint Destination, byte[] Data, int Length)> Queue { get; } = new();
     }
 
     private sealed class Peer(IPEndPoint endpoint, ushort channel)
