@@ -209,7 +209,8 @@ public sealed class RtpExtensionTests
     }
 
     // RFC 8285 section 7: the answer keeps the offerer's identifier for each extension it understands and
-    // leaves out what it does not understand, and what is inactive.
+    // leaves out what it does not understand, and what is inactive. The MID is one it understands, as
+    // every bundled section maps it (RFC 9143 section 9.1).
     [TestMethod]
     public async Task Answer_KeepsTheOfferersIdentifiers_AndDropsWhatItDoesNotUse()
     {
@@ -237,12 +238,13 @@ public sealed class RtpExtensionTests
         CollectionAssert.AreEqual(
             new[]
             {
+                new SdpExtension(3, RtpExtensionUris.Mid),
                 new SdpExtension(7, RtpExtensionUris.AbsoluteCaptureTime),
                 new SdpExtension(11, RtpExtensionUris.VideoTiming),
             },
             answer.Media[0].Extensions.ToArray()
         );
-        Assert.AreEqual(new RtpExtensionMap(7, 11, 0), answerer.NegotiatedExtensions);
+        Assert.AreEqual(new RtpExtensionMap(7, 11, 0, Mid: 3), answerer.NegotiatedExtensions);
     }
 
     [TestMethod]
@@ -264,6 +266,7 @@ public sealed class RtpExtensionTests
                 RtpExtensionUris.VideoTiming,
                 RtpExtensionUris.PlayoutDelay,
                 RtpExtensionUris.TransportWideSequence,
+                RtpExtensionUris.Mid,
             },
             offer.Media[0].Extensions.Select(static e => e.Uri).ToArray()
         );

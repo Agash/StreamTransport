@@ -16,9 +16,9 @@ public sealed partial class PeerConnection
     /// <summary>The header extensions the two sides agreed, empty before negotiation completes.</summary>
     public RtpExtensionMap NegotiatedExtensions => Volatile.Read(ref _extensions);
 
-    // What an offer maps for a section: capture times for both kinds (lip sync) and the transport-wide
-    // sequence number transport feedback needs, and for video the per-frame timing and the playout delay
-    // the sender asks for.
+    // What an offer maps for a section: capture times for both kinds (lip sync), the transport-wide
+    // sequence number transport feedback needs and the MID every bundled section maps (RFC 9143 section
+    // 9.1), and for video the per-frame timing and the playout delay the sender asks for.
     private static IReadOnlyList<SdpExtension> OfferedExtensions(SdpMediaKind kind)
     {
         RtpExtensionMap ids = RtpExtensionMap.Offered;
@@ -29,11 +29,13 @@ public sealed partial class PeerConnection
                 new SdpExtension(ids.VideoTiming, RtpExtensionUris.VideoTiming),
                 new SdpExtension(ids.PlayoutDelay, RtpExtensionUris.PlayoutDelay),
                 new SdpExtension(ids.TransportSequence, RtpExtensionUris.TransportWideSequence),
+                new SdpExtension(ids.Mid, RtpExtensionUris.Mid),
             ]
             :
             [
                 new SdpExtension(ids.AbsoluteCaptureTime, RtpExtensionUris.AbsoluteCaptureTime),
                 new SdpExtension(ids.TransportSequence, RtpExtensionUris.TransportWideSequence),
+                new SdpExtension(ids.Mid, RtpExtensionUris.Mid),
             ];
     }
 

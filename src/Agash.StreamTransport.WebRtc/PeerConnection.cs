@@ -409,6 +409,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         AgreeExtensions(new SdpDescription { Media = media });
         NegotiatedMedia = negotiated;
+        BuildSectionTables();
         ConfigureRtx(offer);
         ConfigureFec(offer);
         if (_iceAgent is null)
@@ -683,6 +684,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             NegotiatedMedia = negotiated;
+            BuildSectionTables();
             ConfigureRtx(description);
             ConfigureFec(description);
         }
@@ -777,6 +779,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         ushort sequence = NextSequence(ssrc);
+        extensions = WithMid(ssrc, extensions);
 
         // RTP header + optional abs-capture-time + payload, with room to protect it in place. Rented from
         // the shared pool so the per-packet path does not allocate (matters on an SBC's GC).
@@ -1564,8 +1567,20 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
         }
 
+        // RFC 9143 section 9.2: a stream that fits no section is not decoded.
+        if (AssociateSection(header) is not { } section)
+        {
+            return;
+        }
+
         int payloadOffset = plaintextLength - payload.Length;
-        RtpReceived?.Invoke(header, packet.Slice(payloadOffset, payload.Length));
+        RtpReceived?.Invoke(
+            header with
+            {
+                Mid = section,
+            },
+            packet.Slice(payloadOffset, payload.Length)
+        );
     }
 
     private SdpMediaDescription BuildMediaSection(
@@ -1618,6 +1633,16 @@ public sealed partial class PeerConnection : IAsyncDisposable
     // session's.
     internal uint FeedbackSenderFor(uint mediaSsrc)
     {
+        if (
+            SectionOf(mediaSsrc) is { } associated
+            && _options.Media.FirstOrDefault(l => l.Mid == associated)?.LocalSsrc
+                is uint local
+                    and not 0
+        )
+        {
+            return local;
+        }
+
         if (
             Volatile
                 .Read(ref _remoteDescription)

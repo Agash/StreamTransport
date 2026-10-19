@@ -208,4 +208,10 @@ public readonly record struct RtpHeader(
 {
     /// <summary>The abs-capture-time as a UQ32.32 NTP timestamp, when the packet carries it.</summary>
     public ulong? AbsoluteCaptureTimeNtp => Extensions.AbsoluteCaptureTimeNtp;
+
+    /// <summary>
+    /// The media section the packet's stream was associated with on receipt (RFC 9143 section 9.2); null
+    /// on a packet not received through a <see cref="PeerConnection"/>.
+    /// </summary>
+    public string? Mid { get; init; }
 }

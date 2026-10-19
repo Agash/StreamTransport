@@ -22,6 +22,12 @@ public static class RtpExtensionUris
     /// </summary>
     public const string TransportWideSequence =
         "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01";
+
+    /// <summary>
+    /// The media section a stream belongs to (RFC 9143 section 15.2), which every bundled section maps
+    /// (section 9.1).
+    /// </summary>
+    public const string Mid = "urn:ietf:params:rtp-hdrext:sdes:mid";
 }
 
 /// <summary>
@@ -132,11 +138,13 @@ public readonly record struct PlayoutDelay(TimeSpan Minimum, TimeSpan Maximum)
 /// The transport-wide sequence number, read from a received packet; a sent one gets it as it leaves (see
 /// <see cref="RtpExtensionMap.InsertTransportSequence"/>).
 /// </param>
+/// <param name="Mid">The media section the stream belongs to (RFC 9143 section 15.2).</param>
 public readonly record struct RtpExtensionValues(
     ulong? AbsoluteCaptureTimeNtp = null,
     VideoTiming? VideoTiming = null,
     PlayoutDelay? PlayoutDelay = null,
-    ushort? TransportSequence = null
+    ushort? TransportSequence = null,
+    RtpMid? Mid = null
 )
 {
     /// <summary>Whether the packet carries none.</summary>
@@ -144,7 +152,8 @@ public readonly record struct RtpExtensionValues(
         AbsoluteCaptureTimeNtp is null
         && VideoTiming is null
         && PlayoutDelay is null
-        && TransportSequence is null;
+        && TransportSequence is null
+        && Mid is null;
 }
 
 /// <summary>
@@ -158,11 +167,13 @@ public readonly record struct RtpExtensionValues(
 /// <param name="VideoTiming">The video-timing identifier.</param>
 /// <param name="PlayoutDelay">The playout-delay identifier.</param>
 /// <param name="TransportSequence">The transport-wide sequence number's identifier.</param>
+/// <param name="Mid">The MID's identifier (RFC 9143 section 15.2).</param>
 public sealed record RtpExtensionMap(
     int AbsoluteCaptureTime,
     int VideoTiming,
     int PlayoutDelay,
-    int TransportSequence = 0
+    int TransportSequence = 0,
+    int Mid = 0
 )
 {
     // The transport-wide sequence number's value.
@@ -172,14 +183,18 @@ public sealed record RtpExtensionMap(
     private const ushort TwoByteProfile = 0x1000;
 
     /// <summary>No extensions.</summary>
-    public static RtpExtensionMap None { get; } = new(0, 0, 0, 0);
+    public static RtpExtensionMap None { get; } = new(0, 0, 0, 0, 0);
 
     /// <summary>The identifiers this endpoint offers.</summary>
-    public static RtpExtensionMap Offered { get; } = new(1, 2, 3, 4);
+    public static RtpExtensionMap Offered { get; } = new(1, 2, 3, 4, 5);
 
     /// <summary>Whether any extension is in use.</summary>
     public bool IsEmpty =>
-        AbsoluteCaptureTime == 0 && VideoTiming == 0 && PlayoutDelay == 0 && TransportSequence == 0;
+        AbsoluteCaptureTime == 0
+        && VideoTiming == 0
+        && PlayoutDelay == 0
+        && TransportSequence == 0
+        && Mid == 0;
 
     /// <summary>The most bytes the extension block of a packet takes, its 4-byte header included.</summary>
     public int MaximumBlockLength
@@ -191,13 +206,18 @@ public sealed record RtpExtensionMap(
                 (AbsoluteCaptureTime != 0 ? element + 8 : 0)
                 + (VideoTiming != 0 ? element + Rtp.VideoTiming.Length : 0)
                 + (PlayoutDelay != 0 ? element + Rtp.PlayoutDelay.Length : 0)
-                + (TransportSequence != 0 ? element + TransportSequenceLength : 0);
+                + (TransportSequence != 0 ? element + TransportSequenceLength : 0)
+                + (Mid != 0 ? element + RtpMid.MaximumLength : 0);
             return data == 0 ? 0 : 4 + ((data + 3) / 4 * 4);
         }
     }
 
     private bool TwoByte =>
-        AbsoluteCaptureTime > 14 || VideoTiming > 14 || PlayoutDelay > 14 || TransportSequence > 14;
+        AbsoluteCaptureTime > 14
+        || VideoTiming > 14
+        || PlayoutDelay > 14
+        || TransportSequence > 14
+        || Mid > 14;
 
     /// <summary>The identifiers of the extensions this endpoint understands among SDP's mappings.</summary>
     /// <param name="extensions">The section's mappings.</param>
@@ -209,6 +229,7 @@ public sealed record RtpExtensionMap(
         int timing = 0;
         int delay = 0;
         int transport = 0;
+        int mid = 0;
         foreach (SdpExtension extension in extensions)
         {
             if (extension.Id is < 1 or > 255 || extension.Direction == SdpDirection.Inactive)
@@ -230,12 +251,15 @@ public sealed record RtpExtensionMap(
                 case RtpExtensionUris.TransportWideSequence:
                     transport = extension.Id;
                     break;
+                case RtpExtensionUris.Mid:
+                    mid = extension.Id;
+                    break;
                 default:
                     break;
             }
         }
 
-        return new RtpExtensionMap(capture, timing, delay, transport);
+        return new RtpExtensionMap(capture, timing, delay, transport, mid);
     }
 
     /// <summary>
@@ -270,6 +294,12 @@ public sealed record RtpExtensionMap(
             at = Element(destination, at, PlayoutDelay, Rtp.PlayoutDelay.Length, twoByte);
             delay.Write(destination[at..]);
             at += Rtp.PlayoutDelay.Length;
+        }
+
+        if (Mid != 0 && values.Mid is { Length: > 0 } mid)
+        {
+            at = Element(destination, at, Mid, mid.Length, twoByte);
+            at += mid.CopyTo(destination[at..]);
         }
 
         if (at == 4)
@@ -308,6 +338,7 @@ public sealed record RtpExtensionMap(
         VideoTiming? timing = null;
         PlayoutDelay? delay = null;
         ushort? transport = null;
+        RtpMid? mid = null;
         int i = 0;
         while (i < data.Length)
         {
@@ -365,11 +396,15 @@ public sealed record RtpExtensionMap(
             {
                 transport = BinaryPrimitives.ReadUInt16BigEndian(value);
             }
+            else if (id == Mid && RtpMid.TryCreate(value, out RtpMid tag))
+            {
+                mid = tag;
+            }
 
             i += length;
         }
 
-        return new RtpExtensionValues(capture, timing, delay, transport);
+        return new RtpExtensionValues(capture, timing, delay, transport, mid);
     }
 
     /// <summary>

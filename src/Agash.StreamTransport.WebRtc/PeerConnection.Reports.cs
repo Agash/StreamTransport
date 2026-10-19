@@ -178,6 +178,8 @@ public sealed partial class PeerConnection
                     continue;
                 }
 
+                OnStreamReported(block.Ssrc);
+
                 // RTT = arrival - LSR - DLSR, all in the middle 32 bits of NTP time (1/65536 s).
                 if (block.LastSenderReport != 0)
                 {
@@ -313,7 +315,13 @@ public sealed partial class PeerConnection
             }
         }
 
-        offset += RtcpSourceDescription.WriteCname(destination[offset..], sources[..count], _cname);
+        Span<SdesSource> described = stackalloc SdesSource[count];
+        for (int i = 0; i < count; i++)
+        {
+            described[i] = Described(sources[i]);
+        }
+
+        offset += RtcpSourceDescription.Write(destination[offset..], described, _cname);
         if (goodbye)
         {
             offset += RtcpSourceDescription.WriteGoodbye(destination[offset..], sources[..count]);

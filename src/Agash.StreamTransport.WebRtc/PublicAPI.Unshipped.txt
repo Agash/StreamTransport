@@ -342,6 +342,15 @@ Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.Ssrc.get -> uint
 Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.Ssrc.init -> void
 Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.Write(System.Span<byte> destination) -> int
 Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Deconstruct(out uint Ssrc, out Agash.StreamTransport.WebRtc.Rtp.RtpMid Mid) -> void
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Equals(Agash.StreamTransport.WebRtc.Rtcp.SdesSource other) -> bool
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Mid.get -> Agash.StreamTransport.WebRtc.Rtp.RtpMid
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Mid.init -> void
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.SdesSource() -> void
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.SdesSource(uint Ssrc, Agash.StreamTransport.WebRtc.Rtp.RtpMid Mid = default(Agash.StreamTransport.WebRtc.Rtp.RtpMid)) -> void
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Ssrc.get -> uint
+Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Ssrc.init -> void
 Agash.StreamTransport.WebRtc.Rtcp.TransportFeedback
 Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival
 Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.ArrivalMicros.get -> long?
@@ -450,15 +459,17 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.<Clone>$() -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AbsoluteCaptureTime.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.AbsoluteCaptureTime.init -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Deconstruct(out int AbsoluteCaptureTime, out int VideoTiming, out int PlayoutDelay, out int TransportSequence) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Deconstruct(out int AbsoluteCaptureTime, out int VideoTiming, out int PlayoutDelay, out int TransportSequence, out int Mid) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? other) -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.InsertTransportSequence(System.Span<byte> packet, int length, ushort sequence) -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.IsEmpty.get -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.MaximumBlockLength.get -> int
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Mid.get -> int
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Mid.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.PlayoutDelay.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.PlayoutDelay.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Read(ushort profile, System.ReadOnlySpan<byte> data) -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, int PlayoutDelay, int TransportSequence = 0) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.RtpExtensionMap(int AbsoluteCaptureTime, int VideoTiming, int PlayoutDelay, int TransportSequence = 0, int Mid = 0) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.TransportSequence.get -> int
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.TransportSequence.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.VideoTiming.get -> int
@@ -468,13 +479,15 @@ Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.AbsoluteCaptureTimeNtp.get -> ulong?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.AbsoluteCaptureTimeNtp.init -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Deconstruct(out ulong? AbsoluteCaptureTimeNtp, out Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming, out Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay, out ushort? TransportSequence) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Deconstruct(out ulong? AbsoluteCaptureTimeNtp, out Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming, out Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay, out ushort? TransportSequence, out Agash.StreamTransport.WebRtc.Rtp.RtpMid? Mid) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues other) -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.IsEmpty.get -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Mid.get -> Agash.StreamTransport.WebRtc.Rtp.RtpMid?
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.Mid.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.PlayoutDelay.get -> Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.PlayoutDelay.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.RtpExtensionValues() -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.RtpExtensionValues(ulong? AbsoluteCaptureTimeNtp = null, Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming = null, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay = null, ushort? TransportSequence = null) -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.RtpExtensionValues(ulong? AbsoluteCaptureTimeNtp = null, Agash.StreamTransport.WebRtc.Rtp.VideoTiming? VideoTiming = null, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay? PlayoutDelay = null, ushort? TransportSequence = null, Agash.StreamTransport.WebRtc.Rtp.RtpMid? Mid = null) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.TransportSequence.get -> ushort?
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.TransportSequence.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.VideoTiming.get -> Agash.StreamTransport.WebRtc.Rtp.VideoTiming?
@@ -512,6 +525,8 @@ Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Extensions.get -> Agash.StreamTranspo
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Extensions.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Marker.get -> bool
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Marker.init -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Mid.get -> string?
+Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Mid.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.PayloadType.get -> byte
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.PayloadType.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.RtpHeader() -> void
@@ -522,6 +537,11 @@ Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Ssrc.get -> uint
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Ssrc.init -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Timestamp.get -> uint
 Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Timestamp.init -> void
+Agash.StreamTransport.WebRtc.Rtp.RtpMid
+Agash.StreamTransport.WebRtc.Rtp.RtpMid.CopyTo(System.Span<byte> destination) -> int
+Agash.StreamTransport.WebRtc.Rtp.RtpMid.Equals(Agash.StreamTransport.WebRtc.Rtp.RtpMid other) -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpMid.Length.get -> int
+Agash.StreamTransport.WebRtc.Rtp.RtpMid.RtpMid() -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpPacket
 Agash.StreamTransport.WebRtc.Rtp.RtpPayloadWriter
 Agash.StreamTransport.WebRtc.Rtp.RtpPayloadWriter.Add(int length) -> System.Span<byte>
@@ -777,9 +797,11 @@ const Agash.StreamTransport.WebRtc.Rtp.FlexFec.MaxRepairOverhead = 28 -> int
 const Agash.StreamTransport.WebRtc.Rtp.FlexFec.RepairWindowMicros = 1000000 -> int
 const Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.Length = 3 -> int
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.AbsoluteCaptureTime = "http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time" -> string!
+const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.Mid = "urn:ietf:params:rtp-hdrext:sdes:mid" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.PlayoutDelay = "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.TransportWideSequence = "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.VideoTiming = "http://www.webrtc.org/experiments/rtp-hdrext/video-timing" -> string!
+const Agash.StreamTransport.WebRtc.Rtp.RtpMid.MaximumLength = 16 -> int
 const Agash.StreamTransport.WebRtc.Rtp.RtpPacket.FixedHeaderLength = 12 -> int
 const Agash.StreamTransport.WebRtc.Rtp.Rtx.EncodingName = "rtx" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.VideoTiming.BySize = 2 -> byte
@@ -815,6 +837,7 @@ override Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.Rtcp.SdesSource.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.GetHashCode() -> int
@@ -860,6 +883,8 @@ override Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues.GetHashCode() -> in
 override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.AssembledFrame.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.Rtp.RtpMid.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.Rtp.RtpMid.ToString() -> string!
 override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Sdp.SdpCodec.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Sdp.SdpDescription.Equals(object? obj) -> bool
@@ -926,8 +951,12 @@ static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.TryParse(System.ReadOn
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.operator !=(Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.operator ==(Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.CnameLength(int sources, string! cname) -> int
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.Length(System.ReadOnlySpan<Agash.StreamTransport.WebRtc.Rtcp.SdesSource> sources, string! cname) -> int
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.Write(System.Span<byte> destination, System.ReadOnlySpan<Agash.StreamTransport.WebRtc.Rtcp.SdesSource> sources, string! cname) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.WriteCname(System.Span<byte> destination, System.ReadOnlySpan<uint> sources, string! cname) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.WriteGoodbye(System.Span<byte> destination, System.ReadOnlySpan<uint> sources) -> int
+static Agash.StreamTransport.WebRtc.Rtcp.SdesSource.operator !=(Agash.StreamTransport.WebRtc.Rtcp.SdesSource left, Agash.StreamTransport.WebRtc.Rtcp.SdesSource right) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.SdesSource.operator ==(Agash.StreamTransport.WebRtc.Rtcp.SdesSource left, Agash.StreamTransport.WebRtc.Rtcp.SdesSource right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.TransportFeedback.Build(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc, byte feedbackCount, System.ReadOnlySpan<Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival> arrivals, int maxBytes, out int consumed) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.TransportFeedback.TryParse(System.ReadOnlySpan<byte> rtcp, System.Collections.Generic.List<Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival>! arrivals) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.operator !=(Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival left, Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival right) -> bool
@@ -962,6 +991,10 @@ static Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.operator !=(
 static Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.operator ==(Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult left, Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpHeader.operator !=(Agash.StreamTransport.WebRtc.Rtp.RtpHeader left, Agash.StreamTransport.WebRtc.Rtp.RtpHeader right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpHeader.operator ==(Agash.StreamTransport.WebRtc.Rtp.RtpHeader left, Agash.StreamTransport.WebRtc.Rtp.RtpHeader right) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpMid.TryCreate(System.ReadOnlySpan<byte> utf8, out Agash.StreamTransport.WebRtc.Rtp.RtpMid mid) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpMid.TryCreate(string! mid, out Agash.StreamTransport.WebRtc.Rtp.RtpMid tag) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpMid.operator !=(Agash.StreamTransport.WebRtc.Rtp.RtpMid left, Agash.StreamTransport.WebRtc.Rtp.RtpMid right) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpMid.operator ==(Agash.StreamTransport.WebRtc.Rtp.RtpMid left, Agash.StreamTransport.WebRtc.Rtp.RtpMid right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.TryParse(System.ReadOnlySpan<byte> packet, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap! map, out Agash.StreamTransport.WebRtc.Rtp.RtpHeader header, out System.ReadOnlySpan<byte> payload) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtp.RtpHeader header, out System.ReadOnlySpan<byte> payload) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpPacket.Write(System.Span<byte> destination, bool marker, byte payloadType, ushort sequenceNumber, uint timestamp, uint ssrc, System.ReadOnlySpan<byte> payload, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap? map = null, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues extensions = default(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionValues)) -> int
@@ -1019,6 +1052,8 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFee
 ~override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.SdesSource.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Equals(object obj) -> bool
@@ -1035,6 +1070,7 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFee
 ~override Agash.StreamTransport.WebRtc.Rtp.RtpFrameBuffer.InsertResult.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtp.RtpHeader.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtp.RtpMid.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtp.VideoTiming.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Sdp.SdpCodec.Equals(object obj) -> bool
