@@ -110,6 +110,11 @@ public static class SdpWriter
             sb.Append("a=rtcp-mux-only\r\n");
         }
 
+        if (media.Cryptex)
+        {
+            sb.Append("a=cryptex\r\n");
+        }
+
         if (media.BundleOnly)
         {
             sb.Append("a=bundle-only\r\n");

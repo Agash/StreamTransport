@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics.Tensors;
 using System.Security.Cryptography;
 
 namespace Agash.StreamTransport.WebRtc.Srtp;
@@ -88,9 +89,16 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
     }
 
     /// <inheritdoc/>
-    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length)
+    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length, bool cryptex)
     {
-        int headerLength = RtpHeaderLength(packet[..length]);
+        // RFC 9335 section 6.2: under Cryptex the associated data is the fixed and extension headers.
+        bool encryptsHeader = cryptex && Cryptex.CanProtect(packet, length);
+        if (encryptsHeader)
+        {
+            Cryptex.BeginProtect(packet);
+        }
+
+        int headerLength = encryptsHeader ? Cryptex.ClearLength : RtpHeaderLength(packet[..length]);
         Span<byte> iv = stackalloc byte[SaltLength];
         FormRtpIv(
             _rtpSalt,
@@ -113,6 +121,11 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
             );
         }
 
+        if (encryptsHeader)
+        {
+            Cryptex.EndProtect(packet);
+        }
+
         return length + TagLength;
     }
 
@@ -130,11 +143,17 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
             return false;
         }
 
-        int headerLength = RtpHeaderLength(packet[..length]);
+        bool encryptsHeader = Cryptex.IsProtected(packet, length - TagLength);
+        int headerLength = encryptsHeader ? Cryptex.ClearLength : RtpHeaderLength(packet[..length]);
         int encryptedLength = length - TagLength - headerLength;
         if (encryptedLength < 0)
         {
             return false;
+        }
+
+        if (encryptsHeader)
+        {
+            Cryptex.BeginUnprotect(packet);
         }
 
         Span<byte> iv = stackalloc byte[SaltLength];
@@ -165,6 +184,11 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
         {
             // Deliberately not logged: a forged or corrupted packet is reported by the false return.
             return false;
+        }
+
+        if (encryptsHeader)
+        {
+            Cryptex.EndUnprotect(packet);
         }
 
         plaintextLength = headerLength + encryptedLength;
@@ -316,11 +340,6 @@ internal sealed class SrtpGcmTransform : ISrtpTransform, IDisposable
         return length;
     }
 
-    private static void Xor(Span<byte> target, ReadOnlySpan<byte> mask)
-    {
-        for (int i = 0; i < target.Length; i++)
-        {
-            target[i] ^= mask[i];
-        }
-    }
+    private static void Xor(Span<byte> target, ReadOnlySpan<byte> mask) =>
+        TensorPrimitives.Xor(target, mask[..target.Length], target);
 }

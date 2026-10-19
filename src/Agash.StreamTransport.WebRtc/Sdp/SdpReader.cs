@@ -38,6 +38,7 @@ public static class SdpReader
         long sessionVersion = 0;
         List<string>? bundleGroup = null;
         SdpBandwidth sessionBandwidth = default;
+        bool sessionCryptex = false;
 
         foreach (string raw in sdp.Split('\n'))
         {
@@ -115,6 +116,21 @@ public static class SdpReader
             if (line == "a=ice-lite")
             {
                 iceLite = true;
+                continue;
+            }
+
+            // RFC 9335 section 4: a property attribute, at session or media level.
+            if (line == "a=cryptex")
+            {
+                if (current is null)
+                {
+                    sessionCryptex = true;
+                }
+                else
+                {
+                    current.Cryptex = true;
+                }
+
                 continue;
             }
 
@@ -213,6 +229,7 @@ public static class SdpReader
                     Protocol = m.Protocol,
                     Formats = m.Formats,
                     RtcpMuxOnly = m.RtcpMuxOnly,
+                    Cryptex = m.Cryptex || sessionCryptex,
                     Codecs = m.BuildCodecs(),
                     IceUfrag = m.IceUfrag ?? sessionUfrag,
                     IcePwd = m.IcePwd ?? sessionPwd,
@@ -469,6 +486,8 @@ public static class SdpReader
         public bool PortZero { get; init; }
         public bool BundleOnly { get; private set; }
         public bool RtcpMuxOnly { get; private set; }
+
+        public bool Cryptex { get; set; }
         public string Protocol { get; init; } = "";
         public IReadOnlyList<string> Formats { get; init; } = [];
         public List<IceCandidate> Candidates { get; } = [];

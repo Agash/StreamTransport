@@ -16,10 +16,16 @@ internal interface ISrtpTransform
     /// <param name="rolloverCounter">The packet's rollover counter.</param>
     /// <param name="packet">The packet and room after it.</param>
     /// <param name="length">The packet's length.</param>
+    /// <param name="cryptex">
+    /// Whether to encrypt its header extensions too (RFC 9335), when it has any.
+    /// </param>
     /// <returns>The protected length.</returns>
-    int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length);
+    int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length, bool cryptex);
 
-    /// <summary>Authenticates and decrypts an RTP packet in place.</summary>
+    /// <summary>
+    /// Authenticates and decrypts an RTP packet in place, its header extensions too when it was sent as
+    /// Cryptex (RFC 9335), which leaves them in the RFC 8285 form.
+    /// </summary>
     /// <param name="rolloverCounter">The estimated rollover counter.</param>
     /// <param name="packet">The protected packet.</param>
     /// <param name="length">Its length.</param>

@@ -140,6 +140,12 @@ public sealed record SdpMediaDescription
     public IReadOnlyList<string> Formats { get; init; } = [];
 
     /// <summary>
+    /// Whether the endpoint receives RTP with encrypted header extensions and CSRCs (<c>a=cryptex</c>, RFC 9335
+    /// section 4), at media level or for the whole description at session level.
+    /// </summary>
+    public bool Cryptex { get; init; }
+
+    /// <summary>
     /// Whether the section is <c>a=bundle-only</c> (RFC 9143 section 6): port 0 without being rejected, to
     /// be used only within the BUNDLE group.
     /// </summary>

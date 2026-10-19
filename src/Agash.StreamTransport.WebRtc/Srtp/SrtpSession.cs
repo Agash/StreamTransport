@@ -71,6 +71,12 @@ public sealed class SrtpSession : IDisposable
     public int ProtectionOverhead => _send.RtpOverhead;
 
     /// <summary>
+    /// Whether sent packets encrypt their header extensions too (Cryptex, RFC 9335): set once the peer
+    /// said it receives them (<c>a=cryptex</c>). Received packets are read either way.
+    /// </summary>
+    public bool SendCryptex { get; set; }
+
+    /// <summary>
     /// Protects an RTP packet in place, returning the protected length. <paramref name="packet"/> needs
     /// <see cref="ProtectionOverhead"/> spare octets.
     /// </summary>
@@ -102,7 +108,7 @@ public sealed class SrtpSession : IDisposable
             return false;
         }
 
-        protectedLength = _send.ProtectRtp(roc, packet, length);
+        protectedLength = _send.ProtectRtp(roc, packet, length, SendCryptex);
         return true;
     }
 

@@ -215,6 +215,8 @@ Agash.StreamTransport.WebRtc.PeerConnection.WithLocalCandidates(Agash.StreamTran
 Agash.StreamTransport.WebRtc.PeerConnectionOptions
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.CircuitBreaker.get -> Agash.StreamTransport.Adaptation.CircuitBreakerOptions?
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.CircuitBreaker.init -> void
+Agash.StreamTransport.WebRtc.PeerConnectionOptions.Cryptex.get -> bool
+Agash.StreamTransport.WebRtc.PeerConnectionOptions.Cryptex.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.IceTimings.get -> Agash.StreamTransport.WebRtc.Ice.IceTimings?
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.IceTimings.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.IceTransportPolicy.get -> Agash.StreamTransport.WebRtc.Ice.IceTransportPolicy
@@ -685,6 +687,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Codecs.get -> System.Collec
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Codecs.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.CongestionControlFeedback.get -> bool
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.CongestionControlFeedback.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Cryptex.get -> bool
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Cryptex.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Direction.get -> Agash.StreamTransport.WebRtc.Sdp.SdpDirection
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Direction.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Ecn.get -> Agash.StreamTransport.WebRtc.Sdp.SdpEcnCapability?
@@ -758,6 +762,8 @@ Agash.StreamTransport.WebRtc.Srtp.SrtpSession.Dispose() -> void
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectRtcp(System.Span<byte> packet, int length) -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectRtp(System.Span<byte> packet, int length) -> int
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.ProtectionOverhead.get -> int
+Agash.StreamTransport.WebRtc.Srtp.SrtpSession.SendCryptex.get -> bool
+Agash.StreamTransport.WebRtc.Srtp.SrtpSession.SendCryptex.set -> void
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.SrtpSession(Dtls.Core.SrtpKeyingMaterial! keying, bool isDtlsClient) -> void
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.TryProtectRtp(System.Span<byte> packet, int length, out int protectedLength) -> bool
 Agash.StreamTransport.WebRtc.Srtp.SrtpSession.UnprotectRtcp(System.Span<byte> packet, int length, out int plaintextLength) -> bool

@@ -75,6 +75,13 @@ public sealed record NegotiatedMediaInfo(
 public sealed class PeerConnectionOptions
 {
     /// <summary>
+    /// Whether RTP header extensions and CSRCs travel encrypted (Cryptex, RFC 9335): this side says it
+    /// receives them (<c>a=cryptex</c>), and sends them so once the peer says it does in every section.
+    /// Keeps capture times, levels and MIDs from the path. On by default.
+    /// </summary>
+    public bool Cryptex { get; init; } = true;
+
+    /// <summary>
     /// The least time between regular RTCP reports (RFC 4585 section 3.5.3's T_rr_interval): the RTCP
     /// schedule scales with the session's members and bandwidth (RFC 3550 section 6.3), and under RTP/AVPF
     /// its minimum is 0, so this bounds how often full reports go out; feedback packets do not wait for it.

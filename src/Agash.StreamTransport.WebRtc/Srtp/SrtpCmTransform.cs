@@ -108,9 +108,18 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
     public int RtcpOverhead => IndexLength + TagLength;
 
     /// <inheritdoc/>
-    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length)
+    public int ProtectRtp(uint rolloverCounter, Span<byte> packet, int length, bool cryptex)
     {
-        int header = SrtpGcmTransform.RtpHeaderLength(packet[..length]);
+        // RFC 9335 section 6.2: under Cryptex the keystream also covers the CSRCs and extension data.
+        bool encryptsHeader = cryptex && Cryptex.CanProtect(packet, length);
+        if (encryptsHeader)
+        {
+            Cryptex.BeginProtect(packet);
+        }
+
+        int header = encryptsHeader
+            ? Cryptex.ClearLength
+            : SrtpGcmTransform.RtpHeaderLength(packet[..length]);
         uint ssrc = BinaryPrimitives.ReadUInt32BigEndian(packet.Slice(8, 4));
         ushort sequence = BinaryPrimitives.ReadUInt16BigEndian(packet.Slice(2, 2));
         lock (_gate)
@@ -123,6 +132,11 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
                 ((ulong)rolloverCounter << 16) | sequence,
                 packet[header..length]
             );
+            if (encryptsHeader)
+            {
+                Cryptex.EndProtect(packet);
+            }
+
             Tag(_rtpMac, packet[..length], rolloverCounter, packet.Slice(length, RtpOverhead));
         }
 
@@ -167,13 +181,23 @@ internal sealed class SrtpCmTransform : ISrtpTransform, IDisposable
                 return false;
             }
 
+            bool encryptsHeader = Cryptex.IsProtected(packet, authenticated);
+            if (encryptsHeader)
+            {
+                Cryptex.BeginUnprotect(packet);
+            }
+
             Crypt(
                 _rtpCipher,
                 _rtpSalt,
                 ssrc,
                 ((ulong)rolloverCounter << 16) | sequence,
-                packet[header..authenticated]
+                packet[(encryptsHeader ? Cryptex.ClearLength : header)..authenticated]
             );
+            if (encryptsHeader)
+            {
+                Cryptex.EndUnprotect(packet);
+            }
         }
 
         plaintextLength = authenticated;

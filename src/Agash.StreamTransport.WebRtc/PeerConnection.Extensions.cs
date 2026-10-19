@@ -12,6 +12,7 @@ namespace Agash.StreamTransport.WebRtc;
 public sealed partial class PeerConnection
 {
     private RtpExtensionMap _extensions = RtpExtensionMap.None;
+    private bool _sendCryptex;
 
     /// <summary>The header extensions the two sides agreed, empty before negotiation completes.</summary>
     public RtpExtensionMap NegotiatedExtensions => Volatile.Read(ref _extensions);
@@ -54,6 +55,21 @@ public sealed partial class PeerConnection
     /// being on (RFC 6464 section 4). False before a description arrives.
     /// </summary>
     internal bool PeerSignalsVoiceActivity { get; private set; }
+
+    // RFC 9335 section 4: Cryptex goes out only when the peer receives it in every RTP section, which BUNDLE
+    // requires of it anyway; packets this side reads carry their own marking.
+    private void NoteCryptex(SdpDescription remote)
+    {
+        List<SdpMediaDescription> rtp =
+        [
+            .. remote.Media.Where(static m => !m.Rejected && m.Codecs.Count > 0),
+        ];
+        _sendCryptex = _options.Cryptex && rtp.Count > 0 && rtp.TrueForAll(static m => m.Cryptex);
+        if (_srtp is { } srtp)
+        {
+            srtp.SendCryptex = _sendCryptex;
+        }
+    }
 
     private void NoteVoiceActivity(SdpDescription remote) =>
         PeerSignalsVoiceActivity = remote.Media.Any(m =>

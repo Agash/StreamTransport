@@ -30,7 +30,12 @@ public sealed class SrtpGcmTransformTests
         Plaintext.CopyTo(buffer, 0);
 
         using SrtpGcmTransform transform = Transform();
-        int length = transform.ProtectRtp(rolloverCounter: 0, buffer, Plaintext.Length);
+        int length = transform.ProtectRtp(
+            rolloverCounter: 0,
+            buffer,
+            Plaintext.Length,
+            cryptex: false
+        );
 
         Assert.AreEqual(Protected.Length, length);
         CollectionAssert.AreEqual(Protected, buffer[..length]);
@@ -113,7 +118,7 @@ public sealed class SrtpGcmTransformTests
         packet.CopyTo(buffer, 0);
 
         using SrtpGcmTransform transform = Transform();
-        int protectedLength = transform.ProtectRtp(7, buffer, originalLength);
+        int protectedLength = transform.ProtectRtp(7, buffer, originalLength, cryptex: false);
         // header + extension must be unchanged (authenticated, not encrypted).
         CollectionAssert.AreEqual(packet[..28], buffer[..28]);
 

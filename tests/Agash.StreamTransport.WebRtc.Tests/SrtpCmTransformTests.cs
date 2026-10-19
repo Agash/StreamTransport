@@ -38,7 +38,7 @@ public sealed class SrtpCmTransformTests
         byte[] buffer = new byte[12 + 48 + SrtpCmTransform.TagLength];
         buffer[0] = 0x80;
 
-        _ = transform.ProtectRtp(0, buffer, 12 + 48);
+        _ = transform.ProtectRtp(0, buffer, 12 + 48, cryptex: false);
 
         Assert.AreEqual(
             "E03EAD0935C95E80E166B16DD92B4EB4"
@@ -56,7 +56,7 @@ public sealed class SrtpCmTransformTests
         plaintext.CopyTo(buffer, 0);
         using var transform = new SrtpCmTransform(MasterKey, MasterSalt);
 
-        int length = transform.ProtectRtp(0, buffer, plaintext.Length);
+        int length = transform.ProtectRtp(0, buffer, plaintext.Length, cryptex: false);
 
         Assert.AreEqual(ReferenceProtected, Convert.ToHexString(buffer, 0, length));
     }
@@ -80,7 +80,7 @@ public sealed class SrtpCmTransformTests
         buffer[0] = 0x80;
         buffer[11] = 7;
         using var transform = new SrtpCmTransform(MasterKey, MasterSalt);
-        int length = transform.ProtectRtp(3, buffer, 32);
+        int length = transform.ProtectRtp(3, buffer, 32, cryptex: false);
 
         Assert.IsFalse(transform.UnprotectRtp(4, buffer, length, out _));
         Assert.IsTrue(transform.UnprotectRtp(3, buffer, length, out _));
@@ -92,7 +92,7 @@ public sealed class SrtpCmTransformTests
         byte[] buffer = new byte[12 + 20 + SrtpCmTransform.TagLength];
         buffer[0] = 0x80;
         using var transform = new SrtpCmTransform(MasterKey, MasterSalt);
-        int length = transform.ProtectRtp(0, buffer, 32);
+        int length = transform.ProtectRtp(0, buffer, 32, cryptex: false);
         buffer[15] ^= 0x40;
 
         Assert.IsFalse(transform.UnprotectRtp(0, buffer, length, out _));

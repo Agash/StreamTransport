@@ -414,6 +414,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         NegotiatedMedia = negotiated;
         ApplyRemoteBandwidth(offer);
         NoteVoiceActivity(offer);
+        NoteCryptex(offer);
         BuildSectionTables();
         ConfigureRtx(offer);
         ConfigureFec(offer);
@@ -694,6 +695,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             NegotiatedMedia = negotiated;
             ApplyRemoteBandwidth(description);
             NoteVoiceActivity(description);
+            NoteCryptex(description);
             BuildSectionTables();
             ConfigureRtx(description);
             ConfigureFec(description);
@@ -1246,7 +1248,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             SrtpKeyingMaterial keying =
                 dtls.SrtpKeyingMaterial
                 ?? throw new DtlsException("The peer negotiated no SRTP protection profile.");
-            _srtp = new SrtpSession(keying, _dtlsRole == DtlsRole.Client);
+            _srtp = new SrtpSession(keying, _dtlsRole == DtlsRole.Client)
+            {
+                SendCryptex = _sendCryptex,
+            };
             LogConnected(_logger, dtls.NegotiatedProtocol, keying.Profile);
             Settle("connected");
             SetState(PeerConnectionState.Connected);
@@ -1629,6 +1634,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Ecn = LocalEcnCapability,
             Extensions = OfferedExtensions(kind),
             Bandwidth = ReceiveBandwidth(mid, kind, direction),
+            Cryptex = _options.Cryptex,
             MediaStreamId = Sends(direction) ? _streamId : null,
             TrackId = Sends(direction) ? $"{_streamId}-{mid}" : null,
         };
