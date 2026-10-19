@@ -82,6 +82,14 @@ public sealed class PeerConnectionOptions
     public bool Cryptex { get; init; } = true;
 
     /// <summary>
+    /// The priority media is marked with (RFC 8837): audio expedited and video assured forwarding from
+    /// <see cref="NetworkPriority.Medium"/> up, which Wi-Fi maps to its voice and video access categories;
+    /// <see cref="NetworkPriority.Low"/> marks nothing. Linux and macOS mark each packet; Windows marks the
+    /// flow through qWAVE, with the DSCP its traffic type gets. Medium by default.
+    /// </summary>
+    public NetworkPriority NetworkPriority { get; init; } = NetworkPriority.Medium;
+
+    /// <summary>
     /// Whether to offer the capture time, video timing and audio level encrypted one by one (RFC 6904), for
     /// peers that encrypt elements but not whole blocks. Whatever this says, an offer of encrypted elements
     /// is answered and read (RFC 8834 section 5.2.2); a packet sent as Cryptex is never also encrypted this

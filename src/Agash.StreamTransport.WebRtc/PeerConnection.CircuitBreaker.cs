@@ -188,6 +188,11 @@ public sealed partial class PeerConnection
         }
 
         LogCircuitBreaker(_logger, state, reason);
+        if (state == CircuitBreakerState.Open)
+        {
+            DropMarksAfter(reason);
+        }
+
         CircuitBreakerChanged?.Invoke(state, reason);
     }
 

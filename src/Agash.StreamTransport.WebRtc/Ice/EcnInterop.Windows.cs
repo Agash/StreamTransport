@@ -10,8 +10,12 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 // managed Socket exposes neither. CE is the network's to set: Windows refuses to send it (WSAEINVAL).
 internal static unsafe partial class EcnInterop
 {
-    // ws2ipdef.h: IP_ECN, IP_RECVECN, IPV6_ECN and IPV6_RECVECN are all 50.
+    // ws2ipdef.h: IP_ECN, IP_RECVECN, IPV6_ECN and IPV6_RECVECN are all 50; IP_RECVTOS and
+    // IPV6_RECVTCLASS 40, delivering IP_TOS (3) and IPV6_TCLASS (39): the whole byte, DSCP with ECN.
     private const int WindowsEcnOption = 50;
+    private const int WindowsRecvTrafficClass = 40;
+    private const int WindowsIpTos = 3;
+    private const int WindowsIpv6TrafficClass = 39;
 
     // ws2def.h / mswsock.h.
     private const uint SioGetExtensionFunctionPointer = 0xC8000006;
@@ -53,15 +57,12 @@ internal static unsafe partial class EcnInterop
         uint returned;
         _ = WSAIoctl(handle, SioUdpConnReset, &off, sizeof(int), null, 0, &returned, null, null);
 
+        // The whole traffic class where the system gives it, else the ECN bits alone.
         int on = 1;
+        int level = ipv6 ? IPPROTO_IPV6 : IPPROTO_IP;
         if (
-            setsockopt(
-                handle,
-                ipv6 ? IPPROTO_IPV6 : IPPROTO_IP,
-                WindowsEcnOption,
-                (byte*)&on,
-                sizeof(int)
-            ) != 0
+            setsockopt(handle, level, WindowsRecvTrafficClass, (byte*)&on, sizeof(int)) != 0
+            && setsockopt(handle, level, WindowsEcnOption, (byte*)&on, sizeof(int)) != 0
         )
         {
             throw new SocketException(Marshal.GetLastPInvokeError());
@@ -102,11 +103,11 @@ internal static unsafe partial class EcnInterop
         nint handle,
         byte[] buffer,
         bool ipv6,
-        out byte ecn,
+        out byte trafficClass,
         out IPEndPoint? remote
     )
     {
-        ecn = 0;
+        trafficClass = 0;
         remote = null;
         Span<byte> name = stackalloc byte[128];
         Span<byte> control = stackalloc byte[64];
@@ -136,14 +137,15 @@ internal static unsafe partial class EcnInterop
                 return Marshal.GetLastSystemError() == WsaEMsgSize ? 0 : -1;
             }
 
-            ecn = ParseWindowsEcn(control, (int)*(uint*)(pMessage + 32));
+            trafficClass = ParseWindowsTrafficClass(control, (int)*(uint*)(pMessage + 32));
             remote = ParseSockAddr(name, ipv6);
             return (int)received;
         }
     }
 
-    // A dual-stack socket reports IPv4 datagrams at the IPv4 level, so either level's mark is taken.
-    private static byte ParseWindowsEcn(ReadOnlySpan<byte> control, int length)
+    // A dual-stack socket reports IPv4 datagrams at the IPv4 level, so either level's mark is taken: the
+    // whole byte from IP_TOS / IPV6_TCLASS, or the ECN bits from IP_ECN.
+    private static byte ParseWindowsTrafficClass(ReadOnlySpan<byte> control, int length)
     {
         int offset = 0;
         while (offset + CmsgHeader <= length)
@@ -154,6 +156,14 @@ internal static unsafe partial class EcnInterop
             if (cmsgLength < CmsgHeader || offset + (int)cmsgLength > length)
             {
                 break;
+            }
+
+            if (
+                (level == IPPROTO_IP && type == WindowsIpTos)
+                || (level == IPPROTO_IPV6 && type == WindowsIpv6TrafficClass)
+            )
+            {
+                return (byte)*(int*)Ptr(control, offset + CmsgHeader);
             }
 
             if (level is IPPROTO_IP or IPPROTO_IPV6 && type == WindowsEcnOption)

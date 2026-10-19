@@ -67,6 +67,38 @@ public sealed class EcnLoopbackTests
         }
     }
 
+    // RFC 8837: Linux and macOS mark each datagram with its whole traffic class, the DSCP beside the ECN
+    // bits, and read it back the same way; a DSCP alone goes out through the native call too.
+    [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    [DataRow(false, (byte)((46 << 2) | 0x01), DisplayName = "IPv4 EF with ECT(1)")]
+    [DataRow(false, (byte)((34 << 2) | 0x02), DisplayName = "IPv4 AF41 with ECT(0)")]
+    [DataRow(false, (byte)(38 << 2), DisplayName = "IPv4 AF43 alone")]
+    [DataRow(true, (byte)((46 << 2) | 0x01), DisplayName = "IPv6 EF with ECT(1)")]
+    [DataRow(true, (byte)(36 << 2), DisplayName = "IPv6 AF42 alone")]
+    [Timeout(10_000)]
+    public async Task NativeSocket_ReadsBackTheWholeTrafficClass(bool ipv6, byte trafficClass)
+    {
+        IPAddress loopback = ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;
+        if (ipv6 && !Socket.OSSupportsIPv6)
+        {
+            Assert.Inconclusive("IPv6 is not available on this host.");
+        }
+
+        using var rxRaw = new Socket(loopback.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+        rxRaw.Bind(new IPEndPoint(loopback, 0));
+        using var rx = new EcnUdpSocket(rxRaw);
+        using var tx = new Socket(loopback.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+        tx.Bind(new IPEndPoint(loopback, 0));
+
+        EcnInterop.Send(tx, [1, 2, 3], rx.LocalEndPoint, trafficClass);
+
+        IceReceiveResult result = await rx.ReceiveAsync(new byte[2048], CancellationToken.None)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(trafficClass, result.TrafficClass);
+    }
+
     private static async Task SendAndReadBackAsync(bool ipv6, byte codepoint)
     {
         IPAddress loopback = ipv6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;

@@ -6,7 +6,15 @@ using Agash.StreamTransport.Adaptation;
 namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>The outcome of an <see cref="IIceSocket"/> receive: the bytes read and who sent them.</summary>
-public readonly record struct IceReceiveResult(int Length, IPEndPoint RemoteEndPoint, byte Ecn = 0);
+public readonly record struct IceReceiveResult(
+    int Length,
+    IPEndPoint RemoteEndPoint,
+    byte TrafficClass = 0
+)
+{
+    /// <summary>The ECN codepoint the datagram arrived with: the traffic class's lower two bits.</summary>
+    public byte Ecn => (byte)(TrafficClass & 0x03);
+}
 
 /// <summary>
 /// ICE timing: check pacing (RFC 8445 appendix B.1), liveness, keep-alive cadence and consent (RFC 7675).
@@ -78,19 +86,19 @@ public interface IIceSocket : IDisposable
     /// <summary>The local address/port this socket is bound to.</summary>
     IPEndPoint LocalEndPoint { get; }
 
-    /// <summary>Sends a datagram to <paramref name="destination"/>, carrying an ECN codepoint.</summary>
+    /// <summary>Sends a datagram to <paramref name="destination"/>, marked as given.</summary>
     /// <param name="data">The datagram.</param>
     /// <param name="destination">Where it goes.</param>
-    /// <param name="ecn">
-    /// The ECN codepoint: ECT only for media on a validated path, never for STUN, DTLS or RTCP
-    /// (RFC 6679 section 7.3.1). A socket that cannot mark sends it unmarked.
+    /// <param name="marking">
+    /// Its traffic class: the DSCP (RFC 8837), and the ECN codepoint, ECT only for media on a validated path,
+    /// never for STUN, DTLS or RTCP (RFC 6679 section 7.3.1). A socket that cannot mark sends it unmarked.
     /// </param>
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns>A task that completes when the datagram is handed to the network.</returns>
     ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
-        EcnCodepoint ecn,
+        IpMarking marking,
         CancellationToken cancellationToken = default
     );
 
@@ -267,7 +275,7 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         public async ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
             IPEndPoint destination,
-            EcnCodepoint ecn,
+            IpMarking marking,
             CancellationToken cancellationToken = default
         ) =>
             await _socket

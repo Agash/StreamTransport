@@ -315,12 +315,12 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// must not fault while ICE re-nominates.
     /// </summary>
     /// <param name="data">The datagram.</param>
-    /// <param name="ecn">The ECN codepoint it carries; none by default.</param>
+    /// <param name="marking">Its DSCP and ECN codepoint; none by default.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns>A task that completes when the datagram is handed to the socket.</returns>
     public async ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
-        EcnCodepoint ecn = EcnCodepoint.NotEct,
+        IpMarking marking = default,
         CancellationToken cancellationToken = default
     )
     {
@@ -330,7 +330,7 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         await selection
-            .Socket.Socket.SendAsync(data, selection.Remote, ecn, cancellationToken)
+            .Socket.Socket.SendAsync(data, selection.Remote, marking, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -340,10 +340,12 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// none.
     /// </summary>
     /// <param name="data">The datagram.</param>
+    /// <param name="marking">Its DSCP; never ECT, as the standby path's ECN is not validated.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns>Whether it was sent on a standby pair.</returns>
     public async ValueTask<bool> TrySendOnStandbyAsync(
         ReadOnlyMemory<byte> data,
+        IpMarking marking = default,
         CancellationToken cancellationToken = default
     )
     {
@@ -353,7 +355,15 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         await standby
-            .Socket.Socket.SendAsync(data, standby.Remote, EcnCodepoint.NotEct, cancellationToken)
+            .Socket.Socket.SendAsync(
+                data,
+                standby.Remote,
+                marking with
+                {
+                    Ecn = EcnCodepoint.NotEct,
+                },
+                cancellationToken
+            )
             .ConfigureAwait(false);
         return true;
     }
@@ -978,12 +988,7 @@ public sealed partial class IceAgent : IAsyncDisposable
             try
             {
                 await socket
-                    .SendAsync(
-                        transmit.Data,
-                        transmit.Destination,
-                        EcnCodepoint.NotEct,
-                        cancellationToken
-                    )
+                    .SendAsync(transmit.Data, transmit.Destination, default, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (SocketException exception)

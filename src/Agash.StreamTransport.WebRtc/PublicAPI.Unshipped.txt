@@ -7,7 +7,7 @@ Agash.StreamTransport.WebRtc.Ice.EcnSupport.SetRead = 3 -> Agash.StreamTransport
 Agash.StreamTransport.WebRtc.Ice.IIceSocket
 Agash.StreamTransport.WebRtc.Ice.IIceSocket.LocalEndPoint.get -> System.Net.IPEndPoint!
 Agash.StreamTransport.WebRtc.Ice.IIceSocket.ReceiveAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.WebRtc.Ice.IceReceiveResult>
-Agash.StreamTransport.WebRtc.Ice.IIceSocket.SendAsync(System.ReadOnlyMemory<byte> data, System.Net.IPEndPoint! destination, Agash.StreamTransport.Adaptation.EcnCodepoint ecn, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.Ice.IIceSocket.SendAsync(System.ReadOnlyMemory<byte> data, System.Net.IPEndPoint! destination, Agash.StreamTransport.Adaptation.IpMarking marking, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory
 Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.Ecn.get -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
 Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.GetLocalAddresses(bool includeLoopback) -> System.Collections.Generic.IEnumerable<System.Net.IPAddress!>!
@@ -28,14 +28,14 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.Restart(Agash.StreamTransport.WebRtc.I
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPath.get -> Agash.StreamTransport.WebRtc.Ice.IcePath?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPathChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IcePath?>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedRoundTrip.get -> System.TimeSpan?
-Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.EcnCodepoint ecn = Agash.StreamTransport.Adaptation.EcnCodepoint.NotEct, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.IpMarking marking = default(Agash.StreamTransport.Adaptation.IpMarking), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteCredentials(Agash.StreamTransport.WebRtc.Ice.IceCredentials remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteOptions(Agash.StreamTransport.WebRtc.Ice.IceOptions remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.Start() -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.State.get -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceAgent.StateChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IceConnectionState>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.TriggerRecovery() -> void
-Agash.StreamTransport.WebRtc.Ice.IceAgent.TrySendOnStandbyAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+Agash.StreamTransport.WebRtc.Ice.IceAgent.TrySendOnStandbyAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.IpMarking marking = default(Agash.StreamTransport.Adaptation.IpMarking), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 Agash.StreamTransport.WebRtc.Ice.IceAgent.WhenGatheredAsync(System.TimeSpan limit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.WebRtc.Ice.IceCandidate
 Agash.StreamTransport.WebRtc.Ice.IceCandidate.ComponentId.get -> int
@@ -85,16 +85,17 @@ Agash.StreamTransport.WebRtc.Ice.IcePath.Remote.init -> void
 Agash.StreamTransport.WebRtc.Ice.IcePath.RemoteKind.get -> Agash.StreamTransport.WebRtc.IceCandidateKind
 Agash.StreamTransport.WebRtc.Ice.IcePath.RemoteKind.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult
-Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Deconstruct(out int Length, out System.Net.IPEndPoint! RemoteEndPoint, out byte Ecn) -> void
+Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Deconstruct(out int Length, out System.Net.IPEndPoint! RemoteEndPoint, out byte TrafficClass) -> void
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Ecn.get -> byte
-Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Ecn.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Equals(Agash.StreamTransport.WebRtc.Ice.IceReceiveResult other) -> bool
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.IceReceiveResult() -> void
-Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.IceReceiveResult(int Length, System.Net.IPEndPoint! RemoteEndPoint, byte Ecn = 0) -> void
+Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.IceReceiveResult(int Length, System.Net.IPEndPoint! RemoteEndPoint, byte TrafficClass = 0) -> void
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Length.get -> int
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Length.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.RemoteEndPoint.get -> System.Net.IPEndPoint!
 Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.RemoteEndPoint.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.TrafficClass.get -> byte
+Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.TrafficClass.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceTimings
 Agash.StreamTransport.WebRtc.Ice.IceTimings.<Clone>$() -> Agash.StreamTransport.WebRtc.Ice.IceTimings!
 Agash.StreamTransport.WebRtc.Ice.IceTimings.CheckRto.get -> System.TimeSpan
@@ -229,6 +230,8 @@ Agash.StreamTransport.WebRtc.PeerConnectionOptions.LocalAddressPreferences.get -
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.LocalAddressPreferences.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.Media.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.MediaLine!>!
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.Media.init -> void
+Agash.StreamTransport.WebRtc.PeerConnectionOptions.NetworkPriority.get -> Agash.StreamTransport.Adaptation.NetworkPriority
+Agash.StreamTransport.WebRtc.PeerConnectionOptions.NetworkPriority.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.PathMtu.get -> Agash.StreamTransport.Adaptation.PathMtuOptions?
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.PathMtu.init -> void
 Agash.StreamTransport.WebRtc.PeerConnectionOptions.PayloadFormats.get -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry!

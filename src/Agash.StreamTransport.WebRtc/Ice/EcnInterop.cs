@@ -55,22 +55,26 @@ internal static unsafe partial class EcnInterop
     /// <param name="socket">The socket, in blocking mode.</param>
     /// <param name="payload">The datagram.</param>
     /// <param name="destination">Where it goes.</param>
-    /// <param name="ecn">The two ECN bits.</param>
+    /// <param name="trafficClass">
+    /// The traffic class byte: the DSCP in the upper six bits, the ECN codepoint in the lower two. Windows
+    /// marks only the ECN bits per datagram (its DSCP marking is a QoS policy matter); Linux and macOS mark
+    /// both.
+    /// </param>
     /// <exception cref="SocketException">The send failed.</exception>
     internal static void Send(
         Socket socket,
         ReadOnlySpan<byte> payload,
         IPEndPoint destination,
-        byte ecn
+        byte trafficClass
     )
     {
-        if ((ecn & 0x03) == 0 || !NativeSendSupported)
+        if (trafficClass == 0 || !NativeSendSupported || (IsWindows && (trafficClass & 0x03) == 0))
         {
             _ = socket.SendTo(payload, SocketFlags.None, destination);
         }
         else if (IsWindows)
         {
-            WindowsSend(socket, payload, destination, ecn);
+            WindowsSend(socket, payload, destination, (byte)(trafficClass & 0x03));
         }
         else
         {
@@ -79,7 +83,7 @@ internal static unsafe partial class EcnInterop
                 payload,
                 destination,
                 socket.AddressFamily == AddressFamily.InterNetworkV6,
-                ecn
+                trafficClass
             );
         }
     }
@@ -159,19 +163,20 @@ internal static unsafe partial class EcnInterop
     );
 
     /// <summary>
-    /// Blocking receive of one datagram, returning the byte count, the 2-bit ECN mark and the source endpoint.
+    /// Blocking receive of one datagram, returning the byte count, its traffic class byte (DSCP and ECN) and the
+    /// source endpoint.
     /// Returns -1 (with <paramref name="remote"/> null) on error - e.g. the socket was closed during shutdown.
     /// </summary>
     public static int Receive(
         nint handle,
         byte[] buffer,
         bool ipv6,
-        out byte ecn,
+        out byte trafficClass,
         out IPEndPoint? remote
     ) =>
         IsWindows
-            ? WindowsReceive(handle, buffer, ipv6, out ecn, out remote)
-            : UnixReceive((int)handle, buffer, ipv6, out ecn, out remote);
+            ? WindowsReceive(handle, buffer, ipv6, out trafficClass, out remote)
+            : UnixReceive((int)handle, buffer, ipv6, out trafficClass, out remote);
 
     // ---- Unix (Linux + macOS): recvmsg, sendmsg ----
 
@@ -181,14 +186,14 @@ internal static unsafe partial class EcnInterop
     [DllImport("libc", SetLastError = true)]
     private static extern nint sendmsg(int sockfd, byte* msg, int flags);
 
-    // One datagram with the codepoint in an IP_TOS (IPv4) or IPV6_TCLASS (IPv6) control message, an int on
-    // both Linux and macOS (draft-ietf-tsvwg-udp-ecn-08 section 4.2.1).
+    // One datagram with its traffic class byte in an IP_TOS (IPv4) or IPV6_TCLASS (IPv6) control message, an
+    // int on both Linux and macOS (draft-ietf-tsvwg-udp-ecn-08 section 4.2.1): DSCP and ECN together.
     private static void UnixSend(
         int fd,
         ReadOnlySpan<byte> payload,
         IPEndPoint destination,
         bool ipv6Socket,
-        byte ecn
+        byte trafficClass
     )
     {
         Span<byte> name = stackalloc byte[28];
@@ -231,7 +236,7 @@ internal static unsafe partial class EcnInterop
                 *(int*)(pControl + 12) = type;
             }
 
-            *(int*)(pControl + headerSize) = ecn & 0x03;
+            *(int*)(pControl + headerSize) = trafficClass;
 
             // msghdr: name@0, namelen@8, iov@16, iovlen@24, control@32, controllen@40, flags@48.
             *(nint*)(pHdr + 0) = (nint)pName;
@@ -298,11 +303,11 @@ internal static unsafe partial class EcnInterop
         int fd,
         byte[] buffer,
         bool ipv6,
-        out byte ecn,
+        out byte trafficClass,
         out IPEndPoint? remote
     )
     {
-        ecn = 0;
+        trafficClass = 0;
         remote = null;
 
         Span<byte> name = stackalloc byte[128];
@@ -345,13 +350,13 @@ internal static unsafe partial class EcnInterop
             }
 
             ulong controlLen = IsMacOS ? *(uint*)(pHdr + 40) : (ulong)*(nuint*)(pHdr + 40);
-            ecn = ParseUnixEcn(control, (int)controlLen, ipv6);
+            trafficClass = ParseUnixTrafficClass(control, (int)controlLen, ipv6);
             remote = ParseSockAddr(name, ipv6);
             return (int)n;
         }
     }
 
-    private static byte ParseUnixEcn(ReadOnlySpan<byte> control, int controlLen, bool ipv6)
+    private static byte ParseUnixTrafficClass(ReadOnlySpan<byte> control, int controlLen, bool ipv6)
     {
         // cmsghdr: Linux { size_t len; int level; int type } -> data@16, align 8.
         //          macOS { uint   len; int level; int type } -> data@12, align 4.
@@ -376,7 +381,7 @@ internal static unsafe partial class EcnInterop
             {
                 // Data is the TOS/Traffic-Class byte (delivered as a byte or an int; either way the byte we want
                 // is the first data byte). The ECN codepoint is its low 2 bits (RFC 3168 §5).
-                return (byte)(control[offset + headerSize] & 0x03);
+                return control[offset + headerSize];
             }
 
             offset += Align((int)cmsgLen, align);

@@ -31,6 +31,7 @@ internal sealed class EcnUdpSocket : IIceSocket
     private readonly bool _ipv6;
     private readonly Thread _recvThread;
     private readonly Channel<Received> _channel;
+    private readonly WindowsQosFlows? _qos = OperatingSystem.IsWindows() ? new() : null;
     private volatile bool _stopping;
 
     public EcnUdpSocket(Socket socket)
@@ -64,7 +65,7 @@ internal sealed class EcnUdpSocket : IIceSocket
     public ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
-        EcnCodepoint ecn,
+        IpMarking marking,
         CancellationToken cancellationToken = default
     )
     {
@@ -72,7 +73,16 @@ internal sealed class EcnUdpSocket : IIceSocket
         // break the blocking native receive). UDP sendto does not block in practice for datagrams this size.
         try
         {
-            EcnInterop.Send(_socket, data.Span, destination, (byte)ecn);
+            if (
+                OperatingSystem.IsWindows()
+                && _qos is { } qos
+                && marking.DiffServ != DiffServCodepoint.Default
+            )
+            {
+                qos.Mark(_socket, destination, marking.DiffServ);
+            }
+
+            EcnInterop.Send(_socket, data.Span, destination, marking.Value);
         }
         catch (SocketException)
         {
@@ -106,7 +116,7 @@ internal sealed class EcnUdpSocket : IIceSocket
         int len = Math.Min(item.Length, buffer.Length);
         item.Buffer.AsSpan(0, len).CopyTo(buffer.Span);
         ArrayPool<byte>.Shared.Return(item.Buffer);
-        return new IceReceiveResult(len, item.RemoteEndPoint, item.Ecn);
+        return new IceReceiveResult(len, item.RemoteEndPoint, item.TrafficClass);
     }
 
     private void ReceiveLoop()
@@ -117,11 +127,11 @@ internal sealed class EcnUdpSocket : IIceSocket
         {
             byte[] rented = ArrayPool<byte>.Shared.Rent(MaxDatagram);
             int len;
-            byte ecn;
+            byte trafficClass;
             IPEndPoint? remote;
             try
             {
-                len = EcnInterop.Receive(handle, rented, _ipv6, out ecn, out remote);
+                len = EcnInterop.Receive(handle, rented, _ipv6, out trafficClass, out remote);
             }
             catch
             {
@@ -146,7 +156,7 @@ internal sealed class EcnUdpSocket : IIceSocket
             }
 
             consecutiveErrors = 0;
-            _channel.Writer.TryWrite(new Received(rented, len, remote, ecn));
+            _channel.Writer.TryWrite(new Received(rented, len, remote, trafficClass));
         }
 
         _channel.Writer.TryComplete();
@@ -156,6 +166,10 @@ internal sealed class EcnUdpSocket : IIceSocket
     {
         _stopping = true;
         _socket.Dispose(); // unblocks the native receive (returns an error), so the thread exits.
+        if (OperatingSystem.IsWindows())
+        {
+            _qos?.Dispose();
+        }
         _channel.Writer.TryComplete();
 
         // Drain any queued datagrams back to the pool.
@@ -169,6 +183,6 @@ internal sealed class EcnUdpSocket : IIceSocket
         byte[] Buffer,
         int Length,
         IPEndPoint RemoteEndPoint,
-        byte Ecn
+        byte TrafficClass
     );
 }

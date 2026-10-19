@@ -44,12 +44,16 @@ internal sealed class InMemoryIceNetwork
     /// </summary>
     public Func<byte[], EcnCodepoint, EcnCodepoint>? Remark { get; set; }
 
+    /// <summary>Sees each datagram's DSCP as it is sent, given the datagram.</summary>
+    public Action<byte[], DiffServCodepoint>? Marked { get; set; }
+
     /// <summary>Puts a datagram on a socket as if it arrived from <paramref name="from"/>.</summary>
     public void Inject(IPEndPoint from, IPEndPoint to, byte[] data) =>
-        Deliver(from, to, data, EcnCodepoint.NotEct);
+        Deliver(from, to, data, default);
 
-    private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data, EcnCodepoint ecn)
+    private void Deliver(IPEndPoint from, IPEndPoint to, byte[] data, IpMarking marking)
     {
+        Marked?.Invoke(data, marking.DiffServ);
         if (Drop?.Invoke(from, to, data) == true)
         {
             return;
@@ -57,7 +61,8 @@ internal sealed class InMemoryIceNetwork
 
         if (_sockets.TryGetValue(to, out FakeSocket? destination))
         {
-            destination.Enqueue(from, data, Remark?.Invoke(data, ecn) ?? ecn);
+            EcnCodepoint ecn = Remark?.Invoke(data, marking.Ecn) ?? marking.Ecn;
+            destination.Enqueue(from, data, (marking with { Ecn = ecn }).Value);
         }
     }
 
@@ -93,8 +98,8 @@ internal sealed class InMemoryIceNetwork
     private sealed class FakeSocket : IIceSocket
     {
         private readonly InMemoryIceNetwork _network;
-        private readonly Channel<(IPEndPoint From, byte[] Data, EcnCodepoint Ecn)> _rx =
-            Channel.CreateUnbounded<(IPEndPoint, byte[], EcnCodepoint)>(
+        private readonly Channel<(IPEndPoint From, byte[] Data, byte TrafficClass)> _rx =
+            Channel.CreateUnbounded<(IPEndPoint, byte[], byte)>(
                 new UnboundedChannelOptions { SingleReader = true }
             );
 
@@ -115,11 +120,11 @@ internal sealed class InMemoryIceNetwork
         public ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
             IPEndPoint destination,
-            EcnCodepoint ecn,
+            IpMarking marking,
             CancellationToken cancellationToken = default
         )
         {
-            _network.Deliver(LocalEndPoint, destination, data.ToArray(), ecn);
+            _network.Deliver(LocalEndPoint, destination, data.ToArray(), marking);
             return ValueTask.CompletedTask;
         }
 
@@ -130,10 +135,10 @@ internal sealed class InMemoryIceNetwork
         {
             IPEndPoint from;
             byte[] data;
-            EcnCodepoint ecn;
+            byte trafficClass;
             try
             {
-                (from, data, ecn) = await _rx
+                (from, data, trafficClass) = await _rx
                     .Reader.ReadAsync(cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -144,11 +149,11 @@ internal sealed class InMemoryIceNetwork
             }
 
             data.CopyTo(buffer.Span);
-            return new IceReceiveResult(data.Length, from, (byte)ecn);
+            return new IceReceiveResult(data.Length, from, trafficClass);
         }
 
-        public void Enqueue(IPEndPoint from, byte[] data, EcnCodepoint ecn) =>
-            _rx.Writer.TryWrite((from, data, ecn));
+        public void Enqueue(IPEndPoint from, byte[] data, byte trafficClass) =>
+            _rx.Writer.TryWrite((from, data, trafficClass));
 
         // Closing unbinds, as a socket does: the address no longer receives on this port.
         public void Dispose()

@@ -171,7 +171,7 @@ internal sealed partial class TurnAllocation : IIceSocket
     public async ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
-        EcnCodepoint ecn,
+        IpMarking marking,
         CancellationToken cancellationToken = default
     )
     {
@@ -590,8 +590,7 @@ internal sealed partial class TurnAllocation : IIceSocket
         {
             try
             {
-                await SendAsync(data, destination, EcnCodepoint.NotEct, _lifetime.Token)
-                    .ConfigureAwait(false);
+                await SendAsync(data, destination, default, _lifetime.Token).ConfigureAwait(false);
             }
             catch (Exception exception)
                 when (exception

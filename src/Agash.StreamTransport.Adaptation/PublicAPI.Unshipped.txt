@@ -1,18 +1,4 @@
 #nullable enable
-~override Agash.StreamTransport.Adaptation.CapacityEstimate.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.CapacityEstimate.ToString() -> string
-~override Agash.StreamTransport.Adaptation.PacedPacket.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.PacedPacket.ToString() -> string
-~override Agash.StreamTransport.Adaptation.PacketObservation.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.PacketObservation.ToString() -> string
-~override Agash.StreamTransport.Adaptation.PacketReport.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.PacketReport.ToString() -> string
-~override Agash.StreamTransport.Adaptation.RecoveryInputs.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.RecoveryInputs.ToString() -> string
-~override Agash.StreamTransport.Adaptation.RecoveryPlan.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.RecoveryPlan.ToString() -> string
-~override Agash.StreamTransport.Adaptation.SentPacket.Equals(object obj) -> bool
-~override Agash.StreamTransport.Adaptation.SentPacket.ToString() -> string
 Agash.StreamTransport.Adaptation.CapacityEstimate
 Agash.StreamTransport.Adaptation.CapacityEstimate.CapacityEstimate() -> void
 Agash.StreamTransport.Adaptation.CapacityEstimate.CapacityEstimate(long TargetBitsPerSecond, long PacingBitsPerSecond, System.TimeSpan SmoothedRoundTrip = default(System.TimeSpan), System.TimeSpan MinimumRoundTrip = default(System.TimeSpan)) -> void
@@ -67,6 +53,15 @@ Agash.StreamTransport.Adaptation.DeliveryTracker.OnPathChanged() -> void
 Agash.StreamTransport.Adaptation.DeliveryTracker.OnSent(in Agash.StreamTransport.Adaptation.SentPacket packet) -> void
 Agash.StreamTransport.Adaptation.DeliveryTracker.OnTick(System.TimeSpan now, System.Collections.Generic.List<Agash.StreamTransport.Adaptation.PacketObservation>! observations) -> void
 Agash.StreamTransport.Adaptation.DeliveryTracker.ReorderingWindow.get -> System.TimeSpan
+Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Af11 = 10 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Af21 = 18 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Af41 = 34 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Af42 = 36 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Af43 = 38 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Default = 0 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.Expedited = 46 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.DiffServCodepoint.LowerEffort = 1 -> Agash.StreamTransport.Adaptation.DiffServCodepoint
 Agash.StreamTransport.Adaptation.EcnCodepoint
 Agash.StreamTransport.Adaptation.EcnCodepoint.Ce = 3 -> Agash.StreamTransport.Adaptation.EcnCodepoint
 Agash.StreamTransport.Adaptation.EcnCodepoint.Ect0 = 2 -> Agash.StreamTransport.Adaptation.EcnCodepoint
@@ -99,10 +94,25 @@ Agash.StreamTransport.Adaptation.ICongestionController.OnPacketSent(in Agash.Str
 Agash.StreamTransport.Adaptation.ICongestionController.OnPathChanged(System.TimeSpan? roundTrip, System.TimeSpan now) -> void
 Agash.StreamTransport.Adaptation.ICongestionController.OnTick(System.TimeSpan now) -> Agash.StreamTransport.Adaptation.CapacityEstimate
 Agash.StreamTransport.Adaptation.ICongestionController.UseEcn(Agash.StreamTransport.Adaptation.EcnCodepoint codepoint) -> void
+Agash.StreamTransport.Adaptation.IpMarking
+Agash.StreamTransport.Adaptation.IpMarking.Deconstruct(out Agash.StreamTransport.Adaptation.DiffServCodepoint DiffServ, out Agash.StreamTransport.Adaptation.EcnCodepoint Ecn) -> void
+Agash.StreamTransport.Adaptation.IpMarking.DiffServ.get -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+Agash.StreamTransport.Adaptation.IpMarking.DiffServ.init -> void
+Agash.StreamTransport.Adaptation.IpMarking.Ecn.get -> Agash.StreamTransport.Adaptation.EcnCodepoint
+Agash.StreamTransport.Adaptation.IpMarking.Ecn.init -> void
+Agash.StreamTransport.Adaptation.IpMarking.Equals(Agash.StreamTransport.Adaptation.IpMarking other) -> bool
+Agash.StreamTransport.Adaptation.IpMarking.IpMarking() -> void
+Agash.StreamTransport.Adaptation.IpMarking.IpMarking(Agash.StreamTransport.Adaptation.DiffServCodepoint DiffServ, Agash.StreamTransport.Adaptation.EcnCodepoint Ecn = Agash.StreamTransport.Adaptation.EcnCodepoint.NotEct) -> void
+Agash.StreamTransport.Adaptation.IpMarking.Value.get -> byte
 Agash.StreamTransport.Adaptation.MediaRateAllocator
 Agash.StreamTransport.Adaptation.MediaRateAllocator.MediaRateAllocator(System.Func<Agash.StreamTransport.Adaptation.TrafficClass, long>! sentBytes, System.TimeProvider? timeProvider = null) -> void
 Agash.StreamTransport.Adaptation.MediaRateAllocator.RecoveryBitsPerSecond.get -> long
 Agash.StreamTransport.Adaptation.MediaRateAllocator.VideoBitsPerSecond(long targetBitsPerSecond, long audioBitsPerSecond, long minimumVideoBitsPerSecond) -> long
+Agash.StreamTransport.Adaptation.NetworkPriority
+Agash.StreamTransport.Adaptation.NetworkPriority.High = 3 -> Agash.StreamTransport.Adaptation.NetworkPriority
+Agash.StreamTransport.Adaptation.NetworkPriority.Low = 1 -> Agash.StreamTransport.Adaptation.NetworkPriority
+Agash.StreamTransport.Adaptation.NetworkPriority.Medium = 2 -> Agash.StreamTransport.Adaptation.NetworkPriority
+Agash.StreamTransport.Adaptation.NetworkPriority.VeryLow = 0 -> Agash.StreamTransport.Adaptation.NetworkPriority
 Agash.StreamTransport.Adaptation.PacedPacket
 Agash.StreamTransport.Adaptation.PacedPacket.Buffer.get -> byte[]!
 Agash.StreamTransport.Adaptation.PacedPacket.Buffer.init -> void
@@ -142,6 +152,7 @@ Agash.StreamTransport.Adaptation.PacketOutcome
 Agash.StreamTransport.Adaptation.PacketOutcome.Delivered = 0 -> Agash.StreamTransport.Adaptation.PacketOutcome
 Agash.StreamTransport.Adaptation.PacketOutcome.DeliveredLate = 2 -> Agash.StreamTransport.Adaptation.PacketOutcome
 Agash.StreamTransport.Adaptation.PacketOutcome.Lost = 1 -> Agash.StreamTransport.Adaptation.PacketOutcome
+Agash.StreamTransport.Adaptation.PacketOutcome.Unreported = 3 -> Agash.StreamTransport.Adaptation.PacketOutcome
 Agash.StreamTransport.Adaptation.PacketReport
 Agash.StreamTransport.Adaptation.PacketReport.ArrivedAt.get -> System.TimeSpan?
 Agash.StreamTransport.Adaptation.PacketReport.ArrivedAt.init -> void
@@ -309,6 +320,7 @@ Agash.StreamTransport.Adaptation.TrafficClass.Retransmission = 1 -> Agash.Stream
 Agash.StreamTransport.Adaptation.TrafficClass.Video = 2 -> Agash.StreamTransport.Adaptation.TrafficClass
 const Agash.StreamTransport.Adaptation.PathMtuDiscovery.BlackHoleThreshold = 3 -> int
 override Agash.StreamTransport.Adaptation.CapacityEstimate.GetHashCode() -> int
+override Agash.StreamTransport.Adaptation.IpMarking.GetHashCode() -> int
 override Agash.StreamTransport.Adaptation.PacedPacket.GetHashCode() -> int
 override Agash.StreamTransport.Adaptation.PacketObservation.GetHashCode() -> int
 override Agash.StreamTransport.Adaptation.PacketReport.GetHashCode() -> int
@@ -323,6 +335,10 @@ override Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.ToString() -> st
 override Agash.StreamTransport.Adaptation.SentPacket.GetHashCode() -> int
 static Agash.StreamTransport.Adaptation.CapacityEstimate.operator !=(Agash.StreamTransport.Adaptation.CapacityEstimate left, Agash.StreamTransport.Adaptation.CapacityEstimate right) -> bool
 static Agash.StreamTransport.Adaptation.CapacityEstimate.operator ==(Agash.StreamTransport.Adaptation.CapacityEstimate left, Agash.StreamTransport.Adaptation.CapacityEstimate right) -> bool
+static Agash.StreamTransport.Adaptation.IpMarking.DiffServFor(Agash.StreamTransport.Adaptation.TrafficClass traffic, Agash.StreamTransport.Adaptation.NetworkPriority priority) -> Agash.StreamTransport.Adaptation.DiffServCodepoint
+static Agash.StreamTransport.Adaptation.IpMarking.FromTrafficClass(byte trafficClass) -> Agash.StreamTransport.Adaptation.IpMarking
+static Agash.StreamTransport.Adaptation.IpMarking.operator !=(Agash.StreamTransport.Adaptation.IpMarking left, Agash.StreamTransport.Adaptation.IpMarking right) -> bool
+static Agash.StreamTransport.Adaptation.IpMarking.operator ==(Agash.StreamTransport.Adaptation.IpMarking left, Agash.StreamTransport.Adaptation.IpMarking right) -> bool
 static Agash.StreamTransport.Adaptation.PacedPacket.operator !=(Agash.StreamTransport.Adaptation.PacedPacket left, Agash.StreamTransport.Adaptation.PacedPacket right) -> bool
 static Agash.StreamTransport.Adaptation.PacedPacket.operator ==(Agash.StreamTransport.Adaptation.PacedPacket left, Agash.StreamTransport.Adaptation.PacedPacket right) -> bool
 static Agash.StreamTransport.Adaptation.PacketObservation.operator !=(Agash.StreamTransport.Adaptation.PacketObservation left, Agash.StreamTransport.Adaptation.PacketObservation right) -> bool
@@ -339,4 +355,19 @@ static Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.operator !=(Agash.
 static Agash.StreamTransport.Adaptation.RecoveryPolicyOptions.operator ==(Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? left, Agash.StreamTransport.Adaptation.RecoveryPolicyOptions? right) -> bool
 static Agash.StreamTransport.Adaptation.SentPacket.operator !=(Agash.StreamTransport.Adaptation.SentPacket left, Agash.StreamTransport.Adaptation.SentPacket right) -> bool
 static Agash.StreamTransport.Adaptation.SentPacket.operator ==(Agash.StreamTransport.Adaptation.SentPacket left, Agash.StreamTransport.Adaptation.SentPacket right) -> bool
-Agash.StreamTransport.Adaptation.PacketOutcome.Unreported = 3 -> Agash.StreamTransport.Adaptation.PacketOutcome
+~override Agash.StreamTransport.Adaptation.CapacityEstimate.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.CapacityEstimate.ToString() -> string
+~override Agash.StreamTransport.Adaptation.IpMarking.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.IpMarking.ToString() -> string
+~override Agash.StreamTransport.Adaptation.PacedPacket.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.PacedPacket.ToString() -> string
+~override Agash.StreamTransport.Adaptation.PacketObservation.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.PacketObservation.ToString() -> string
+~override Agash.StreamTransport.Adaptation.PacketReport.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.PacketReport.ToString() -> string
+~override Agash.StreamTransport.Adaptation.RecoveryInputs.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.RecoveryInputs.ToString() -> string
+~override Agash.StreamTransport.Adaptation.RecoveryPlan.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.RecoveryPlan.ToString() -> string
+~override Agash.StreamTransport.Adaptation.SentPacket.Equals(object obj) -> bool
+~override Agash.StreamTransport.Adaptation.SentPacket.ToString() -> string

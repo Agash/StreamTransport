@@ -36,7 +36,7 @@ public sealed class TurnAllocationTests
         SocketReceiveFromResult arrived = default;
         for (int attempt = 0; attempt < 50 && arrived.ReceivedBytes == 0; attempt++)
         {
-            await allocation.SendAsync("ping"u8.ToArray(), peerEndPoint, EcnCodepoint.NotEct);
+            await allocation.SendAsync("ping"u8.ToArray(), peerEndPoint, default);
             using var wait = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
             try
             {
@@ -65,7 +65,7 @@ public sealed class TurnAllocationTests
         // before the client has the response; Send indications carry traffic until it does.
         for (int attempt = 0; attempt < 50 && server.ChannelDataFrames == 0; attempt++)
         {
-            await allocation.SendAsync("again"u8.ToArray(), peerEndPoint, EcnCodepoint.NotEct);
+            await allocation.SendAsync("again"u8.ToArray(), peerEndPoint, default);
             CollectionAssert.AreEqual("again"u8.ToArray(), await ReceiveSkippingPingsAsync(peer));
         }
 
@@ -136,11 +136,7 @@ public sealed class TurnAllocationTests
         using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
 
-        await allocation.SendAsync(
-            "once"u8.ToArray(),
-            (IPEndPoint)peer.LocalEndPoint!,
-            EcnCodepoint.NotEct
-        );
+        await allocation.SendAsync("once"u8.ToArray(), (IPEndPoint)peer.LocalEndPoint!, default);
 
         byte[] buffer = new byte[64];
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -174,7 +170,7 @@ public sealed class TurnAllocationTests
         using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
         var peerEndPoint = (IPEndPoint)peer.LocalEndPoint!;
-        await allocation.SendAsync("hello"u8.ToArray(), peerEndPoint, EcnCodepoint.NotEct);
+        await allocation.SendAsync("hello"u8.ToArray(), peerEndPoint, default);
         _ = await peer.ReceiveFromAsync(
                 new byte[64],
                 SocketFlags.None,
@@ -215,11 +211,7 @@ public sealed class TurnAllocationTests
                 received.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5))
         );
         Assert.IsInstanceOfType<IOException>(closed.InnerException);
-        await allocation.SendAsync(
-            "x"u8.ToArray(),
-            new IPEndPoint(IPAddress.Loopback, 9),
-            EcnCodepoint.NotEct
-        );
+        await allocation.SendAsync("x"u8.ToArray(), new IPEndPoint(IPAddress.Loopback, 9), default);
     }
 
     // RFC 8656 section 8: the refresh is due before the granted lifetime ends; a lifetime under two
@@ -351,11 +343,7 @@ public sealed class TurnAllocationTests
         _ = Pump(allocation);
         using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-        await allocation.SendAsync(
-            "x"u8.ToArray(),
-            (IPEndPoint)peer.LocalEndPoint!,
-            EcnCodepoint.NotEct
-        );
+        await allocation.SendAsync("x"u8.ToArray(), (IPEndPoint)peer.LocalEndPoint!, default);
         _ = await peer.ReceiveFromAsync(
                 new byte[64],
                 SocketFlags.None,
@@ -387,7 +375,7 @@ public sealed class TurnAllocationTests
         _ = Pump(allocation);
         var peer = new IPEndPoint(IPAddress.Loopback, 9);
 
-        await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
+        await allocation.SendAsync("x"u8.ToArray(), peer, default);
         await server.WhenChannelBound.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.AreEqual(1, server.ChannelBinds);
@@ -407,7 +395,7 @@ public sealed class TurnAllocationTests
         // as ChannelData does.
         while (!server.WhenChannelData.IsCompleted)
         {
-            await allocation.SendAsync("x"u8.ToArray(), peer, EcnCodepoint.NotEct);
+            await allocation.SendAsync("x"u8.ToArray(), peer, default);
 
             // Deliberate: retry pacing; sends repeat until the bind has taken effect, as ICE checks do.
             await Task.WhenAny(server.WhenChannelData, Task.Delay(20));

@@ -1016,7 +1016,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _metrics.PacketsSent.Add(1);
         }
 
-        return agent.SendAsync(packet.Buffer.AsMemory(0, protectedLength), ecn, cancellationToken);
+        return agent.SendAsync(
+            packet.Buffer.AsMemory(0, protectedLength),
+            MarkingFor(packet.Class, ecn),
+            cancellationToken
+        );
     }
 
     // A repair on the standby path: counted for reports and metrics, kept out of the media path's
@@ -1039,7 +1043,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         ReadOnlyMemory<byte> data = packet.Buffer.AsMemory(0, protectedLength);
-        if (!await agent.TrySendOnStandbyAsync(data, cancellationToken).ConfigureAwait(false))
+        if (
+            !await agent
+                .TrySendOnStandbyAsync(
+                    data,
+                    MarkingFor(TrafficClass.Repair, EcnCodepoint.NotEct),
+                    cancellationToken
+                )
+                .ConfigureAwait(false)
+        )
         {
             await agent.SendAsync(data, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
