@@ -1046,6 +1046,7 @@ static Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.operator !=(Agash.StreamTra
 static Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay.operator ==(Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay left, Agash.StreamTransport.WebRtc.Rtp.PlayoutDelay right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.operator !=(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet.operator ==(Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet left, Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet right) -> bool
+static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Conflicting(System.Collections.Generic.IEnumerable<Agash.StreamTransport.WebRtc.Sdp.SdpExtension>! extensions) -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionIdSet
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.From(System.Collections.Generic.IEnumerable<Agash.StreamTransport.WebRtc.Sdp.SdpExtension>! extensions) -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.None.get -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!
 static Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap.Offered.get -> Agash.StreamTransport.WebRtc.Rtp.RtpExtensionMap!

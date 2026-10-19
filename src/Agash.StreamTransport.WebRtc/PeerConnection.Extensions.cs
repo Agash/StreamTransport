@@ -1,5 +1,6 @@
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
+using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.WebRtc;
 
@@ -140,7 +141,7 @@ public sealed partial class PeerConnection
     // offerer's identifier, with the direction mirrored (RFC 8285 section 7). An extension offered both in
     // the clear and encrypted (RFC 6904 section 4) is answered encrypted: every RFC 6904 endpoint can read
     // that form, and it keeps the value from the path where Cryptex is not used.
-    private static IReadOnlyList<SdpExtension> AnsweredExtensions(SdpMediaDescription offer)
+    private IReadOnlyList<SdpExtension> AnsweredExtensions(SdpMediaDescription offer)
     {
         IReadOnlyList<SdpExtension> ours = PlainExtensions(offer.Kind);
         HashSet<string> encryptedOffered = [];
@@ -156,9 +157,16 @@ public sealed partial class PeerConnection
             }
         }
 
+        RtpExtensionIdSet conflicting = RtpExtensionMap.Conflicting(offer.Extensions);
         List<SdpExtension> answered = [];
         foreach (SdpExtension mapping in offer.Extensions)
         {
+            if (conflicting.Contains(mapping.Id))
+            {
+                LogConflictingExtension(_logger, mapping.Id, mapping.Uri);
+                continue;
+            }
+
             bool encrypted = mapping.Uri == RtpExtensionUris.Encrypted;
             SdpExtension? unwrapped = encrypted ? RtpExtensionMap.Unwrap(mapping) : mapping;
             if (
@@ -201,6 +209,13 @@ public sealed partial class PeerConnection
 
         return answered;
     }
+
+    [LoggerMessage(
+        EventId = 1193,
+        Level = LogLevel.Warning,
+        Message = "The offer maps header extension id {Id} to more than one extension; {Uri} is not used (RFC 8285 section 5)"
+    )]
+    private static partial void LogConflictingExtension(ILogger logger, int id, string uri);
 
     // The agreed map: the extensions the answer kept, across every section it accepted.
     private void AgreeExtensions(SdpDescription answer)

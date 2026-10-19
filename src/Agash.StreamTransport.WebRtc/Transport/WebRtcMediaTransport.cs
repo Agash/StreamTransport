@@ -731,8 +731,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             _ => SdpDirection.SendRecv,
         };
 
-    private static uint NewSsrc() =>
-        unchecked((uint)RandomNumberGenerator.GetInt32(1, int.MaxValue) * 2 + 1);
+    // RFC 3550 section 8.1: a random 32-bit identifier.
+    private static uint NewSsrc() => SecureRandom.Ssrc();
 
     // Received video: RTP into a frame buffer that reorders it and hands over complete frames, asking for a
     // keyframe when a frame cannot be completed or a gap outlasts the time NACK and RTX get to fill it.

@@ -1891,7 +1891,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
     // media payload type, and the RTX stream's own sequence.
     private sealed class RtxSender(uint ssrc, FrozenDictionary<byte, byte> payloadTypes)
     {
-        private int _sequence;
+        // RFC 3550 section 5.1, as RFC 4588 section 4 has the RTX stream follow it: a random start.
+        private int _sequence = SecureRandom.SequenceNumber();
 
         public uint Ssrc { get; } = ssrc;
 

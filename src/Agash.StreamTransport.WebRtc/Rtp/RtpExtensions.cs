@@ -275,9 +275,14 @@ public sealed record RtpExtensionMap(
         int level = 0;
         int orientation = 0;
         RtpExtensionIdSet encrypted = default;
+        RtpExtensionIdSet conflicting = Conflicting(extensions);
         foreach (SdpExtension mapping in extensions)
         {
-            if (mapping.Id is < 1 or > 255 || mapping.Direction == SdpDirection.Inactive)
+            if (
+                mapping.Id is < 1 or > 255
+                || mapping.Direction == SdpDirection.Inactive
+                || conflicting.Contains(mapping.Id)
+            )
             {
                 continue;
             }
@@ -336,6 +341,44 @@ public sealed record RtpExtensionMap(
         {
             Encrypted = used,
         };
+    }
+
+    /// <summary>
+    /// The identifiers mapped to more than one extension. RFC 8285 section 5 gives each extension its own
+    /// identifier, across BUNDLE's sections too (RFC 8843 section 9.1), so such an identifier means nothing
+    /// and none of its mappings is used.
+    /// </summary>
+    /// <param name="extensions">The mappings.</param>
+    /// <returns>The conflicting identifiers.</returns>
+    public static RtpExtensionIdSet Conflicting(IEnumerable<SdpExtension> extensions)
+    {
+        ArgumentNullException.ThrowIfNull(extensions);
+        Span<int> seen = stackalloc int[256];
+        seen.Clear();
+        Dictionary<int, string>? uris = null;
+        RtpExtensionIdSet conflicting = default;
+        foreach (SdpExtension mapping in extensions)
+        {
+            if (mapping.Id is < 1 or > 255)
+            {
+                continue;
+            }
+
+            // The encrypted form names its extension in its attributes; that is the one it maps.
+            string uri =
+                mapping.Uri == RtpExtensionUris.Encrypted && Unwrap(mapping) is { } inner
+                    ? $"{RtpExtensionUris.Encrypted} {inner.Uri}"
+                    : mapping.Uri;
+            uris ??= [];
+            if (seen[mapping.Id]++ > 0 && uris[mapping.Id] != uri)
+            {
+                conflicting = conflicting.With(mapping.Id);
+            }
+
+            uris[mapping.Id] = uri;
+        }
+
+        return conflicting;
     }
 
     /// <summary>

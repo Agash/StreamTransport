@@ -247,6 +247,38 @@ public sealed class RtpExtensionTests
         Assert.AreEqual(new RtpExtensionMap(7, 11, 0, Mid: 3), answerer.NegotiatedExtensions);
     }
 
+    // RFC 8285 section 5: one identifier, one extension. An id an offer maps to two extensions means
+    // neither; both are left out of the answer and the agreed map.
+    [TestMethod]
+    public async Task Answer_LeavesOutAnIdMappedTwice()
+    {
+        await using PeerConnection answerer = new(
+            new PeerConnectionOptions
+            {
+                SocketFactory = OfflineNetwork.Factory(IPAddress.Parse("10.0.0.1")),
+                Media = [new MediaLine("0", SdpMediaKind.Video, 0xBBBB_0001, [H264])],
+            },
+            Certificate
+        );
+        SdpDescription offer = Description(
+            [
+                new SdpExtension(3, RtpExtensionUris.Mid),
+                new SdpExtension(3, RtpExtensionUris.AbsoluteCaptureTime),
+                new SdpExtension(11, RtpExtensionUris.VideoTiming),
+            ],
+            allowMixed: false
+        );
+
+        answerer.SetRemoteDescription(offer, SdpType.Offer);
+        SdpDescription answer = answerer.CreateAnswer();
+
+        CollectionAssert.AreEqual(
+            new[] { new SdpExtension(11, RtpExtensionUris.VideoTiming) },
+            answer.Media[0].Extensions.ToArray()
+        );
+        Assert.AreEqual(new RtpExtensionMap(0, 11, 0), answerer.NegotiatedExtensions);
+    }
+
     [TestMethod]
     public async Task Offerer_UsesWhatTheAnswerKept()
     {
