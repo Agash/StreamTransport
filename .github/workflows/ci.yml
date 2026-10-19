@@ -84,8 +84,21 @@ jobs:
       # The gating suite: everything except TestCategory=Integration, which needs real sockets or a live
       # server (the relay over HttpListener, ICE over loopback UDP, coturn). PeerConnection behaviour runs here
       # on an in-memory network.
+      # A hung test is dumped (every thread's stack) and named after 15 minutes, and the step ends well
+      # before the runner's six-hour limit.
       - name: Test
-        run: dotnet test --solution StreamTransport.slnx -c Release --no-build --filter "TestCategory!=Integration" -- --coverage --coverage-settings coverage.settings.xml --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
+        timeout-minutes: 45
+        run: dotnet test --solution StreamTransport.slnx -c Release --no-build --filter "TestCategory!=Integration" -- --coverage --coverage-settings coverage.settings.xml --coverage-output-format cobertura --coverage-output coverage.cobertura.xml --hangdump --hangdump-timeout 15m --hangdump-type Mini
+
+      - name: Upload hang dumps
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hangdump-${{ matrix.rid }}
+          path: |
+            **/TestResults/**/*.dmp
+            **/TestResults/**/*hangdump*
+          if-no-files-found: ignore
 
       - name: Upload coverage report
         if: always()
