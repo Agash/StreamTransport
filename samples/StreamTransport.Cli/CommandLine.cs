@@ -21,6 +21,7 @@ namespace StreamTransport.Cli;
 /// <param name="Measure">Whether a subscriber measures a received test signal.</param>
 /// <param name="FeedOutput">For <c>feed</c>, the output the input's video goes to.</param>
 /// <param name="Serve">Serve WHIP and WHEP at <paramref name="Relay"/>, which is the URL to listen on.</param>
+/// <param name="Insecure">Allows a plain ws relay on another host, for a test network.</param>
 internal sealed record CommandLine(
     bool List,
     bool Publish,
@@ -37,6 +38,8 @@ internal sealed record CommandLine(
     bool Serve = false
 )
 {
+    public bool Insecure { get; init; }
+
     public const string Usage = """
         streamtransport list
         streamtransport serve --urls <url> [--video <input>] [--audio <input>] [--measure]
@@ -62,6 +65,7 @@ internal sealed record CommandLine(
           --turn <url>       a turn: or turns: URL, used with --turn-user and --turn-password
           --ice-policy <p>   all | relay   relay sends only through TURN
           --ffmpeg <dir>     FFmpeg's shared libraries; defaults to the repository's native/ffmpeg/<rid>
+          --insecure         allow a plain ws:// relay on another host (a test network only)
           --verbose          log at debug level
 
         Published video stays on the GPU from a Spout, Syphon or PipeWire source to the encoder,
@@ -134,7 +138,7 @@ internal sealed record CommandLine(
                 throw new FormatException($"Unexpected '{key}'.");
             }
 
-            bool flag = key is "--verbose" or "--measure";
+            bool flag = key is "--verbose" or "--measure" or "--insecure";
             named[key[2..]] =
                 flag ? null
                 : i + 1 < args.Length ? args[++i]
@@ -224,7 +228,10 @@ internal sealed record CommandLine(
             Value(named, "ffmpeg") ?? RepositoryFFmpeg(),
             capture,
             named.ContainsKey("measure")
-        );
+        )
+        {
+            Insecure = named.ContainsKey("insecure"),
+        };
     }
 
     // The FFmpeg build eng/fetch-ffmpeg.ps1 puts beside a checkout, when the sample runs from one.

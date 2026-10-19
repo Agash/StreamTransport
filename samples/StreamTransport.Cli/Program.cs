@@ -158,6 +158,7 @@ static async Task<int> RunAsync(CommandLine command)
         command.Relay,
         new RoomCode(command.Room),
         role,
+        command.Insecure,
         stop.Token
     );
 

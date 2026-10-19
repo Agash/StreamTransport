@@ -24,6 +24,19 @@ namespace Agash.StreamTransport.Tests;
 [TestCategory("Integration")]
 public sealed class RelayIntegrationTests
 {
+    // RFC 8827 section 6: the signaling link carries the fingerprints the media's authentication rests on,
+    // so plain ws goes only to loopback unless the caller allows it.
+    [TestMethod]
+    public async Task ConnectAsync_PlainWsToAnotherHost_IsRefused() =>
+        _ = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            RoomClient.ConnectAsync(
+                new Uri("ws://relay.example/ws"),
+                new RoomCode("room"),
+                PeerRole.Publisher,
+                cancellationToken: CancellationToken.None
+            )
+        );
+
     [TestMethod]
     [Timeout(60_000)]
     public async Task PublisherAndSubscriber_OverRealRelay_DeliverDecodedAudio()

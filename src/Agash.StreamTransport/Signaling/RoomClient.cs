@@ -58,13 +58,42 @@ public sealed class RoomClient : IMediaRoom
     /// <see cref="JoinAsync"/> for the
     /// common case; the client owns and closes the socket.
     /// </summary>
+    /// <param name="relayWebSocketUrl">
+    /// The relay's endpoint: <c>wss</c>, or <c>ws</c> to this machine's loopback. The link carries the
+    /// DTLS fingerprints the media's authentication rests on (RFC 8827 section 6), the ICE passwords and
+    /// the relay's TURN credentials, so it has to be encrypted and the relay authenticated.
+    /// </param>
+    /// <param name="room">The room to join.</param>
+    /// <param name="role">This peer's role in it.</param>
+    /// <param name="allowInsecureWebSocket">
+    /// Allows <c>ws</c> to a host other than loopback, for a relay on a trusted test network only.
+    /// </param>
+    /// <param name="cancellationToken">Cancels connecting and joining.</param>
+    /// <returns>The joined client.</returns>
+    /// <exception cref="ArgumentException">The URL is plain <c>ws</c> to another host and that is not allowed.</exception>
     public static async Task<RoomClient> ConnectAsync(
         Uri relayWebSocketUrl,
         RoomCode room,
         PeerRole role,
+        bool allowInsecureWebSocket = false,
         CancellationToken cancellationToken = default
     )
     {
+        ArgumentNullException.ThrowIfNull(relayWebSocketUrl);
+        if (
+            relayWebSocketUrl.Scheme != Uri.UriSchemeWss
+            && !(
+                relayWebSocketUrl.Scheme == Uri.UriSchemeWs
+                && (relayWebSocketUrl.IsLoopback || allowInsecureWebSocket)
+            )
+        )
+        {
+            throw new ArgumentException(
+                $"Signaling goes over wss; {relayWebSocketUrl.GetLeftPart(UriPartial.Authority)} is not.",
+                nameof(relayWebSocketUrl)
+            );
+        }
+
         var socket = new ClientWebSocket();
         try
         {
