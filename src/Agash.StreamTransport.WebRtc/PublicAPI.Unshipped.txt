@@ -376,12 +376,12 @@ Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.Sequence.init -> void
 Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.TransportPacketArrival() -> void
 Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.TransportPacketArrival(ushort Sequence, long? ArrivalMicros) -> void
 Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket
-Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.BodyAfterHeader.get -> byte[]!
-Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.BodyAfterHeader.init -> void
-Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Deconstruct(out ushort SequenceNumber, out byte HeaderBits, out byte MarkerAndPayloadType, out uint Timestamp, out byte[]! BodyAfterHeader) -> void
+Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.BodyLength.get -> int
+Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.BodyLength.init -> void
+Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Deconstruct(out ushort SequenceNumber, out byte HeaderBits, out byte MarkerAndPayloadType, out uint Timestamp, out int BodyLength) -> void
 Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Equals(Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket other) -> bool
 Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.FecRecoveredPacket() -> void
-Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.FecRecoveredPacket(ushort SequenceNumber, byte HeaderBits, byte MarkerAndPayloadType, uint Timestamp, byte[]! BodyAfterHeader) -> void
+Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.FecRecoveredPacket(ushort SequenceNumber, byte HeaderBits, byte MarkerAndPayloadType, uint Timestamp, int BodyLength) -> void
 Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.HeaderBits.get -> byte
 Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.HeaderBits.init -> void
 Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.MarkerAndPayloadType.get -> byte
@@ -582,8 +582,8 @@ Agash.StreamTransport.WebRtc.Rtp.RtpPayloadWriter.this[int index].get -> System.
 Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory
 Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.RtpSendHistory(int capacity = 512) -> void
 Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.Store(ushort sequenceNumber, System.ReadOnlySpan<byte> rtpPacket) -> void
-Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.TryGet(ushort sequenceNumber, out System.ReadOnlyMemory<byte> rtpPacket) -> bool
-Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.TryGetLargestRecent(int window, out System.ReadOnlyMemory<byte> rtpPacket) -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.TryCopy(ushort sequenceNumber, System.Span<byte> destination, out int length) -> bool
+Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.TryCopyLargestRecent(int window, System.Span<byte> destination, out int length) -> bool
 Agash.StreamTransport.WebRtc.Rtp.Rtx
 Agash.StreamTransport.WebRtc.Rtp.RtxStream
 Agash.StreamTransport.WebRtc.Rtp.VideoTiming
@@ -865,6 +865,7 @@ const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.VideoOrientation = "urn:
 const Agash.StreamTransport.WebRtc.Rtp.RtpExtensionUris.VideoTiming = "http://www.webrtc.org/experiments/rtp-hdrext/video-timing" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.RtpMid.MaximumLength = 16 -> int
 const Agash.StreamTransport.WebRtc.Rtp.RtpPacket.FixedHeaderLength = 12 -> int
+const Agash.StreamTransport.WebRtc.Rtp.RtpSendHistory.MaximumPacketLength = 1500 -> int
 const Agash.StreamTransport.WebRtc.Rtp.Rtx.EncodingName = "rtx" -> string!
 const Agash.StreamTransport.WebRtc.Rtp.VideoTiming.BySize = 2 -> byte
 const Agash.StreamTransport.WebRtc.Rtp.VideoTiming.ByTimer = 1 -> byte
@@ -1031,11 +1032,10 @@ static Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.operator !=(Agash.Str
 static Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.operator ==(Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket left, Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.operator !=(Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket left, Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket right) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.operator ==(Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket left, Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket right) -> bool
-static Agash.StreamTransport.WebRtc.Rtp.FlexFec.BuildRepair(System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket>! sources) -> byte[]!
 static Agash.StreamTransport.WebRtc.Rtp.FlexFec.Codec(int payloadType, int clockRate = 90000) -> Agash.StreamTransport.WebRtc.Sdp.SdpCodec
 static Agash.StreamTransport.WebRtc.Rtp.FlexFec.HeaderLength(int span) -> int
 static Agash.StreamTransport.WebRtc.Rtp.FlexFec.IsFlexFec(Agash.StreamTransport.WebRtc.Sdp.SdpCodec codec) -> bool
-static Agash.StreamTransport.WebRtc.Rtp.FlexFec.TryRecover(System.ReadOnlySpan<byte> fecBody, System.Func<ushort, Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket?>! lookup) -> Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket?
+static Agash.StreamTransport.WebRtc.Rtp.FlexFec.TryRecover(System.ReadOnlySpan<byte> fecBody, System.Func<ushort, Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket?>! lookup, System.Span<byte> body, out Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket recovered) -> bool
 static Agash.StreamTransport.WebRtc.Rtp.FlexFec.WriteRepairPacket(System.Span<byte> destination, byte payloadType, ushort sequenceNumber, uint timestamp, uint fecSsrc, uint protectedSsrc, System.ReadOnlySpan<byte> repair) -> int
 static Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.Av1PayloadFormat.Instance.get -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.Av1PayloadFormat!
 static Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.H264PayloadFormat.Instance.get -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.H264PayloadFormat!

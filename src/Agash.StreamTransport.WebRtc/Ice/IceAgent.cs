@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
@@ -968,38 +969,84 @@ public sealed partial class IceAgent : IAsyncDisposable
         _retireTimer = null;
     }
 
-    // Sends what the machine asked to send.
+    // Sends what the machine asked to send, then gives back the buffers rented for it.
     private async ValueTask SendPendingAsync(CancellationToken cancellationToken)
     {
-        List<(IIceSocket Socket, IceTransmit Transmit)> transmits = [];
+        (IIceSocket? Socket, IceTransmit Transmit)[] batch = ArrayPool<(
+            IIceSocket?,
+            IceTransmit
+        )>.Shared.Rent(16);
+        int count = 0;
         lock (_gate)
         {
             while (_machine.TryPollTransmit(out IceTransmit transmit))
             {
-                if (_sockets.TryGetValue(transmit.Local, out LocalSocket? socket))
+                if (count == batch.Length)
                 {
-                    transmits.Add((socket.Socket, transmit));
+                    (IIceSocket?, IceTransmit)[] larger = ArrayPool<(
+                        IIceSocket?,
+                        IceTransmit
+                    )>.Shared.Rent(count * 2);
+                    batch.AsSpan(0, count).CopyTo(larger);
+                    ArrayPool<(IIceSocket?, IceTransmit)>.Shared.Return(batch, clearArray: true);
+                    batch = larger;
                 }
+
+                batch[count++] = (
+                    _sockets.TryGetValue(transmit.Local, out LocalSocket? socket)
+                        ? socket.Socket
+                        : null,
+                    transmit
+                );
             }
         }
 
-        foreach ((IIceSocket socket, IceTransmit transmit) in transmits)
+        try
         {
-            try
+            for (int i = 0; i < count; i++)
             {
-                await socket
-                    .SendAsync(transmit.Data, transmit.Destination, default, cancellationToken)
-                    .ConfigureAwait(false);
+                (IIceSocket? socket, IceTransmit transmit) = batch[i];
+                if (socket is not null)
+                {
+                    await SendTransmitAsync(socket, transmit, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
-            catch (SocketException exception)
+        }
+        finally
+        {
+            for (int i = 0; i < count; i++)
             {
-                // A check to an unreachable candidate; the machine retransmits or gives up on the pair.
-                LogSendFailed(exception, transmit.Destination);
+                if (batch[i].Transmit.Pooled)
+                {
+                    ArrayPool<byte>.Shared.Return(batch[i].Transmit.Buffer);
+                }
             }
-            catch (ObjectDisposedException)
-            {
-                // Deliberately not logged: a restart closed the socket, and its pairs went with it.
-            }
+
+            ArrayPool<(IIceSocket?, IceTransmit)>.Shared.Return(batch, clearArray: true);
+        }
+    }
+
+    private async ValueTask SendTransmitAsync(
+        IIceSocket socket,
+        IceTransmit transmit,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            await socket
+                .SendAsync(transmit.Data, transmit.Destination, default, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (SocketException exception)
+        {
+            // A check to an unreachable candidate; the machine retransmits or gives up on the pair.
+            LogSendFailed(exception, transmit.Destination);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Deliberately not logged: a restart closed the socket, and its pairs went with it.
         }
     }
 

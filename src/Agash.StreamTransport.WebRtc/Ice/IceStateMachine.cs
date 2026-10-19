@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
 using System.Security.Cryptography;
@@ -10,8 +11,44 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 /// <summary>A datagram the state machine wants sent.</summary>
 /// <param name="Local">The local endpoint to send from, by the handle it was added with.</param>
 /// <param name="Destination">Where to send it.</param>
-/// <param name="Data">The datagram.</param>
-internal readonly record struct IceTransmit(int Local, IPEndPoint Destination, byte[] Data);
+/// <param name="Buffer">The buffer the datagram is in, from its start.</param>
+/// <param name="Length">The datagram's length.</param>
+/// <param name="Pooled">Whether the buffer was rented and goes back to the pool once sent.</param>
+internal readonly record struct IceTransmit(
+    int Local,
+    IPEndPoint Destination,
+    byte[] Buffer,
+    int Length,
+    bool Pooled
+)
+{
+    /// <summary>The datagram.</summary>
+    public ReadOnlyMemory<byte> Data => Buffer.AsMemory(0, Length);
+
+    /// <summary>A datagram the sender owns for retransmission; the agent leaves it alone.</summary>
+    /// <param name="local">The local socket.</param>
+    /// <param name="destination">Where it goes.</param>
+    /// <param name="message">The datagram, exactly.</param>
+    /// <returns>The transmit.</returns>
+    public static IceTransmit Owned(int local, IPEndPoint destination, byte[] message) =>
+        new(local, destination, message, message.Length, Pooled: false);
+
+    /// <summary>
+    /// A datagram written into a buffer rented from <see cref="ArrayPool{T}.Shared"/>; the agent returns it
+    /// once it is sent.
+    /// </summary>
+    /// <param name="local">The local socket.</param>
+    /// <param name="destination">Where it goes.</param>
+    /// <param name="rented">The rented buffer.</param>
+    /// <param name="length">The datagram's length in it.</param>
+    /// <returns>The transmit.</returns>
+    public static IceTransmit Rented(
+        int local,
+        IPEndPoint destination,
+        byte[] rented,
+        int length
+    ) => new(local, destination, rented, length, Pooled: true);
+}
 
 /// <summary>Something the state machine reports: a gathered candidate or a new state.</summary>
 /// <param name="Candidate">A local candidate to trickle, or null.</param>
@@ -51,12 +88,8 @@ internal sealed partial class IceStateMachine
     private readonly List<IPEndPoint> _stunServers = [];
 
     // Checks awaiting their response, with when each was sent: a response times its pair's round trip.
-    private readonly Dictionary<string, (CandidatePair Pair, TimeSpan SentAt)> _inFlight = new(
-        StringComparer.Ordinal
-    );
-    private readonly Dictionary<string, GatherRequest> _gatherInFlight = new(
-        StringComparer.Ordinal
-    );
+    private readonly Dictionary<UInt128, (CandidatePair Pair, TimeSpan SentAt)> _inFlight = [];
+    private readonly Dictionary<UInt128, GatherRequest> _gatherInFlight = [];
 
     // RFC 8489 section 6.2.1: a request over UDP is sent again after RTO, doubling, up to Rc times, and given
     // up Rm times RTO after the last.
@@ -66,7 +99,13 @@ internal sealed partial class IceStateMachine
     private readonly Queue<IceTransmit> _transmits = new();
     private readonly Queue<IceEvent> _events = new();
     private byte[] _localPassword;
+    private byte[] _localUfrag;
     private IceCredentials _remote;
+
+    // The remote password and the check USERNAME ("remote:local", RFC 8445 section 7.2.2) in UTF-8, made
+    // when either side's credentials change, so a check encodes nothing.
+    private byte[] _remotePassword = [];
+    private byte[] _checkUsername = [];
     private CandidatePair? _selected;
 
     // When the agent last started checking with nothing selected, for the failure timeout; and when the
@@ -101,6 +140,7 @@ internal sealed partial class IceStateMachine
         _random = random ?? Random.Shared;
         LocalCredentials = local;
         _localPassword = Encoding.UTF8.GetBytes(local.Password);
+        _localUfrag = Encoding.UTF8.GetBytes(local.UsernameFragment);
         Role = role;
         _timings = timings;
         _logger = logger;
@@ -138,7 +178,35 @@ internal sealed partial class IceStateMachine
     /// this agent too and forgets the peer's old candidates (<see cref="Restart"/>).
     /// </summary>
     /// <param name="remote">The peer's credentials.</param>
-    public void SetRemoteCredentials(IceCredentials remote) => _remote = remote;
+    public void SetRemoteCredentials(IceCredentials remote)
+    {
+        _remote = remote;
+        EncodeCheckCredentials();
+    }
+
+    private void EncodeCheckCredentials()
+    {
+        _remotePassword = _remote.Password is { Length: > 0 } password
+            ? Encoding.UTF8.GetBytes(password)
+            : [];
+        _checkUsername = _remote.UsernameFragment is { Length: > 0 }
+            ? Encoding.UTF8.GetBytes(
+                IceCredentials.CheckUsername(
+                    _remote.UsernameFragment,
+                    LocalCredentials.UsernameFragment
+                )
+            )
+            : [];
+    }
+
+    // A transaction ID (96 bits) as a dictionary key.
+    private static UInt128 Key(ReadOnlySpan<byte> transaction)
+    {
+        Span<byte> padded = stackalloc byte[16];
+        padded[..4].Clear();
+        transaction.CopyTo(padded[4..]);
+        return BinaryPrimitives.ReadUInt128BigEndian(padded);
+    }
 
     /// <summary>
     /// Sets the peer's ICE options. With renomination on both sides the controlling agent may nominate
@@ -279,24 +347,21 @@ internal sealed partial class IceStateMachine
 
         _ = _locals.Remove(local);
         _ = _pairs.RemoveAll(p => ReferenceEquals(p.Local, local));
-        foreach (
-            string transaction in _inFlight
-                .Where(entry => ReferenceEquals(entry.Value.Pair.Local, local))
-                .Select(entry => entry.Key)
-                .ToList()
-        )
+        // Dictionary allows removing the current entry while enumerating.
+        foreach ((UInt128 transaction, (CandidatePair Pair, TimeSpan _) check) in _inFlight)
         {
-            _ = _inFlight.Remove(transaction);
+            if (ReferenceEquals(check.Pair.Local, local))
+            {
+                _ = _inFlight.Remove(transaction);
+            }
         }
 
-        foreach (
-            string transaction in _gatherInFlight
-                .Where(entry => ReferenceEquals(entry.Value.Local, local))
-                .Select(entry => entry.Key)
-                .ToList()
-        )
+        foreach ((UInt128 transaction, GatherRequest request) in _gatherInFlight)
         {
-            _ = _gatherInFlight.Remove(transaction);
+            if (ReferenceEquals(request.Local, local))
+            {
+                _ = _gatherInFlight.Remove(transaction);
+            }
         }
 
         if (_lastData is { } last && ReferenceEquals(last.Local, local))
@@ -463,6 +528,8 @@ internal sealed partial class IceStateMachine
     {
         LocalCredentials = credentials;
         _localPassword = Encoding.UTF8.GetBytes(credentials.Password);
+        _localUfrag = Encoding.UTF8.GetBytes(credentials.UsernameFragment);
+        EncodeCheckCredentials();
         _selected = null;
         _lastData = null;
         _nominationDone = false;
@@ -493,6 +560,9 @@ internal sealed partial class IceStateMachine
         }
 
         Span<byte> transaction = stackalloc byte[StunHeader.TransactionIdLength];
+
+        // Each request is kept for its retransmissions: written here, kept at its exact length.
+        Span<byte> buffer = stackalloc byte[64];
         foreach (IPEndPoint server in _stunServers)
         {
             if (!IceCandidate.CanReach(local.Candidate.Endpoint.Address, server.Address))
@@ -501,7 +571,6 @@ internal sealed partial class IceStateMachine
             }
 
             RandomNumberGenerator.Fill(transaction);
-            byte[] buffer = new byte[64];
             StunMessageWriter writer = new(
                 buffer,
                 StunMessageClass.Request,
@@ -509,13 +578,9 @@ internal sealed partial class IceStateMachine
                 transaction
             );
             writer.AddFingerprint();
-            byte[] request = buffer[..writer.Length];
-            _gatherInFlight[Convert.ToHexString(transaction)] = new GatherRequest(
-                local,
-                server,
-                request
-            );
-            _transmits.Enqueue(new IceTransmit(local.Handle, server, request));
+            byte[] request = buffer[..writer.Length].ToArray();
+            _gatherInFlight[Key(transaction)] = new GatherRequest(local, server, request);
+            _transmits.Enqueue(IceTransmit.Owned(local.Handle, server, request));
         }
     }
 
@@ -596,7 +661,7 @@ internal sealed partial class IceStateMachine
         }
 
         bool useCandidate = stun.TryFindAttribute(StunAttributeType.UseCandidate, out _);
-        byte[] response = new byte[128];
+        byte[] response = ArrayPool<byte>.Shared.Rent(128);
         StunMessageWriter writer = new(
             response,
             StunMessageClass.SuccessResponse,
@@ -606,7 +671,7 @@ internal sealed partial class IceStateMachine
         writer.AddXorMappedAddress(source);
         writer.AddMessageIntegrity(_localPassword);
         writer.AddFingerprint();
-        _transmits.Enqueue(new IceTransmit(local.Handle, source, response[..writer.Length]));
+        _transmits.Enqueue(IceTransmit.Rented(local.Handle, source, response, writer.Length));
 
         // RFC 8445 section 7.3.1.3: a peer-reflexive candidate takes the priority its request carries.
         CandidatePair pair = PairForPeerReflexive(
@@ -737,7 +802,7 @@ internal sealed partial class IceStateMachine
         scoped ReadOnlySpan<ushort> unknown = default
     )
     {
-        byte[] response = new byte[128 + (unknown.Length * 2)];
+        byte[] response = ArrayPool<byte>.Shared.Rent(128 + (unknown.Length * 2));
         StunMessageWriter writer = new(
             response,
             StunMessageClass.ErrorResponse,
@@ -756,12 +821,12 @@ internal sealed partial class IceStateMachine
         }
 
         writer.AddFingerprint();
-        _transmits.Enqueue(new IceTransmit(local.Handle, source, response[..writer.Length]));
+        _transmits.Enqueue(IceTransmit.Rented(local.Handle, source, response, writer.Length));
     }
 
     private void SendRoleConflict(StunMessageReader stun, LocalEndpoint local, IPEndPoint source)
     {
-        byte[] response = new byte[128];
+        byte[] response = ArrayPool<byte>.Shared.Rent(128);
         StunMessageWriter writer = new(
             response,
             StunMessageClass.ErrorResponse,
@@ -771,7 +836,7 @@ internal sealed partial class IceStateMachine
         writer.AddErrorCode(487, "Role Conflict");
         writer.AddMessageIntegrity(_localPassword);
         writer.AddFingerprint();
-        _transmits.Enqueue(new IceTransmit(local.Handle, source, response[..writer.Length]));
+        _transmits.Enqueue(IceTransmit.Rented(local.Handle, source, response, writer.Length));
     }
 
     // A 487 answer to our check (RFC 8445 section 7.2.5.1): the peer kept the role, so this agent takes the
@@ -781,12 +846,12 @@ internal sealed partial class IceStateMachine
     // (RFC 7675 section 5.2), which is then never used again under these credentials.
     private void HandleBindingError(StunMessageReader stun, TimeSpan now)
     {
-        string transaction = Convert.ToHexString(stun.TransactionId);
+        UInt128 transaction = Key(stun.TransactionId);
         if (
             !stun.TryFindAttribute(StunAttributeType.ErrorCode, out ReadOnlySpan<byte> error)
             || error.Length < 4
             || !_inFlight.TryGetValue(transaction, out (CandidatePair Pair, TimeSpan SentAt) check)
-            || !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
+            || !stun.VerifyMessageIntegrity(_remotePassword)
         )
         {
             return;
@@ -814,7 +879,7 @@ internal sealed partial class IceStateMachine
         TimeSpan now
     )
     {
-        string transaction = Convert.ToHexString(stun.TransactionId);
+        UInt128 transaction = Key(stun.TransactionId);
         if (_gatherInFlight.Remove(transaction, out GatherRequest? gathered))
         {
             HandleServerReflexive(stun, gathered.Local);
@@ -842,8 +907,7 @@ internal sealed partial class IceStateMachine
             !ReferenceEquals(pair.Local, local)
             || !pair.Remote.Endpoint.Equals(source)
             || (
-                _remote.Password is { Length: > 0 }
-                && !stun.VerifyMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password))
+                _remote.Password is { Length: > 0 } && !stun.VerifyMessageIntegrity(_remotePassword)
             )
         )
         {
@@ -1346,30 +1410,23 @@ internal sealed partial class IceStateMachine
         && !(pair.Unanswered >= UnwritableChecks && Since(pair.LastResponse, now) > WriteTimeout);
 
     // A request's USERNAME starts with our username fragment and a colon (RFC 8445 section 7.2.2).
-    private bool IsOurUsername(ReadOnlySpan<byte> username)
-    {
-        string ours = LocalCredentials.UsernameFragment;
-        return username.Length > ours.Length
-            && username[ours.Length] == (byte)':'
-            && Encoding.UTF8.GetString(username[..ours.Length]) == ours;
-    }
+    private bool IsOurUsername(ReadOnlySpan<byte> username) =>
+        username.Length > _localUfrag.Length
+        && username[_localUfrag.Length] == (byte)':'
+        && username.StartsWith(_localUfrag);
 
     private void SendBindingCheck(CandidatePair pair, TimeSpan now)
     {
         Span<byte> transaction = stackalloc byte[StunHeader.TransactionIdLength];
         RandomNumberGenerator.Fill(transaction);
-        byte[] buffer = new byte[160];
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(160 + _checkUsername.Length);
         StunMessageWriter writer = new(
             buffer,
             StunMessageClass.Request,
             StunMethod.Binding,
             transaction
         );
-        string username = IceCredentials.CheckUsername(
-            _remote.UsernameFragment,
-            LocalCredentials.UsernameFragment
-        );
-        writer.AddAttribute(StunAttributeType.Username, Encoding.UTF8.GetBytes(username));
+        writer.AddAttribute(StunAttributeType.Username, _checkUsername);
 
         Span<byte> priority = stackalloc byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(
@@ -1411,16 +1468,16 @@ internal sealed partial class IceStateMachine
             }
         }
 
-        writer.AddMessageIntegrity(Encoding.UTF8.GetBytes(_remote.Password));
+        writer.AddMessageIntegrity(_remotePassword);
         writer.AddFingerprint();
         if (pair.Unanswered++ == 0)
         {
             pair.UnansweredSince = now;
         }
 
-        _inFlight[Convert.ToHexString(transaction)] = (pair, now);
+        _inFlight[Key(transaction)] = (pair, now);
         _transmits.Enqueue(
-            new IceTransmit(pair.Local.Handle, pair.Remote.Endpoint, buffer[..writer.Length])
+            IceTransmit.Rented(pair.Local.Handle, pair.Remote.Endpoint, buffer, writer.Length)
         );
     }
 
@@ -1431,7 +1488,8 @@ internal sealed partial class IceStateMachine
             return;
         }
 
-        foreach ((string transaction, GatherRequest request) in _gatherInFlight.ToArray())
+        // Removing during enumeration is allowed for Dictionary; nothing is added here.
+        foreach ((UInt128 transaction, GatherRequest request) in _gatherInFlight)
         {
             request.SentAt ??= now;
             TimeSpan wait =
@@ -1452,7 +1510,7 @@ internal sealed partial class IceStateMachine
             request.Transmits++;
             request.SentAt = now;
             _transmits.Enqueue(
-                new IceTransmit(request.Local.Handle, request.Server, request.Message)
+                IceTransmit.Owned(request.Local.Handle, request.Server, request.Message)
             );
         }
     }

@@ -165,6 +165,9 @@ public sealed partial class WasapiAudioSource : IAudioSource, IDisposable
         private readonly ManualResetEvent _stop = new(false);
         private readonly Thread _thread;
 
+        // Zeros for a buffer WASAPI flags silent, grown to the largest such buffer, never written.
+        private byte[] _silence = [];
+
         public Capture(WasapiAudioSource source)
         {
             _source = source;
@@ -257,8 +260,14 @@ public sealed partial class WasapiAudioSource : IAudioSource, IDisposable
             AudioFormat format = WasapiClient.Format;
             int bytes = frames * format.BytesPerFrame;
             bool silent = (flags & (uint)_AUDCLNT_BUFFERFLAGS.AUDCLNT_BUFFERFLAGS_SILENT) != 0;
-            byte[]? zeros = silent ? new byte[bytes] : null;
-            ReadOnlySpan<byte> samples = silent ? zeros : new ReadOnlySpan<byte>(data, bytes);
+            if (silent && _silence.Length < bytes)
+            {
+                _silence = new byte[bytes];
+            }
+
+            ReadOnlySpan<byte> samples = silent
+                ? _silence.AsSpan(0, bytes)
+                : new ReadOnlySpan<byte>(data, bytes);
 
             // WASAPI states the capture time in 100 ns units of the performance counter, which is the
             // system media clock's source.

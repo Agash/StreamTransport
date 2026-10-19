@@ -32,10 +32,15 @@ public sealed class FlexFecTests
 
         // Lose the middle packet (seq 102); everything else is available.
         const ushort lost = 102;
+        byte[] body = new byte[2048];
         FecRecoveredPacket? recovered = FlexFec.TryRecover(
             fec,
-            seq => seq == lost ? null : Find(run, seq)
-        );
+            seq => seq == lost ? null : Find(run, seq),
+            body,
+            out FecRecoveredPacket r
+        )
+            ? r
+            : null;
 
         Assert.IsNotNull(recovered);
         FecSourcePacket original = Find(run, lost)!.Value;
@@ -45,7 +50,7 @@ public sealed class FlexFecTests
         Assert.AreEqual(original.Timestamp, recovered.Value.Timestamp);
         CollectionAssert.AreEqual(
             original.BodyAfterHeader.ToArray(),
-            recovered.Value.BodyAfterHeader
+            body[..recovered.Value.BodyLength]
         );
     }
 
@@ -56,15 +61,20 @@ public sealed class FlexFecTests
         byte[] fec = FlexFec.BuildRepair(run);
 
         const ushort lost = 101; // the 1100-byte one - exercises the length-recovery path.
+        byte[] body = new byte[2048];
         FecRecoveredPacket? recovered = FlexFec.TryRecover(
             fec,
-            seq => seq == lost ? null : Find(run, seq)
-        );
+            seq => seq == lost ? null : Find(run, seq),
+            body,
+            out FecRecoveredPacket r
+        )
+            ? r
+            : null;
 
         Assert.IsNotNull(recovered);
         CollectionAssert.AreEqual(
             Find(run, lost)!.Value.BodyAfterHeader.ToArray(),
-            recovered.Value.BodyAfterHeader
+            body[..recovered.Value.BodyLength]
         );
     }
 
@@ -73,7 +83,7 @@ public sealed class FlexFecTests
     {
         FecSourcePacket[] run = SampleRun();
         byte[] fec = FlexFec.BuildRepair(run);
-        Assert.IsNull(FlexFec.TryRecover(fec, seq => Find(run, seq)));
+        Assert.IsFalse(FlexFec.TryRecover(fec, seq => Find(run, seq), new byte[2048], out _));
     }
 
     [TestMethod]
@@ -81,7 +91,14 @@ public sealed class FlexFecTests
     {
         FecSourcePacket[] run = SampleRun();
         byte[] fec = FlexFec.BuildRepair(run);
-        Assert.IsNull(FlexFec.TryRecover(fec, seq => seq is 101 or 103 ? null : Find(run, seq)));
+        Assert.IsFalse(
+            FlexFec.TryRecover(
+                fec,
+                seq => seq is 101 or 103 ? null : Find(run, seq),
+                new byte[2048],
+                out _
+            )
+        );
     }
 
     [TestMethod]
@@ -92,10 +109,15 @@ public sealed class FlexFecTests
         FecSourcePacket[] run = SampleRun();
         byte[] fec = FlexFec.BuildRepair(run);
 
+        byte[] body = new byte[2048];
         FecRecoveredPacket? recovered = FlexFec.TryRecover(
             fec,
-            seq => seq == lost ? null : Find(run, seq)
-        );
+            seq => seq == lost ? null : Find(run, seq),
+            body,
+            out FecRecoveredPacket r
+        )
+            ? r
+            : null;
 
         Assert.IsNotNull(recovered);
         Assert.AreEqual(
@@ -178,10 +200,15 @@ public sealed class FlexFecTests
         byte[] fec = FlexFec.BuildRepair(run);
         ushort lost = (ushort)(start + lostOffset);
 
+        byte[] body = new byte[2048];
         FecRecoveredPacket? recovered = FlexFec.TryRecover(
             fec,
-            seq => seq == lost ? null : Find(run, seq)
-        );
+            seq => seq == lost ? null : Find(run, seq),
+            body,
+            out FecRecoveredPacket r
+        )
+            ? r
+            : null;
 
         Assert.IsNotNull(recovered);
         Assert.AreEqual(lost, recovered.Value.SequenceNumber);
@@ -190,7 +217,7 @@ public sealed class FlexFecTests
         Assert.AreEqual(original.Timestamp, recovered.Value.Timestamp);
         CollectionAssert.AreEqual(
             original.BodyAfterHeader.ToArray(),
-            recovered.Value.BodyAfterHeader
+            body[..recovered.Value.BodyLength]
         );
     }
 
@@ -202,7 +229,7 @@ public sealed class FlexFecTests
             new FecSourcePacket(60, 0, 96, 0, Body(2, 4)),
         ]);
 
-        Assert.IsNull(FlexFec.TryRecover(fec.AsSpan(0, 20), _ => null));
+        Assert.IsFalse(FlexFec.TryRecover(fec.AsSpan(0, 20), _ => null, new byte[2048], out _));
     }
 
     // RFC 8627 section 4.2.1: the repair names the stream it protects in its CSRC list, and its marker is 0.

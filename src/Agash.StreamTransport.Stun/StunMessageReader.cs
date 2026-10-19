@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Buffers.Binary;
+using System.IO.Hashing;
 using System.Net;
 using System.Security.Cryptography;
 
@@ -350,17 +352,24 @@ public readonly ref struct StunMessageReader
     /// </summary>
     internal static uint ComputeFingerprint(ReadOnlySpan<byte> precedingMessage)
     {
-        // CRC over the message with the length field set to (bodySoFar + 8). The body length is
-        // (precedingMessage.Length - header) + 8.
-        Span<byte> buffer =
-            precedingMessage.Length <= 512
-                ? stackalloc byte[precedingMessage.Length]
-                : new byte[precedingMessage.Length];
-        precedingMessage.CopyTo(buffer);
-        int adjustedBody = precedingMessage.Length - StunHeader.Length + 8;
-        BinaryPrimitives.WriteUInt16BigEndian(buffer[2..], (ushort)adjustedBody);
-        return StunCrc32.Compute(buffer) ^ StunHeader.FingerprintXor;
+        // CRC over the message with the length field set to (bodySoFar + 8): the header with that length,
+        // then the rest as it is, so nothing but the 20-byte header is copied.
+        Span<byte> header = stackalloc byte[StunHeader.Length];
+        precedingMessage[..StunHeader.Length].CopyTo(header);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            header[2..],
+            (ushort)(precedingMessage.Length - StunHeader.Length + 8)
+        );
+        Crc32 crc = t_crc ??= new Crc32();
+        crc.Reset();
+        crc.Append(header);
+        crc.Append(precedingMessage[StunHeader.Length..]);
+        return crc.GetCurrentHashAsUInt32() ^ StunHeader.FingerprintXor;
     }
+
+    // RFC 8489 section 14.7's CRC-32 (IEEE 802.3), hardware-accelerated; one per thread, reset per message.
+    [ThreadStatic]
+    private static Crc32? t_crc;
 
     /// <summary>
     /// Computes MESSAGE-INTEGRITY (HMAC-SHA1) for the message whose MESSAGE-INTEGRITY attribute begins at
@@ -375,10 +384,16 @@ public readonly ref struct StunMessageReader
         Span<byte> destination
     )
     {
-        Span<byte> buffer = miStart <= 512 ? stackalloc byte[miStart] : new byte[miStart];
+        // The HMAC needs the length-adjusted message in one piece: on the stack, or pooled when large.
+        byte[]? rented = miStart <= 512 ? null : ArrayPool<byte>.Shared.Rent(miStart);
+        Span<byte> buffer = rented is null ? stackalloc byte[miStart] : rented.AsSpan(0, miStart);
         message[..miStart].CopyTo(buffer);
         int adjustedBody = miStart - StunHeader.Length + 24;
         BinaryPrimitives.WriteUInt16BigEndian(buffer[2..], (ushort)adjustedBody);
         HMACSHA1.HashData(key, buffer, destination);
+        if (rented is not null)
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 }

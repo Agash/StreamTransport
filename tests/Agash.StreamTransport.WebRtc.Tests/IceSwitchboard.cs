@@ -289,21 +289,21 @@ internal sealed class IceSwitchboard
     private void Deliver(Peer from, IceTransmit transmit)
     {
         IPEndPoint source = from.Endpoints[transmit.Local];
-        if (_hold is not null && _hold(source, transmit.Data))
+        if (_hold is not null && _hold(source, transmit.Data.ToArray()))
         {
             _held.Add((from, transmit));
             return;
         }
 
         if (
-            !Passes(source, transmit.Destination, transmit.Data)
+            !Passes(source, transmit.Destination, transmit.Data.ToArray())
             || Owner(transmit.Destination) is not { } to
         )
         {
             return;
         }
 
-        if (StunMessageReader.TryParse(transmit.Data, out StunMessageReader stun))
+        if (StunMessageReader.TryParse(transmit.Data.Span, out StunMessageReader stun))
         {
             if (stun.Class == StunMessageClass.Request)
             {

@@ -221,37 +221,57 @@ public sealed partial class PeerConnection
             return;
         }
 
-        FecRecoveredPacket? recovered;
-        lock (_fecGate)
+        // The packet is rebuilt in one pooled buffer: the recovered fields and the protected SSRC in the
+        // fixed header, the recovered bytes written right after it; then it takes the same parse and
+        // dispatch as a real arrival, so its header extension parses identically.
+        byte[] rtp = ArrayPool<byte>.Shared.Rent(RtpPacket.FixedHeaderLength + SlotBytes);
+        try
         {
-            recovered = FlexFec.TryRecover(fecBody, Cached);
-        }
-
-        if (recovered is not { } r)
-        {
-            return;
-        }
-
-        // Rebuild the full RTP packet from the recovered fields + the protected SSRC, then run it through the
-        // same parse/dispatch as a real arrival (so its header extension parses identically).
-        byte[] rtp = new byte[12 + r.BodyAfterHeader.Length];
-        rtp[0] = (byte)(0x80 | (r.HeaderBits & 0x3F));
-        rtp[1] = r.MarkerAndPayloadType;
-        BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), r.SequenceNumber);
-        BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), r.Timestamp);
-        BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), protectedSsrc);
-        r.BodyAfterHeader.CopyTo(rtp.AsSpan(12));
-
-        if (RtpPacket.TryParse(rtp, out RtpHeader header, out ReadOnlySpan<byte> payload))
-        {
-            if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
+            bool recovered;
+            FecRecoveredPacket r;
+            lock (_fecGate)
             {
-                OnMediaSequence(header.Ssrc, header.SequenceNumber);
+                recovered = FlexFec.TryRecover(
+                    fecBody,
+                    Cached,
+                    rtp.AsSpan(RtpPacket.FixedHeaderLength),
+                    out r
+                );
             }
 
-            CacheProtectedPacket(rtp);
-            int payloadOffset = rtp.Length - payload.Length;
-            RtpReceived?.Invoke(header, rtp.AsMemory(payloadOffset, payload.Length));
+            if (!recovered)
+            {
+                return;
+            }
+
+            rtp[0] = (byte)(0x80 | (r.HeaderBits & 0x3F));
+            rtp[1] = r.MarkerAndPayloadType;
+            BinaryPrimitives.WriteUInt16BigEndian(rtp.AsSpan(2), r.SequenceNumber);
+            BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(4), r.Timestamp);
+            BinaryPrimitives.WriteUInt32BigEndian(rtp.AsSpan(8), protectedSsrc);
+            int length = RtpPacket.FixedHeaderLength + r.BodyLength;
+
+            if (
+                RtpPacket.TryParse(
+                    rtp.AsSpan(0, length),
+                    out RtpHeader header,
+                    out ReadOnlySpan<byte> payload
+                )
+            )
+            {
+                if (Volatile.Read(ref _rtx).Repairable.Contains(header.Ssrc))
+                {
+                    OnMediaSequence(header.Ssrc, header.SequenceNumber);
+                }
+
+                CacheProtectedPacket(rtp.AsSpan(0, length));
+                int payloadOffset = length - payload.Length;
+                RtpReceived?.Invoke(header, rtp.AsMemory(payloadOffset, payload.Length));
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rtp);
         }
     }
 

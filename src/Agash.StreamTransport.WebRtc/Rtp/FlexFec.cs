@@ -22,13 +22,15 @@ public readonly record struct FecSourcePacket(
 /// <param name="HeaderBits">Recovered P, X and CC fields.</param>
 /// <param name="MarkerAndPayloadType">Recovered marker bit and payload type, as the RTP header's second octet.</param>
 /// <param name="Timestamp">Recovered RTP timestamp.</param>
-/// <param name="BodyAfterHeader">Recovered bytes after the fixed 12-byte RTP header.</param>
+/// <param name="BodyLength">
+/// The length of the recovered bytes after the fixed 12-byte RTP header, written where the caller asked.
+/// </param>
 public readonly record struct FecRecoveredPacket(
     ushort SequenceNumber,
     byte HeaderBits,
     byte MarkerAndPayloadType,
     uint Timestamp,
-    byte[] BodyAfterHeader
+    int BodyLength
 );
 
 /// <summary>
@@ -201,7 +203,7 @@ public static class FlexFec
     /// </summary>
     /// <param name="sources">The protected packets; the first is the sequence number base.</param>
     /// <returns>The repair body.</returns>
-    public static byte[] BuildRepair(IReadOnlyList<FecSourcePacket> sources)
+    internal static byte[] BuildRepair(IReadOnlyList<FecSourcePacket> sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
         if (sources.Count is 0 or > MaxProtected)
@@ -308,22 +310,29 @@ public static class FlexFec
     }
 
     /// <summary>
-    /// Recovers the one lost packet a repair protects. <paramref name="lookup"/> returns a protected packet
-    /// by sequence number, or null if it was lost. Null when none is missing, or two or more are, which one
-    /// repair cannot recover.
+    /// Recovers the one lost packet a repair protects, writing the bytes after its fixed header into
+    /// <paramref name="body"/>, typically right after the 12 bytes where the caller rebuilds the header, so
+    /// the packet is whole without a copy. <paramref name="lookup"/> returns a protected packet by sequence
+    /// number, or null if it was lost. False when none is missing, or two or more are, which one repair
+    /// cannot recover, or the body does not fit.
     /// </summary>
     /// <param name="fecBody">The repair packet's payload.</param>
     /// <param name="lookup">The protected packets received.</param>
-    /// <returns>The recovered packet, or null.</returns>
-    public static FecRecoveredPacket? TryRecover(
+    /// <param name="body">Where the recovered bytes after the fixed header go.</param>
+    /// <param name="recovered">The recovered packet's header fields and body length.</param>
+    /// <returns>Whether a packet was recovered.</returns>
+    public static bool TryRecover(
         ReadOnlySpan<byte> fecBody,
-        Func<ushort, FecSourcePacket?> lookup
+        Func<ushort, FecSourcePacket?> lookup,
+        Span<byte> body,
+        out FecRecoveredPacket recovered
     )
     {
         ArgumentNullException.ThrowIfNull(lookup);
+        recovered = default;
         if (!TryReadHeader(fecBody, out RepairHeader header))
         {
-            return null;
+            return false;
         }
 
         // First which one is missing, so a repair with nothing to recover costs no parity work.
@@ -338,7 +347,7 @@ public static class FlexFec
 
             if (missing is not null)
             {
-                return null;
+                return false;
             }
 
             missing = sequence;
@@ -346,7 +355,7 @@ public static class FlexFec
 
         if (missing is not { } recoveredSequence)
         {
-            return null;
+            return false;
         }
 
         byte headerBits = header.HeaderBits;
@@ -366,29 +375,31 @@ public static class FlexFec
             }
         }
 
-        if (length > parity.Length)
+        if (length > parity.Length || length > body.Length)
         {
-            return null; // Inconsistent with what was received.
+            return false; // Inconsistent with what was received, or no room.
         }
 
-        byte[] body = parity[..length].ToArray();
+        Span<byte> recoveredBody = body[..length];
+        parity[..length].CopyTo(recoveredBody);
         for (UInt128 rest = header.Mask; rest != 0; rest = WithoutFirst(rest))
         {
             ushort sequence = (ushort)(header.SequenceBase + (int)UInt128.LeadingZeroCount(rest));
             if (sequence != recoveredSequence && lookup(sequence) is { } s)
             {
                 ReadOnlySpan<byte> other = s.BodyAfterHeader.Span;
-                Parity.Xor(body, other[..Math.Min(body.Length, other.Length)]);
+                Parity.Xor(recoveredBody, other[..Math.Min(length, other.Length)]);
             }
         }
 
-        return new FecRecoveredPacket(
+        recovered = new FecRecoveredPacket(
             recoveredSequence,
             (byte)(headerBits & 0x3F),
             second,
             timestamp,
-            body
+            length
         );
+        return true;
     }
 }
 

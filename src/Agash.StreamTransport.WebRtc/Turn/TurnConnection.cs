@@ -131,6 +131,9 @@ internal abstract class TurnConnection : IDisposable
         private readonly SemaphoreSlim _writer = new(1, 1);
         private readonly byte[] _frame = new byte[4 + 65535 + 3];
 
+        // RFC 8656 section 12.5's padding to a multiple of four: at most three zero bytes.
+        private static readonly byte[] Padding = new byte[3];
+
         public override bool IsReliable => true;
 
         public override async ValueTask SendAsync(
@@ -142,10 +145,12 @@ internal abstract class TurnConnection : IDisposable
             try
             {
                 await stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
-                int pad = Padding(message.Span);
+                int pad = PaddingOf(message.Span);
                 if (pad > 0)
                 {
-                    await stream.WriteAsync(new byte[pad], cancellationToken).ConfigureAwait(false);
+                    await stream
+                        .WriteAsync(Padding.AsMemory(0, pad), cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
@@ -166,7 +171,7 @@ internal abstract class TurnConnection : IDisposable
             try
             {
                 stream.Write(message);
-                stream.Write(stackalloc byte[Padding(message)]);
+                stream.Write(Padding.AsSpan(0, PaddingOf(message)));
                 stream.Flush();
             }
             finally
@@ -223,7 +228,7 @@ internal abstract class TurnConnection : IDisposable
             };
         }
 
-        private static int Padding(ReadOnlySpan<byte> message) =>
+        private static int PaddingOf(ReadOnlySpan<byte> message) =>
             (message[0] & 0xC0) == 0x40 ? (4 - (message.Length & 3)) & 3 : 0;
     }
 }

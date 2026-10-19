@@ -350,8 +350,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             uint? rtxSsrc = LocalRtxSsrcFor(remote.Mid, remote.Kind);
             if (rtxSsrc is not null)
             {
-                foreach (SdpCodec primary in answered.ToArray())
+                // Only the codecs answered so far; the rtx codecs added here are not paired again.
+                for (int i = 0, primaries = answered.Count; i < primaries; i++)
                 {
+                    SdpCodec primary = answered[i];
                     if (
                         remote.Codecs.FirstOrDefault(c => Rtx.Repairs(c) == primary.PayloadType) is
                         { EncodingName: not null } repair
@@ -1445,27 +1447,26 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
+        Span<byte> held = stackalloc byte[RtpSendHistory.MaximumPacketLength];
         foreach (ushort seq in lostSequences)
         {
             // The repair travels with the rtx payload type paired with the original's (RFC 4588).
             if (
-                !history.TryGet(seq, out ReadOnlyMemory<byte> original)
-                || original.Length < 2
-                || !rtx.PayloadTypes.TryGetValue(
-                    (byte)(original.Span[1] & 0x7F),
-                    out byte rtxPayloadType
-                )
+                !history.TryCopy(seq, held, out int heldLength)
+                || heldLength < 2
+                || !rtx.PayloadTypes.TryGetValue((byte)(held[1] & 0x7F), out byte rtxPayloadType)
             )
             {
                 continue;
             }
 
+            ReadOnlySpan<byte> original = held[..heldLength];
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
                 original.Length + 2 + TransportSequenceRoom + SrtpSession.MaxProtectionOverhead
             );
             if (
                 RtxStream.TryWrap(
-                    original.Span,
+                    original,
                     buffer,
                     rtxPayloadType,
                     rtx.Ssrc,

@@ -334,7 +334,7 @@ public sealed class IceNominationTests
         {
             AnswerChecks();
             return _sent.Where(static t =>
-                StunMessageReader.TryParse(t.Data, out StunMessageReader stun)
+                StunMessageReader.TryParse(t.Data.Span, out StunMessageReader stun)
                 && stun.Class == StunMessageClass.SuccessResponse
             );
         }
@@ -346,7 +346,7 @@ public sealed class IceNominationTests
             foreach (IceTransmit t in _sent)
             {
                 if (
-                    StunMessageReader.TryParse(t.Data, out StunMessageReader stun)
+                    StunMessageReader.TryParse(t.Data.Span, out StunMessageReader stun)
                     && stun.Class == StunMessageClass.ErrorResponse
                     && stun.TryGetErrorCode(out int code)
                 )
@@ -362,7 +362,7 @@ public sealed class IceNominationTests
             {
                 _sent.Add(transmit);
                 if (
-                    !StunMessageReader.TryParse(transmit.Data, out StunMessageReader request)
+                    !StunMessageReader.TryParse(transmit.Data.Span, out StunMessageReader request)
                     || request.Class != StunMessageClass.Request
                 )
                 {

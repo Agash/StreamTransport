@@ -123,25 +123,21 @@ public sealed partial class PeerConnection
             return;
         }
 
+        Span<byte> held = stackalloc byte[RtpSendHistory.MaximumPacketLength];
         foreach ((uint mediaSsrc, RtxSender rtx) in Volatile.Read(ref _rtx).Send)
         {
             if (
                 !_sendHistory.TryGetValue(mediaSsrc, out RtpSendHistory? history)
-                || !history.TryGetLargestRecent(
-                    ProbeSourceWindow,
-                    out ReadOnlyMemory<byte> original
-                )
-                || original.Length < 2
-                || !rtx.PayloadTypes.TryGetValue(
-                    (byte)(original.Span[1] & 0x7F),
-                    out byte rtxPayloadType
-                )
+                || !history.TryCopyLargestRecent(ProbeSourceWindow, held, out int heldLength)
+                || heldLength < 2
+                || !rtx.PayloadTypes.TryGetValue((byte)(held[1] & 0x7F), out byte rtxPayloadType)
             )
             {
                 continue;
             }
 
-            if (!RtpPacket.TryParse(original.Span, out _, out ReadOnlySpan<byte> originalPayload))
+            ReadOnlySpan<byte> original = held[..heldLength];
+            if (!RtpPacket.TryParse(original, out _, out ReadOnlySpan<byte> originalPayload))
             {
                 continue;
             }
@@ -163,7 +159,7 @@ public sealed partial class PeerConnection
 
             if (target is { } size)
             {
-                SendProbe(original.Span, rtx, rtxPayloadType, size - overhead);
+                SendProbe(original, rtx, rtxPayloadType, size - overhead);
             }
 
             return;

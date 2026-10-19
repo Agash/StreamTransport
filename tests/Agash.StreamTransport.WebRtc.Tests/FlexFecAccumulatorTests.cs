@@ -59,14 +59,19 @@ public sealed class FlexFecAccumulatorTests
             _ = accumulator.TryComplete(10, out repair);
         }
 
+        byte[] body = new byte[2048];
         FecRecoveredPacket? recovered = FlexFec.TryRecover(
             repair,
-            s => received.TryGetValue(s, out FecSourcePacket p) ? p : null
-        );
+            s => received.TryGetValue(s, out FecSourcePacket p) ? p : null,
+            body,
+            out FecRecoveredPacket r
+        )
+            ? r
+            : null;
 
         Assert.IsNotNull(recovered);
         Assert.AreEqual((ushort)104, recovered.Value.SequenceNumber);
-        CollectionAssert.AreEqual(lost![12..], recovered.Value.BodyAfterHeader);
+        CollectionAssert.AreEqual(lost![12..], body[..recovered.Value.BodyLength]);
     }
 
     private static byte[] Packet(Random random, ushort sequence, bool marker)
