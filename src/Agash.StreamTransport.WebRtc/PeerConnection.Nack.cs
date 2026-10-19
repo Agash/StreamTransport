@@ -133,7 +133,7 @@ public sealed partial class PeerConnection
                 prefix
                 + RtcpFeedback.BuildNack(
                     buffer.AsSpan(prefix),
-                    _rtcpSenderSsrc,
+                    FeedbackSenderFor(mediaSsrc),
                     mediaSsrc,
                     System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences)
                 );

@@ -866,10 +866,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 prefix
                 + (
                     pli
-                        ? RtcpFeedback.BuildPli(buffer.AsSpan(prefix), _rtcpSenderSsrc, mediaSsrc)
+                        ? RtcpFeedback.BuildPli(
+                            buffer.AsSpan(prefix),
+                            FeedbackSenderFor(mediaSsrc),
+                            mediaSsrc
+                        )
                         : RtcpFeedback.BuildFir(
                             buffer.AsSpan(prefix),
-                            _rtcpSenderSsrc,
+                            FeedbackSenderFor(mediaSsrc),
                             mediaSsrc,
                             (byte)Interlocked.Increment(ref _firSequence)
                         )
@@ -1609,6 +1613,40 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
     // The line of a section: the same mid and kind, else the same kind. A peer's offer numbers its
     // sections its own way (a browser may put video first), so the kind decides.
+    // RFC 8108 section 5.2: feedback about a stream goes out from the local SSRC of the media section
+    // that receives it. A stream this side cannot place, or a section without a local SSRC, takes the
+    // session's.
+    internal uint FeedbackSenderFor(uint mediaSsrc)
+    {
+        if (
+            Volatile
+                .Read(ref _remoteDescription)
+                ?.Media.FirstOrDefault(m =>
+                    m.Ssrc == mediaSsrc || m.RtxSsrc == mediaSsrc || m.FecSsrc == mediaSsrc
+                )
+                is { } section
+            && LocalSsrcFor(section.Mid, section.Kind) is not 0 and var signalled
+        )
+        {
+            return signalled;
+        }
+
+        foreach (UnsignalledRepair stream in Volatile.Read(ref _rtx).Unsignalled)
+        {
+            if (
+                stream.MediaSsrc == mediaSsrc
+                && _options.Media.FirstOrDefault(l => l.Mid == stream.Mid)?.LocalSsrc
+                    is uint learned
+                        and not 0
+            )
+            {
+                return learned;
+            }
+        }
+
+        return _rtcpSenderSsrc;
+    }
+
     private uint LocalSsrcFor(string mid, SdpMediaKind kind) =>
         (
             _options.Media.FirstOrDefault(l => l.Kind == kind && l.Mid == mid)
