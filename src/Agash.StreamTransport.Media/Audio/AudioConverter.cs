@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Numerics.Tensors;
+using System.Runtime.InteropServices;
 
 namespace Agash.StreamTransport.Media;
 
@@ -48,6 +50,7 @@ public sealed class AudioConverter
     private float[] _mapped = [];
     private float[] _resampled = [];
     private byte[] _output = [];
+    private float[] _scaled = [];
 
     /// <summary>Creates a converter between two formats.</summary>
     /// <param name="input">The PCM it is given.</param>
@@ -269,23 +272,19 @@ public sealed class AudioConverter
     {
         int bytes = Output.BytesPerSample;
         Span<byte> output = Grow(ref _output, frames * _outChannels * bytes);
+
+        // PCM is little-endian, as every platform this runs on is: the samples are written in place.
         if (Output.SampleFormat == SampleFormat.S16)
         {
-            for (int i = 0; i < samples.Length; i++)
-            {
-                float scaled = Math.Clamp(samples[i] * 32768f, short.MinValue, short.MaxValue);
-                BinaryPrimitives.WriteInt16LittleEndian(
-                    output[(i * 2)..],
-                    (short)MathF.Round(scaled)
-                );
-            }
+            // Scaled to 16 bits, rounded to nearest even, saturated at the ends.
+            Span<float> scaled = Grow(ref _scaled, samples.Length);
+            TensorPrimitives.Multiply(samples, 32768f, scaled);
+            TensorPrimitives.Round(scaled, scaled);
+            TensorPrimitives.ConvertSaturating(scaled, MemoryMarshal.Cast<byte, short>(output));
         }
         else
         {
-            for (int i = 0; i < samples.Length; i++)
-            {
-                BinaryPrimitives.WriteSingleLittleEndian(output[(i * 4)..], samples[i]);
-            }
+            samples.CopyTo(MemoryMarshal.Cast<byte, float>(output));
         }
 
         consumer.OnFrame(new AudioFrame(output, Output, timestamp));
