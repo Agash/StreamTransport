@@ -144,6 +144,9 @@ public interface IMediaSession : IAsyncDisposable
 /// </summary>
 public interface IMediaSessionFactory
 {
+    /// <summary>The descriptions the sessions' transport negotiates with.</summary>
+    ISessionDescriptionFormat DescriptionFormat { get; }
+
     /// <summary>Makes a session with one peer.</summary>
     /// <param name="signaling">The channel negotiation runs over.</param>
     /// <param name="role">Whether this side offers or answers.</param>

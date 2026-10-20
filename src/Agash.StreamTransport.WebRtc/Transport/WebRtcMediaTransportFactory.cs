@@ -24,6 +24,9 @@ public sealed class WebRtcMediaTransportFactory(
     );
 
     /// <inheritdoc/>
+    public ISessionDescriptionFormat DescriptionFormat => WebRtcSessionDescriptionFormat.Instance;
+
+    /// <inheritdoc/>
     public IMediaTransport Create(
         ISignalingChannel signaling,
         MediaSessionRole role,

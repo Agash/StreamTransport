@@ -63,6 +63,7 @@ Agash.StreamTransport.IMediaSession.TryResumeTransmission() -> bool
 Agash.StreamTransport.IMediaSession.VideoFrameTimed -> System.Action<Agash.StreamTransport.VideoFrameTimingReport!>?
 Agash.StreamTransport.IMediaSessionFactory
 Agash.StreamTransport.IMediaSessionFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options) -> Agash.StreamTransport.IMediaSession!
+Agash.StreamTransport.IMediaSessionFactory.DescriptionFormat.get -> Agash.StreamTransport.ISessionDescriptionFormat!
 Agash.StreamTransport.MediaCodecRegistry
 Agash.StreamTransport.MediaCodecRegistry.CanDecode(Agash.StreamTransport.Media.AudioCodecId codec) -> bool
 Agash.StreamTransport.MediaCodecRegistry.CanDecode(Agash.StreamTransport.Media.VideoCodecId codec) -> bool
@@ -208,6 +209,7 @@ Agash.StreamTransport.RoomClient.SendControlAsync(string! topic, string! payload
 Agash.StreamTransport.RoomClient.State.get -> Agash.StreamTransport.RoomState!
 Agash.StreamTransport.Sessions.MediaSessionFactory
 Agash.StreamTransport.Sessions.MediaSessionFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaEndpoints! endpoints, Agash.StreamTransport.MediaSessionOptions! options) -> Agash.StreamTransport.IMediaSession!
+Agash.StreamTransport.Sessions.MediaSessionFactory.DescriptionFormat.get -> Agash.StreamTransport.ISessionDescriptionFormat!
 Agash.StreamTransport.Sessions.MediaSessionFactory.Dispose() -> void
 Agash.StreamTransport.Sessions.MediaSessionFactory.MediaSessionFactory(Agash.StreamTransport.MediaCodecRegistry! codecs, Agash.StreamTransport.IMediaTransportFactory! transports, System.TimeProvider! timeProvider, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
 Agash.StreamTransport.StreamTransportDiagnostics

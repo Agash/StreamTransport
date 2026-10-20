@@ -163,8 +163,12 @@ Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.LocalSsrc.init -> void
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.Mid.get -> string!
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.Mid.init -> void
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.NegotiatedMediaInfo(Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind Kind, string! Mid, uint LocalSsrc, System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.Sdp.SdpCodec>! Codecs, System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.Sdp.SdpCodec>! RemoteCodecs) -> void
+Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.RemoteCname.get -> string?
+Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.RemoteCname.init -> void
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.RemoteCodecs.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.Sdp.SdpCodec>!
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.RemoteCodecs.init -> void
+Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.RemoteTrack.get -> Agash.StreamTransport.MediaTrackIdentity?
+Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.RemoteTrack.init -> void
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.SendLimitBitsPerSecond.get -> long?
 Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.SendLimitBitsPerSecond.init -> void
 Agash.StreamTransport.WebRtc.NetworkChangeMonitor
@@ -769,6 +773,7 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Ssrc.get -> uint?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Ssrc.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TlsId.get -> string?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TlsId.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Track.get -> Agash.StreamTransport.MediaTrackIdentity?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TrackId.get -> string?
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TrackId.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.TransportWideFeedback.get -> bool
@@ -810,7 +815,11 @@ Agash.StreamTransport.WebRtc.Transport.PeerConnectionFactory.PeerConnectionFacto
 Agash.StreamTransport.WebRtc.Transport.PeerConnectionFactory.TimeProvider.get -> System.TimeProvider!
 Agash.StreamTransport.WebRtc.Transport.WebRtcMediaTransportFactory
 Agash.StreamTransport.WebRtc.Transport.WebRtcMediaTransportFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaTransportOptions! options) -> Agash.StreamTransport.IMediaTransport!
+Agash.StreamTransport.WebRtc.Transport.WebRtcMediaTransportFactory.DescriptionFormat.get -> Agash.StreamTransport.ISessionDescriptionFormat!
 Agash.StreamTransport.WebRtc.Transport.WebRtcMediaTransportFactory.WebRtcMediaTransportFactory(Agash.StreamTransport.WebRtc.Transport.PeerConnectionFactory! connections, Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormatRegistry! payloadFormats, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, Agash.StreamTransport.WebRtc.Transport.MobilityEngine? mobility = null) -> void
+Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat
+Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat.IsValid(Agash.StreamTransport.SessionDescription description) -> bool
+Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat.MediaType.get -> string!
 Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions
 Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.Equals(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? other) -> bool
 Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.IceTimings.get -> Agash.StreamTransport.WebRtc.Ice.IceTimings?
@@ -1118,6 +1127,7 @@ static Agash.StreamTransport.WebRtc.Sdp.SdpWriter.Write(Agash.StreamTransport.We
 static Agash.StreamTransport.WebRtc.Srtp.SrtpKeyDerivation.Derive(System.ReadOnlySpan<byte> masterKey, System.ReadOnlySpan<byte> masterSalt, byte label, int outputLength) -> byte[]!
 static Agash.StreamTransport.WebRtc.Srtp.SrtpSession.MaxProtectionOverhead.get -> int
 static Agash.StreamTransport.WebRtc.Srtp.SrtpSession.MaxRtcpProtectionOverhead.get -> int
+static Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat.Instance.get -> Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat!
 static Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.operator !=(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? left, Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? right) -> bool
 static Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions.operator ==(Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? left, Agash.StreamTransport.WebRtc.Transport.WebRtcTransportOptions? right) -> bool
 static Agash.StreamTransport.WebRtc.Turn.TurnServer.TryParse(string! uri, string! username, string! credential, out Agash.StreamTransport.WebRtc.Turn.TurnServer! server) -> bool

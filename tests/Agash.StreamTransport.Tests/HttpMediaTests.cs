@@ -373,7 +373,7 @@ public sealed class HttpMediaTests
         using HttpResponseMessage refused = await http.PostAsync(
             "/whip",
             new StringContent(
-                TwoVideoOffer[..TwoVideoOffer.LastIndexOf("m=video", StringComparison.Ordinal)]
+                OneVideoOffer("s")
                     .Replace("H264/90000", "X-UNKNOWN/90000", StringComparison.Ordinal),
                 Encoding.UTF8,
                 "application/sdp"
@@ -384,6 +384,114 @@ public sealed class HttpMediaTests
         Assert.AreEqual(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.AreEqual(0, app.Services.GetRequiredService<HttpMediaResources>().Count);
     }
+
+    // RFC 9725 section 4.4.2: a WHIP offer is one MediaStream, every section naming it in msid; one
+    // without msid, or with sections naming two streams, is refused with 422.
+    [TestMethod]
+    [Timeout(30_000)]
+    [DataRow(null, null)]
+    [DataRow("s", "t")]
+    public async Task Whip_OfferThatIsNotOneMediaStream_IsUnprocessable(
+        string? video,
+        string? audio
+    )
+    {
+        await using WebApplication app = await StartAsync(web =>
+            web.MapWhip(
+                "/whip",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(
+                            new MediaEndpoints { VideoSink = new LatentVideoSink() },
+                            Loopback()
+                        )
+                    )
+            )
+        );
+        using HttpClient http = new() { BaseAddress = Address(app) };
+        string offer = OneVideoOffer(video) + AudioSection(audio);
+
+        using HttpResponseMessage refused = await http.PostAsync(
+            "/whip",
+            new StringContent(offer, Encoding.UTF8, "application/sdp"),
+            TestContext.CancellationToken
+        );
+
+        Assert.AreEqual(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        StringAssert.Contains(
+            await refused.Content.ReadAsStringAsync(TestContext.CancellationToken),
+            "msid"
+        );
+    }
+
+    // WHEP section 4.3.4: the answer may reject a section the endpoint has nothing for, as long as an
+    // audio or video section stays; with none left the offer is refused with 422.
+    [TestMethod]
+    [Timeout(30_000)]
+    [DataRow("H264/90000", HttpStatusCode.Created)]
+    [DataRow("X-UNKNOWN/90000", HttpStatusCode.UnprocessableEntity)]
+    public async Task Whep_PartialAcceptance_NeedsOneMediaSection(
+        string videoCodec,
+        HttpStatusCode expected
+    )
+    {
+        TestSignalGenerator generator = new();
+        using IVideoInput video = await new TestSignalVideoInputProvider(generator).OpenAsync(
+            new VideoInputInfo("test", "signal", "Test signal", MediaInputKind.Generated, []),
+            new VideoInputRequest { Size = new VideoSize(640, 360), FrameRate = 30 },
+            CancellationToken.None
+        );
+        await using WebApplication app = await StartAsync(web =>
+            web.MapWhep(
+                "/whep",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(new MediaEndpoints { VideoSource = video }, Loopback())
+                    )
+            )
+        );
+        using HttpClient http = new() { BaseAddress = Address(app) };
+        string offer = (OneVideoOffer(null) + AudioSection(null))
+            .Replace("a=sendonly", "a=recvonly", StringComparison.Ordinal)
+            .Replace("H264/90000", videoCodec, StringComparison.Ordinal);
+
+        using HttpResponseMessage response = await http.PostAsync(
+            "/whep",
+            new StringContent(offer, Encoding.UTF8, "application/sdp"),
+            TestContext.CancellationToken
+        );
+
+        Assert.AreEqual(
+            expected,
+            response.StatusCode,
+            await response.Content.ReadAsStringAsync(TestContext.CancellationToken)
+        );
+        if (expected == HttpStatusCode.Created)
+        {
+            string answer = await response.Content.ReadAsStringAsync(TestContext.CancellationToken);
+            StringAssert.Contains(answer, "m=audio 0 ", "the audio section is rejected");
+            Assert.AreEqual(1, app.Services.GetRequiredService<HttpMediaResources>().Count);
+        }
+        else
+        {
+            Assert.AreEqual(0, app.Services.GetRequiredService<HttpMediaResources>().Count);
+        }
+    }
+
+    private static string OneVideoOffer(string? stream) =>
+        "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+        + "a=fingerprint:sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF\r\n"
+        + "a=ice-ufrag:abcd\r\na=ice-pwd:0123456789abcdef0123456789\r\na=setup:actpass\r\n"
+        + "a=group:BUNDLE 0 1\r\n"
+        + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sendonly\r\na=rtcp-mux\r\n"
+        + (stream is null ? "" : $"a=msid:{stream} v\r\n")
+        + "a=rtpmap:96 H264/90000\r\na=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\n";
+
+    // An audio section with a codec no endpoint here takes.
+    private static string AudioSection(string? stream) =>
+        "m=audio 9 UDP/TLS/RTP/SAVPF 100\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=sendonly\r\na=rtcp-mux\r\n"
+        + (stream is null ? "" : $"a=msid:{stream} a\r\n")
+        + "a=rtpmap:100 X-AUDIO/48000/2\r\n";
 
     private const string TwoVideoOffer =
         "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"

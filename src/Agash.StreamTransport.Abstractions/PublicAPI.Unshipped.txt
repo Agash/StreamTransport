@@ -70,10 +70,14 @@ Agash.StreamTransport.IMediaTransport.TrySendAudio(in Agash.StreamTransport.Medi
 Agash.StreamTransport.IMediaTransport.TrySendVideo(in Agash.StreamTransport.Media.EncodedVideoFrame frame, Agash.StreamTransport.Media.NtpTime? capture, Agash.StreamTransport.FrameSendTiming? timing) -> bool
 Agash.StreamTransport.IMediaTransportFactory
 Agash.StreamTransport.IMediaTransportFactory.Create(Agash.StreamTransport.ISignalingChannel! signaling, Agash.StreamTransport.MediaSessionRole role, Agash.StreamTransport.MediaTransportOptions! options) -> Agash.StreamTransport.IMediaTransport!
+Agash.StreamTransport.IMediaTransportFactory.DescriptionFormat.get -> Agash.StreamTransport.ISessionDescriptionFormat!
 Agash.StreamTransport.IReceivedMediaConsumer
 Agash.StreamTransport.IReceivedMediaConsumer.OnAudioPacket(Agash.StreamTransport.Media.EncodedFrameBuffer packet, long sequence, System.TimeSpan position, Agash.StreamTransport.Media.NtpTime? capture, Agash.StreamTransport.Media.AudioLevel? level) -> void
 Agash.StreamTransport.IReceivedMediaConsumer.OnPlayoutDelayRequested(Agash.StreamTransport.PlayoutDelayRange range) -> void
 Agash.StreamTransport.IReceivedMediaConsumer.OnVideoFrame(Agash.StreamTransport.Media.EncodedFrameBuffer frame, bool keyframe, Agash.StreamTransport.Media.NtpTime? capture, Agash.StreamTransport.VideoReceiveTiming? timing, Agash.StreamTransport.Media.VideoOrientation orientation) -> void
+Agash.StreamTransport.ISessionDescriptionFormat
+Agash.StreamTransport.ISessionDescriptionFormat.IsValid(Agash.StreamTransport.SessionDescription description) -> bool
+Agash.StreamTransport.ISessionDescriptionFormat.MediaType.get -> string!
 Agash.StreamTransport.ISignalingChannel
 Agash.StreamTransport.ISignalingChannel.DescriptionReceived -> System.Func<Agash.StreamTransport.SessionDescription, System.Threading.Tasks.Task!>?
 Agash.StreamTransport.ISignalingChannel.IceCandidateReceived -> System.Func<Agash.StreamTransport.IceCandidateInit, System.Threading.Tasks.Task!>?
@@ -147,6 +151,15 @@ Agash.StreamTransport.MediaRoute.Remote.init -> void
 Agash.StreamTransport.MediaSessionRole
 Agash.StreamTransport.MediaSessionRole.Answerer = 1 -> Agash.StreamTransport.MediaSessionRole
 Agash.StreamTransport.MediaSessionRole.Offerer = 0 -> Agash.StreamTransport.MediaSessionRole
+Agash.StreamTransport.MediaTrackIdentity
+Agash.StreamTransport.MediaTrackIdentity.<Clone>$() -> Agash.StreamTransport.MediaTrackIdentity!
+Agash.StreamTransport.MediaTrackIdentity.Deconstruct(out string? StreamId, out string? TrackId) -> void
+Agash.StreamTransport.MediaTrackIdentity.Equals(Agash.StreamTransport.MediaTrackIdentity? other) -> bool
+Agash.StreamTransport.MediaTrackIdentity.MediaTrackIdentity(string? StreamId, string? TrackId) -> void
+Agash.StreamTransport.MediaTrackIdentity.StreamId.get -> string?
+Agash.StreamTransport.MediaTrackIdentity.StreamId.init -> void
+Agash.StreamTransport.MediaTrackIdentity.TrackId.get -> string?
+Agash.StreamTransport.MediaTrackIdentity.TrackId.init -> void
 Agash.StreamTransport.MediaTransportOptions
 Agash.StreamTransport.MediaTransportOptions.ForwardErrorCorrection.get -> bool
 Agash.StreamTransport.MediaTransportOptions.ForwardErrorCorrection.init -> void
@@ -162,20 +175,24 @@ Agash.StreamTransport.MediaTransportOptions.RequestedPlayoutDelay.get -> Agash.S
 Agash.StreamTransport.MediaTransportOptions.RequestedPlayoutDelay.init -> void
 Agash.StreamTransport.NegotiatedAudio
 Agash.StreamTransport.NegotiatedAudio.<Clone>$() -> Agash.StreamTransport.NegotiatedAudio!
-Agash.StreamTransport.NegotiatedAudio.Deconstruct(out Agash.StreamTransport.Media.AudioCodecFormat! Format, out long? SendLimitBitsPerSecond) -> void
+Agash.StreamTransport.NegotiatedAudio.Deconstruct(out Agash.StreamTransport.Media.AudioCodecFormat! Format, out long? SendLimitBitsPerSecond, out Agash.StreamTransport.MediaTrackIdentity? RemoteTrack) -> void
 Agash.StreamTransport.NegotiatedAudio.Equals(Agash.StreamTransport.NegotiatedAudio? other) -> bool
 Agash.StreamTransport.NegotiatedAudio.Format.get -> Agash.StreamTransport.Media.AudioCodecFormat!
 Agash.StreamTransport.NegotiatedAudio.Format.init -> void
-Agash.StreamTransport.NegotiatedAudio.NegotiatedAudio(Agash.StreamTransport.Media.AudioCodecFormat! Format, long? SendLimitBitsPerSecond = null) -> void
+Agash.StreamTransport.NegotiatedAudio.NegotiatedAudio(Agash.StreamTransport.Media.AudioCodecFormat! Format, long? SendLimitBitsPerSecond = null, Agash.StreamTransport.MediaTrackIdentity? RemoteTrack = null) -> void
+Agash.StreamTransport.NegotiatedAudio.RemoteTrack.get -> Agash.StreamTransport.MediaTrackIdentity?
+Agash.StreamTransport.NegotiatedAudio.RemoteTrack.init -> void
 Agash.StreamTransport.NegotiatedAudio.SendLimitBitsPerSecond.get -> long?
 Agash.StreamTransport.NegotiatedAudio.SendLimitBitsPerSecond.init -> void
 Agash.StreamTransport.NegotiatedMedia
 Agash.StreamTransport.NegotiatedMedia.<Clone>$() -> Agash.StreamTransport.NegotiatedMedia!
 Agash.StreamTransport.NegotiatedMedia.Audio.get -> Agash.StreamTransport.NegotiatedAudio?
 Agash.StreamTransport.NegotiatedMedia.Audio.init -> void
-Agash.StreamTransport.NegotiatedMedia.Deconstruct(out Agash.StreamTransport.NegotiatedVideo? Video, out Agash.StreamTransport.NegotiatedAudio? Audio) -> void
+Agash.StreamTransport.NegotiatedMedia.Deconstruct(out Agash.StreamTransport.NegotiatedVideo? Video, out Agash.StreamTransport.NegotiatedAudio? Audio, out bool Synchronized) -> void
 Agash.StreamTransport.NegotiatedMedia.Equals(Agash.StreamTransport.NegotiatedMedia? other) -> bool
-Agash.StreamTransport.NegotiatedMedia.NegotiatedMedia(Agash.StreamTransport.NegotiatedVideo? Video, Agash.StreamTransport.NegotiatedAudio? Audio) -> void
+Agash.StreamTransport.NegotiatedMedia.NegotiatedMedia(Agash.StreamTransport.NegotiatedVideo? Video, Agash.StreamTransport.NegotiatedAudio? Audio, bool Synchronized = true) -> void
+Agash.StreamTransport.NegotiatedMedia.Synchronized.get -> bool
+Agash.StreamTransport.NegotiatedMedia.Synchronized.init -> void
 Agash.StreamTransport.NegotiatedMedia.Video.get -> Agash.StreamTransport.NegotiatedVideo?
 Agash.StreamTransport.NegotiatedMedia.Video.init -> void
 Agash.StreamTransport.NegotiatedVideo
@@ -184,11 +201,13 @@ Agash.StreamTransport.NegotiatedVideo.Alpha.get -> Agash.StreamTransport.Media.A
 Agash.StreamTransport.NegotiatedVideo.Alpha.init -> void
 Agash.StreamTransport.NegotiatedVideo.Decode.get -> Agash.StreamTransport.Media.VideoCodecFormat!
 Agash.StreamTransport.NegotiatedVideo.Decode.init -> void
-Agash.StreamTransport.NegotiatedVideo.Deconstruct(out Agash.StreamTransport.Media.VideoCodecFormat! Encode, out Agash.StreamTransport.Media.VideoCodecFormat! Decode, out Agash.StreamTransport.Media.AlphaLayout Alpha, out long? SendLimitBitsPerSecond) -> void
+Agash.StreamTransport.NegotiatedVideo.Deconstruct(out Agash.StreamTransport.Media.VideoCodecFormat! Encode, out Agash.StreamTransport.Media.VideoCodecFormat! Decode, out Agash.StreamTransport.Media.AlphaLayout Alpha, out long? SendLimitBitsPerSecond, out Agash.StreamTransport.MediaTrackIdentity? RemoteTrack) -> void
 Agash.StreamTransport.NegotiatedVideo.Encode.get -> Agash.StreamTransport.Media.VideoCodecFormat!
 Agash.StreamTransport.NegotiatedVideo.Encode.init -> void
 Agash.StreamTransport.NegotiatedVideo.Equals(Agash.StreamTransport.NegotiatedVideo? other) -> bool
-Agash.StreamTransport.NegotiatedVideo.NegotiatedVideo(Agash.StreamTransport.Media.VideoCodecFormat! Encode, Agash.StreamTransport.Media.VideoCodecFormat! Decode, Agash.StreamTransport.Media.AlphaLayout Alpha, long? SendLimitBitsPerSecond = null) -> void
+Agash.StreamTransport.NegotiatedVideo.NegotiatedVideo(Agash.StreamTransport.Media.VideoCodecFormat! Encode, Agash.StreamTransport.Media.VideoCodecFormat! Decode, Agash.StreamTransport.Media.AlphaLayout Alpha, long? SendLimitBitsPerSecond = null, Agash.StreamTransport.MediaTrackIdentity? RemoteTrack = null) -> void
+Agash.StreamTransport.NegotiatedVideo.RemoteTrack.get -> Agash.StreamTransport.MediaTrackIdentity?
+Agash.StreamTransport.NegotiatedVideo.RemoteTrack.init -> void
 Agash.StreamTransport.NegotiatedVideo.SendLimitBitsPerSecond.get -> long?
 Agash.StreamTransport.NegotiatedVideo.SendLimitBitsPerSecond.init -> void
 Agash.StreamTransport.PeerControlMessage
@@ -405,6 +424,9 @@ override Agash.StreamTransport.MediaOffer.Equals(object? obj) -> bool
 override Agash.StreamTransport.MediaOffer.GetHashCode() -> int
 override Agash.StreamTransport.MediaOffer.ToString() -> string!
 override Agash.StreamTransport.MediaRoute.GetHashCode() -> int
+override Agash.StreamTransport.MediaTrackIdentity.Equals(object? obj) -> bool
+override Agash.StreamTransport.MediaTrackIdentity.GetHashCode() -> int
+override Agash.StreamTransport.MediaTrackIdentity.ToString() -> string!
 override Agash.StreamTransport.MediaTransportOptions.Equals(object? obj) -> bool
 override Agash.StreamTransport.MediaTransportOptions.GetHashCode() -> int
 override Agash.StreamTransport.MediaTransportOptions.ToString() -> string!
@@ -486,6 +508,8 @@ static Agash.StreamTransport.MediaOffer.operator !=(Agash.StreamTransport.MediaO
 static Agash.StreamTransport.MediaOffer.operator ==(Agash.StreamTransport.MediaOffer? left, Agash.StreamTransport.MediaOffer? right) -> bool
 static Agash.StreamTransport.MediaRoute.operator !=(Agash.StreamTransport.MediaRoute left, Agash.StreamTransport.MediaRoute right) -> bool
 static Agash.StreamTransport.MediaRoute.operator ==(Agash.StreamTransport.MediaRoute left, Agash.StreamTransport.MediaRoute right) -> bool
+static Agash.StreamTransport.MediaTrackIdentity.operator !=(Agash.StreamTransport.MediaTrackIdentity? left, Agash.StreamTransport.MediaTrackIdentity? right) -> bool
+static Agash.StreamTransport.MediaTrackIdentity.operator ==(Agash.StreamTransport.MediaTrackIdentity? left, Agash.StreamTransport.MediaTrackIdentity? right) -> bool
 static Agash.StreamTransport.MediaTransportOptions.operator !=(Agash.StreamTransport.MediaTransportOptions? left, Agash.StreamTransport.MediaTransportOptions? right) -> bool
 static Agash.StreamTransport.MediaTransportOptions.operator ==(Agash.StreamTransport.MediaTransportOptions? left, Agash.StreamTransport.MediaTransportOptions? right) -> bool
 static Agash.StreamTransport.NegotiatedAudio.operator !=(Agash.StreamTransport.NegotiatedAudio? left, Agash.StreamTransport.NegotiatedAudio? right) -> bool

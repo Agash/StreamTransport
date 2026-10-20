@@ -10,10 +10,12 @@ public static class HttpMediaCors
     /// <summary>
     /// The response headers a browser client reads: <c>Location</c> names the session (RFC 9725 section
     /// 4.2), <c>Link</c> carries the STUN and TURN servers (section 4.6) and the WHEP profile, and
-    /// <c>ETag</c> tags the ICE session for later <c>PATCH</c> requests (section 4.3.1). Pass them to
+    /// <c>ETag</c> tags the ICE session for later <c>PATCH</c> requests (section 4.3.1), and
+    /// <c>Accept-Post</c> and <c>Accept-Patch</c> name what the endpoint and the session take. Pass them to
     /// <c>CorsPolicyBuilder.WithExposedHeaders</c>.
     /// </summary>
-    public static IReadOnlyList<string> ExposedHeaders { get; } = ["Location", "Link", "ETag"];
+    public static IReadOnlyList<string> ExposedHeaders { get; } =
+    ["Location", "Link", "ETag", "Accept-Post", "Accept-Patch"];
 
     /// <summary>
     /// The request headers a browser client sends: <c>Authorization</c> for the bearer token (section

@@ -252,6 +252,7 @@ public sealed class TrickleIceTests
                 HttpClient = new HttpClient(server),
                 BearerToken = "secret",
             },
+            Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat.Instance,
             NullLogger.Instance
         );
 
@@ -277,6 +278,7 @@ public sealed class TrickleIceTests
                 HttpClient = new HttpClient(server),
                 BearerToken = "secret",
             },
+            Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat.Instance,
             NullLogger.Instance
         );
 
@@ -351,6 +353,7 @@ public sealed class TrickleIceTests
         new(
             new Uri("https://whip.example/whip/live"),
             new HttpSignalingOptions { HttpClient = new HttpClient(server) },
+            Agash.StreamTransport.WebRtc.Transport.WebRtcSessionDescriptionFormat.Instance,
             NullLogger.Instance
         );
 

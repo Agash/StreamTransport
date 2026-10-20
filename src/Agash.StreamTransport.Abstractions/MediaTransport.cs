@@ -81,6 +81,15 @@ public sealed record AudioOffer(
 /// <param name="Audio">The audio, or null for none.</param>
 public sealed record MediaOffer(VideoOffer? Video, AudioOffer? Audio);
 
+/// <summary>
+/// The track a peer sends on a section, as its <c>a=msid</c> names it (RFC 8830 section 2): the
+/// MediaStream it belongs to and the track's own id. Tracks the peer puts in one MediaStream are played
+/// out in sync (RFC 8830 section 1).
+/// </summary>
+/// <param name="StreamId">The MediaStream's id, or null for a track in none (<c>-</c>).</param>
+/// <param name="TrackId">The track's id, or null when the peer gave none.</param>
+public sealed record MediaTrackIdentity(string? StreamId, string? TrackId);
+
 /// <summary>What both sides agreed for video.</summary>
 /// <param name="Encode">The format to encode, holding what the receiver declared it decodes.</param>
 /// <param name="Decode">The format to decode.</param>
@@ -88,11 +97,13 @@ public sealed record MediaOffer(VideoOffer? Video, AudioOffer? Audio);
 /// <param name="SendLimitBitsPerSecond">
 /// The most video the peer takes from this side, in bits per second; null for no limit.
 /// </param>
+/// <param name="RemoteTrack">The track the peer sends, as it names it; null when it names none.</param>
 public sealed record NegotiatedVideo(
     VideoCodecFormat Encode,
     VideoCodecFormat Decode,
     AlphaLayout Alpha,
-    long? SendLimitBitsPerSecond = null
+    long? SendLimitBitsPerSecond = null,
+    MediaTrackIdentity? RemoteTrack = null
 );
 
 /// <summary>What both sides agreed for audio.</summary>
@@ -100,12 +111,26 @@ public sealed record NegotiatedVideo(
 /// <param name="SendLimitBitsPerSecond">
 /// The most audio the peer takes from this side, in bits per second; null for no limit.
 /// </param>
-public sealed record NegotiatedAudio(AudioCodecFormat Format, long? SendLimitBitsPerSecond = null);
+/// <param name="RemoteTrack">The track the peer sends, as it names it; null when it names none.</param>
+public sealed record NegotiatedAudio(
+    AudioCodecFormat Format,
+    long? SendLimitBitsPerSecond = null,
+    MediaTrackIdentity? RemoteTrack = null
+);
 
 /// <summary>What both sides agreed.</summary>
 /// <param name="Video">The video, or null when none was agreed.</param>
 /// <param name="Audio">The audio, or null when none was agreed.</param>
-public sealed record NegotiatedMedia(NegotiatedVideo? Video, NegotiatedAudio? Audio);
+/// <param name="Synchronized">
+/// Whether the peer's audio and video play out in sync: they share an RTCP CNAME (RFC 3550 section 6.5.1)
+/// and, where the peer names MediaStreams, the same one (RFC 8830 section 1). Tracks that are not are
+/// buffered each on its own.
+/// </param>
+public sealed record NegotiatedMedia(
+    NegotiatedVideo? Video,
+    NegotiatedAudio? Audio,
+    bool Synchronized = true
+);
 
 /// <summary>Why a video frame carries timing: on a schedule, for its size, or both.</summary>
 [Flags]
@@ -365,9 +390,31 @@ public interface IMediaTransport : IAsyncDisposable
     Task RestartAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// The session descriptions a transport negotiates with, read by the transport's own parser so that
+/// signaling which has to judge a description (a WHEP counter-offer, a description arriving out of band)
+/// judges it exactly as the session will.
+/// </summary>
+public interface ISessionDescriptionFormat
+{
+    /// <summary>The media type descriptions travel as, such as <c>application/sdp</c>.</summary>
+    string MediaType { get; }
+
+    /// <summary>
+    /// Whether the text is a description of the kind given that this transport can negotiate with: it
+    /// parses, and carries what an offer or an answer of the transport's protocol must.
+    /// </summary>
+    /// <param name="description">The description.</param>
+    /// <returns>Whether the session can take it.</returns>
+    bool IsValid(SessionDescription description);
+}
+
 /// <summary>Makes the transport for each session.</summary>
 public interface IMediaTransportFactory
 {
+    /// <summary>The descriptions this factory's transports negotiate with.</summary>
+    ISessionDescriptionFormat DescriptionFormat { get; }
+
     /// <summary>Makes a transport, not yet connected.</summary>
     /// <param name="signaling">The channel negotiation runs over.</param>
     /// <param name="role">Whether this side offers or answers.</param>

@@ -144,6 +144,15 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
             return;
         }
 
+        // RFC 9725 section 4.4.2: a WHIP offer is one MediaStream, so every section names it in msid.
+        if (protocol == "WHIP" && OneMediaStream(parsed) is { } streams)
+        {
+            context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync(streams, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         HttpMediaSetup? setup = await handler(context, cancellationToken).ConfigureAwait(false);
         if (setup is null)
         {
@@ -171,7 +180,19 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
 
         // RFC 9725 section 4.4.3: WHIP takes the whole offer or refuses it, never a partial session.
         // WHEP section 4.3.4 lets the answer reject sections, but one audio or video section must stay.
-        if (Unanswerable(parsed, answer, protocol) is { } refusal)
+        // An answer that does not mirror the offer section for section is this side's fault, and no
+        // session stands on it (RFC 9429 section 5.3.1).
+        if (
+            !WebRtcSdp.SdpReader.TryParse(answer, out WebRtcSdp.SdpDescription answered)
+            || !Mirrors(parsed, answered)
+        )
+        {
+            _ = await resources.EndAsync(id).ConfigureAwait(false);
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            return;
+        }
+
+        if (Unanswerable(parsed, answered, protocol) is { } refusal)
         {
             _ = await resources.EndAsync(id).ConfigureAwait(false);
             context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
@@ -190,20 +211,51 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
     }
 
     // Why the answer cannot stand, or null when it can: the offered sections it rejected.
+    // Why the offer is not one MediaStream, or null when it is.
+    private static string? OneMediaStream(WebRtcSdp.SdpDescription offer)
+    {
+        List<string?> streams =
+        [
+            .. offer.Media.Where(static m => !m.Rejected).Select(static m => m.Track?.StreamId),
+        ];
+        return streams.Contains(null)
+                ? "Every section of a WHIP offer carries an msid naming its MediaStream."
+            : streams.Distinct(StringComparer.Ordinal).Count() > 1
+                ? "A WHIP offer carries one MediaStream; its sections name more than one in msid."
+            : null;
+    }
+
+    // RFC 9429 section 5.3.1: the answer has the offer's sections, in its order, with its MIDs.
+    private static bool Mirrors(WebRtcSdp.SdpDescription offer, WebRtcSdp.SdpDescription answer)
+    {
+        if (offer.Media.Count != answer.Media.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < offer.Media.Count; i++)
+        {
+            if (
+                offer.Media[i].Kind != answer.Media[i].Kind
+                || (!answer.Media[i].Rejected && offer.Media[i].Mid != answer.Media[i].Mid)
+            )
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static string? Unanswerable(
         WebRtcSdp.SdpDescription offer,
-        string answer,
+        WebRtcSdp.SdpDescription answered,
         string protocol
     )
     {
-        if (!WebRtcSdp.SdpReader.TryParse(answer, out WebRtcSdp.SdpDescription answered))
-        {
-            return null;
-        }
-
         int rejected = 0;
         int accepted = 0;
-        for (int i = 0; i < offer.Media.Count && i < answered.Media.Count; i++)
+        for (int i = 0; i < offer.Media.Count; i++)
         {
             if (offer.Media[i].Rejected)
             {

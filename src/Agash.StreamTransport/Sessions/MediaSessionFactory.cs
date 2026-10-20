@@ -28,6 +28,9 @@ public sealed class MediaSessionFactory(
     );
 
     /// <inheritdoc/>
+    public ISessionDescriptionFormat DescriptionFormat => transports.DescriptionFormat;
+
+    /// <inheritdoc/>
     public void Dispose() => _services.Metrics.Dispose();
 
     /// <inheritdoc/>

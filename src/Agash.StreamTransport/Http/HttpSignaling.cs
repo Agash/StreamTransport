@@ -82,7 +82,7 @@ public sealed class HttpMediaSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
         signaling ??= new HttpSignalingOptions();
         HttpSdpChannel.RequireSecure(endpoint, signaling);
-        HttpSdpChannel channel = new(endpoint, signaling, logger);
+        HttpSdpChannel channel = new(endpoint, signaling, sessions.DescriptionFormat, logger);
         if (options.Transport.IceServers.IsEmpty)
         {
             // The server's own STUN and TURN servers, when it advertises them.
@@ -192,6 +192,7 @@ public static class WhepClient
 internal sealed partial class HttpSdpChannel(
     Uri endpoint,
     HttpSignalingOptions options,
+    ISessionDescriptionFormat descriptions,
     ILogger logger
 ) : ISignalingChannel
 {
@@ -326,17 +327,20 @@ internal sealed partial class HttpSdpChannel(
         await TrickleAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    // WHEP section 4.3.3: a 406 is a counter-offer only with an application/sdp body that is an offer;
-    // any other 406 is an ordinary refusal. Section 4.3.2: the Location names the resource the exchange
-    // makes, and the offer waits for the answer until valid-until, or 30 seconds without one.
+    // WHEP section 4.3.3: a 406 is a counter-offer only with an application/sdp body that is a
+    // syntactically valid offer; any other 406 is an ordinary refusal. Section 4.3.2: the Location names
+    // the resource the exchange makes, and the offer waits for the answer until valid-until, an HTTP-date,
+    // or 30 seconds from the response without one.
     private async Task<string?> ReadCounterOfferAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken
     )
     {
+        DateTimeOffset received = _time.GetUtcNow();
         if (
             response.StatusCode != HttpStatusCode.NotAcceptable
-            || response.Content.Headers.ContentType is not { MediaType: SdpMediaType } type
+            || response.Content.Headers.ContentType is not { } type
+            || !string.Equals(type.MediaType, SdpMediaType, StringComparison.OrdinalIgnoreCase)
         )
         {
             return null;
@@ -345,12 +349,22 @@ internal sealed partial class HttpSdpChannel(
         string offer = await response
             .Content.ReadAsStringAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (
-            !offer.StartsWith("v=0", StringComparison.Ordinal)
-            || !offer.Contains("\nm=", StringComparison.Ordinal)
-        )
+        if (!descriptions.IsValid(new SessionDescription(SdpKind.Offer, offer)))
         {
             return null;
+        }
+
+        NameValueHeaderValue? validUntil = type.Parameters.FirstOrDefault(static p =>
+            p.Name.Equals("valid-until", StringComparison.OrdinalIgnoreCase)
+        );
+        DateTimeOffset until = received + CounterOfferLifetime;
+        if (validUntil is not null && !TryParseHttpDate(validUntil.Value, out until))
+        {
+            throw new HttpRequestException(
+                $"The server's counter-offer has valid-until {validUntil.Value}, which is not an HTTP-date (WHEP section 4.3.2).",
+                null,
+                response.StatusCode
+            );
         }
 
         Resource = response.Headers.Location is { } location
@@ -362,21 +376,26 @@ internal sealed partial class HttpSdpChannel(
             );
         _remote = offer;
         _iceSession = response.Headers.ETag;
-        NameValueHeaderValue? validUntil = type.Parameters.FirstOrDefault(static p =>
-            p.Name.Equals("valid-until", StringComparison.OrdinalIgnoreCase)
-        );
-        _counterOfferValidUntil =
-            validUntil?.Value is { } date
-            && DateTimeOffset.TryParse(
-                date.Trim('"'),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal,
-                out DateTimeOffset until
-            )
-                ? until
-                : _time.GetUtcNow() + CounterOfferLifetime;
+        _counterOfferValidUntil = until;
         return offer;
     }
+
+    // RFC 9110 section 5.6.7: recipients take IMF-fixdate and the two obsolete forms, all in GMT.
+    private static readonly string[] HttpDateFormats =
+    [
+        "r",
+        "dddd, dd-MMM-yy HH:mm:ss 'GMT'",
+        "ddd MMM d HH:mm:ss yyyy",
+    ];
+
+    private static bool TryParseHttpDate(string? value, out DateTimeOffset date) =>
+        DateTimeOffset.TryParseExact(
+            value?.Trim('"'),
+            HttpDateFormats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowInnerWhite,
+            out date
+        );
 
     // WHEP section 4.3.2: the answer to a counter-offer goes to the resource in a PATCH, which the server
     // takes with 204.
@@ -426,6 +445,22 @@ internal sealed partial class HttpSdpChannel(
 
             _local = answer.Sdp;
             _counterOfferValidUntil = null;
+
+            // RFC 9725 section 4.3.1: trickled candidates carry the ICE session's ETag in If-Match. WHEP
+            // gives the counter-offer path none of its own; the 204 or the 406 may carry one, and without
+            // either a later candidate has nothing to match and is not sent.
+            _iceSession = response.Headers.ETag ?? _iceSession;
+            if (_iceSession is null)
+            {
+                lock (_pending)
+                {
+                    _trickleRefused = true;
+                    _pending.Clear();
+                }
+
+                LogNoIceSessionTag(resource);
+            }
+
             LogCounterOfferAnswered(resource);
             _answered.TrySetResult();
         }
@@ -810,4 +845,11 @@ internal sealed partial class HttpSdpChannel(
 
     [LoggerMessage(2719, LogLevel.Information, "{Resource} took the answer to its counter-offer.")]
     private partial void LogCounterOfferAnswered(Uri resource);
+
+    [LoggerMessage(
+        2720,
+        LogLevel.Information,
+        "{Resource} gave the counter-offered session no ETag; candidates gathered later are not trickled."
+    )]
+    private partial void LogNoIceSessionTag(Uri resource);
 }
