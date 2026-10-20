@@ -143,12 +143,14 @@ public sealed class CryptexTests
     {
         InMemoryIceNetwork network = new();
         ConcurrentQueue<byte[]> wire = new();
+        // RFC 7983 section 7: RTP by its version; a DTLS 1.3 record can carry 96 in its second octet.
         network.Drop = (from, _, data) =>
         {
             if (
                 from.Address.Equals(IPAddress.Parse("10.0.0.1"))
                 && data.Length > 16
-                && data[1] is (96 or (96 | 0x80))
+                && data[0] >> 6 == 2
+                && (data[1] & 0x7F) == 96
             )
             {
                 wire.Enqueue([.. data]);
@@ -187,7 +189,14 @@ public sealed class CryptexTests
         Assert.AreEqual("0", header.Mid, "the receiver reads the MID either way");
         byte[] packet = wire.First();
         ushort profile = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(12));
-        Assert.AreEqual(hidden ? Cryptex.OneByteProfile : (ushort)0xBEDE, profile);
+        Assert.AreEqual(
+            hidden ? Cryptex.OneByteProfile : (ushort)0xBEDE,
+            profile,
+            string.Join(
+                " | ",
+                wire.Take(4).Select(static p => Convert.ToHexString(p.AsSpan(0, 24)))
+            )
+        );
         Assert.AreEqual(!hidden, ContainsMid(packet), "MID in the clear");
     }
 

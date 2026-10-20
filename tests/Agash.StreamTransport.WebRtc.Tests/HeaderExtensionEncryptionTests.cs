@@ -99,11 +99,13 @@ public sealed class HeaderExtensionEncryptionTests
         const ulong Capture = 0x0123_4567_89AB_CDEF;
         InMemoryIceNetwork network = new();
         ConcurrentQueue<byte[]> wire = new();
+        // RFC 7983 section 7: RTP by its version; a DTLS 1.3 record can carry 96 in its second octet.
         network.Drop = (from, _, data) =>
         {
             if (
                 from.Address.Equals(IPAddress.Parse("10.0.0.1"))
                 && data.Length > 16
+                && data[0] >> 6 == 2
                 && (data[1] & 0x7F) == 96
             )
             {
