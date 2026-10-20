@@ -121,6 +121,9 @@ internal sealed partial class IceStateMachine
     private uint _nominationNumber;
     private TimeSpan _remoteCandidateAt;
     private int _remoteCandidatesSeen;
+
+    // RFC 8838 section 14: the peer said no more candidates follow in this ICE session.
+    private bool _remoteCandidatesEnded;
     private bool _started;
 
     // The pair the last data datagram came over, so the per-packet lookup is one comparison.
@@ -391,6 +394,13 @@ internal sealed partial class IceStateMachine
             return;
         }
 
+        // RFC 8838 section 14: after the end-of-candidates indication, new candidates are ignored.
+        if (_remoteCandidatesEnded)
+        {
+            LogCandidateAfterEnd(candidate.Kind, candidate.Endpoint);
+            return;
+        }
+
         _remoteCandidates.Add(candidate);
         foreach (LocalEndpoint local in _locals)
         {
@@ -398,6 +408,19 @@ internal sealed partial class IceStateMachine
         }
 
         LogRemoteCandidate(candidate.Kind, candidate.Endpoint);
+    }
+
+    /// <summary>
+    /// Takes the peer's end-of-candidates indication (RFC 8838 section 14): candidates it sends later in
+    /// this ICE session are ignored, until an ICE restart begins a new one.
+    /// </summary>
+    public void EndRemoteCandidates()
+    {
+        if (!_remoteCandidatesEnded)
+        {
+            _remoteCandidatesEnded = true;
+            LogRemoteCandidatesEnded(_remoteCandidates.Count);
+        }
     }
 
     /// <summary>Handles a STUN message that arrived on a local endpoint.</summary>
@@ -542,6 +565,7 @@ internal sealed partial class IceStateMachine
         // the peer still answers from is learned again as peer-reflexive.
         _remoteCandidates.Clear();
         _remoteCandidatesSeen = 0;
+        _remoteCandidatesEnded = false;
         SetState(IceConnectionState.Checking);
         _metrics.Restarts.Add(1);
         LogRestart();
@@ -1548,15 +1572,17 @@ internal sealed partial class IceStateMachine
         }
 
         _checkingSince ??= now;
-        bool exhausted =
-            _pairs.Count > 0
+
+        // RFC 8863 section 4: never while the PAC timer runs, as a peer's checks may still reveal a
+        // peer-reflexive candidate; once it has run, when the checklist has no pair left to check. RFC 8838
+        // section 8 asks for the peer's end-of-candidates too, and RFC 8863 section 5 lets the PAC timer
+        // stand in for one that never comes.
+        if (
+            now - _checkingSince.Value >= _timings.FailureTimeout
             && _pairs.TrueForAll(static p => p.State == PairState.Failed)
-            && now - _remoteCandidateAt >= _timings.ReceivingTimeout;
-        // RFC 8863 section 4: not before the PAC timer, even with every pair failed, as a peer's checks may
-        // still reveal a peer-reflexive candidate.
-        if (now - _checkingSince.Value >= _timings.FailureTimeout)
+        )
         {
-            LogFailed(_pairs.Count, exhausted);
+            LogFailed(_pairs.Count, _remoteCandidatesEnded);
             SetState(IceConnectionState.Failed);
         }
     }
@@ -1718,13 +1744,27 @@ internal sealed partial class IceStateMachine
     )]
     private partial void LogFailedCore(int pairs, string reason);
 
-    private void LogFailed(int pairs, bool exhausted) =>
+    private void LogFailed(int pairs, bool ended) =>
         LogFailedCore(
             pairs,
-            exhausted
-                ? "every one failed and the peer sent no more candidates"
-                : "none selected within the failure timeout"
+            ended
+                ? "every one failed after the peer's end-of-candidates"
+                : "every one failed and the PAC timer ran out waiting for more"
         );
+
+    [LoggerMessage(
+        EventId = 1141,
+        Level = LogLevel.Debug,
+        Message = "ICE remote candidates ended after {Count} (RFC 8838 section 14)"
+    )]
+    private partial void LogRemoteCandidatesEnded(int count);
+
+    [LoggerMessage(
+        EventId = 1142,
+        Level = LogLevel.Debug,
+        Message = "ICE remote candidate {Kind} {Endpoint} came after end-of-candidates; ignored"
+    )]
+    private partial void LogCandidateAfterEnd(IceCandidateKind kind, IPEndPoint endpoint);
 
     [LoggerMessage(EventId = 1140, Level = LogLevel.Information, Message = "ICE role is {Role}")]
     private partial void LogRoleChanged(IceRole role);

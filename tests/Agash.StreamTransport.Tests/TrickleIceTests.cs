@@ -62,6 +62,25 @@ public sealed class TrickleIceTests
         Assert.AreEqual("BUNDLE 0 1", fragment.BundleGroup);
     }
 
+    // RFC 8840 section 4.4: a restart fragment's end-of-candidates stays with its candidates when it is
+    // applied to the description, so the session learns no more follow.
+    [TestMethod]
+    public void ApplyTo_KeepsTheEndOfCandidates()
+    {
+        TrickleIceFragment fragment = new(
+            "Ufr2",
+            "NewPasswordNewPasswordNew",
+            "video 9 UDP/TLS/RTP/SAVPF 96",
+            "0",
+            [Cellular],
+            EndOfCandidates: true
+        );
+
+        string applied = fragment.ApplyTo(Offer);
+
+        StringAssert.Contains(applied, "a=" + Cellular + "\r\na=end-of-candidates\r\nm=audio");
+    }
+
     // RFC 9725 section 4.3.3: a restart's body carries the ice-options and ice-lite of the description.
     [TestMethod]
     public void FromFirstSection_CarriesIceOptionsAndLite()

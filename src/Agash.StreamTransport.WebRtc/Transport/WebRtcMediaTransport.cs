@@ -685,7 +685,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
     {
         if (string.IsNullOrEmpty(candidate.Candidate))
         {
-            // The end of the peer's candidates: nothing to add.
+            // The end of the peer's candidates (RFC 8838 section 14).
+            _connection?.EndRemoteIceCandidates();
             return Task.CompletedTask;
         }
 

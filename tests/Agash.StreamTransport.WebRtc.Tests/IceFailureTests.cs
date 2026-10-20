@@ -39,6 +39,62 @@ public sealed class IceFailureTests
         Assert.AreEqual(IceTimings.Default.FailureTimeout.TotalSeconds, failedAt.TotalSeconds, 0.2);
     }
 
+    // RFC 8838 section 14: after the peer's end-of-candidates, a candidate it sends is ignored and never
+    // checked; an ICE restart begins a session that takes candidates again.
+    [TestMethod]
+    public void EndOfCandidates_LaterCandidatesAreIgnoredUntilARestart()
+    {
+        IceStateMachine machine = new(
+            IceCredentials.Generate(),
+            IceRole.Controlling,
+            IceTimings.Default,
+            NullLogger.Instance
+        );
+        machine.SetRemoteCredentials(IceCredentials.Generate());
+        machine.AddLocalEndpoint(0, new IPEndPoint(IPAddress.Parse("10.0.0.1"), 5000));
+        Assert.IsTrue(
+            IceCandidate.TryParse(
+                "candidate:1 1 udp 2130706431 10.0.0.2 6000 typ host",
+                out IceCandidate late
+            )
+        );
+        machine.Start(TimeSpan.Zero);
+
+        machine.EndRemoteCandidates();
+        machine.AddRemoteCandidate(late);
+
+        Assert.DoesNotContain(late.Endpoint, Checked(machine, TimeSpan.Zero));
+
+        machine.Restart(IceCredentials.Generate());
+        machine.SetRemoteCredentials(IceCredentials.Generate());
+        machine.AddLocalEndpoint(1, new IPEndPoint(IPAddress.Parse("10.0.0.1"), 5001));
+        machine.AddRemoteCandidate(late);
+
+        Assert.Contains(late.Endpoint, Checked(machine, TimeSpan.FromSeconds(5)));
+    }
+
+    // Where checks went over five seconds from the start.
+    private static List<IPEndPoint> Checked(IceStateMachine machine, TimeSpan start)
+    {
+        List<IPEndPoint> destinations = [];
+        for (
+            TimeSpan now = start;
+            now < start + TimeSpan.FromSeconds(5);
+            now += TimeSpan.FromMilliseconds(50)
+        )
+        {
+            machine.HandleTimeout(now);
+            while (machine.TryPollTransmit(out IceTransmit transmit))
+            {
+                destinations.Add(transmit.Destination);
+            }
+
+            while (machine.TryPollEvent(out _)) { }
+        }
+
+        return destinations;
+    }
+
     // RFC 8489 section 6.2.1: a server-reflexive request with no answer goes again, seven times in all,
     // and is given up after.
     [TestMethod]

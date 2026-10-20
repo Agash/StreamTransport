@@ -213,11 +213,18 @@ public sealed record TrickleIceFragment(
         return result.ToString();
     }
 
+    // The fragment's candidates into the description's first section, and its end-of-candidates after
+    // them (RFC 8840 section 4.4).
     private void WriteCandidates(StringBuilder body)
     {
         foreach (string candidate in Candidates)
         {
             body.Append("a=").Append(candidate).Append("\r\n");
+        }
+
+        if (EndOfCandidates)
+        {
+            body.Append("a=end-of-candidates\r\n");
         }
     }
 

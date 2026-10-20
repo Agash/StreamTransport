@@ -143,6 +143,14 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
                 await resource.Channel.DeliverAsync(candidate, fragment.Mid).ConfigureAwait(false);
             }
 
+            // RFC 8840 section 4.4: an empty candidate tells the session no more follow.
+            if (fragment.EndOfCandidates)
+            {
+                await resource
+                    .Channel.DeliverAsync(string.Empty, fragment.Mid)
+                    .ConfigureAwait(false);
+            }
+
             LogTrickled(id, fragment.Candidates.Count);
             return (StatusCodes.Status204NoContent, null, null);
         }

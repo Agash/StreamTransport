@@ -40,6 +40,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private readonly ILogger _logger;
     private IceCredentials _localIceCredentials = IceCredentials.Generate();
     private readonly List<IceCandidate> _bufferedRemoteCandidates = [];
+
+    // The peer's end-of-candidates, held until ICE starts (RFC 8838 section 14).
+    private bool _remoteCandidatesEnded;
     private readonly List<IceCandidate> _localCandidates = [];
     private readonly Dictionary<uint, ushort> _sendSequence = [];
 
@@ -750,6 +753,32 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 _bufferedRemoteCandidates.Clear();
             }
         }
+
+        // RFC 8840 section 4.3 and RFC 8838 section 14: a description whose transport section ends with
+        // a=end-of-candidates carries all the candidates there are.
+        if (first.EndOfCandidates)
+        {
+            EndRemoteIceCandidates();
+        }
+    }
+
+    /// <summary>
+    /// Takes the peer's end-of-candidates indication (RFC 8838 section 14), from a trickle or a
+    /// description; held until ICE starts. Candidates the peer sends later in this ICE session are ignored.
+    /// </summary>
+    public void EndRemoteIceCandidates()
+    {
+        lock (_gate)
+        {
+            if (_iceAgent is { } agent)
+            {
+                agent.EndRemoteCandidates();
+            }
+            else
+            {
+                _remoteCandidatesEnded = true;
+            }
+        }
     }
 
     /// <summary>
@@ -1138,6 +1167,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             }
 
             _bufferedRemoteCandidates.Clear();
+            if (_remoteCandidatesEnded)
+            {
+                agent.EndRemoteCandidates();
+                _remoteCandidatesEnded = false;
+            }
         }
 
         // From starting ICE to the secure transport being up is one span and one measurement.

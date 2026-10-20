@@ -280,6 +280,15 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
     }
 
+    /// <summary>Takes the peer's end-of-candidates indication (RFC 8838 section 14).</summary>
+    public void EndRemoteCandidates()
+    {
+        lock (_gate)
+        {
+            _machine.EndRemoteCandidates();
+        }
+    }
+
     /// <summary>
     /// Waits until every candidate the agent gathers has been raised: host candidates, server-reflexive
     /// ones from the STUN servers that answer, relayed ones from the TURN servers that allocate. A peer
