@@ -425,10 +425,7 @@ async Task<Process?> EnsureObsAsync()
                 WorkingDirectory = @"C:\Program Files\obs-studio\bin\64bit",
             }
         : OperatingSystem.IsMacOS()
-            ? new(
-                "/Applications/OBS.app/Contents/MacOS/OBS",
-                ["--disable-shutdown-check", "--disable-updater"]
-            )
+            ? new("open", ["-a", "OBS", "--args", "--disable-shutdown-check", "--disable-updater"])
         : new("obs", ["--disable-shutdown-check"]);
     // Through the shell, as a user's launch is: a child of this console gets no visible window, and an
     // OBS without one never finishes switching collections.
