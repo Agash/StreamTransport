@@ -74,6 +74,21 @@ public sealed class TestSignalAnalyzer
         _clock = new MediaClock(_time);
     }
 
+    /// <summary>
+    /// The level, in [0, 1], audio must reach to count as a click; 0.1 by default, which a click at the
+    /// generator's level reaches through any output. A recording made at a lower volume needs it lower.
+    /// </summary>
+    public float ClickThreshold
+    {
+        get;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, 1f);
+            field = value;
+        }
+    } = 0.1f;
+
     /// <summary>A video output that measures, then hands frames to <paramref name="inner"/>.</summary>
     /// <param name="inner">The real output, or null to only measure.</param>
     /// <returns>The measuring output.</returns>
@@ -265,7 +280,7 @@ public sealed class TestSignalAnalyzer
         int onset = -1;
         for (int i = 0; i < count; i++)
         {
-            bool loud = Math.Abs(samples[i * channels]) > 0.1f;
+            bool loud = Math.Abs(samples[i * channels]) > ClickThreshold;
             if (loud && !_clicking && _silentSamples > sampleRate / 10 && onset < 0)
             {
                 onset = i;

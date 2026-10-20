@@ -43,6 +43,10 @@ public sealed record MediaEndpoints
 /// The lip sync measured where frames reach the sinks, smoothed: the capture instant of the video shown less
 /// that of the audio heard with it, positive when audio lags video; null until both have played.
 /// </param>
+/// <param name="AudioOutputOffset">
+/// How much later than its slot audio plays: <see cref="IMediaSession.AudioOutputOffset"/> when set, else
+/// the video output's reported latency less the audio output's, so both reach the viewer together.
+/// </param>
 public readonly record struct MediaSessionStatistics(
     int VideoFramesSent,
     int AudioFramesSent,
@@ -54,7 +58,8 @@ public readonly record struct MediaSessionStatistics(
     int AudioConcealed,
     int AudioRecovered,
     TimeSpan PlayoutDelay,
-    TimeSpan? AvSyncOffset
+    TimeSpan? AvSyncOffset,
+    TimeSpan AudioOutputOffset
 );
 
 /// <summary>A media session with one peer.</summary>

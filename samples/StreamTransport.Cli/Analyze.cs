@@ -1,3 +1,4 @@
+using System.Numerics.Tensors;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.TestSignal;
 using FFmpeg.Interop;
@@ -16,6 +17,13 @@ internal static class Analyze
             FFmpegLibraries.SearchDirectory = ffmpeg;
         }
 
+        // A recording's level is whatever the capture made it; clicks are found at a third of its loudest.
+        float peak = AudioPeak(path);
+        if (peak <= 0)
+        {
+            throw new InvalidOperationException($"{path} is silent.");
+        }
+
         using var reader = MediaReader.Open(path);
         MediaStream video =
             reader.FindBestStream(FFmpegMediaType.Video)
@@ -27,7 +35,7 @@ internal static class Analyze
         using Decoder audioDecoder = audio.CreateDecoder();
         using Packet packet = new();
         using Frame frame = new();
-        TestSignalAnalyzer analyzer = new();
+        TestSignalAnalyzer analyzer = new() { ClickThreshold = peak / 3 };
         byte[] luma = [];
         long pictures = 0;
         while (reader.TryReadPacket(packet))
@@ -85,6 +93,39 @@ internal static class Analyze
             )
         );
         return measured.Pairs > 0 ? 0 : 1;
+    }
+
+    // The loudest sample of the first audio channel.
+    private static float AudioPeak(string path)
+    {
+        using var reader = MediaReader.Open(path);
+        MediaStream audio =
+            reader.FindBestStream(FFmpegMediaType.Audio)
+            ?? throw new InvalidOperationException($"{path} has no audio stream.");
+        using Decoder decoder = audio.CreateDecoder();
+        using Packet packet = new();
+        using Frame frame = new();
+        float peak = 0;
+        while (reader.TryReadPacket(packet))
+        {
+            if (packet.StreamIndex != audio.Index)
+            {
+                continue;
+            }
+
+            foreach (Frame samples in decoder.Decode(packet, frame))
+            {
+                int channels = samples.SampleFormat.IsPlanar
+                    ? 1
+                    : samples.ChannelLayout.ChannelCount;
+                ReadOnlySpan<float> first = samples.GetSamples<float>(0)[
+                    ..(samples.SampleCount * channels)
+                ];
+                peak = Math.Max(peak, TensorPrimitives.MaxMagnitude(first));
+            }
+        }
+
+        return peak;
     }
 
     // A decoded frame's presentation time, on the media clock's scale from the file's start. A frame

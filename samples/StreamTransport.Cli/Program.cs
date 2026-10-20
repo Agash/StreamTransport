@@ -240,14 +240,18 @@ static async Task ReportAsync(
             {
                 MediaSessionStatistics counters = session.Statistics;
                 log.LogInformation(
-                    "{State} over {Route}: sent {VideoSent} video, {AudioSent} audio; decoded {VideoDecoded} video, {AudioDecoded} audio; {Bitrate} kbit/s target.",
+                    "{State} over {Route}: sent {VideoSent} video, {AudioSent} audio; decoded {VideoDecoded} video, {AudioDecoded} audio; {Bitrate} kbit/s target; lip sync {LipSync}; audio output offset {AudioOffset} ms.",
                     session.State,
                     session.Route is { } route ? $"{route.Local} -> {route.Remote}" : "no path yet",
                     counters.VideoFramesSent,
                     counters.AudioFramesSent,
                     counters.VideoFramesDecoded,
                     counters.AudioFramesDecoded,
-                    session.Transport.Capacity.TargetBitsPerSecond / 1000
+                    session.Transport.Capacity.TargetBitsPerSecond / 1000,
+                    counters.AvSyncOffset is { } offset
+                        ? FormattableString.Invariant($"{offset.TotalMilliseconds:0.0} ms")
+                        : "not measured",
+                    counters.AudioOutputOffset.TotalMilliseconds
                 );
             }
 
