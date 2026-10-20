@@ -30,8 +30,12 @@ internal sealed class IceDatagramTransport(IceAgent agent) : IDatagramTransport
         }
     }
 
+    // Once complete, nothing is delivered or sent: an association replaced by a new one goes quiet.
+    private volatile bool _complete;
+
     public void Complete()
     {
+        _complete = true;
         _ = _inbound.Writer.TryComplete();
         while (_inbound.Reader.TryRead(out Datagram left))
         {
@@ -56,7 +60,10 @@ internal sealed class IceDatagramTransport(IceAgent agent) : IDatagramTransport
     public ValueTask SendAsync(
         ReadOnlyMemory<byte> datagram,
         CancellationToken cancellationToken
-    ) => agent.SendAsync(datagram, cancellationToken: cancellationToken);
+    ) =>
+        _complete
+            ? ValueTask.CompletedTask
+            : agent.SendAsync(datagram, cancellationToken: cancellationToken);
 
     private readonly record struct Datagram(byte[] Buffer, int Length);
 }

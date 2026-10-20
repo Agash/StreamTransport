@@ -121,7 +121,13 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// place (SRTP decrypts into it) but must copy anything it keeps beyond the call. It is raised for one
     /// packet at a time across all of the agent's sockets.
     /// </summary>
-    public event Action<Memory<byte>, IPEndPoint, byte>? DataReceived;
+    public event IceDatagramHandler? DataReceived;
+
+    /// <summary>
+    /// Raised when the checks of a restarted ICE session select their first pair: the new session has
+    /// its own 5-tuple from here, which a new DTLS association needs (RFC 8842 section 6).
+    /// </summary>
+    public event Action? RestartCompleted;
 
     /// <summary>
     /// Raised when the selected pair changes to another local socket or remote endpoint: what the path
@@ -837,8 +843,10 @@ public sealed partial class IceAgent : IAsyncDisposable
             {
                 // Data shows the pair it came over receiving, which is how a silent path is noticed in
                 // a receiving timeout and how the controlled side follows the controlling side's switch.
+                bool previousSession;
                 lock (_gate)
                 {
+                    previousSession = _retiring.Contains(local);
                     _machine.NoteDataReceived(local.Handle, result.RemoteEndPoint, Now);
                     if (
                         _retiring.Count > 0
@@ -860,9 +868,12 @@ public sealed partial class IceAgent : IAsyncDisposable
                     lock (_delivery)
                     {
                         DataReceived?.Invoke(
-                            buffer.AsMemory(0, result.Length),
-                            result.RemoteEndPoint,
-                            result.Ecn
+                            new IceDatagram(
+                                buffer.AsMemory(0, result.Length),
+                                result.RemoteEndPoint,
+                                result.Ecn,
+                                previousSession
+                            )
                         );
                     }
                 }
@@ -879,6 +890,7 @@ public sealed partial class IceAgent : IAsyncDisposable
     {
         List<IceEvent> events = [];
         bool pathChanged;
+        bool restartCompleted = false;
         lock (_gate)
         {
             while (_machine.TryPollEvent(out IceEvent iceEvent))
@@ -907,6 +919,7 @@ public sealed partial class IceAgent : IAsyncDisposable
                 }
                 else if (_carrying is not null)
                 {
+                    restartCompleted = true;
                     _carrying = null;
                     _retireTimer = _time.CreateTimer(
                         static state => ((IceAgent)state!).Retire(),
@@ -939,6 +952,18 @@ public sealed partial class IceAgent : IAsyncDisposable
             try
             {
                 SelectedPathChanged?.Invoke(SelectedPath);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                LogEventHandlerFailed(exception);
+            }
+        }
+
+        if (restartCompleted)
+        {
+            try
+            {
+                RestartCompleted?.Invoke();
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {

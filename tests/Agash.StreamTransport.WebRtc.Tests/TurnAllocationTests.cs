@@ -526,7 +526,8 @@ public sealed class TurnAllocationTests
             }
         };
         TaskCompletionSource<byte[]> data = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        answerer.DataReceived += (packet, _, _) => data.TrySetResult(packet.Span[1..].ToArray());
+        answerer.DataReceived += (in IceDatagram datagram) =>
+            data.TrySetResult(datagram.Data.Span[1..].ToArray());
 
         offerer.Start();
         answerer.Start();

@@ -36,7 +36,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private int _connectSettled;
     private int _disposedForMetrics;
     private readonly PeerConnectionOptions _options;
-    private readonly RtcCertificate _certificate;
+
+    // The certificate this side authenticates with; a renewal can bring another (RFC 8842 section 5.5).
+    private RtcCertificate _certificate;
     private readonly ILogger _logger;
     private IceCredentials _localIceCredentials = IceCredentials.Generate();
     private readonly List<IceCandidate> _bufferedRemoteCandidates = [];
@@ -109,13 +111,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private IReadOnlyList<DtlsFingerprint> _expectedRemoteFingerprints = [];
     private int _state = (int)PeerConnectionState.New;
 
-    // This side's tls-id (RFC 8842 section 4): 144 random bits, in the attribute's alphabet.
-    private readonly string _localTlsId = Base64Url.EncodeToString(
-        RandomNumberGenerator.GetBytes(18)
-    );
+    // This side's tls-id (RFC 8842 section 4): 144 random bits, in the attribute's alphabet. A new one
+    // names each new association.
+    private string _localTlsId = NewTlsId();
 
-    // The DTLS association the first offer/answer agreed; later descriptions that would need another
-    // are refused (RFC 8842 sections 3.1 and 5.3).
+    // The DTLS association agreed; a description asking for another is taken with an ICE restart and
+    // refused without one (RFC 8842 sections 3.1, 5.3 and 6).
     private DtlsAssociation? _association;
     private bool _refuseNewAssociation;
 
@@ -629,7 +630,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     ? DtlsRole.Server
                     : DtlsRole.Client
                 : AnswerRole(first.Setup);
-        if (_association is { } association && association.AskedToChange(first, role))
+        if (
+            _association is { } association
+            && association.AskedToChange(first, role)
+            && !AcceptNewAssociation(first, role, type, isRestartOffer)
+        )
         {
             LogNewAssociationRefused(_logger, type);
             if (type == SdpType.Offer)
@@ -668,6 +673,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         if (type == SdpType.Answer)
         {
+            KeepAssociation();
             AgreeExtensions(description);
 
             // Offerer learns the role from the answerer's choice: their active => we are the DTLS server.
@@ -1146,6 +1152,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         };
         _dtlsTransport = new IceDatagramTransport(agent);
         agent.DataReceived += OnTransportData;
+        agent.RestartCompleted += OnRestartCompleted;
         agent.StateChanged += OnIceStateChanged;
         agent.SelectedPathChanged += OnPathChanged;
 
@@ -1301,10 +1308,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             DtlsConnection dtls =
                 _dtlsRole == DtlsRole.Client
                     ? await DtlsConnection
-                        .ConnectAsync(transport, ClientOptions(validate))
+                        .ConnectAsync(transport, ClientOptions(validate, _certificate))
                         .ConfigureAwait(false)
                     : await DtlsConnection
-                        .AcceptAsync(transport, ServerOptions(validate))
+                        .AcceptAsync(transport, ServerOptions(validate, _certificate))
                         .ConfigureAwait(false);
             _dtls = dtls;
 
@@ -1329,7 +1336,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
 
     private DtlsClientConnectionOptions ClientOptions(
-        RemoteCertificateValidationCallback validate
+        RemoteCertificateValidationCallback validate,
+        RtcCertificate certificate
     ) =>
         new()
         {
@@ -1342,14 +1350,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
             TimeProvider = _time,
             ClientAuthenticationOptions = new SslClientAuthenticationOptions
             {
-                ClientCertificates = [_certificate.Certificate],
+                ClientCertificates = [certificate.Certificate],
                 RemoteCertificateValidationCallback = validate,
             },
         };
 
     // No cookie exchange: ICE connectivity checks have already proven the peer owns its address.
     private DtlsServerConnectionOptions ServerOptions(
-        RemoteCertificateValidationCallback validate
+        RemoteCertificateValidationCallback validate,
+        RtcCertificate certificate
     ) =>
         new()
         {
@@ -1363,14 +1372,16 @@ public sealed partial class PeerConnection : IAsyncDisposable
             CookieExchange = false,
             ServerAuthenticationOptions = new SslServerAuthenticationOptions
             {
-                ServerCertificate = _certificate.Certificate,
+                ServerCertificate = certificate.Certificate,
                 ClientCertificateRequired = true,
                 RemoteCertificateValidationCallback = validate,
             },
         };
 
-    private void OnTransportData(Memory<byte> data, IPEndPoint source, byte ecn)
+    private void OnTransportData(in IceDatagram datagram)
     {
+        Memory<byte> data = datagram.Data;
+        byte ecn = datagram.Ecn;
         Span<byte> span = data.Span;
         if (span.IsEmpty)
         {
@@ -1380,7 +1391,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         byte first = span[0];
         if (first is >= 20 and <= 63)
         {
-            _dtlsTransport?.Deliver(span);
+            DtlsTransportFor(datagram.PreviousSession)?.Deliver(span);
             return;
         }
 
@@ -1407,7 +1418,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         // Decrypt in place into the owned buffer - no copy.
         Span<byte> span = data.Span;
-        if (!srtp.UnprotectRtcp(span, span.Length, out int length))
+        if (!Unprotect(srtp, span, rtcp: true, out int length))
         {
             return;
         }
@@ -1551,7 +1562,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // Decrypt in place into the borrowed buffer - no copy.
         Span<byte> span = data.Span;
         if (
-            !srtp.UnprotectRtp(span, span.Length, out int plaintextLength)
+            !Unprotect(srtp, span, rtcp: false, out int plaintextLength)
             || !RtpPacket.TryParse(
                 span[..plaintextLength],
                 Volatile.Read(ref _extensions),
@@ -1940,6 +1951,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         _dtlsTransport?.Complete();
+        Volatile.Read(ref _pendingAssociation)?.Transport.Complete();
+        _replacedTransport?.Complete();
 
         if (_iceAgent is { } agent)
         {
@@ -1948,6 +1961,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         // After the agent: nothing arrives to unprotect any more, and a send racing the close fails.
         Interlocked.Exchange(ref _srtp, null)?.Dispose();
+        ForgetPreviousKeys();
     }
 
     // Repairs of one of this endpoint's media streams: the RTX SSRC, the rtx payload type for each

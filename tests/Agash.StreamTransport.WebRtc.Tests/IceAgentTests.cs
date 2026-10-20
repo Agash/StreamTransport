@@ -69,7 +69,7 @@ public sealed class IceAgentTests
         await using var agents = Agents.Start();
         await agents.BothConnectedAsync();
         int calls = 0;
-        agents.B.DataReceived += (_, _, _) =>
+        agents.B.DataReceived += (in IceDatagram _) =>
         {
             if (Interlocked.Increment(ref calls) == 1)
             {
@@ -104,7 +104,7 @@ public sealed class IceAgentTests
         int overlapped = 0;
         int seen = 0;
         TaskCompletionSource all = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        agent.DataReceived += (_, _, _) =>
+        agent.DataReceived += (in IceDatagram _) =>
         {
             if (Interlocked.Increment(ref inside) > 1)
             {
@@ -368,10 +368,10 @@ public sealed class IceAgentTests
             agents.B.SetRemoteCredentials(credentialsA);
             agents.A.SetRemoteOptions(IceOptions.Supported);
             agents.B.SetRemoteOptions(IceOptions.Supported);
-            agents.A.DataReceived += (data, _, _) =>
-                agents._receivedByA.Writer.TryWrite(data.ToArray());
-            agents.B.DataReceived += (data, _, _) =>
-                agents._receivedByB.Writer.TryWrite(data.ToArray());
+            agents.A.DataReceived += (in IceDatagram datagram) =>
+                agents._receivedByA.Writer.TryWrite(datagram.Data.ToArray());
+            agents.B.DataReceived += (in IceDatagram datagram) =>
+                agents._receivedByB.Writer.TryWrite(datagram.Data.ToArray());
             agents.A.StateChanged += s => Record(agents._aConnected, s);
             agents.B.StateChanged += s => Record(agents._bConnected, s);
             agents.A.Start();

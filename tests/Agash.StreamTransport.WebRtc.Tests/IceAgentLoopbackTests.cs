@@ -64,7 +64,8 @@ public sealed class IceAgentLoopbackTests
         var received = new TaskCompletionSource<byte[]>(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
-        answerer.DataReceived += (data, _, _) => received.TrySetResult(data.ToArray());
+        answerer.DataReceived += (in IceDatagram datagram) =>
+            received.TrySetResult(datagram.Data.ToArray());
 
         offerer.Start();
         answerer.Start();

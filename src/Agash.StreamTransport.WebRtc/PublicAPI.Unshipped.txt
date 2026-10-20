@@ -17,7 +17,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.AddRemoteCandidate(Agash.StreamTranspo
 Agash.StreamTransport.WebRtc.Ice.IceAgent.AddStunServer(System.Net.IPEndPoint! server) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.AddTurnServer(Agash.StreamTransport.WebRtc.Turn.TurnServer! server) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.CanMovePath.get -> bool
-Agash.StreamTransport.WebRtc.Ice.IceAgent.DataReceived -> System.Action<System.Memory<byte>, System.Net.IPEndPoint!, byte>?
+Agash.StreamTransport.WebRtc.Ice.IceAgent.DataReceived -> Agash.StreamTransport.WebRtc.Ice.IceDatagramHandler?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.EndRemoteCandidates() -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.HasStandby.get -> bool
@@ -26,6 +26,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.LocalCandidateGathered -> System.Actio
 Agash.StreamTransport.WebRtc.Ice.IceAgent.LocalCredentials.get -> Agash.StreamTransport.WebRtc.Ice.IceCredentials
 Agash.StreamTransport.WebRtc.Ice.IceAgent.PathConfirmations.get -> long
 Agash.StreamTransport.WebRtc.Ice.IceAgent.Restart(Agash.StreamTransport.WebRtc.Ice.IceCredentials newLocalCredentials) -> void
+Agash.StreamTransport.WebRtc.Ice.IceAgent.RestartCompleted -> System.Action?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPath.get -> Agash.StreamTransport.WebRtc.Ice.IcePath?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPathChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IcePath?>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedRoundTrip.get -> System.TimeSpan?
@@ -66,6 +67,20 @@ Agash.StreamTransport.WebRtc.Ice.IceCredentials.Password.get -> string!
 Agash.StreamTransport.WebRtc.Ice.IceCredentials.Password.init -> void
 Agash.StreamTransport.WebRtc.Ice.IceCredentials.UsernameFragment.get -> string!
 Agash.StreamTransport.WebRtc.Ice.IceCredentials.UsernameFragment.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Data.get -> System.Memory<byte>
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Data.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Deconstruct(out System.Memory<byte> Data, out System.Net.IPEndPoint! Source, out byte Ecn, out bool PreviousSession) -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Ecn.get -> byte
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Ecn.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Equals(Agash.StreamTransport.WebRtc.Ice.IceDatagram other) -> bool
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.IceDatagram() -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.IceDatagram(System.Memory<byte> Data, System.Net.IPEndPoint! Source, byte Ecn, bool PreviousSession) -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.PreviousSession.get -> bool
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.PreviousSession.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Source.get -> System.Net.IPEndPoint!
+Agash.StreamTransport.WebRtc.Ice.IceDatagram.Source.init -> void
+Agash.StreamTransport.WebRtc.Ice.IceDatagramHandler
 Agash.StreamTransport.WebRtc.Ice.IceOptions
 Agash.StreamTransport.WebRtc.Ice.IceOptions.Ice2 = 2 -> Agash.StreamTransport.WebRtc.Ice.IceOptions
 Agash.StreamTransport.WebRtc.Ice.IceOptions.None = 0 -> Agash.StreamTransport.WebRtc.Ice.IceOptions
@@ -190,6 +205,7 @@ Agash.StreamTransport.WebRtc.PeerConnection.CurrentCapacity.get -> Agash.StreamT
 Agash.StreamTransport.WebRtc.PeerConnection.CurrentHealth.get -> Agash.StreamTransport.WebRtc.TransportHealthMetrics
 Agash.StreamTransport.WebRtc.PeerConnection.CurrentLossStats.get -> Agash.StreamTransport.WebRtc.TransportLossStats
 Agash.StreamTransport.WebRtc.PeerConnection.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.PeerConnection.DtlsAssociationRenewed -> System.Action<Dtls.Core.SrtpProtectionProfile>?
 Agash.StreamTransport.WebRtc.PeerConnection.EcnState.get -> Agash.StreamTransport.Adaptation.EcnState
 Agash.StreamTransport.WebRtc.PeerConnection.EcnStateChanged -> System.Action<Agash.StreamTransport.Adaptation.EcnState>?
 Agash.StreamTransport.WebRtc.PeerConnection.EndRemoteIceCandidates() -> void
@@ -205,6 +221,7 @@ Agash.StreamTransport.WebRtc.PeerConnection.NegotiatedMedia.get -> System.Collec
 Agash.StreamTransport.WebRtc.PeerConnection.NoteMediaFrame(int bytes) -> void
 Agash.StreamTransport.WebRtc.PeerConnection.PeerConnection(Agash.StreamTransport.WebRtc.PeerConnectionOptions! options, Agash.StreamTransport.WebRtc.RtcCertificate! certificate, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, Agash.StreamTransport.Adaptation.ICongestionController? controller = null, System.TimeProvider? timeProvider = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
 Agash.StreamTransport.WebRtc.PeerConnection.PeerRequestedLimitBitsPerSecond.get -> long?
+Agash.StreamTransport.WebRtc.PeerConnection.RenewDtlsAssociation(Agash.StreamTransport.WebRtc.RtcCertificate? certificate = null) -> Agash.StreamTransport.WebRtc.Sdp.SdpDescription!
 Agash.StreamTransport.WebRtc.PeerConnection.ReportedRoundTripTime.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.PeerConnection.RequestKeyframeAsync(uint mediaSsrc, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.PeerConnection.RequestSendLimitAsync(uint mediaSsrc, long? bitsPerSecond, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
@@ -914,6 +931,7 @@ const Agash.StreamTransport.WebRtc.WebRtcDiagnostics.ActivitySourceName = "Agash
 const Agash.StreamTransport.WebRtc.WebRtcDiagnostics.MeterName = "Agash.StreamTransport.WebRtc" -> string!
 override Agash.StreamTransport.WebRtc.Ice.IceCandidate.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Ice.IceCredentials.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.Ice.IceDatagram.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Ice.IcePath.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Ice.IceTimings.Equals(object? obj) -> bool
@@ -1011,6 +1029,8 @@ static Agash.StreamTransport.WebRtc.Ice.IceCredentials.CheckUsername(string! rem
 static Agash.StreamTransport.WebRtc.Ice.IceCredentials.Generate() -> Agash.StreamTransport.WebRtc.Ice.IceCredentials
 static Agash.StreamTransport.WebRtc.Ice.IceCredentials.operator !=(Agash.StreamTransport.WebRtc.Ice.IceCredentials left, Agash.StreamTransport.WebRtc.Ice.IceCredentials right) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IceCredentials.operator ==(Agash.StreamTransport.WebRtc.Ice.IceCredentials left, Agash.StreamTransport.WebRtc.Ice.IceCredentials right) -> bool
+static Agash.StreamTransport.WebRtc.Ice.IceDatagram.operator !=(Agash.StreamTransport.WebRtc.Ice.IceDatagram left, Agash.StreamTransport.WebRtc.Ice.IceDatagram right) -> bool
+static Agash.StreamTransport.WebRtc.Ice.IceDatagram.operator ==(Agash.StreamTransport.WebRtc.Ice.IceDatagram left, Agash.StreamTransport.WebRtc.Ice.IceDatagram right) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IcePath.operator !=(Agash.StreamTransport.WebRtc.Ice.IcePath left, Agash.StreamTransport.WebRtc.Ice.IcePath right) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IcePath.operator ==(Agash.StreamTransport.WebRtc.Ice.IcePath left, Agash.StreamTransport.WebRtc.Ice.IcePath right) -> bool
 static Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.operator !=(Agash.StreamTransport.WebRtc.Ice.IceReceiveResult left, Agash.StreamTransport.WebRtc.Ice.IceReceiveResult right) -> bool
@@ -1136,6 +1156,7 @@ static Agash.StreamTransport.WebRtc.Turn.TurnServer.TryParse(string! uri, string
 static Agash.StreamTransport.WebRtc.Turn.TurnServer.operator !=(Agash.StreamTransport.WebRtc.Turn.TurnServer? left, Agash.StreamTransport.WebRtc.Turn.TurnServer? right) -> bool
 static Agash.StreamTransport.WebRtc.Turn.TurnServer.operator ==(Agash.StreamTransport.WebRtc.Turn.TurnServer? left, Agash.StreamTransport.WebRtc.Turn.TurnServer? right) -> bool
 static readonly Agash.StreamTransport.WebRtc.Ice.IceAgent.RestartOverlap -> System.TimeSpan
+virtual Agash.StreamTransport.WebRtc.Ice.IceDatagramHandler.Invoke(in Agash.StreamTransport.WebRtc.Ice.IceDatagram datagram) -> void
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.AreCompatible(string? local, string? remote) -> bool
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Channels.get -> int?
 virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.FormatParameterSets.get -> System.Collections.Immutable.ImmutableArray<string?>
@@ -1146,6 +1167,8 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFee
 ~override Agash.StreamTransport.WebRtc.Ice.IceCandidate.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Ice.IceCredentials.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Ice.IceCredentials.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Ice.IceDatagram.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Ice.IceDatagram.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Ice.IcePath.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Ice.IcePath.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Ice.IceReceiveResult.Equals(object obj) -> bool
