@@ -569,33 +569,49 @@ async Task BindToLiveServerAsync(ObsWebSocketClient obs)
         return;
     }
 
-    GetInputPropertiesListPropertyItemsResponseData items = (
-        await obs.Inputs.GetInputPropertiesListPropertyItemsAsync(
-            new() { InputName = "Signal", PropertyName = "uuid" }
-        )
-    )!;
-    foreach (var item in items.PropertyItems ?? [])
+    // OBS lists each server as "[app] name", with its uuid as the value.
+    string? uuid = null;
+    string[] listed = [];
+    try
     {
-        string name = item.ItemName ?? string.Empty;
-        if (
-            (name.EndsWith(": " + SenderName, StringComparison.Ordinal) || name == SenderName)
-            && item.ItemValue is { } value
-        )
-        {
-            string uuid = value.GetString()!;
-            await obs.Inputs.SetInputSettingsAsync(
-                new()
-                {
-                    InputName = "Signal",
-                    InputSettings = Json(new { uuid }),
-                    Overlay = true,
-                }
-            );
-            return;
-        }
+        await UntilAsync(
+            async () =>
+            {
+                var items = (
+                    await obs.Inputs.GetInputPropertiesListPropertyItemsAsync(
+                        new() { InputName = "Signal", PropertyName = "uuid" }
+                    )
+                )!;
+                listed = [.. (items.PropertyItems ?? []).Select(i => i.ItemName ?? string.Empty)];
+                uuid = (items.PropertyItems ?? [])
+                    .Where(i =>
+                        (i.ItemName ?? string.Empty).EndsWith(
+                            "] " + SenderName,
+                            StringComparison.Ordinal
+                        )
+                    )
+                    .Select(i => i.ItemValue?.GetString())
+                    .FirstOrDefault(v => !string.IsNullOrEmpty(v));
+                return uuid is not null;
+            },
+            TimeSpan.FromMilliseconds(500)
+        );
+    }
+    catch (TimeoutException)
+    {
+        throw new InvalidOperationException(
+            $"OBS lists the Syphon servers [{string.Join(", ", listed)}], not one named {SenderName}."
+        );
     }
 
-    throw new InvalidOperationException($"OBS lists no Syphon server named {SenderName}.");
+    await obs.Inputs.SetInputSettingsAsync(
+        new()
+        {
+            InputName = "Signal",
+            InputSettings = Json(new { uuid }),
+            Overlay = true,
+        }
+    );
 }
 
 void DeleteCollection()
