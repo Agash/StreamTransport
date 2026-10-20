@@ -173,6 +173,15 @@ public sealed record SdpMediaDescription
     public string? TrackId { get; init; }
 
     /// <summary>
+    /// The section's <c>a=msid</c> as an identity; null when the section has none. A stream id of
+    /// <c>-</c> is a track in no MediaStream (RFC 8830 section 2).
+    /// </summary>
+    public MediaTrackIdentity? Track =>
+        MediaStreamId is null && TrackId is null
+            ? null
+            : new MediaTrackIdentity(MediaStreamId == "-" ? null : MediaStreamId, TrackId);
+
+    /// <summary>
     /// Whether transport-wide congestion control feedback is offered (<c>a=rtcp-fb:&lt;pt&gt; transport-cc</c>,
     /// with the transport-wide sequence header extension), which browsers send where they do not offer
     /// RFC 8888. Offered always; an answer keeps it only when it does not keep

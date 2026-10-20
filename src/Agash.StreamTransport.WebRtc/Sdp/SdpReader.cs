@@ -248,6 +248,8 @@ public static class SdpReader
                     RtxSsrc = m.RtxSsrc,
                     FecSsrc = m.FecSsrc,
                     PreviousSsrcs = m.PreviousSsrcs,
+                    MediaStreamId = m.MediaStreamId,
+                    TrackId = m.TrackId,
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
                     IgnoredCandidates = [.. sessionIgnored, .. m.IgnoredCandidates],
@@ -406,6 +408,19 @@ public static class SdpReader
 
         public SdpMediaKind Kind { get; private init; }
         public string? Mid { get; private set; }
+
+        public string? MediaStreamId { get; private set; }
+
+        // RFC 8830 section 2 and RFC 8866 section 9: 1*64 token-char.
+        private static bool IsMsidId(string id) =>
+            id.Length is > 0 and <= 64 && !id.AsSpan().ContainsAnyExcept(TokenChars);
+
+        private static readonly System.Buffers.SearchValues<char> TokenChars =
+            System.Buffers.SearchValues.Create(
+                "!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz{|}~"
+            );
+
+        public string? TrackId { get; private set; }
         public SdpDirection Direction { get; private set; } = SdpDirection.SendRecv;
         public string? IceUfrag { get; private set; }
         public string? IcePwd { get; private set; }
@@ -546,6 +561,19 @@ public static class SdpReader
             if (TryValue(line, "a=mid:", out string mid))
             {
                 Mid = mid;
+            }
+            else if (TryValue(line, "a=msid:", out string msid))
+            {
+                // RFC 8830 section 2: msid-id [SP msid-appdata], each 1*64 token-char; an id that is not
+                // leaves the section without one.
+                int space = msid.IndexOf(' ', StringComparison.Ordinal);
+                string stream = space < 0 ? msid : msid[..space];
+                string? track = space < 0 ? null : msid[(space + 1)..].Trim();
+                if (IsMsidId(stream) && (track is null || IsMsidId(track)))
+                {
+                    MediaStreamId = stream;
+                    TrackId = track;
+                }
             }
             else if (TryValue(line, "a=ice-ufrag:", out string u))
             {

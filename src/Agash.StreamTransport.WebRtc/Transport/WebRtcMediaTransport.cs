@@ -472,6 +472,8 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         MediaOffer offer = _offer!;
         NegotiatedVideo? video = null;
         NegotiatedAudio? audio = null;
+        NegotiatedMediaInfo? videoSection = null;
+        NegotiatedMediaInfo? audioSection = null;
         foreach (NegotiatedMediaInfo media in connection.NegotiatedMedia)
         {
             // The first media codec; retransmission and FEC codecs repair it and are not candidates.
@@ -509,8 +511,10 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                     new VideoCodecFormat(codec, SendParameters(codec, remote.FormatParameters)),
                     new VideoCodecFormat(codec, CodecParameters(remote.FormatParameters)),
                     alpha,
-                    media.SendLimitBitsPerSecond
+                    media.SendLimitBitsPerSecond,
+                    media.RemoteTrack
                 );
+                videoSection = media;
                 _videoPayloadType = local.PayloadType;
                 if (videoOffer.Sends)
                 {
@@ -536,8 +540,10 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                         new AudioCodecId(local.EncodingName),
                         CodecParameters(local.FormatParameters)
                     ),
-                    media.SendLimitBitsPerSecond
+                    media.SendLimitBitsPerSecond,
+                    media.RemoteTrack
                 );
+                audioSection = media;
                 _audioPayloadType = local.PayloadType;
                 if (audioOffer.Sends)
                 {
@@ -551,7 +557,31 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             }
         }
 
-        return new NegotiatedMedia(video, audio);
+        return new NegotiatedMedia(video, audio, Synchronized(videoSection, audioSection));
+    }
+
+    // RFC 3550 section 6.5.1: sources are synchronized only under one CNAME. RFC 8830 section 1: tracks
+    // the peer puts in one MediaStream play out in sync, and tracks it puts in different ones, or in
+    // none, need not.
+    internal static bool Synchronized(NegotiatedMediaInfo? video, NegotiatedMediaInfo? audio)
+    {
+        if (video is null || audio is null)
+        {
+            return true;
+        }
+
+        if (
+            video.RemoteCname is { } videoName
+            && audio.RemoteCname is { } audioName
+            && videoName != audioName
+        )
+        {
+            return false;
+        }
+
+        return video.RemoteTrack is not { } videoTrack
+            || audio.RemoteTrack is not { } audioTrack
+            || (videoTrack.StreamId is { } stream && stream == audioTrack.StreamId);
     }
 
     private static RtpStreamWriter Writer(

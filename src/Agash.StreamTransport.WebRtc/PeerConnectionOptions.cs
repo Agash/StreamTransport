@@ -69,6 +69,12 @@ public sealed record NegotiatedMediaInfo(
     /// <c>b=TIAS</c> or <c>b=AS</c> sets it (RFC 8829 section 5.10); null for no limit.
     /// </summary>
     public long? SendLimitBitsPerSecond { get; init; }
+
+    /// <summary>The track the peer sends on the section (<c>a=msid</c>); null when it names none.</summary>
+    public MediaTrackIdentity? RemoteTrack { get; init; }
+
+    /// <summary>The peer's RTCP CNAME for the section's source (RFC 3550 section 6.5.1); null when unsaid.</summary>
+    public string? RemoteCname { get; init; }
 }
 
 /// <summary>Configuration for a <see cref="PeerConnection"/>.</summary>

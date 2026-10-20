@@ -43,6 +43,9 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         TaskCreationOptions.RunContinuationsAsynchronously
     );
     private readonly Playout _playout;
+
+    // The video's playout: the session's, unless the peer's audio and video are not played together.
+    private Playout? _videoPlayout;
     private readonly CaptureClock _captureClock;
     private readonly MediaRateAllocator _allocator;
     private Activity? _connecting;
@@ -227,6 +230,11 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         }
 
         await _playout.DisposeAsync().ConfigureAwait(false);
+        if (_videoPlayout is { } videoPlayout)
+        {
+            await videoPlayout.DisposeAsync().ConfigureAwait(false);
+        }
+
         _ = _connected.TrySetCanceled();
         LogStopped();
     }
@@ -343,6 +351,12 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
     // when none of them could be built.
     private void BuildStreams(NegotiatedMedia media)
     {
+        if (!media.Synchronized && media.Video is not null && media.Audio is not null)
+        {
+            LogNotSynchronized();
+            _videoPlayout = new Playout(_options, _services.Clock, _logger, _services.Metrics);
+        }
+
         int built = 0;
         Exception? failure = null;
         if (media.Video is { } video)
@@ -417,7 +431,7 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
                     new VideoReceiveSetup(video.Decode, video.Alpha, RequestKeyframe),
                     sink,
                     _services.Codecs,
-                    _playout,
+                    _videoPlayout ?? _playout,
                     _services.Clock,
                     _services.Metrics,
                     _logger,
@@ -606,6 +620,13 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     [LoggerMessage(2114, LogLevel.Warning, "Circuit breaker {State}.")]
     private partial void LogCircuitBreaker(CircuitBreakerState state);
+
+    [LoggerMessage(
+        2115,
+        LogLevel.Information,
+        "The peer's audio and video are not in one MediaStream or under one CNAME; each plays out on its own."
+    )]
+    private partial void LogNotSynchronized();
 
     [LoggerMessage(2111, LogLevel.Information, "Media session stopped.")]
     private partial void LogStopped();

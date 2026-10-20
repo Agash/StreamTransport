@@ -408,6 +408,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 new NegotiatedMediaInfo(remote.Kind, remote.Mid, ssrc, answerCodecs, remoteCodecs)
                 {
                     SendLimitBitsPerSecond = remote.Bandwidth.MaximumRtpBitsPerSecond,
+                    RemoteTrack = remote.Track,
+                    RemoteCname = remote.Cname,
                 }
             );
         }
@@ -699,6 +701,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     )
                     {
                         SendLimitBitsPerSecond = answered.Bandwidth.MaximumRtpBitsPerSecond,
+                        RemoteTrack = answered.Track,
+                        RemoteCname = answered.Cname,
                     }
                 );
             }
