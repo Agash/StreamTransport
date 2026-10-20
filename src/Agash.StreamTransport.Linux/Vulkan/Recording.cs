@@ -89,8 +89,8 @@ internal static unsafe partial class Recording
     /// <returns>False when the writers did not finish in time.</returns>
     public static bool WaitForWriters(int dmabuf, TimeSpan timeout)
     {
-        PollFd poll = new() { Fd = dmabuf, Events = PollIn };
-        return Poll(&poll, 1, (int)timeout.TotalMilliseconds) > 0;
+        Libc.PollFd poll = new() { Fd = dmabuf, Events = Libc.PollIn };
+        return Libc.Poll(&poll, 1, (int)timeout.TotalMilliseconds) > 0;
     }
 
     private static void Barrier(
@@ -156,18 +156,5 @@ internal static unsafe partial class Recording
         );
     }
 
-    private const short PollIn = 0x001;
-
     private const uint VkQueueFamilyIgnored = ~0u;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PollFd
-    {
-        public int Fd;
-        public short Events;
-        public short Revents;
-    }
-
-    [LibraryImport("libc", EntryPoint = "poll", SetLastError = true)]
-    private static partial int Poll(PollFd* fds, nuint count, int timeout);
 }

@@ -135,7 +135,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
             if (allocated != VkResult.Success)
             {
                 // Vulkan took the descriptor only if the import succeeded.
-                _ = Close(fd);
+                _ = Libc.Close(fd);
                 allocated.CheckResult();
             }
 
@@ -355,7 +355,7 @@ internal sealed unsafe partial class VulkanImage : IDisposable
         if (allocated != VkResult.Success)
         {
             // Vulkan took the descriptor only if the import succeeded.
-            _ = Close(fd);
+            _ = Libc.Close(fd);
             allocated.CheckResult();
         }
 
@@ -674,19 +674,13 @@ internal sealed unsafe partial class VulkanImage : IDisposable
 
     private static int Dup(int fd)
     {
-        int copy = DupNative(fd);
+        int copy = Libc.Dup(fd);
         return copy >= 0
             ? copy
             : throw new IOException(
                 $"The DMA-BUF could not be duplicated (errno {Marshal.GetLastPInvokeError()})."
             );
     }
-
-    [LibraryImport("libc", EntryPoint = "dup", SetLastError = true)]
-    private static partial int DupNative(int fd);
-
-    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
-    private static partial int Close(int fd);
 
     // An image, its memory, and the descriptor it exports, shared by its planes and destroyed when the
     // last of them goes.

@@ -264,7 +264,7 @@ internal sealed unsafe partial class VulkanEngine
         Api.vkCreateSemaphore(&info, null, &semaphore).CheckResult();
 
         // The import takes the descriptor; the frame keeps its own.
-        int fd = Dup(syncobj);
+        int fd = Libc.Dup(syncobj);
         if (fd < 0)
         {
             Api.vkDestroySemaphore(semaphore, null);
@@ -282,7 +282,7 @@ internal sealed unsafe partial class VulkanEngine
         VkResult result = Api.vkImportSemaphoreFdKHR(&import);
         if (result != VkResult.Success)
         {
-            _ = Close(fd);
+            _ = Libc.Close(fd);
             Api.vkDestroySemaphore(semaphore, null);
             result.CheckResult();
         }
@@ -295,7 +295,7 @@ internal sealed unsafe partial class VulkanEngine
     private VkSemaphore? ImportFences(int dmabuf, bool write)
     {
         DmaBufSyncFile export = new() { Flags = write ? SyncReadWrite : SyncRead, Fd = -1 };
-        if (Ioctl(dmabuf, ExportSyncFile, &export) != 0)
+        if (Libc.Ioctl(dmabuf, ExportSyncFile, &export) != 0)
         {
             return null;
         }
@@ -313,7 +313,7 @@ internal sealed unsafe partial class VulkanEngine
         VkResult result = Api.vkImportSemaphoreFdKHR(&import);
         if (result != VkResult.Success)
         {
-            _ = Close(export.Fd);
+            _ = Libc.Close(export.Fd);
             Api.vkDestroySemaphore(semaphore, null);
             return null;
         }
@@ -463,13 +463,4 @@ internal sealed unsafe partial class VulkanEngine
         public uint Flags;
         public int Fd;
     }
-
-    [LibraryImport("libc", EntryPoint = "ioctl", SetLastError = true)]
-    private static partial int Ioctl(int fd, nuint request, void* argument);
-
-    [LibraryImport("libc", EntryPoint = "dup", SetLastError = true)]
-    private static partial int Dup(int fd);
-
-    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
-    private static partial int Close(int fd);
 }

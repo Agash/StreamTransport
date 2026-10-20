@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Agash.StreamTransport.Linux.V4l2;
 
-// The V4L2 uAPI (linux/videodev2.h) as the 64-bit kernel lays it out, and the libc calls that drive it.
+// The V4L2 uAPI (linux/videodev2.h) as the 64-bit kernel lays it out.
 internal static unsafe partial class V4l2Native
 {
     public const uint BufTypeVideoCapture = 1;
@@ -31,10 +31,8 @@ internal static unsafe partial class V4l2Native
     public const int OCloExec = 0x80000;
     public const int ProtRead = 1;
     public const int MapShared = 1;
-    public const short PollIn = 1;
     public const int EAgain = 11;
     public const int EInvalid = 22;
-    public const int EIntr = 4;
 
     public static readonly nuint QueryCap = Ior(0, sizeof(Capability));
     public static readonly nuint EnumFmt = Iowr(2, sizeof(FmtDesc));
@@ -83,48 +81,12 @@ internal static unsafe partial class V4l2Native
         {
             do
             {
-                result = Ioctl(fd, request, pointer);
-            } while (result < 0 && Marshal.GetLastPInvokeError() == EIntr);
+                result = Libc.Ioctl(fd, request, pointer);
+            } while (result < 0 && Marshal.GetLastPInvokeError() == Libc.EIntr);
         }
 
         return result;
     }
-
-    [LibraryImport(
-        "libc",
-        EntryPoint = "open",
-        SetLastError = true,
-        StringMarshalling = StringMarshalling.Utf8
-    )]
-    public static partial int Open(string path, int flags);
-
-    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
-    public static partial int Close(int fd);
-
-    [LibraryImport("libc", EntryPoint = "ioctl", SetLastError = true)]
-    private static partial int Ioctl(int fd, nuint request, void* argument);
-
-    [LibraryImport("libc", EntryPoint = "mmap", SetLastError = true)]
-    public static partial nint Mmap(
-        nint address,
-        nuint length,
-        int protection,
-        int flags,
-        int fd,
-        long offset
-    );
-
-    [LibraryImport("libc", EntryPoint = "munmap", SetLastError = true)]
-    public static partial int Munmap(nint address, nuint length);
-
-    [LibraryImport("libc", EntryPoint = "poll", SetLastError = true)]
-    public static partial int Poll(PollFd* fds, nuint count, int timeout);
-
-    [LibraryImport("libc", EntryPoint = "eventfd", SetLastError = true)]
-    public static partial int EventFd(uint initial, int flags);
-
-    [LibraryImport("libc", EntryPoint = "write", SetLastError = true)]
-    public static partial nint Write(int fd, void* buffer, nuint count);
 
     private static nuint Ior(uint nr, int size) => Ioc(2, nr, size);
 
@@ -134,14 +96,6 @@ internal static unsafe partial class V4l2Native
 
     private static nuint Ioc(uint direction, uint nr, int size) =>
         (direction << 30) | ((uint)size << 16) | ((uint)'V' << 8) | nr;
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PollFd
-    {
-        public int Fd;
-        public short Events;
-        public short ReturnedEvents;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Capability

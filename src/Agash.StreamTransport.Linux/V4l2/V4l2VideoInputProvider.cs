@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using static Agash.StreamTransport.Linux.Libc;
 using static Agash.StreamTransport.Linux.V4l2.V4l2Native;
 
 namespace Agash.StreamTransport.Linux.V4l2;
