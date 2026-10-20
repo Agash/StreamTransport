@@ -23,7 +23,8 @@ public sealed class Av1PayloadFormat : RtpPayloadFormat
     public override int ClockRate => 90_000;
 
     /// <inheritdoc/>
-    public override ImmutableArray<string> RtcpFeedback => ["nack", "nack pli", "ccm fir"];
+    public override ImmutableArray<string> RtcpFeedback =>
+        ["nack", "nack pli", "ccm fir", "ccm tmmbr"];
 
     /// <inheritdoc/>
     public override RtpPayloadTraits KeyframeRequires => RtpPayloadTraits.SequenceParameters;

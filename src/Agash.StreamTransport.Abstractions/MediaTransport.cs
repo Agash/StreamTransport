@@ -339,6 +339,18 @@ public interface IMediaTransport : IAsyncDisposable
     /// <summary>Asks the peer for a keyframe; requests in quick succession are combined.</summary>
     void RequestKeyframe();
 
+    /// <summary>
+    /// Asks the peer to keep the video it sends under a bit rate, or to stop limiting it, while the session
+    /// runs (TMMBR, RFC 5104 section 4.2.1).
+    /// </summary>
+    /// <param name="bitsPerSecond">The limit; null takes it back.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>False when the peer did not agree to such requests or no video arrives from it yet.</returns>
+    ValueTask<bool> RequestReceiveLimitAsync(
+        long? bitsPerSecond,
+        CancellationToken cancellationToken = default
+    );
+
     /// <summary>Resumes media after the circuit breaker opened, when that is allowed yet.</summary>
     /// <returns>Whether media flows again.</returns>
     bool TryResume();

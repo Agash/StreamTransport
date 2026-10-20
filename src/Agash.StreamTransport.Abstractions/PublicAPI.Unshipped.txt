@@ -58,6 +58,7 @@ Agash.StreamTransport.IMediaTransport.CircuitBreakerChanged -> System.Action<Aga
 Agash.StreamTransport.IMediaTransport.ConnectAsync(Agash.StreamTransport.MediaOffer! offer, Agash.StreamTransport.IReceivedMediaConsumer! receiver, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Agash.StreamTransport.NegotiatedMedia!>!
 Agash.StreamTransport.IMediaTransport.KeyframeRequested -> System.Action?
 Agash.StreamTransport.IMediaTransport.RequestKeyframe() -> void
+Agash.StreamTransport.IMediaTransport.RequestReceiveLimitAsync(long? bitsPerSecond, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 Agash.StreamTransport.IMediaTransport.RestartAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.IMediaTransport.Route.get -> Agash.StreamTransport.MediaRoute?
 Agash.StreamTransport.IMediaTransport.SentBytes(Agash.StreamTransport.Adaptation.TrafficClass trafficClass) -> long

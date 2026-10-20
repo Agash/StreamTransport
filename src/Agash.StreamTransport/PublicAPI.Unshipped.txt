@@ -51,6 +51,7 @@ Agash.StreamTransport.IMediaSession.AudioOutputOffset.get -> System.TimeSpan?
 Agash.StreamTransport.IMediaSession.AudioOutputOffset.set -> void
 Agash.StreamTransport.IMediaSession.CircuitBreakerChanged -> System.Action<Agash.StreamTransport.Adaptation.CircuitBreakerState>?
 Agash.StreamTransport.IMediaSession.Connected.get -> System.Threading.Tasks.Task!
+Agash.StreamTransport.IMediaSession.LimitReceivedVideoAsync(long? bitsPerSecond, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 Agash.StreamTransport.IMediaSession.RestartTransportAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.IMediaSession.Route.get -> Agash.StreamTransport.MediaRoute?
 Agash.StreamTransport.IMediaSession.StartAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

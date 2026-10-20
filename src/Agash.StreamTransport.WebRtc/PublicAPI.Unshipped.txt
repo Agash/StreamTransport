@@ -196,8 +196,10 @@ Agash.StreamTransport.WebRtc.PeerConnection.NegotiatedExtensions.get -> Agash.St
 Agash.StreamTransport.WebRtc.PeerConnection.NegotiatedMedia.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.NegotiatedMediaInfo!>!
 Agash.StreamTransport.WebRtc.PeerConnection.NoteMediaFrame(int bytes) -> void
 Agash.StreamTransport.WebRtc.PeerConnection.PeerConnection(Agash.StreamTransport.WebRtc.PeerConnectionOptions! options, Agash.StreamTransport.WebRtc.RtcCertificate! certificate, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, Agash.StreamTransport.Adaptation.ICongestionController? controller = null, System.TimeProvider? timeProvider = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
+Agash.StreamTransport.WebRtc.PeerConnection.PeerRequestedLimitBitsPerSecond.get -> long?
 Agash.StreamTransport.WebRtc.PeerConnection.ReportedRoundTripTime.get -> System.TimeSpan
 Agash.StreamTransport.WebRtc.PeerConnection.RequestKeyframeAsync(uint mediaSsrc, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.PeerConnection.RequestSendLimitAsync(uint mediaSsrc, long? bitsPerSecond, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 Agash.StreamTransport.WebRtc.PeerConnection.RestartIce() -> Agash.StreamTransport.WebRtc.Sdp.SdpDescription!
 Agash.StreamTransport.WebRtc.PeerConnection.RtpReceived -> System.Action<Agash.StreamTransport.WebRtc.Rtp.RtpHeader, System.ReadOnlyMemory<byte>>?
 Agash.StreamTransport.WebRtc.PeerConnection.SelectedPath.get -> Agash.StreamTransport.WebRtc.Ice.IcePath?
@@ -365,6 +367,17 @@ Agash.StreamTransport.WebRtc.Rtcp.SdesSource.SdesSource() -> void
 Agash.StreamTransport.WebRtc.Rtcp.SdesSource.SdesSource(uint Ssrc, Agash.StreamTransport.WebRtc.Rtp.RtpMid Mid = default(Agash.StreamTransport.WebRtc.Rtp.RtpMid)) -> void
 Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Ssrc.get -> uint
 Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Ssrc.init -> void
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.BitsPerSecond.get -> long
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.BitsPerSecond.init -> void
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Deconstruct(out uint Ssrc, out long BitsPerSecond, out int Overhead) -> void
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Equals(Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry other) -> bool
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Overhead.get -> int
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Overhead.init -> void
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Ssrc.get -> uint
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Ssrc.init -> void
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.TmmbEntry() -> void
+Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.TmmbEntry(uint Ssrc, long BitsPerSecond, int Overhead) -> void
 Agash.StreamTransport.WebRtc.Rtcp.TransportFeedback
 Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival
 Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.ArrivalMicros.get -> long?
@@ -903,6 +916,7 @@ override Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.GetHashCode() -> i
 override Agash.StreamTransport.WebRtc.Rtcp.RtcpReportBlock.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.SdesSource.GetHashCode() -> int
+override Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.GetHashCode() -> int
 override Agash.StreamTransport.WebRtc.Rtp.FecSourcePacket.GetHashCode() -> int
@@ -1006,9 +1020,13 @@ static Agash.StreamTransport.WebRtc.Rtcp.RtcpCompound.Enumerate(System.ReadOnlyS
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildFir(System.Span<byte> destination, uint senderSsrc, uint targetSsrc, byte commandSequence) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildNack(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc, System.ReadOnlySpan<ushort> lostSequences) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildPli(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc) -> int
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildTmmbn(System.Span<byte> destination, uint senderSsrc, System.ReadOnlySpan<Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry> bounding) -> int
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.BuildTmmbr(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc, long bitsPerSecond, int overhead) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadFir(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint senderSsrc, System.Collections.Generic.List<(uint TargetSsrc, byte Sequence)>! requests) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadNack(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint mediaSsrc, System.Collections.Generic.List<ushort>! lost) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadPli(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint mediaSsrc) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadTmmbn(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint senderSsrc, System.Collections.Generic.List<Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry>! entries) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.RtcpFeedback.TryReadTmmbr(in Agash.StreamTransport.WebRtc.Rtcp.RtcpElement element, out uint senderSsrc, System.Collections.Generic.List<Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry>! entries) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.TryParse(System.ReadOnlySpan<byte> packet, out Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport report) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.operator !=(Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport.operator ==(Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport left, Agash.StreamTransport.WebRtc.Rtcp.RtcpReceiverReport right) -> bool
@@ -1024,6 +1042,8 @@ static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.WriteCname(System
 static Agash.StreamTransport.WebRtc.Rtcp.RtcpSourceDescription.WriteGoodbye(System.Span<byte> destination, System.ReadOnlySpan<uint> sources) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.SdesSource.operator !=(Agash.StreamTransport.WebRtc.Rtcp.SdesSource left, Agash.StreamTransport.WebRtc.Rtcp.SdesSource right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.SdesSource.operator ==(Agash.StreamTransport.WebRtc.Rtcp.SdesSource left, Agash.StreamTransport.WebRtc.Rtcp.SdesSource right) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.operator !=(Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry left, Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry right) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.operator ==(Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry left, Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.TransportFeedback.Build(System.Span<byte> destination, uint senderSsrc, uint mediaSsrc, byte feedbackCount, System.ReadOnlySpan<Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival> arrivals, int maxBytes, out int consumed) -> int
 static Agash.StreamTransport.WebRtc.Rtcp.TransportFeedback.TryParse(System.ReadOnlySpan<byte> rtcp, System.Collections.Generic.List<Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival>! arrivals) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.operator !=(Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival left, Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival right) -> bool
@@ -1126,6 +1146,8 @@ virtual Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.RtcpFee
 ~override Agash.StreamTransport.WebRtc.Rtcp.RtcpSenderReport.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtcp.SdesSource.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtcp.SdesSource.ToString() -> string
+~override Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.Rtcp.TmmbEntry.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.Equals(object obj) -> bool
 ~override Agash.StreamTransport.WebRtc.Rtcp.TransportPacketArrival.ToString() -> string
 ~override Agash.StreamTransport.WebRtc.Rtp.FecRecoveredPacket.Equals(object obj) -> bool

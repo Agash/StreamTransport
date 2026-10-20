@@ -242,6 +242,14 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
     public bool TryResume() => _connection?.TryResumeTransmission() ?? true;
 
+    public ValueTask<bool> RequestReceiveLimitAsync(
+        long? bitsPerSecond,
+        CancellationToken cancellationToken = default
+    ) =>
+        _connection is { } connection && _remoteVideoSsrc != 0
+            ? connection.RequestSendLimitAsync(_remoteVideoSsrc, bitsPerSecond, cancellationToken)
+            : ValueTask.FromResult(false);
+
     // An ICE restart (RFC 8829): fresh credentials and candidates in a new offer; the answer brings the
     // peer's, and media carries on under the same DTLS-SRTP keys.
     public async Task RestartAsync(CancellationToken cancellationToken = default)

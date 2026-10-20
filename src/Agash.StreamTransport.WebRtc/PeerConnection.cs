@@ -1372,6 +1372,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // Every feedback element of the compound, which may carry several for different SSRCs (RFC 8108).
         List<ushort>? lost = null;
         List<(uint, byte)>? fir = null;
+        List<TmmbEntry>? tmmb = null;
         foreach (RtcpElement element in RtcpCompound.Enumerate(rtcp))
         {
             if (RtcpFeedback.TryReadPli(element, out uint pliSsrc))
@@ -1382,7 +1383,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 if (lost.Count > 0)
                 {
-                    Retransmit(nackSsrc, [.. lost]);
+                    Retransmit(nackSsrc, lost);
                 }
 
                 lost.Clear();
@@ -1391,6 +1392,11 @@ public sealed partial class PeerConnection : IAsyncDisposable
             {
                 OnFullIntraRequests(requester, fir);
                 fir.Clear();
+            }
+            else if (RtcpFeedback.TryReadTmmbr(element, out uint limiter, tmmb ??= []))
+            {
+                OnTmmbr(limiter, tmmb);
+                tmmb.Clear();
             }
         }
 

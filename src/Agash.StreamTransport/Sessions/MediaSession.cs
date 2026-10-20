@@ -189,6 +189,11 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     public bool TryResumeTransmission() => _transport.TryResume();
 
+    public ValueTask<bool> LimitReceivedVideoAsync(
+        long? bitsPerSecond,
+        CancellationToken cancellationToken = default
+    ) => _transport.RequestReceiveLimitAsync(bitsPerSecond, cancellationToken);
+
     public Task RestartTransportAsync(CancellationToken cancellationToken = default) =>
         _transport.RestartAsync(cancellationToken);
 

@@ -117,6 +117,18 @@ public interface IMediaSession : IAsyncDisposable
     bool TryResumeTransmission();
 
     /// <summary>
+    /// Asks the peer to keep the video it sends under a bit rate, or to stop limiting it, while the session
+    /// runs: what <see cref="MediaSessionOptions.MaximumReceiveVideoBitsPerSecond"/> sets at the start.
+    /// </summary>
+    /// <param name="bitsPerSecond">The limit; null takes it back.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>False when the peer did not agree to such requests or no video arrives from it yet.</returns>
+    ValueTask<bool> LimitReceivedVideoAsync(
+        long? bitsPerSecond,
+        CancellationToken cancellationToken = default
+    );
+
+    /// <summary>
     /// Finds the network path again from scratch, keeping the media session and its keys: for WebRTC an
     /// ICE restart. For when no known path works any more; a path that merely changed is followed without
     /// it.

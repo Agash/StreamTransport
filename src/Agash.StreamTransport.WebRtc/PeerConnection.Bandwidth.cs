@@ -80,7 +80,7 @@ public sealed partial class PeerConnection
     // The estimate within the peer's limit, with the pacer's usual headroom above it for repairs.
     private CapacityEstimate ApplySendLimit(CapacityEstimate estimate)
     {
-        long limit = Interlocked.Read(ref _sendLimit);
+        long limit = Math.Min(Interlocked.Read(ref _sendLimit), Interlocked.Read(ref _tmmbrLimit));
         return limit == long.MaxValue
             ? estimate
             : estimate with

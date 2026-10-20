@@ -46,7 +46,8 @@ public sealed class H264PayloadFormat : RtpPayloadFormat
         && H264Parameters.Profile(remote) == profile;
 
     /// <inheritdoc/>
-    public override ImmutableArray<string> RtcpFeedback => ["nack", "nack pli", "ccm fir"];
+    public override ImmutableArray<string> RtcpFeedback =>
+        ["nack", "nack pli", "ccm fir", "ccm tmmbr"];
 
     /// <inheritdoc/>
     public override RtpPayloadTraits KeyframeRequires =>

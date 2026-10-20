@@ -47,7 +47,7 @@ public sealed class RtpPayloadFormatRegistryTests
         Assert.AreEqual("H264", codec.EncodingName);
         StringAssert.Contains(codec.FormatParameters, "packetization-mode=1");
         CollectionAssert.AreEqual(
-            new[] { "nack", "nack pli", "ccm fir" },
+            new[] { "nack", "nack pli", "ccm fir", "ccm tmmbr" },
             codec.RtcpFeedback.ToArray()
         );
         Assert.AreEqual(2, OpusPayloadFormat.Instance.ToSdpCodec(111).Channels);
