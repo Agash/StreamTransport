@@ -100,17 +100,23 @@ public sealed class AlphaSessionTests
         public const int Height = 240;
 
         private readonly CancellationTokenSource _stop = new();
+        private readonly DeliveryGate _gate = new();
 
         public IDisposable Connect(IVideoFrameConsumer consumer, VideoConstraints constraints)
         {
-            Task loop = RunAsync(consumer, _stop.Token);
-            return new Stopper(_stop, loop);
+            _ = RunAsync(consumer, _gate, _stop.Token);
+            return new Stopper(_gate, _stop);
         }
 
-        public void Dispose() => _stop.Dispose();
+        public void Dispose()
+        {
+            _gate.Close();
+            _stop.Cancel();
+        }
 
         private static async Task RunAsync(
             IVideoFrameConsumer consumer,
+            DeliveryGate gate,
             CancellationToken cancellationToken
         )
         {
@@ -132,6 +138,12 @@ public sealed class AlphaSessionTests
             {
                 while (await timer.WaitForNextTickAsync(cancellationToken))
                 {
+                    using Lock.Scope handover = gate.Enter(out bool open);
+                    if (!open)
+                    {
+                        return;
+                    }
+
                     consumer.OnFrame(
                         new VideoFrame(
                             new CpuImage(
@@ -151,12 +163,13 @@ public sealed class AlphaSessionTests
             }
         }
 
-        private sealed class Stopper(CancellationTokenSource stop, Task loop) : IDisposable
+        // Ends the connection: the gate closes before this returns; the loop ends on the cancellation.
+        private sealed class Stopper(DeliveryGate gate, CancellationTokenSource stop) : IDisposable
         {
             public void Dispose()
             {
+                gate.Close();
                 stop.Cancel();
-                loop.GetAwaiter().GetResult();
             }
         }
     }

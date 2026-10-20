@@ -12,15 +12,17 @@ public sealed class MetalProcessorTests
     private static readonly MetalVideoProcessorFactory Factory = new();
 
     [TestMethod]
-    public void BgraToNv12_MatchesTheBt709MatrixWithLeftSitedChroma()
+    public async Task BgraToNv12_MatchesTheBt709MatrixWithLeftSitedChroma()
     {
         byte[] pixels = Picture();
-        using VideoFrameLease output = Run(
-            Bgra(pixels),
-            Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(Nv12Output()),
-            out VideoProcessorInfo info
-        );
+        using Processed run = await Start(
+                Bgra(pixels),
+                Description(PixelFormat.Bgra, Width),
+                new VideoProcessing(Nv12Output())
+            )
+            .FinishAsync();
+        VideoFrameLease output = run.Output;
+        VideoProcessorInfo info = run.Info;
 
         Assert.AreEqual(new VideoSize(Width, Height), info.Output.Size);
         byte[][] planes = Download(output, PixelFormat.Nv12, Width);
@@ -54,15 +56,17 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void AlphaPack_PutsAlphaInTheRightHalfLumaWithNeutralChroma()
+    public async Task AlphaPack_PutsAlphaInTheRightHalfLumaWithNeutralChroma()
     {
         byte[] pixels = Picture();
-        using VideoFrameLease output = Run(
-            Bgra(pixels),
-            Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide),
-            out VideoProcessorInfo info
-        );
+        using Processed run = await Start(
+                Bgra(pixels),
+                Description(PixelFormat.Bgra, Width),
+                new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide)
+            )
+            .FinishAsync();
+        VideoFrameLease output = run.Output;
+        VideoProcessorInfo info = run.Info;
 
         Assert.AreEqual(new VideoSize(Width * 2, Height), info.Output.Size);
         byte[][] planes = Download(output, PixelFormat.Nv12, Width * 2);
@@ -84,18 +88,20 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void AlphaPack_ToMemory_ReadsBackThePackedPicture()
+    public async Task AlphaPack_ToMemory_ReadsBackThePackedPicture()
     {
         byte[] pixels = Picture();
-        using VideoFrameLease output = Run(
-            Bgra(pixels),
-            Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(
-                VideoConstraints.Cpu(PixelFormat.Nv12),
-                Alpha: AlphaLayout.PackSideBySide
-            ),
-            out VideoProcessorInfo info
-        );
+        using Processed run = await Start(
+                Bgra(pixels),
+                Description(PixelFormat.Bgra, Width),
+                new VideoProcessing(
+                    VideoConstraints.Cpu(PixelFormat.Nv12),
+                    Alpha: AlphaLayout.PackSideBySide
+                )
+            )
+            .FinishAsync();
+        VideoFrameLease output = run.Output;
+        VideoProcessorInfo info = run.Info;
 
         Assert.AreEqual(VideoStorageKind.Cpu, info.Output.Storage);
         VideoFrame frame = output.Frame;
@@ -116,15 +122,16 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void PackThenUnpack_ReturnsAColourRampAndAlpha()
+    public async Task PackThenUnpack_ReturnsAColourRampAndAlpha()
     {
         byte[] pixels = Ramp();
-        using VideoFrameLease packed = Run(
-            Bgra(pixels),
-            Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide),
-            out _
-        );
+        using Processed run = await Start(
+                Bgra(pixels),
+                Description(PixelFormat.Bgra, Width),
+                new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide)
+            )
+            .FinishAsync();
+        VideoFrameLease packed = run.Output;
 
         using IVideoProcessor unpack = Factory.Create(
             Description(PixelFormat.Nv12, Width * 2),
@@ -132,7 +139,7 @@ public sealed class MetalProcessorTests
         );
         Keeper keeper = new();
         unpack.Process(packed.Frame, keeper);
-        using VideoFrameLease unpacked = keeper.Take();
+        using VideoFrameLease unpacked = await keeper.TakeAsync();
 
         Assert.AreEqual(new VideoSize(Width, Height), unpack.Info.Output.Size);
         byte[] back = Download(unpacked, PixelFormat.Bgra, Width)[0];
@@ -153,19 +160,21 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void Nv12ToBgra_ExpandsVideoRangeGrey()
+    public async Task Nv12ToBgra_ExpandsVideoRangeGrey()
     {
         byte[] luma = [.. Enumerable.Repeat((byte)128, Width * Height)];
         byte[] chroma = [.. Enumerable.Repeat((byte)128, Width * Height / 2)];
         PooledSurface surface = TestSurfaces.Upload(PixelFormat.Nv12, Width, Height, luma, chroma);
         try
         {
-            using VideoFrameLease output = Run(
-                TestSurfaces.Frame(surface, PixelFormat.Nv12, Width, Height, VideoColor.Bt709),
-                Description(PixelFormat.Nv12, Width),
-                new VideoProcessing(BgraOutput()),
-                out VideoProcessorInfo info
-            );
+            using Processed run = await Start(
+                    TestSurfaces.Frame(surface, PixelFormat.Nv12, Width, Height, VideoColor.Bt709),
+                    Description(PixelFormat.Nv12, Width),
+                    new VideoProcessing(BgraOutput())
+                )
+                .FinishAsync();
+            VideoFrameLease output = run.Output;
+            VideoProcessorInfo info = run.Info;
 
             Assert.AreEqual(PixelFormat.Bgra, info.Output.PixelFormat);
             CollectionAssert.AreEqual(
@@ -180,7 +189,7 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void Upload_BgraInMemory_ArrivesUnchangedOnTheGpu()
+    public async Task Upload_BgraInMemory_ArrivesUnchangedOnTheGpu()
     {
         byte[] pixels = Picture();
         var frame = VideoFrame.FromPlanes(
@@ -190,16 +199,18 @@ public sealed class MetalProcessorTests
             Width * 4,
             color: VideoColor.Srgb
         );
-        using VideoFrameLease output = Run(
-            in frame,
-            Description(PixelFormat.Bgra, Width) with
-            {
-                Storage = VideoStorageKind.Cpu,
-                Device = null,
-            },
-            new VideoProcessing(BgraOutput()),
-            out VideoProcessorInfo info
-        );
+        using Processed run = await Start(
+                in frame,
+                Description(PixelFormat.Bgra, Width) with
+                {
+                    Storage = VideoStorageKind.Cpu,
+                    Device = null,
+                },
+                new VideoProcessing(BgraOutput())
+            )
+            .FinishAsync();
+        VideoFrameLease output = run.Output;
+        VideoProcessorInfo info = run.Info;
 
         Assert.AreEqual(VideoStorageKind.IOSurface, info.Output.Storage);
         CollectionAssert.AreEqual(pixels, Download(output, PixelFormat.Bgra, Width)[0]);
@@ -207,7 +218,7 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void Upload_Nv12InMemory_IsConvertedOnTheGpu()
+    public async Task Upload_Nv12InMemory_IsConvertedOnTheGpu()
     {
         byte[] picture = [.. Enumerable.Repeat((byte)128, Width * Height * 3 / 2)];
         var frame = VideoFrame.FromPlanes(
@@ -219,16 +230,18 @@ public sealed class MetalProcessorTests
             Width,
             color: VideoColor.Bt709
         );
-        using VideoFrameLease output = Run(
-            in frame,
-            Description(PixelFormat.Nv12, Width) with
-            {
-                Storage = VideoStorageKind.Cpu,
-                Device = null,
-            },
-            new VideoProcessing(BgraOutput()),
-            out VideoProcessorInfo info
-        );
+        using Processed run = await Start(
+                in frame,
+                Description(PixelFormat.Nv12, Width) with
+                {
+                    Storage = VideoStorageKind.Cpu,
+                    Device = null,
+                },
+                new VideoProcessing(BgraOutput())
+            )
+            .FinishAsync();
+        VideoFrameLease output = run.Output;
+        VideoProcessorInfo info = run.Info;
 
         Assert.AreEqual(PixelFormat.Bgra, info.Output.PixelFormat);
         CollectionAssert.AreEqual(
@@ -238,7 +251,7 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public void KeptOutput_IsNotReusedByLaterFrames()
+    public async Task KeptOutput_IsNotReusedByLaterFrames()
     {
         byte[] first = Picture();
         byte[] second = [.. first.Select(b => (byte)(255 - b))];
@@ -248,7 +261,7 @@ public sealed class MetalProcessorTests
         );
         Keeper keeper = new();
         Process(processor, first, keeper);
-        using VideoFrameLease kept = keeper.Take();
+        using VideoFrameLease kept = await keeper.TakeAsync();
         byte[][] before = Download(kept, PixelFormat.Nv12, Width);
 
         Discarder discarder = new();
@@ -257,7 +270,7 @@ public sealed class MetalProcessorTests
             Process(processor, second, discarder);
         }
 
-        discarder.WaitFor(4);
+        await discarder.WaitForAsync(4);
 
         CollectionAssert.AreEqual(before[0], Download(kept, PixelFormat.Nv12, Width)[0]);
     }
@@ -364,16 +377,16 @@ public sealed class MetalProcessorTests
     private static PooledSurface Bgra(byte[] pixels) =>
         TestSurfaces.Upload(PixelFormat.Bgra, Width, Height, pixels);
 
-    private static VideoFrameLease Run(
+    // Hands a surface's frame to a new processor; the surface goes back once the processor holds it.
+    private static Pending Start(
         PooledSurface input,
         VideoStreamDescription description,
-        VideoProcessing processing,
-        out VideoProcessorInfo info
+        VideoProcessing processing
     )
     {
         try
         {
-            return Run(
+            return Start(
                 TestSurfaces.Frame(
                     input,
                     description.PixelFormat,
@@ -382,8 +395,7 @@ public sealed class MetalProcessorTests
                     VideoColor.Srgb
                 ),
                 description,
-                processing,
-                out info
+                processing
             );
         }
         finally
@@ -392,18 +404,36 @@ public sealed class MetalProcessorTests
         }
     }
 
-    private static VideoFrameLease Run(
+    private static Pending Start(
         in VideoFrame input,
         VideoStreamDescription description,
-        VideoProcessing processing,
-        out VideoProcessorInfo info
+        VideoProcessing processing
     )
     {
-        using IVideoProcessor processor = Factory.Create(description, processing);
-        info = processor.Info;
+        IVideoProcessor processor = Factory.Create(description, processing);
         Keeper keeper = new();
         processor.Process(in input, keeper);
-        return keeper.Take();
+        return new Pending(processor, keeper);
+    }
+
+    // A frame handed to a processor: its output, once the GPU work completes, and then the processor
+    // goes.
+    private sealed class Pending(IVideoProcessor processor, Keeper keeper)
+    {
+        public async Task<Processed> FinishAsync()
+        {
+            using (processor)
+            {
+                VideoFrameLease output = await keeper.TakeAsync();
+                return new Processed(output, processor.Info);
+            }
+        }
+    }
+
+    // What a processor gave back, and what it said about its output.
+    private sealed record Processed(VideoFrameLease Output, VideoProcessorInfo Info) : IDisposable
+    {
+        public void Dispose() => Output.Dispose();
     }
 
     private static void Process(
@@ -486,8 +516,7 @@ public sealed class MetalProcessorTests
 
         public void OnFrame(in VideoFrame frame) => _kept.SetResult(frame.Retain());
 
-        public VideoFrameLease Take() =>
-            _kept.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+        public Task<VideoFrameLease> TakeAsync() => _kept.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     // Counts the frames it is handed.
@@ -497,12 +526,12 @@ public sealed class MetalProcessorTests
 
         public void OnFrame(in VideoFrame frame) => _handed.Release();
 
-        public void WaitFor(int frames)
+        public async Task WaitForAsync(int frames)
         {
             for (int i = 0; i < frames; i++)
             {
                 Assert.IsTrue(
-                    _handed.Wait(TimeSpan.FromSeconds(10)),
+                    await _handed.WaitAsync(TimeSpan.FromSeconds(10)),
                     "a frame was never handed on"
                 );
             }

@@ -113,28 +113,20 @@ internal sealed class GradientSource(TimeSpan interval, VideoOrientation orienta
     private sealed class Pusher : IDisposable
     {
         private readonly CancellationTokenSource _stop = new();
-        private readonly Task _loop;
+        private readonly DeliveryGate _gate = new();
 
         public Pusher(
             IVideoFrameConsumer consumer,
             PixelFormat format,
             TimeSpan interval,
             VideoOrientation orientation
-        ) => _loop = Task.Run(() => RunAsync(consumer, format, interval, orientation, _stop.Token));
+        ) => _ = Task.Run(() => RunAsync(consumer, format, interval, orientation, _gate, _stop));
 
+        // The gate closes before this returns; the loop ends on the cancellation by itself.
         public void Dispose()
         {
+            _gate.Close();
             _stop.Cancel();
-            try
-            {
-                _loop.GetAwaiter().GetResult();
-            }
-            catch (OperationCanceledException)
-            {
-                // Deliberately not logged: stopping the loop cancels its wait.
-            }
-
-            _stop.Dispose();
         }
 
         private static async Task RunAsync(
@@ -142,9 +134,12 @@ internal sealed class GradientSource(TimeSpan interval, VideoOrientation orienta
             PixelFormat format,
             TimeSpan interval,
             VideoOrientation orientation,
-            CancellationToken cancellationToken
+            DeliveryGate gate,
+            CancellationTokenSource stop
         )
         {
+            using CancellationTokenSource owned = stop;
+            CancellationToken cancellationToken = stop.Token;
             using PeriodicTimer timer = new(interval);
             byte[] pixels = new byte[PlaneLayout.PackedSize(format, Size)];
             for (int index = 0; await timer.WaitForNextTickAsync(cancellationToken); index++)
@@ -158,16 +153,24 @@ internal sealed class GradientSource(TimeSpan interval, VideoOrientation orienta
                 }
 
                 pixels.AsSpan(Width * Height).Fill(128);
-                consumer.OnFrame(
-                    new VideoFrame(
-                        new CpuImage(PlaneLayout.Packed(format, Size)),
-                        new VideoFormat(format, Width, Height),
-                        MediaTimestamp.Captured(MediaClock.System.Now),
-                        pixels,
-                        VideoColor.Bt709,
-                        orientation
-                    )
-                );
+                using (gate.Enter(out bool open))
+                {
+                    if (!open)
+                    {
+                        return;
+                    }
+
+                    consumer.OnFrame(
+                        new VideoFrame(
+                            new CpuImage(PlaneLayout.Packed(format, Size)),
+                            new VideoFormat(format, Width, Height),
+                            MediaTimestamp.Captured(MediaClock.System.Now),
+                            pixels,
+                            VideoColor.Bt709,
+                            orientation
+                        )
+                    );
+                }
             }
         }
     }
@@ -186,33 +189,28 @@ internal sealed class ToneSource(int rate = 48_000, int channels = 2, bool obser
     private sealed class Pusher : IDisposable
     {
         private readonly CancellationTokenSource _stop = new();
-        private readonly Task _loop;
+        private readonly DeliveryGate _gate = new();
 
         public Pusher(IAudioFrameConsumer consumer, AudioFormat format, bool observed) =>
-            _loop = Task.Run(() => RunAsync(consumer, format, observed, _stop.Token));
+            _ = Task.Run(() => RunAsync(consumer, format, observed, _gate, _stop));
 
+        // The gate closes before this returns; the loop ends on the cancellation by itself.
         public void Dispose()
         {
+            _gate.Close();
             _stop.Cancel();
-            try
-            {
-                _loop.GetAwaiter().GetResult();
-            }
-            catch (OperationCanceledException)
-            {
-                // Deliberately not logged: stopping the loop cancels its wait.
-            }
-
-            _stop.Dispose();
         }
 
         private static async Task RunAsync(
             IAudioFrameConsumer consumer,
             AudioFormat format,
             bool observed,
-            CancellationToken cancellationToken
+            DeliveryGate gate,
+            CancellationTokenSource stop
         )
         {
+            using CancellationTokenSource owned = stop;
+            CancellationToken cancellationToken = stop.Token;
             int samples = format.SampleRate / 100;
             using PeriodicTimer timer = new(TimeSpan.FromMilliseconds(10));
             float[] values = new float[samples * format.Channels];
@@ -233,13 +231,21 @@ internal sealed class ToneSource(int rate = 48_000, int channels = 2, bool obser
                 }
 
                 MediaTime at = start + new ClockRate(format.SampleRate).ToTimeSpan(chunk * samples);
-                consumer.OnFrame(
-                    new AudioFrame(
-                        MemoryMarshal.AsBytes(values.AsSpan()),
-                        format,
-                        observed ? MediaTimestamp.Observed(at) : MediaTimestamp.Captured(at)
-                    )
-                );
+                using (gate.Enter(out bool open))
+                {
+                    if (!open)
+                    {
+                        return;
+                    }
+
+                    consumer.OnFrame(
+                        new AudioFrame(
+                            MemoryMarshal.AsBytes(values.AsSpan()),
+                            format,
+                            observed ? MediaTimestamp.Observed(at) : MediaTimestamp.Captured(at)
+                        )
+                    );
+                }
             }
         }
     }
