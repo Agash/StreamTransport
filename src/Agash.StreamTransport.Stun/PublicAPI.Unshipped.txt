@@ -6,6 +6,7 @@ Agash.StreamTransport.Stun.StaticIceServerProvider
 Agash.StreamTransport.Stun.StaticIceServerProvider.GetIceServersForPeer() -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
 Agash.StreamTransport.Stun.StaticIceServerProvider.StaticIceServerProvider(System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>! iceServers) -> void
 Agash.StreamTransport.Stun.StunAttributeType
+Agash.StreamTransport.Stun.StunAttributeType.AlternateDomain = 32771 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.AlternateServer = 32803 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.ChannelNumber = 12 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.Data = 19 -> Agash.StreamTransport.Stun.StunAttributeType
@@ -19,6 +20,8 @@ Agash.StreamTransport.Stun.StunAttributeType.MessageIntegrity = 8 -> Agash.Strea
 Agash.StreamTransport.Stun.StunAttributeType.MessageIntegritySha256 = 28 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.Nomination = 49153 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.Nonce = 21 -> Agash.StreamTransport.Stun.StunAttributeType
+Agash.StreamTransport.Stun.StunAttributeType.PasswordAlgorithm = 29 -> Agash.StreamTransport.Stun.StunAttributeType
+Agash.StreamTransport.Stun.StunAttributeType.PasswordAlgorithms = 32770 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.Priority = 36 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.Realm = 20 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.RequestedAddressFamily = 23 -> Agash.StreamTransport.Stun.StunAttributeType
@@ -26,6 +29,7 @@ Agash.StreamTransport.Stun.StunAttributeType.RequestedTransport = 25 -> Agash.St
 Agash.StreamTransport.Stun.StunAttributeType.Software = 32802 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.UnknownAttributes = 10 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.UseCandidate = 37 -> Agash.StreamTransport.Stun.StunAttributeType
+Agash.StreamTransport.Stun.StunAttributeType.Userhash = 30 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.Username = 6 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.XorMappedAddress = 32 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.XorPeerAddress = 18 -> Agash.StreamTransport.Stun.StunAttributeType
@@ -36,6 +40,7 @@ Agash.StreamTransport.Stun.StunBindingServer.ListenEndPoint.get -> System.Net.IP
 Agash.StreamTransport.Stun.StunBindingServer.Start() -> void
 Agash.StreamTransport.Stun.StunBindingServer.StunBindingServer(System.Net.IPEndPoint! listenEndPoint, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.Stun.StunBindingServer!>? logger = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
 Agash.StreamTransport.Stun.StunHeader
+Agash.StreamTransport.Stun.StunLongTermCredential
 Agash.StreamTransport.Stun.StunMessageClass
 Agash.StreamTransport.Stun.StunMessageClass.ErrorResponse = 3 -> Agash.StreamTransport.Stun.StunMessageClass
 Agash.StreamTransport.Stun.StunMessageClass.Indication = 1 -> Agash.StreamTransport.Stun.StunMessageClass
@@ -56,12 +61,14 @@ Agash.StreamTransport.Stun.StunMessageReader.TryGetXorAddress(Agash.StreamTransp
 Agash.StreamTransport.Stun.StunMessageReader.TryGetXorMappedAddress(out System.Net.IPEndPoint! endpoint) -> bool
 Agash.StreamTransport.Stun.StunMessageReader.VerifyFingerprint() -> bool
 Agash.StreamTransport.Stun.StunMessageReader.VerifyMessageIntegrity(System.ReadOnlySpan<byte> key) -> bool
+Agash.StreamTransport.Stun.StunMessageReader.VerifyMessageIntegritySha256(System.ReadOnlySpan<byte> key) -> bool
 Agash.StreamTransport.Stun.StunMessageWriter
 Agash.StreamTransport.Stun.StunMessageWriter.AddAddress(Agash.StreamTransport.Stun.StunAttributeType type, System.Net.IPEndPoint! endpoint) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddAttribute(Agash.StreamTransport.Stun.StunAttributeType type, scoped System.ReadOnlySpan<byte> value) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddErrorCode(int code, string! reason) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddFingerprint() -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddMessageIntegrity(System.ReadOnlySpan<byte> key) -> void
+Agash.StreamTransport.Stun.StunMessageWriter.AddMessageIntegritySha256(System.ReadOnlySpan<byte> key) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddUInt32(Agash.StreamTransport.Stun.StunAttributeType type, uint value) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddUnknownAttributes(scoped System.ReadOnlySpan<ushort> types) -> void
 Agash.StreamTransport.Stun.StunMessageWriter.AddXorAddress(Agash.StreamTransport.Stun.StunAttributeType type, System.Net.IPEndPoint! endpoint) -> void
@@ -77,13 +84,35 @@ Agash.StreamTransport.Stun.StunMethod.CreatePermission = 8 -> Agash.StreamTransp
 Agash.StreamTransport.Stun.StunMethod.Data = 7 -> Agash.StreamTransport.Stun.StunMethod
 Agash.StreamTransport.Stun.StunMethod.Refresh = 4 -> Agash.StreamTransport.Stun.StunMethod
 Agash.StreamTransport.Stun.StunMethod.Send = 6 -> Agash.StreamTransport.Stun.StunMethod
+Agash.StreamTransport.Stun.StunPasswordAlgorithm
+Agash.StreamTransport.Stun.StunPasswordAlgorithm.Md5 = 1 -> Agash.StreamTransport.Stun.StunPasswordAlgorithm
+Agash.StreamTransport.Stun.StunPasswordAlgorithm.Sha256 = 2 -> Agash.StreamTransport.Stun.StunPasswordAlgorithm
+Agash.StreamTransport.Stun.StunSecurityFeatures
+Agash.StreamTransport.Stun.StunSecurityFeatures.Deconstruct(out bool PasswordAlgorithms, out bool UsernameAnonymity) -> void
+Agash.StreamTransport.Stun.StunSecurityFeatures.Equals(Agash.StreamTransport.Stun.StunSecurityFeatures other) -> bool
+Agash.StreamTransport.Stun.StunSecurityFeatures.PasswordAlgorithms.get -> bool
+Agash.StreamTransport.Stun.StunSecurityFeatures.PasswordAlgorithms.init -> void
+Agash.StreamTransport.Stun.StunSecurityFeatures.StunSecurityFeatures() -> void
+Agash.StreamTransport.Stun.StunSecurityFeatures.StunSecurityFeatures(bool PasswordAlgorithms, bool UsernameAnonymity) -> void
+Agash.StreamTransport.Stun.StunSecurityFeatures.UsernameAnonymity.get -> bool
+Agash.StreamTransport.Stun.StunSecurityFeatures.UsernameAnonymity.init -> void
 const Agash.StreamTransport.Stun.StunBindingServer.MeterName = "Agash.StreamTransport.Stun" -> string!
 const Agash.StreamTransport.Stun.StunHeader.FingerprintXor = 1398035790 -> uint
 const Agash.StreamTransport.Stun.StunHeader.Length = 20 -> int
 const Agash.StreamTransport.Stun.StunHeader.MagicCookie = 554869826 -> uint
 const Agash.StreamTransport.Stun.StunHeader.TransactionIdLength = 12 -> int
+override Agash.StreamTransport.Stun.StunSecurityFeatures.GetHashCode() -> int
 static Agash.StreamTransport.Stun.StaticIceServerProvider.Stun(params string![]! stunUrls) -> Agash.StreamTransport.Stun.StaticIceServerProvider!
 static Agash.StreamTransport.Stun.StunBindingServer.AnyAddress(int port) -> System.Net.IPEndPoint!
 static Agash.StreamTransport.Stun.StunHeader.DecodeType(ushort type) -> (Agash.StreamTransport.Stun.StunMessageClass Class, Agash.StreamTransport.Stun.StunMethod Method)
 static Agash.StreamTransport.Stun.StunHeader.EncodeType(Agash.StreamTransport.Stun.StunMessageClass messageClass, Agash.StreamTransport.Stun.StunMethod method) -> ushort
+static Agash.StreamTransport.Stun.StunLongTermCredential.Key(Agash.StreamTransport.Stun.StunPasswordAlgorithm algorithm, string! username, System.ReadOnlySpan<byte> realm, string! password) -> byte[]!
+static Agash.StreamTransport.Stun.StunLongTermCredential.ReadAlgorithms(System.ReadOnlySpan<byte> value) -> System.Collections.Generic.List<ushort>!
+static Agash.StreamTransport.Stun.StunLongTermCredential.TryReadNonceCookie(System.ReadOnlySpan<byte> nonce, out Agash.StreamTransport.Stun.StunSecurityFeatures features) -> bool
+static Agash.StreamTransport.Stun.StunLongTermCredential.Userhash(string! username, System.ReadOnlySpan<byte> realm, System.Span<byte> destination) -> void
+static Agash.StreamTransport.Stun.StunLongTermCredential.WriteAlgorithm(Agash.StreamTransport.Stun.StunPasswordAlgorithm algorithm, System.Span<byte> destination) -> void
 static Agash.StreamTransport.Stun.StunMessageReader.TryParse(System.ReadOnlySpan<byte> datagram, out Agash.StreamTransport.Stun.StunMessageReader reader) -> bool
+static Agash.StreamTransport.Stun.StunSecurityFeatures.operator !=(Agash.StreamTransport.Stun.StunSecurityFeatures left, Agash.StreamTransport.Stun.StunSecurityFeatures right) -> bool
+static Agash.StreamTransport.Stun.StunSecurityFeatures.operator ==(Agash.StreamTransport.Stun.StunSecurityFeatures left, Agash.StreamTransport.Stun.StunSecurityFeatures right) -> bool
+~override Agash.StreamTransport.Stun.StunSecurityFeatures.Equals(object obj) -> bool
+~override Agash.StreamTransport.Stun.StunSecurityFeatures.ToString() -> string

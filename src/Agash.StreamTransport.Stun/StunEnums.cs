@@ -92,6 +92,12 @@ public enum StunAttributeType : ushort
     /// <summary>MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6).</summary>
     MessageIntegritySha256 = 0x001C,
 
+    /// <summary>PASSWORD-ALGORITHM, the algorithm a request's key comes from (RFC 8489 §14.12).</summary>
+    PasswordAlgorithm = 0x001D,
+
+    /// <summary>USERHASH, the hashed username of an anonymous request (RFC 8489 §14.4).</summary>
+    Userhash = 0x001E,
+
     /// <summary>XOR-MAPPED-ADDRESS (RFC 8489 §14.2).</summary>
     XorMappedAddress = 0x0020,
 
@@ -100,6 +106,12 @@ public enum StunAttributeType : ushort
 
     /// <summary>USE-CANDIDATE - ICE nomination (RFC 8445 §7.1.2).</summary>
     UseCandidate = 0x0025,
+
+    /// <summary>PASSWORD-ALGORITHMS, the algorithms a server takes keys from (RFC 8489 §14.11).</summary>
+    PasswordAlgorithms = 0x8002,
+
+    /// <summary>ALTERNATE-DOMAIN, the certificate name of an alternate server (RFC 8489 §14.16).</summary>
+    AlternateDomain = 0x8003,
 
     /// <summary>SOFTWARE (RFC 8489 §14.14).</summary>
     Software = 0x8022,

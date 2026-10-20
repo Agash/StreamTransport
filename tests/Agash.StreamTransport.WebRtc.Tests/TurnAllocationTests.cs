@@ -591,6 +591,51 @@ public sealed class TurnAllocationTests
     public void TryParse_UnsupportedUris_AreRejected(string uri) =>
         Assert.IsFalse(TurnServer.TryParse(uri, "u", "p", out _));
 
+    // RFC 8489 section 9.2.5: a server listing password algorithms gets the first one this side has
+    // (SHA-256), echoed with the list, and MESSAGE-INTEGRITY-SHA256 on every request after; with the
+    // username anonymity bit, USERHASH in place of USERNAME. The refresh, permission and bind all pass.
+    [TestMethod]
+    [Timeout(10_000)]
+    [DataRow(TurnSecurity.Sha256, false)]
+    [DataRow(TurnSecurity.Sha256Anonymous, true)]
+    public async Task PasswordAlgorithms_AuthenticateWithSha256(
+        TurnSecurity security,
+        bool userhash
+    )
+    {
+        await using var server = new TestTurnServer(IPAddress.Loopback, security: security);
+        using TurnAllocation allocation = await Allocate(
+            server,
+            TurnTransport.Udp,
+            TimeProvider.System
+        );
+        _ = Pump(allocation);
+
+        await allocation.SendAsync("x"u8.ToArray(), new IPEndPoint(IPAddress.Loopback, 9), default);
+        await server.WhenChannelBound.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsGreaterThanOrEqualTo(2, server.Sha256Requests, "Allocate and ChannelBind");
+        Assert.AreEqual(userhash ? server.Sha256Requests : 0, server.UserhashRequests);
+    }
+
+    // Section 9.2.5: a cookie announcing password algorithms with no list means it was stripped on the
+    // way (section 9.2.1), and a list with nothing this side has leaves no key to use; neither is answered.
+    [TestMethod]
+    [Timeout(10_000)]
+    [DataRow(TurnSecurity.StrippedAlgorithms)]
+    [DataRow(TurnSecurity.UnknownAlgorithm)]
+    public async Task PasswordAlgorithms_UnusableChallenge_IsNotAnswered(TurnSecurity security)
+    {
+        await using var server = new TestTurnServer(IPAddress.Loopback, security: security);
+
+        TurnException refused = await Assert.ThrowsExactlyAsync<TurnException>(() =>
+            Allocate(server, TurnTransport.Udp, TimeProvider.System)
+        );
+
+        Assert.AreEqual(401, refused.Code);
+        Assert.AreEqual(1, server.AllocateRequests, "no retry with credentials");
+    }
+
     private static Task<TurnAllocation> Allocate(
         TestTurnServer server,
         TurnTransport transport,

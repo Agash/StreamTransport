@@ -347,6 +347,74 @@ public readonly ref struct StunMessageReader
     }
 
     /// <summary>
+    /// Verifies MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6): HMAC-SHA256 over the message up to the
+    /// attribute, with the header length adjusted to include it, compared in constant time over the
+    /// attribute's length, which is 16 to 32 bytes in steps of 4.
+    /// </summary>
+    /// <param name="key">The key: the password (short-term) or the long-term key of §9.2.2.</param>
+    /// <returns>Whether the attribute is present and matches.</returns>
+    public bool VerifyMessageIntegritySha256(ReadOnlySpan<byte> key)
+    {
+        ReadOnlySpan<byte> body = Raw[StunHeader.Length..];
+        int offset = 0;
+        while (offset + 4 <= body.Length)
+        {
+            var attrType = (StunAttributeType)BinaryPrimitives.ReadUInt16BigEndian(body[offset..]);
+            int valueLength = BinaryPrimitives.ReadUInt16BigEndian(body[(offset + 2)..]);
+            if (attrType == StunAttributeType.MessageIntegritySha256)
+            {
+                int start = StunHeader.Length + offset;
+                if (
+                    valueLength is < 16 or > 32
+                    || valueLength % 4 != 0
+                    || start + 4 + valueLength > Raw.Length
+                )
+                {
+                    return false;
+                }
+
+                Span<byte> expected = stackalloc byte[32];
+                ComputeMessageIntegritySha256(Raw, start, key, expected, valueLength);
+                return CryptographicOperations.FixedTimeEquals(
+                    Raw.Slice(start + 4, valueLength),
+                    expected[..valueLength]
+                );
+            }
+
+            offset += 4 + ((valueLength + 3) & ~3);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Computes MESSAGE-INTEGRITY-SHA256 for the message whose attribute begins at
+    /// <paramref name="start"/>, writing the 32-byte HMAC to <paramref name="destination"/>; the header
+    /// length covers the attribute of <paramref name="tagLength"/> bytes.
+    /// </summary>
+    internal static void ComputeMessageIntegritySha256(
+        ReadOnlySpan<byte> message,
+        int start,
+        ReadOnlySpan<byte> key,
+        Span<byte> destination,
+        int tagLength = 32
+    )
+    {
+        byte[]? rented = start <= 512 ? null : ArrayPool<byte>.Shared.Rent(start);
+        Span<byte> buffer = rented is null ? stackalloc byte[start] : rented.AsSpan(0, start);
+        message[..start].CopyTo(buffer);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            buffer[2..],
+            (ushort)(start - StunHeader.Length + 4 + tagLength)
+        );
+        HMACSHA256.HashData(key, buffer, destination);
+        if (rented is not null)
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    /// <summary>
     /// Computes the FINGERPRINT value over <paramref name="precedingMessage"/> (the message up to the
     /// FINGERPRINT attribute) with the header length already set to include the 8-byte FINGERPRINT.
     /// </summary>

@@ -167,6 +167,20 @@ public ref struct StunMessageWriter
     }
 
     /// <summary>
+    /// Appends MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6): the full 32-byte HMAC-SHA256 over everything
+    /// written so far, keyed by <paramref name="key"/>. Append this after all protected attributes and
+    /// before FINGERPRINT.
+    /// </summary>
+    /// <param name="key">The key: the password (short-term) or the long-term key of §9.2.2.</param>
+    public void AddMessageIntegritySha256(ReadOnlySpan<byte> key)
+    {
+        EnsureCapacity(36);
+        Span<byte> tag = stackalloc byte[32];
+        StunMessageReader.ComputeMessageIntegritySha256(_buffer[..Length], Length, key, tag);
+        AddAttribute(StunAttributeType.MessageIntegritySha256, tag);
+    }
+
+    /// <summary>
     /// Appends FINGERPRINT (RFC 8489 §14.7): CRC-32 of everything written so far, XORed with the STUN
     /// constant. Must be the last attribute.
     /// </summary>

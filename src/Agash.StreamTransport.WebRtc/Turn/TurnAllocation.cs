@@ -69,9 +69,7 @@ internal sealed partial class TurnAllocation : IIceSocket
     private readonly Dictionary<UInt128, TaskCompletionSource<Response>> _pending = [];
     private readonly CancellationTokenSource _lifetime = new();
     private ITimer? _maintenance;
-    private byte[] _key = [];
-    private byte[] _realm = [];
-    private byte[] _nonce = [];
+    private Credentials _credentials = Credentials.None;
     private ushort _nextChannel = FirstChannel;
     private TimeSpan _expires;
     private TimeSpan _refreshAt;
@@ -278,7 +276,7 @@ internal sealed partial class TurnAllocation : IIceSocket
 
         _maintenance?.Dispose();
         _lifetime.Cancel();
-        if (Volatile.Read(ref _gone) is null && _key.Length > 0)
+        if (Volatile.Read(ref _gone) is null && _credentials.Key.Length > 0)
         {
             try
             {
@@ -404,7 +402,9 @@ internal sealed partial class TurnAllocation : IIceSocket
 
     // RFC 8489 section 9.2.5: a 401 to a request without credentials carries the realm and nonce to
     // authenticate with, and is answered once; a 401 to one with credentials means they were refused.
-    // A 438 carries a fresh nonce and is answered once per request.
+    // A 438 carries a fresh nonce and is answered once per request. A nonce cookie announcing password
+    // algorithms that arrives without the list was stripped on the way (section 9.2.1), and is not
+    // answered; neither is a list with no algorithm this side has.
     private bool HandleChallenge(StunMessageReader message, ref Challenge challenge, out int code)
     {
         _ = message.TryGetErrorCode(out code);
@@ -413,14 +413,35 @@ internal sealed partial class TurnAllocation : IIceSocket
             return false;
         }
 
+        Credentials current = Volatile.Read(ref _credentials);
         bool answer = code switch
         {
-            401 => !challenge.Unauthorized && _key.Length == 0,
+            401 => !challenge.Unauthorized && current.Key.Length == 0,
             438 => !challenge.StaleNonce,
             _ => false,
         };
         if (!answer)
         {
+            return false;
+        }
+
+        _ = StunLongTermCredential.TryReadNonceCookie(nonce, out StunSecurityFeatures features);
+        bool listed = message.TryFindAttribute(
+            StunAttributeType.PasswordAlgorithms,
+            out ReadOnlySpan<byte> algorithms
+        );
+        if (features.PasswordAlgorithms && !listed)
+        {
+            LogAlgorithmsStripped(_server.Host);
+            return false;
+        }
+
+        StunPasswordAlgorithm? algorithm = listed
+            ? FirstSupported(algorithms)
+            : StunPasswordAlgorithm.Md5;
+        if (algorithm is null)
+        {
+            LogNoCommonAlgorithm(_server.Host);
             return false;
         }
 
@@ -436,15 +457,42 @@ internal sealed partial class TurnAllocation : IIceSocket
                 };
         lock (_gate)
         {
-            _nonce = nonce.ToArray();
             if (message.TryFindAttribute(StunAttributeType.Realm, out ReadOnlySpan<byte> realm))
             {
-                _realm = realm.ToArray();
-                _key = LongTermKey(_server.Username, realm, _server.Credential);
+                _credentials = Credentials.For(
+                    _server,
+                    realm,
+                    nonce,
+                    algorithm.Value,
+                    listed ? algorithms : default,
+                    features.UsernameAnonymity
+                );
+            }
+            else if (_credentials.Key.Length > 0)
+            {
+                _credentials = _credentials with { Nonce = nonce.ToArray() };
+            }
+
+            return _credentials.Key.Length > 0;
+        }
+    }
+
+    // RFC 8489 section 9.2.5: the first algorithm on the server's list that this side supports.
+    private static StunPasswordAlgorithm? FirstSupported(ReadOnlySpan<byte> algorithms)
+    {
+        foreach (ushort algorithm in StunLongTermCredential.ReadAlgorithms(algorithms))
+        {
+            if (
+                algorithm
+                is (ushort)StunPasswordAlgorithm.Sha256
+                    or (ushort)StunPasswordAlgorithm.Md5
+            )
+            {
+                return (StunPasswordAlgorithm)algorithm;
             }
         }
 
-        return _key.Length > 0;
+        return null;
     }
 
     // Sends a request and reads the connection until its response arrives, retransmitting on UDP.
@@ -1131,8 +1179,17 @@ internal sealed partial class TurnAllocation : IIceSocket
         yield return InitialRto * LastWaitFactor;
     }
 
-    private bool VerifyIntegrity(StunMessageReader message) =>
-        _key.Length > 0 && message.VerifyMessageIntegrity(_key);
+    // RFC 8489 section 9.2.5: responses carry the integrity attribute the requests do.
+    private bool VerifyIntegrity(StunMessageReader message)
+    {
+        Credentials credentials = Volatile.Read(ref _credentials);
+        return credentials.Key.Length > 0
+            && (
+                credentials.Sha256
+                    ? message.VerifyMessageIntegritySha256(credentials.Key)
+                    : message.VerifyMessageIntegrity(credentials.Key)
+            );
+    }
 
     private int BuildAllocate(UInt128 transaction, AddressFamily family, Span<byte> buffer) =>
         WriteRequest(
@@ -1178,17 +1235,29 @@ internal sealed partial class TurnAllocation : IIceSocket
         WriteTransaction(transaction, id);
         StunMessageWriter writer = new(buffer, StunMessageClass.Request, method, id);
         attributes(ref writer);
-        lock (_gate)
+        // RFC 8489 sections 9.2.3.2 and 9.2.5: USERNAME or USERHASH, REALM, NONCE, the server's
+        // PASSWORD-ALGORITHMS echoed with the chosen PASSWORD-ALGORITHM, then the integrity attribute;
+        // a server that listed algorithms gets MESSAGE-INTEGRITY-SHA256 only.
+        Credentials credentials = Volatile.Read(ref _credentials);
+        if (credentials.Key.Length > 0)
         {
-            if (_key.Length > 0)
+            writer.AddAttribute(
+                credentials.Anonymous ? StunAttributeType.Userhash : StunAttributeType.Username,
+                credentials.User
+            );
+            writer.AddAttribute(StunAttributeType.Realm, credentials.Realm);
+            writer.AddAttribute(StunAttributeType.Nonce, credentials.Nonce);
+            if (credentials.Algorithms.Length > 0)
             {
-                writer.AddAttribute(
-                    StunAttributeType.Username,
-                    Encoding.UTF8.GetBytes(_server.Username)
-                );
-                writer.AddAttribute(StunAttributeType.Realm, _realm);
-                writer.AddAttribute(StunAttributeType.Nonce, _nonce);
-                writer.AddMessageIntegrity(_key);
+                writer.AddAttribute(StunAttributeType.PasswordAlgorithms, credentials.Algorithms);
+                Span<byte> algorithm = stackalloc byte[4];
+                StunLongTermCredential.WriteAlgorithm(credentials.Algorithm, algorithm);
+                writer.AddAttribute(StunAttributeType.PasswordAlgorithm, algorithm);
+                writer.AddMessageIntegritySha256(credentials.Key);
+            }
+            else
+            {
+                writer.AddMessageIntegrity(credentials.Key);
             }
         }
 
@@ -1229,18 +1298,6 @@ internal sealed partial class TurnAllocation : IIceSocket
                 ? seconds
                 : RequestedLifetime
         );
-
-    // The long-term credential key: MD5(username ":" realm ":" password) (RFC 8489 section 9.2.2).
-#pragma warning disable CA5351 // The STUN long-term credential mechanism defines the key as MD5.
-    private static byte[] LongTermKey(string username, ReadOnlySpan<byte> realm, string password) =>
-        MD5.HashData([
-            .. Encoding.UTF8.GetBytes(username),
-            (byte)':',
-            .. realm,
-            (byte)':',
-            .. Encoding.UTF8.GetBytes(password),
-        ]);
-#pragma warning restore CA5351
 
     private static UInt128 NewTransaction()
     {
@@ -1342,6 +1399,20 @@ internal sealed partial class TurnAllocation : IIceSocket
     )]
     private partial void LogUnverifiedResponse(StunMethod method, string server);
 
+    [LoggerMessage(
+        EventId = 1198,
+        Level = LogLevel.Warning,
+        Message = "TURN server {Server} announced password algorithms without listing them; the challenge is not answered"
+    )]
+    private partial void LogAlgorithmsStripped(string server);
+
+    [LoggerMessage(
+        EventId = 1199,
+        Level = LogLevel.Warning,
+        Message = "TURN server {Server} lists no password algorithm this side supports; the challenge is not answered"
+    )]
+    private partial void LogNoCommonAlgorithm(string server);
+
     private delegate void WriteAttributes(ref StunMessageWriter writer);
 
     // What a transaction came to: success with the granted lifetime, or the error code (0 when the
@@ -1353,6 +1424,62 @@ internal sealed partial class TurnAllocation : IIceSocket
 
     // Which challenges a request has answered.
     private readonly record struct Challenge(bool Unauthorized, bool StaleNonce);
+
+    // The long-term credential state after a challenge (RFC 8489 section 9.2), swapped whole so a request
+    // never mixes a nonce with another realm's key.
+    private sealed record Credentials(
+        byte[] Key,
+        byte[] User,
+        bool Anonymous,
+        byte[] Realm,
+        byte[] Nonce,
+        byte[] Algorithms,
+        StunPasswordAlgorithm Algorithm
+    )
+    {
+        public static readonly Credentials None = new(
+            [],
+            [],
+            false,
+            [],
+            [],
+            [],
+            StunPasswordAlgorithm.Md5
+        );
+
+        public bool Sha256 => Algorithms.Length > 0;
+
+        public static Credentials For(
+            TurnServer server,
+            ReadOnlySpan<byte> realm,
+            ReadOnlySpan<byte> nonce,
+            StunPasswordAlgorithm algorithm,
+            ReadOnlySpan<byte> algorithms,
+            bool anonymous
+        )
+        {
+            byte[] user;
+            if (anonymous)
+            {
+                user = new byte[32];
+                StunLongTermCredential.Userhash(server.Username, realm, user);
+            }
+            else
+            {
+                user = Encoding.UTF8.GetBytes(server.Username);
+            }
+
+            return new Credentials(
+                StunLongTermCredential.Key(algorithm, server.Username, realm, server.Credential),
+                user,
+                anonymous,
+                realm.ToArray(),
+                nonce.ToArray(),
+                algorithms.ToArray(),
+                algorithm
+            );
+        }
+    }
 
     private enum PermissionState
     {

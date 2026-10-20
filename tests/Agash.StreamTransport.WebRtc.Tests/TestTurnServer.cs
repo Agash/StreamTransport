@@ -15,14 +15,35 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 /// CreatePermission, ChannelBind, Send and Data indications and ChannelData, over UDP, TCP and TLS. Each
 /// allocation relays through its own UDP socket and enforces permissions, as a real server does.
 /// </summary>
+/// <summary>The long-term credential variant a <see cref="TestTurnServer"/> challenges with (RFC 8489 section 9.2).</summary>
+public enum TurnSecurity
+{
+    /// <summary>MD5 keys and MESSAGE-INTEGRITY, with no nonce cookie.</summary>
+    Classic,
+
+    /// <summary>A nonce cookie with the password-algorithms bit and the list SHA-256, MD5.</summary>
+    Sha256,
+
+    /// <summary>As <see cref="Sha256"/>, with username anonymity: requests carry USERHASH.</summary>
+    Sha256Anonymous,
+
+    /// <summary>A cookie announcing password algorithms with the list missing, as after a bid-down.</summary>
+    StrippedAlgorithms,
+
+    /// <summary>A list of password algorithms with none the client supports.</summary>
+    UnknownAlgorithm,
+}
+
 internal sealed class TestTurnServer : IAsyncDisposable
 {
     public const string Realm = "streamtransport.test";
     public const string Username = "user";
     public const string Password = "secret";
 
-    private static readonly byte[] Nonce = Encoding.UTF8.GetBytes("nonce-1");
-    private static readonly byte[] FreshNonce = Encoding.UTF8.GetBytes("nonce-2");
+    private readonly byte[] Nonce;
+    private readonly byte[] FreshNonce;
+    private readonly TurnSecurity _security;
+    private readonly byte[] _algorithms;
 
     private readonly CancellationTokenSource _stop = new();
     private readonly Socket _udp;
@@ -31,9 +52,7 @@ internal sealed class TestTurnServer : IAsyncDisposable
     private readonly X509Certificate2? _certificate;
     private readonly ConcurrentDictionary<object, Allocation> _allocations = new();
     private readonly ConcurrentBag<Task> _loops = [];
-    private readonly byte[] _key = MD5.HashData(
-        Encoding.UTF8.GetBytes($"{Username}:{Realm}:{Password}")
-    );
+    private readonly byte[] _key;
     private int _staleNonces;
     private int _mismatches;
     private readonly uint _lifetime;
@@ -45,15 +64,39 @@ internal sealed class TestTurnServer : IAsyncDisposable
     /// <param name="mismatches">How many Allocates to answer 437, as for a 5-tuple in use.</param>
     /// <param name="lifetime">The lifetime to grant allocations, in seconds.</param>
     /// <param name="alternate">Answers every Allocate 300 with this ALTERNATE-SERVER.</param>
+    /// <param name="security">The long-term credential variant to challenge with.</param>
     public TestTurnServer(
         IPAddress address,
         bool tls = false,
         int staleNonces = 0,
         int mismatches = 0,
         uint lifetime = 600,
-        IPEndPoint? alternate = null
+        IPEndPoint? alternate = null,
+        TurnSecurity security = TurnSecurity.Classic
     )
     {
+        _security = security;
+        // RFC 8489 section 9.2: "obMatJos2" and the base64 of the feature bits.
+        string cookie = security switch
+        {
+            TurnSecurity.Classic => "",
+            TurnSecurity.Sha256Anonymous => "obMatJos2wAAA",
+            _ => "obMatJos2gAAA",
+        };
+        Nonce = Encoding.UTF8.GetBytes(cookie + "nonce-1");
+        FreshNonce = Encoding.UTF8.GetBytes(cookie + "nonce-2");
+        _algorithms = security switch
+        {
+            TurnSecurity.Sha256 or TurnSecurity.Sha256Anonymous => [0, 2, 0, 0, 0, 1, 0, 0],
+            TurnSecurity.UnknownAlgorithm => [0x80, 0x01, 0, 0],
+            _ => [],
+        };
+        _key = StunLongTermCredential.Key(
+            _algorithms.Length > 0 ? StunPasswordAlgorithm.Sha256 : StunPasswordAlgorithm.Md5,
+            Username,
+            Encoding.UTF8.GetBytes(Realm),
+            Password
+        );
         _staleNonces = staleNonces;
         _mismatches = mismatches;
         _lifetime = lifetime;
@@ -389,12 +432,7 @@ internal sealed class TestTurnServer : IAsyncDisposable
             }
         }
 
-        if (!request.TryFindAttribute(StunAttributeType.MessageIntegrity, out _))
-        {
-            return Error(request, 401, Nonce);
-        }
-
-        if (!request.VerifyMessageIntegrity(_key))
+        if (!Authenticated(request))
         {
             return Error(request, 401, Nonce);
         }
@@ -585,6 +623,59 @@ internal sealed class TestTurnServer : IAsyncDisposable
 
     private delegate void Attributes(ref StunMessageWriter writer);
 
+    /// <summary>Authenticated requests that carried MESSAGE-INTEGRITY-SHA256.</summary>
+    public int Sha256Requests;
+
+    /// <summary>Authenticated requests that carried USERHASH.</summary>
+    public int UserhashRequests;
+
+    // RFC 8489 section 9.2.4: the integrity attribute the variant calls for, USERHASH when usernames are
+    // anonymous, and the PASSWORD-ALGORITHMS echoed with a PASSWORD-ALGORITHM from it.
+    private bool Authenticated(StunMessageReader request)
+    {
+        if (_algorithms.Length == 0)
+        {
+            return request.TryFindAttribute(StunAttributeType.Username, out _)
+                && request.VerifyMessageIntegrity(_key);
+        }
+
+        if (
+            !request.TryFindAttribute(
+                StunAttributeType.PasswordAlgorithms,
+                out ReadOnlySpan<byte> echoed
+            )
+            || !echoed.SequenceEqual(_algorithms)
+            || !request.TryFindAttribute(
+                StunAttributeType.PasswordAlgorithm,
+                out ReadOnlySpan<byte> chosen
+            )
+            || !chosen.SequenceEqual(_algorithms.AsSpan(0, 4))
+            || request.TryFindAttribute(StunAttributeType.MessageIntegrity, out _)
+            || !request.VerifyMessageIntegritySha256(_key)
+        )
+        {
+            return false;
+        }
+
+        if (_security == TurnSecurity.Sha256Anonymous)
+        {
+            Span<byte> userhash = stackalloc byte[32];
+            StunLongTermCredential.Userhash(Username, Encoding.UTF8.GetBytes(Realm), userhash);
+            if (
+                !request.TryFindAttribute(StunAttributeType.Userhash, out ReadOnlySpan<byte> sent)
+                || !sent.SequenceEqual(userhash)
+            )
+            {
+                return false;
+            }
+
+            Interlocked.Increment(ref UserhashRequests);
+        }
+
+        Interlocked.Increment(ref Sha256Requests);
+        return true;
+    }
+
     private byte[] Success(StunMessageReader request, Attributes attributes)
     {
         byte[] buffer = new byte[512];
@@ -595,12 +686,20 @@ internal sealed class TestTurnServer : IAsyncDisposable
             request.TransactionId
         );
         attributes(ref writer);
-        writer.AddMessageIntegrity(_key);
+        if (_algorithms.Length > 0)
+        {
+            writer.AddMessageIntegritySha256(_key);
+        }
+        else
+        {
+            writer.AddMessageIntegrity(_key);
+        }
+
         writer.AddFingerprint();
         return buffer[..writer.Length];
     }
 
-    private static byte[] Error(
+    private byte[] Error(
         StunMessageReader request,
         int code,
         byte[] nonce,
@@ -617,6 +716,11 @@ internal sealed class TestTurnServer : IAsyncDisposable
         writer.AddErrorCode(code, code == 438 ? "Stale Nonce" : "Unauthorized");
         writer.AddAttribute(StunAttributeType.Realm, Encoding.UTF8.GetBytes(Realm));
         writer.AddAttribute(StunAttributeType.Nonce, nonce);
+        if (code is 401 or 438 && _algorithms.Length > 0)
+        {
+            writer.AddAttribute(StunAttributeType.PasswordAlgorithms, _algorithms);
+        }
+
         extra?.Invoke(ref writer);
         writer.AddFingerprint();
         return buffer[..writer.Length];
