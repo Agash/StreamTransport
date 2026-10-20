@@ -319,6 +319,72 @@ public sealed class HttpMediaTests
         Assert.AreEqual(HttpStatusCode.RequestEntityTooLarge, huge.StatusCode);
     }
 
+    // WHEP section 4.2: HEAD finds the endpoint by application/sdp and the WHEP profile link; WHIP's
+    // endpoint has no representation and answers 204 (RFC 9725 section 4.1).
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task WhepEndpoint_AnswersHeadWithItsProfile()
+    {
+        await using WebApplication app = await StartAsync(web =>
+        {
+            web.MapWhep("/whep", (_, _) => ValueTask.FromResult<HttpMediaSetup?>(null));
+            web.MapWhip("/whip", (_, _) => ValueTask.FromResult<HttpMediaSetup?>(null));
+        });
+        using HttpClient http = new() { BaseAddress = Address(app) };
+
+        using HttpResponseMessage whep = await http.SendAsync(
+            new HttpRequestMessage(HttpMethod.Head, "/whep"),
+            TestContext.CancellationToken
+        );
+        using HttpResponseMessage whip = await http.SendAsync(
+            new HttpRequestMessage(HttpMethod.Head, "/whip"),
+            TestContext.CancellationToken
+        );
+
+        Assert.AreEqual(HttpStatusCode.OK, whep.StatusCode);
+        Assert.AreEqual("application/sdp", whep.Content.Headers.ContentType?.MediaType);
+        Assert.AreEqual(
+            "<urn:ietf:params:whep>; rel=\"profile\"",
+            whep.Headers.GetValues("Link").Single()
+        );
+        Assert.AreEqual(HttpStatusCode.NoContent, whip.StatusCode);
+    }
+
+    // RFC 9725 section 4.4.3: an offer the endpoint has no codec for is refused with 422 and leaves no
+    // session behind, never answered with every section rejected.
+    [TestMethod]
+    [Timeout(30_000)]
+    public async Task Whip_OfferWithNoCommonCodec_IsUnprocessable()
+    {
+        await using WebApplication app = await StartAsync(web =>
+            web.MapWhip(
+                "/whip",
+                (_, _) =>
+                    ValueTask.FromResult<HttpMediaSetup?>(
+                        new HttpMediaSetup(
+                            new MediaEndpoints { VideoSink = new LatentVideoSink() },
+                            Loopback()
+                        )
+                    )
+            )
+        );
+        using HttpClient http = new() { BaseAddress = Address(app) };
+
+        using HttpResponseMessage refused = await http.PostAsync(
+            "/whip",
+            new StringContent(
+                TwoVideoOffer[..TwoVideoOffer.LastIndexOf("m=video", StringComparison.Ordinal)]
+                    .Replace("H264/90000", "X-UNKNOWN/90000", StringComparison.Ordinal),
+                Encoding.UTF8,
+                "application/sdp"
+            ),
+            TestContext.CancellationToken
+        );
+
+        Assert.AreEqual(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.AreEqual(0, app.Services.GetRequiredService<HttpMediaResources>().Count);
+    }
+
     private const string TwoVideoOffer =
         "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
         + "a=fingerprint:sha-256 00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF\r\n"

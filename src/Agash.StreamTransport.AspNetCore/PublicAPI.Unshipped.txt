@@ -1,4 +1,5 @@
 #nullable enable
+Agash.StreamTransport.AspNetCore.HttpMediaCors
 Agash.StreamTransport.AspNetCore.HttpMediaHandler
 Agash.StreamTransport.AspNetCore.HttpMediaSetup
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.<Clone>$() -> Agash.StreamTransport.AspNetCore.HttpMediaSetup!
@@ -16,6 +17,9 @@ Microsoft.Extensions.DependencyInjection.StreamTransportAspNetCoreServiceCollect
 override Agash.StreamTransport.AspNetCore.HttpMediaSetup.Equals(object? obj) -> bool
 override Agash.StreamTransport.AspNetCore.HttpMediaSetup.GetHashCode() -> int
 override Agash.StreamTransport.AspNetCore.HttpMediaSetup.ToString() -> string!
+static Agash.StreamTransport.AspNetCore.HttpMediaCors.AllowedHeaders.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Agash.StreamTransport.AspNetCore.HttpMediaCors.AllowedMethods.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Agash.StreamTransport.AspNetCore.HttpMediaCors.ExposedHeaders.get -> System.Collections.Generic.IReadOnlyList<string!>!
 static Agash.StreamTransport.AspNetCore.HttpMediaSetup.operator !=(Agash.StreamTransport.AspNetCore.HttpMediaSetup? left, Agash.StreamTransport.AspNetCore.HttpMediaSetup? right) -> bool
 static Agash.StreamTransport.AspNetCore.HttpMediaSetup.operator ==(Agash.StreamTransport.AspNetCore.HttpMediaSetup? left, Agash.StreamTransport.AspNetCore.HttpMediaSetup? right) -> bool
 static Microsoft.AspNetCore.Builder.StreamTransportAspNetCoreEndpointRouteBuilderExtensions.MapWhep(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern, Agash.StreamTransport.AspNetCore.HttpMediaHandler! handler) -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!

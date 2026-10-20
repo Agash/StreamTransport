@@ -70,7 +70,11 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
         RouteGroupBuilder group = endpoints.MapGroup(pattern);
         group.MapPost("", (RequestDelegate)(context => OfferAsync(context, handler, protocol)));
         group.MapMethods("", [HttpMethods.Options], (RequestDelegate)Options);
-        group.MapMethods("", [HttpMethods.Get, HttpMethods.Head], (RequestDelegate)NoContent);
+        group.MapMethods(
+            "",
+            [HttpMethods.Get, HttpMethods.Head],
+            (RequestDelegate)(protocol == "WHEP" ? WhepProfile : NoContent)
+        );
         group.MapMethods(
             "/{resource}",
             [HttpMethods.Get, HttpMethods.Head],
@@ -165,6 +169,17 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
             return;
         }
 
+        // RFC 9725 section 4.4.3: WHIP takes the whole offer or refuses it, never a partial session.
+        // WHEP section 4.3.4 lets the answer reject sections, but one audio or video section must stay.
+        if (Unanswerable(parsed, answer, protocol) is { } refusal)
+        {
+            _ = await resources.EndAsync(id).ConfigureAwait(false);
+            context.Response.StatusCode = StatusCodes.Status422UnprocessableEntity;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync(refusal, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         PathString location = context.Request.PathBase.Add(context.Request.Path).Add("/" + id);
         context.Response.StatusCode = StatusCodes.Status201Created;
         AdvertiseIceServers(context);
@@ -172,6 +187,47 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
         context.Response.Headers.ETag = $"\"{id}\"";
         context.Response.ContentType = "application/sdp";
         await context.Response.WriteAsync(answer, cancellationToken).ConfigureAwait(false);
+    }
+
+    // Why the answer cannot stand, or null when it can: the offered sections it rejected.
+    private static string? Unanswerable(
+        WebRtcSdp.SdpDescription offer,
+        string answer,
+        string protocol
+    )
+    {
+        if (!WebRtcSdp.SdpReader.TryParse(answer, out WebRtcSdp.SdpDescription answered))
+        {
+            return null;
+        }
+
+        int rejected = 0;
+        int accepted = 0;
+        for (int i = 0; i < offer.Media.Count && i < answered.Media.Count; i++)
+        {
+            if (offer.Media[i].Rejected)
+            {
+                continue;
+            }
+
+            if (answered.Media[i].Rejected)
+            {
+                rejected++;
+            }
+            else if (
+                answered.Media[i].Kind
+                is WebRtcSdp.SdpMediaKind.Audio
+                    or WebRtcSdp.SdpMediaKind.Video
+            )
+            {
+                accepted++;
+            }
+        }
+
+        return protocol == "WHIP" && rejected > 0
+                ? $"{rejected} offered section(s) have no codec or setting this endpoint takes."
+            : accepted == 0 ? "No offered audio or video section has a codec this endpoint takes."
+            : null;
     }
 
     // An offer larger than this is refused: SDP for one audio and one video section is a few kilobytes.
@@ -220,6 +276,17 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
     private static Task NoContent(HttpContext context)
     {
         context.Response.StatusCode = StatusCodes.Status204NoContent;
+        return Task.CompletedTask;
+    }
+
+    // WHEP section 4.2: a player finds a WHEP endpoint by HEAD, which answers 200 with application/sdp
+    // and the WHEP profile link; GET answers the same, without a body either way.
+    private static Task WhepProfile(HttpContext context)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "application/sdp";
+        context.Response.Headers.Link = "<urn:ietf:params:whep>; rel=\"profile\"";
+        context.Response.ContentLength = 0;
         return Task.CompletedTask;
     }
 
