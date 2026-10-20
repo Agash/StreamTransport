@@ -90,6 +90,8 @@ string relay =
 string work = Directory.CreateTempSubdirectory("streamtransport-obs-").FullName;
 List<Process> processes = [];
 string? recording = null;
+Lock logGate = new();
+StreamWriter? subscriberLog = null;
 TimeSpan? handOver = null;
 string? outputOffset = null;
 try
@@ -135,14 +137,14 @@ try
     Regex measured = new(@"lip sync (-?\d+(\.\d+)?) ms");
     Regex decodedVideo = new(@"decoded (\d+) video");
     TaskCompletionSource playing = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    using StreamWriter subscriberLog = new(Path.Combine(work, "subscriber.log"));
+    subscriberLog = new(Path.Combine(work, "subscriber.log"));
     subscriber.OutputDataReceived += (_, e) =>
     {
         if (e.Data is { } line)
         {
-            lock (subscriberLog)
+            lock (logGate)
             {
-                subscriberLog.WriteLine(line);
+                subscriberLog?.WriteLine(line);
             }
         }
 
@@ -379,6 +381,18 @@ finally
     foreach (Process process in Enumerable.Reverse(processes))
     {
         Stop(process);
+    }
+
+    // Lines still arriving from a stopped process are dropped.
+    lock (logGate)
+    {
+        subscriberLog?.Dispose();
+        subscriberLog = null;
+    }
+
+    if (recording is null && !keep)
+    {
+        Directory.Delete(work, recursive: true);
     }
 }
 
