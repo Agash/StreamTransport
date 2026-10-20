@@ -1,4 +1,6 @@
-using System.Buffers.Binary;
+using System.Buffers;
+using System.Numerics.Tensors;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
 
 namespace Agash.StreamTransport.TestSignal;
@@ -143,22 +145,73 @@ public sealed class TestSignalAnalyzer
             return;
         }
 
-        MediaTime now = _clock.Now;
-        VideoSize size = frame.Format.CodedSize;
-        ReadOnlySpan<byte> luma = frame.GetPlane(0);
         _ = frame.Storage.TryGetValue(out CpuImage image);
-        int stride = image.Planes[0].Stride;
-        DateTimeOffset received = _time.GetUtcNow();
+        ObserveVideo(
+            frame.GetPlane(0),
+            image.Planes[0].Stride,
+            frame.Format.CodedSize,
+            _clock.Now,
+            _time.GetUtcNow()
+        );
+    }
+
+    private void OnAudio(in AudioFrame frame)
+    {
+        MediaTime now = _clock.Now;
+        AudioFormat format = frame.Format;
+        if (format.SampleFormat == SampleFormat.F32)
+        {
+            ObserveAudio(
+                MemoryMarshal.Cast<byte, float>(frame.Samples),
+                format.Channels,
+                format.SampleRate,
+                now
+            );
+            return;
+        }
+
+        int count = frame.SampleCount * format.Channels;
+        float[] converted = ArrayPool<float>.Shared.Rent(count);
+        try
+        {
+            Span<float> samples = converted.AsSpan(0, count);
+            TensorPrimitives.ConvertChecked(
+                MemoryMarshal.Cast<byte, short>(frame.Samples)[..count],
+                samples
+            );
+            TensorPrimitives.Multiply(samples, 1f / 32768, samples);
+            ObserveAudio(samples, format.Channels, format.SampleRate, now);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(converted);
+        }
+    }
+
+    /// <summary>
+    /// Notes one video picture shown at <paramref name="at"/>: a flash when its centre is white, and its
+    /// barcode's latency when <paramref name="received"/> says when it reached this machine.
+    /// </summary>
+    /// <param name="luma">The picture's luma plane.</param>
+    /// <param name="stride">The bytes from one luma row to the next.</param>
+    /// <param name="size">The picture's size.</param>
+    /// <param name="at">When the picture was shown: its arrival, or its presentation time in a recording.</param>
+    /// <param name="received">
+    /// The wall time it reached this machine, for the latency; null for a recording, which has none.
+    /// </param>
+    public void ObserveVideo(
+        ReadOnlySpan<byte> luma,
+        int stride,
+        VideoSize size,
+        MediaTime at,
+        DateTimeOffset? received
+    )
+    {
         TimeSpan? latency =
-            TestSignalGenerator.TryReadBarcode(
-                luma,
-                stride,
-                size,
-                received,
-                out DateTimeOffset sent
-            )
-            && (received - sent).Duration() <= MaxLatency
-                ? received - sent
+            received is { } now
+            && TestSignalGenerator.TryReadBarcode(luma, stride, size, now, out DateTimeOffset sent)
+            && (now - sent).Duration() <= MaxLatency
+                ? now - sent
                 : null;
 
         // The centre of the frame is white in a flash and dark otherwise.
@@ -180,40 +233,45 @@ public sealed class TestSignalAnalyzer
             {
                 _latencies.Add(value);
             }
-            else
+            else if (received is not null)
             {
                 _unreadable++;
             }
 
             if (flash && !_flashing)
             {
-                _flashes.Add(now);
+                _flashes.Add(at);
             }
 
             _flashing = flash;
         }
     }
 
-    private void OnAudio(in AudioFrame frame)
+    /// <summary>Notes audio starting at <paramref name="at"/>: a click where it turns loud after silence.</summary>
+    /// <param name="samples">Interleaved samples in [-1, 1].</param>
+    /// <param name="channels">The channels interleaved; the first is read.</param>
+    /// <param name="sampleRate">The sample rate.</param>
+    /// <param name="at">When the first sample plays: its arrival, or its presentation time in a recording.</param>
+    public void ObserveAudio(
+        ReadOnlySpan<float> samples,
+        int channels,
+        int sampleRate,
+        MediaTime at
+    )
     {
-        MediaTime now = _clock.Now;
-        int channels = frame.Format.Channels;
-        int count = frame.SampleCount;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(channels);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+        int count = samples.Length / channels;
         int onset = -1;
         for (int i = 0; i < count; i++)
         {
-            float value =
-                frame.Format.SampleFormat == SampleFormat.F32
-                    ? BinaryPrimitives.ReadSingleLittleEndian(frame.Samples[(i * channels * 4)..])
-                    : BinaryPrimitives.ReadInt16LittleEndian(frame.Samples[(i * channels * 2)..])
-                        / 32768f;
-            bool loud = Math.Abs(value) > 0.1f;
-            if (loud && !_clicking && _silentSamples > frame.Format.SampleRate / 10 && onset < 0)
+            bool loud = Math.Abs(samples[i * channels]) > 0.1f;
+            if (loud && !_clicking && _silentSamples > sampleRate / 10 && onset < 0)
             {
                 onset = i;
             }
 
-            _clicking = loud || (_clicking && _silentSamples < frame.Format.SampleRate / 100);
+            _clicking = loud || (_clicking && _silentSamples < sampleRate / 100);
             _silentSamples = loud ? 0 : _silentSamples + 1;
         }
 
@@ -221,7 +279,7 @@ public sealed class TestSignalAnalyzer
         {
             lock (_gate)
             {
-                _clicks.Add(now + new ClockRate(frame.Format.SampleRate).ToTimeSpan(onset));
+                _clicks.Add(at + new ClockRate(sampleRate).ToTimeSpan(onset));
             }
         }
     }

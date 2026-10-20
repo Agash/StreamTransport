@@ -18,6 +18,11 @@ using Syphon.NET;
 // streamtransport: publish this machine's shared video and audio to a relay room, or receive a room's
 // stream into the platform's own sharing (Spout, Syphon, PipeWire), for OBS and the like to pick up.
 
+if (args is ["analyze", string recording])
+{
+    return Analyze.Run(recording, CommandLine.RepositoryFFmpeg());
+}
+
 CommandLine command;
 try
 {

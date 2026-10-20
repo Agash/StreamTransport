@@ -45,6 +45,8 @@ internal sealed record CommandLine(
         streamtransport serve --urls <url> [--video <input>] [--audio <input>] [--measure]
                                                 WHEP at /whep playing the inputs, WHIP at /whip/{name} into an
                                                 output (or measured), a browser test page at /
+        streamtransport analyze <file>          the A/V offset of the test signal in a recording, such as
+                                                OBS's, at the recording's presentation times
         streamtransport feed <input> <output>   video from an input straight to an output, such as
                                                 feed test v4l2:/dev/video42 for a webcam showing the test signal
         streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
@@ -235,7 +237,7 @@ internal sealed record CommandLine(
     }
 
     // The FFmpeg build eng/fetch-ffmpeg.ps1 puts beside a checkout, when the sample runs from one.
-    private static string? RepositoryFFmpeg()
+    internal static string? RepositoryFFmpeg()
     {
         for (
             DirectoryInfo? directory = new(AppContext.BaseDirectory);

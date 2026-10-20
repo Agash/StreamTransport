@@ -215,6 +215,8 @@ Agash.StreamTransport.Sessions.MediaSessionFactory.MediaSessionFactory(Agash.Str
 Agash.StreamTransport.StreamTransportDiagnostics
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Measure() -> Agash.StreamTransport.TestSignal.TestSignalMeasurement
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.ObserveAudio(System.ReadOnlySpan<float> samples, int channels, int sampleRate, Agash.StreamTransport.Media.MediaTime at) -> void
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.ObserveVideo(System.ReadOnlySpan<byte> luma, int stride, Agash.StreamTransport.Media.VideoSize size, Agash.StreamTransport.Media.MediaTime at, System.DateTimeOffset? received) -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Reset() -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.TestSignalAnalyzer(System.TimeProvider? timeProvider = null) -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapAudio(Agash.StreamTransport.Media.IAudioSink? inner = null) -> Agash.StreamTransport.Media.IAudioSink!
