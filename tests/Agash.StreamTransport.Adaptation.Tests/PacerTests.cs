@@ -183,13 +183,18 @@ public sealed class PacerTests
     {
         FakeTimeProvider time = new();
         Sends sends = new(time, failFirst: true);
-        await using Pacer pacer = new(sends.Send, timeProvider: time);
+        await using Pacer pacer = new(sends.Send, packetOverhead: 40, timeProvider: time);
 
         pacer.Enqueue(Packet(TrafficClass.Video, 100));
         pacer.Enqueue(Packet(TrafficClass.Video, 100));
 
         await sends.WaitForAsync(1);
         Assert.AreEqual(2, sends.Attempts);
+        Assert.AreEqual(
+            140,
+            pacer.SentBytes(TrafficClass.Video),
+            "the failed packet is not counted"
+        );
     }
 
     [TestMethod]

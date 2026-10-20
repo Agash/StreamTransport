@@ -183,19 +183,25 @@ public sealed partial class Pacer : IAsyncDisposable
 
     private async ValueTask SendAsync(PacedPacket packet, CancellationToken cancellationToken)
     {
+        // Counted as it is handed over, so whatever sees the packet sent sees it counted; a send that
+        // fails takes it back.
+        int bytes = packet.Length + _queue.PacketOverhead;
+        _ = Interlocked.Add(ref _sentBytes[(int)packet.Class], bytes);
         try
         {
             await _send(packet, cancellationToken).ConfigureAwait(false);
-            _ = Interlocked.Add(
-                ref _sentBytes[(int)packet.Class],
-                packet.Length + _queue.PacketOverhead
-            );
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // One failed send (a transient socket error, a connection closing) drops that packet; the
             // transport's recovery repairs it, and the loop carries on.
+            _ = Interlocked.Add(ref _sentBytes[(int)packet.Class], -bytes);
             LogSendFailed(exception, packet.Class);
+        }
+        catch (OperationCanceledException)
+        {
+            _ = Interlocked.Add(ref _sentBytes[(int)packet.Class], -bytes);
+            throw;
         }
         finally
         {
