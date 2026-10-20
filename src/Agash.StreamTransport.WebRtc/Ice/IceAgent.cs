@@ -398,6 +398,19 @@ public sealed partial class IceAgent : IAsyncDisposable
     public static readonly TimeSpan RestartOverlap = TimeSpan.FromSeconds(2);
 
     /// <summary>
+    /// Takes the role a new offer/answer exchange gives, as when this side's offer was refused and it
+    /// answers the peer's instead (RFC 8445 section 6.1.1).
+    /// </summary>
+    /// <param name="role">The role.</param>
+    public void SetRole(IceRole role)
+    {
+        lock (_gate)
+        {
+            _machine.SetRole(role);
+        }
+    }
+
+    /// <summary>
     /// Full ICE restart (RFC 8445 section 9): fresh local credentials, freshly gathered host candidates
     /// (trickled again), and new checks under the new credentials. The DTLS-SRTP session carries on.
     /// </summary>

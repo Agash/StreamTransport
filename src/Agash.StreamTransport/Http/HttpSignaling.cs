@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -201,6 +202,7 @@ internal sealed partial class HttpSdpChannel(
         options.HttpClient ?? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false });
     private readonly TimeProvider _time = options.TimeProvider ?? TimeProvider.System;
     private const int MaxRedirects = 5;
+    private static readonly TimeSpan CounterOfferLifetime = TimeSpan.FromSeconds(30);
 
     // Where the offer goes: the endpoint, or where a redirect moved it (RFC 9725 section 4.5).
     private Uri _endpoint = endpoint;
@@ -213,9 +215,15 @@ internal sealed partial class HttpSdpChannel(
     // One PATCH carries everything waiting (RFC 9725 section 4.3.2).
     private readonly List<string> _pending = [];
     private readonly SemaphoreSlim _trickling = new(1, 1);
-    private string? _offer;
-    private string? _answer;
+
+    // This side's description and the server's: the offer and its answer, or after a WHEP counter-offer
+    // the answer and the server's offer.
+    private string? _local;
+    private string? _remote;
     private EntityTagHeaderValue? _iceSession;
+
+    // WHEP section 4.3.2: until when the server's counter-offer waits for this side's answer.
+    private DateTimeOffset? _counterOfferValidUntil;
     private bool _trickleRefused;
 
     public event Func<SessionDescription, Task>? DescriptionReceived;
@@ -233,12 +241,13 @@ internal sealed partial class HttpSdpChannel(
         CancellationToken cancellationToken = default
     )
     {
-        if (description.Kind != SdpKind.Offer)
+        if (description.Kind == SdpKind.Answer)
         {
-            throw new InvalidOperationException("A WHIP or WHEP client only offers.");
+            await AnswerCounterOfferAsync(description, cancellationToken).ConfigureAwait(false);
+            return;
         }
 
-        if (Resource is { } existing && _answer is not null)
+        if (Resource is { } existing && _remote is not null)
         {
             await RestartAsync(existing, description, cancellationToken).ConfigureAwait(false);
             return;
@@ -266,6 +275,21 @@ internal sealed partial class HttpSdpChannel(
             HttpResponseMessage response = await SendFollowingRedirectsAsync(Offer, timeout.Token)
                 .ConfigureAwait(false);
             using HttpResponseMessage answered = response;
+            if (
+                await ReadCounterOfferAsync(response, timeout.Token).ConfigureAwait(false) is
+                { } counterOffer
+            )
+            {
+                LogCounterOffered(_endpoint, Resource);
+                if (DescriptionReceived is { } offered)
+                {
+                    await offered(new SessionDescription(SdpKind.Offer, counterOffer))
+                        .ConfigureAwait(false);
+                }
+
+                return;
+            }
+
             if (response.StatusCode != HttpStatusCode.Created)
             {
                 throw new HttpRequestException(
@@ -278,12 +302,12 @@ internal sealed partial class HttpSdpChannel(
             Resource = response.Headers.Location is { } location
                 ? RequireSecure(new Uri(_endpoint, location), options)
                 : null;
-            _offer = description.Sdp;
+            _local = description.Sdp;
             _iceSession = response.Headers.ETag;
             string answer = await response
                 .Content.ReadAsStringAsync(timeout.Token)
                 .ConfigureAwait(false);
-            _answer = answer;
+            _remote = answer;
             LogAnswered(_endpoint, Resource);
             if (DescriptionReceived is { } received)
             {
@@ -291,6 +315,118 @@ internal sealed partial class HttpSdpChannel(
                     .ConfigureAwait(false);
             }
 
+            _answered.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            _answered.TrySetException(exception);
+            throw;
+        }
+
+        await TrickleAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // WHEP section 4.3.3: a 406 is a counter-offer only with an application/sdp body that is an offer;
+    // any other 406 is an ordinary refusal. Section 4.3.2: the Location names the resource the exchange
+    // makes, and the offer waits for the answer until valid-until, or 30 seconds without one.
+    private async Task<string?> ReadCounterOfferAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken
+    )
+    {
+        if (
+            response.StatusCode != HttpStatusCode.NotAcceptable
+            || response.Content.Headers.ContentType is not { MediaType: SdpMediaType } type
+        )
+        {
+            return null;
+        }
+
+        string offer = await response
+            .Content.ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (
+            !offer.StartsWith("v=0", StringComparison.Ordinal)
+            || !offer.Contains("\nm=", StringComparison.Ordinal)
+        )
+        {
+            return null;
+        }
+
+        Resource = response.Headers.Location is { } location
+            ? RequireSecure(new Uri(_endpoint, location), options)
+            : throw new HttpRequestException(
+                "The server's counter-offer names no resource to answer it at (WHEP section 4.3.2).",
+                null,
+                response.StatusCode
+            );
+        _remote = offer;
+        _iceSession = response.Headers.ETag;
+        NameValueHeaderValue? validUntil = type.Parameters.FirstOrDefault(static p =>
+            p.Name.Equals("valid-until", StringComparison.OrdinalIgnoreCase)
+        );
+        _counterOfferValidUntil =
+            validUntil?.Value is { } date
+            && DateTimeOffset.TryParse(
+                date.Trim('"'),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out DateTimeOffset until
+            )
+                ? until
+                : _time.GetUtcNow() + CounterOfferLifetime;
+        return offer;
+    }
+
+    // WHEP section 4.3.2: the answer to a counter-offer goes to the resource in a PATCH, which the server
+    // takes with 204.
+    private async Task AnswerCounterOfferAsync(
+        SessionDescription answer,
+        CancellationToken cancellationToken
+    )
+    {
+        try
+        {
+            if (Resource is not { } resource || _counterOfferValidUntil is not { } validUntil)
+            {
+                throw new InvalidOperationException(
+                    "A WHIP or WHEP client answers only a WHEP counter-offer."
+                );
+            }
+
+            if (_time.GetUtcNow() > validUntil)
+            {
+                throw new TimeoutException(
+                    $"The server's counter-offer expired at {validUntil:R} before it was answered."
+                );
+            }
+
+            using HttpRequestMessage request = new(HttpMethod.Patch, resource)
+            {
+                Content = new StringContent(answer.Sdp, Encoding.UTF8, SdpMediaType),
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(SdpMediaType);
+            Authorize(request);
+            using CancellationTokenSource deadline = new(options.Timeout, _time);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                deadline.Token
+            );
+            using HttpResponseMessage response = await _http
+                .SendAsync(request, timeout.Token)
+                .ConfigureAwait(false);
+            if (response.StatusCode != HttpStatusCode.NoContent)
+            {
+                throw new HttpRequestException(
+                    $"The server answered the counter-offer's answer with {(int)response.StatusCode} {response.ReasonPhrase}.",
+                    null,
+                    response.StatusCode
+                );
+            }
+
+            _local = answer.Sdp;
+            _counterOfferValidUntil = null;
+            LogCounterOfferAnswered(resource);
             _answered.TrySetResult();
         }
         catch (Exception exception)
@@ -466,10 +602,10 @@ internal sealed partial class HttpSdpChannel(
                 );
             }
 
-            _offer = offer.Sdp;
+            _local = offer.Sdp;
             _iceSession = response.Headers.ETag;
-            answer = restarted.ApplyTo(_answer!);
-            _answer = answer;
+            answer = restarted.ApplyTo(_remote!);
+            _remote = answer;
             LogRestarted(resource, restarted.Candidates.Count);
         }
         finally
@@ -489,7 +625,7 @@ internal sealed partial class HttpSdpChannel(
     // a candidate added while one is out goes in the next.
     private async Task TrickleAsync(CancellationToken cancellationToken)
     {
-        if (Resource is not { } resource || _offer is not { } offer)
+        if (Resource is not { } resource || _local is not { } local)
         {
             return;
         }
@@ -509,7 +645,7 @@ internal sealed partial class HttpSdpChannel(
                 _pending.Clear();
             }
 
-            string body = TrickleIceFragment.ForFirstSection(offer, candidates).Format();
+            string body = TrickleIceFragment.ForFirstSection(local, candidates).Format();
             using HttpRequestMessage request = new(HttpMethod.Patch, resource)
             {
                 Content = new StringContent(body, Encoding.UTF8, TrickleIceFragment.MediaType),
@@ -664,4 +800,14 @@ internal sealed partial class HttpSdpChannel(
 
     [LoggerMessage(2717, LogLevel.Information, "The server moved the session to {Endpoint}.")]
     private partial void LogRedirected(Uri endpoint);
+
+    [LoggerMessage(
+        2718,
+        LogLevel.Information,
+        "{Endpoint} refused the offer with a counter-offer; it is answered at {Resource}."
+    )]
+    private partial void LogCounterOffered(Uri endpoint, Uri? resource);
+
+    [LoggerMessage(2719, LogLevel.Information, "{Resource} took the answer to its counter-offer.")]
+    private partial void LogCounterOfferAnswered(Uri resource);
 }

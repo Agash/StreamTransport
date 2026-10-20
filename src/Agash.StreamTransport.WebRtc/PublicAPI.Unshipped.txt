@@ -31,6 +31,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedRoundTrip.get -> System.TimeSp
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.IpMarking marking = default(Agash.StreamTransport.Adaptation.IpMarking), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteCredentials(Agash.StreamTransport.WebRtc.Ice.IceCredentials remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteOptions(Agash.StreamTransport.WebRtc.Ice.IceOptions remote) -> void
+Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRole(Agash.StreamTransport.WebRtc.IceRole role) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.Start() -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.State.get -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceAgent.StateChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IceConnectionState>?

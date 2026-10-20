@@ -639,6 +639,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
+        // An offer before any answer replaces this side's own offer, as a WHEP counter-offer does (JSEP
+        // section 5.7 rollback): this side answers, so the peer controls ICE unless it is lite (RFC 8445
+        // section 6.1.1).
+        if (type == SdpType.Offer && _remoteDescription is null && _iceAgent is { } offeredAgent)
+        {
+            offeredAgent.SetRole(description.IceLite ? IceRole.Controlling : IceRole.Controlled);
+        }
+
         _refuseNewAssociation = false;
         _remoteDescription = description;
         AvoidSignalledCollisions(description);
