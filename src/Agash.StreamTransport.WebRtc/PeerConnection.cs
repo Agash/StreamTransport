@@ -484,26 +484,32 @@ public sealed partial class PeerConnection : IAsyncDisposable
     {
         foreach (NegotiatedMediaInfo section in NegotiatedMedia)
         {
-            if (section.Kind != kind)
+            if (section.Kind == kind && FeedbackAgreed(section, feedback))
             {
-                continue;
+                return true;
             }
+        }
 
-            for (int i = 0; i < section.Codecs.Count && i < section.RemoteCodecs.Count; i++)
-            {
-                if (
-                    (section.Codecs[i].RtcpFeedback ?? []).Contains(
-                        feedback,
-                        StringComparer.OrdinalIgnoreCase
-                    )
-                    && (section.RemoteCodecs[i].RtcpFeedback ?? []).Contains(
-                        feedback,
-                        StringComparer.OrdinalIgnoreCase
-                    )
+        return false;
+    }
+
+    // RFC 4585 section 4.2: feedback both descriptions list for one of the section's codecs.
+    private static bool FeedbackAgreed(NegotiatedMediaInfo section, string feedback)
+    {
+        for (int i = 0; i < section.Codecs.Count && i < section.RemoteCodecs.Count; i++)
+        {
+            if (
+                (section.Codecs[i].RtcpFeedback ?? []).Contains(
+                    feedback,
+                    StringComparer.OrdinalIgnoreCase
                 )
-                {
-                    return true;
-                }
+                && (section.RemoteCodecs[i].RtcpFeedback ?? []).Contains(
+                    feedback,
+                    StringComparer.OrdinalIgnoreCase
+                )
+            )
+            {
+                return true;
             }
         }
 
@@ -1837,7 +1843,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     // What retransmission the negotiation agreed: per line, an rtx codec on both sides for a media
     // codec. This endpoint sends repairs of its media on its RTX SSRC with the rtx payload type paired
     // with the original's; it asks for repairs (NACK) of the peer's media the peer announced an RTX SSRC
-    // for, and reads them back by that SSRC.
+    // for where both sides agreed nack (RFC 4585 section 4.2), and reads repairs back by that SSRC.
     private void ConfigureRtx(SdpDescription remote)
     {
         Dictionary<uint, RtxSender> send = [];
@@ -1865,6 +1871,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 send[media.LocalSsrc] = new RtxSender(localRtx, rtxFor.ToFrozenDictionary());
             }
 
+            bool nack = FeedbackAgreed(media, "nack");
             SdpMediaDescription? section = remote.Media.FirstOrDefault(m => m.Mid == media.Mid);
             if (section is { Ssrc: { } remoteMedia, RtxSsrc: { } remoteRtx })
             {
@@ -1872,7 +1879,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     remoteMedia,
                     rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
                 );
-                _ = repairable.Add(remoteMedia);
+                if (nack)
+                {
+                    _ = repairable.Add(remoteMedia);
+                }
             }
             else if (section is { Ssrc: null } && section.Direction != SdpDirection.RecvOnly)
             {
@@ -1880,7 +1890,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     new UnsignalledRepair(
                         media.Mid,
                         rtxFor.Keys.ToFrozenSet(),
-                        rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key)
+                        rtxFor.ToFrozenDictionary(static p => p.Value, static p => p.Key),
+                        Nack: nack
                     )
                 );
             }

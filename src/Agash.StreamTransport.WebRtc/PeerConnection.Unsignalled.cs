@@ -38,7 +38,9 @@ public sealed partial class PeerConnection
                         ref _rtx,
                         config with
                         {
-                            Repairable = [.. config.Repairable, ssrc],
+                            Repairable = stream.Nack
+                                ? [.. config.Repairable, ssrc]
+                                : config.Repairable,
                             Unsignalled = config.Unsignalled.SetItem(
                                 i,
                                 stream with
@@ -90,7 +92,8 @@ public sealed partial class PeerConnection
         FrozenSet<byte> MediaPayloadTypes,
         FrozenDictionary<byte, byte> OriginalPayloadTypes,
         uint? MediaSsrc = null,
-        bool RtxBound = false
+        bool RtxBound = false,
+        bool Nack = false
     );
 
     [LoggerMessage(
