@@ -66,7 +66,7 @@ string room = $"avcheck{Environment.ProcessId}";
     : (
         "pipewire:" + SenderName,
         "pipewire-camera-source",
-        Json(new { }),
+        Json(new { device_id = SenderName }),
         "pulse_output_capture",
         Json(new { device_id = "default" })
     );
