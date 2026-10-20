@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.WebRtc.Rtp;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
@@ -31,7 +32,10 @@ public sealed class FlexFecAccumulatorTests
                 Assert.AreEqual(i == groupSize - 1, complete);
             }
 
-            CollectionAssert.AreEqual(FlexFec.BuildRepair(sources), repair.ToArray());
+            CollectionAssert.AreEqual(
+                FlexFec.BuildRepair(CollectionsMarshal.AsSpan(sources)),
+                repair.ToArray()
+            );
         }
     }
 

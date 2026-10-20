@@ -47,7 +47,7 @@ public sealed class CcfbTests
 
         Assert.AreEqual(0x1111_1111u, parsed[0].Ssrc);
         Assert.AreEqual(1000, parsed[0].BeginSequence);
-        Assert.AreEqual(3, parsed[0].Metrics.Count);
+        Assert.AreEqual(3, parsed[0].Metrics.Length);
         Assert.IsTrue(parsed[0].Metrics[0].Received);
         Assert.AreEqual(100, parsed[0].Metrics[0].ArrivalTimeOffset);
         Assert.IsFalse(parsed[0].Metrics[1].Received);

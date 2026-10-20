@@ -1,13 +1,11 @@
 #nullable enable
-~override Agash.StreamTransport.WebRtc.NetworkPathInfo.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.NetworkPathInfo.ToString() -> string
-~override Agash.StreamTransport.WebRtc.TransportHealthMetrics.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.TransportHealthMetrics.ToString() -> string
-~override Agash.StreamTransport.WebRtc.TransportLossStats.Equals(object obj) -> bool
-~override Agash.StreamTransport.WebRtc.TransportLossStats.ToString() -> string
 Agash.StreamTransport.WebRtc.DtlsRole
 Agash.StreamTransport.WebRtc.DtlsRole.Client = 0 -> Agash.StreamTransport.WebRtc.DtlsRole
 Agash.StreamTransport.WebRtc.DtlsRole.Server = 1 -> Agash.StreamTransport.WebRtc.DtlsRole
+Agash.StreamTransport.WebRtc.INetworkMonitor
+Agash.StreamTransport.WebRtc.INetworkMonitor.Current.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.WebRtc.NetworkPathInfo>
+Agash.StreamTransport.WebRtc.INetworkMonitor.NetworksChanged -> System.Action<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.WebRtc.NetworkPathInfo>>?
+Agash.StreamTransport.WebRtc.INetworkMonitor.Start() -> void
 Agash.StreamTransport.WebRtc.IceCandidateKind
 Agash.StreamTransport.WebRtc.IceCandidateKind.Host = 0 -> Agash.StreamTransport.WebRtc.IceCandidateKind
 Agash.StreamTransport.WebRtc.IceCandidateKind.PeerReflexive = 2 -> Agash.StreamTransport.WebRtc.IceCandidateKind
@@ -16,10 +14,6 @@ Agash.StreamTransport.WebRtc.IceCandidateKind.ServerReflexive = 1 -> Agash.Strea
 Agash.StreamTransport.WebRtc.IceRole
 Agash.StreamTransport.WebRtc.IceRole.Controlled = 0 -> Agash.StreamTransport.WebRtc.IceRole
 Agash.StreamTransport.WebRtc.IceRole.Controlling = 1 -> Agash.StreamTransport.WebRtc.IceRole
-Agash.StreamTransport.WebRtc.INetworkMonitor
-Agash.StreamTransport.WebRtc.INetworkMonitor.Current.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.NetworkPathInfo>!
-Agash.StreamTransport.WebRtc.INetworkMonitor.NetworksChanged -> System.Action<System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.WebRtc.NetworkPathInfo>!>?
-Agash.StreamTransport.WebRtc.INetworkMonitor.Start() -> void
 Agash.StreamTransport.WebRtc.NetworkAdapterType
 Agash.StreamTransport.WebRtc.NetworkAdapterType.Cellular = 3 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
 Agash.StreamTransport.WebRtc.NetworkAdapterType.Ethernet = 1 -> Agash.StreamTransport.WebRtc.NetworkAdapterType
@@ -80,3 +74,9 @@ static Agash.StreamTransport.WebRtc.TransportHealthMetrics.operator !=(Agash.Str
 static Agash.StreamTransport.WebRtc.TransportHealthMetrics.operator ==(Agash.StreamTransport.WebRtc.TransportHealthMetrics left, Agash.StreamTransport.WebRtc.TransportHealthMetrics right) -> bool
 static Agash.StreamTransport.WebRtc.TransportLossStats.operator !=(Agash.StreamTransport.WebRtc.TransportLossStats left, Agash.StreamTransport.WebRtc.TransportLossStats right) -> bool
 static Agash.StreamTransport.WebRtc.TransportLossStats.operator ==(Agash.StreamTransport.WebRtc.TransportLossStats left, Agash.StreamTransport.WebRtc.TransportLossStats right) -> bool
+~override Agash.StreamTransport.WebRtc.NetworkPathInfo.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.NetworkPathInfo.ToString() -> string
+~override Agash.StreamTransport.WebRtc.TransportHealthMetrics.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.TransportHealthMetrics.ToString() -> string
+~override Agash.StreamTransport.WebRtc.TransportLossStats.Equals(object obj) -> bool
+~override Agash.StreamTransport.WebRtc.TransportLossStats.ToString() -> string

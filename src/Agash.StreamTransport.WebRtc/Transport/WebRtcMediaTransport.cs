@@ -154,7 +154,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
         _offer = offer;
         _receiver = receiver;
-        (List<IPEndPoint> stun, List<string> unresolved) = await StunServers
+        (ImmutableArray<IPEndPoint> stun, ImmutableArray<string> unresolved) = await StunServers
             .ResolveAsync(_options.IceServers, cancellationToken)
             .ConfigureAwait(false);
         foreach (string url in unresolved)
@@ -299,14 +299,14 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
     // The media lines: each kind offered, with the codecs a payload format exists for, in the offer's order.
     private PeerConnectionOptions BuildOptions(
         MediaOffer offer,
-        List<IPEndPoint> stun,
-        List<TurnServer> turn
+        ImmutableArray<IPEndPoint> stun,
+        ImmutableArray<TurnServer> turn
     )
     {
-        List<MediaLine> lines = [];
+        ImmutableArray<MediaLine>.Builder lines = ImmutableArray.CreateBuilder<MediaLine>(2);
         if (offer.Audio is { } audio)
         {
-            List<SdpCodec> codecs = [];
+            ImmutableArray<SdpCodec>.Builder codecs = ImmutableArray.CreateBuilder<SdpCodec>();
             int payloadType = AudioPayloadType;
             foreach (AudioCodecFormat codec in audio.Codecs)
             {
@@ -323,7 +323,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             }
 
             lines.Add(
-                new MediaLine("0", SdpMediaKind.Audio, NewSsrc(), codecs)
+                new MediaLine("0", SdpMediaKind.Audio, NewSsrc(), codecs.DrainToImmutable())
                 {
                     Direction = Direction(audio.Sends, audio.Receives),
                     MaximumReceiveBitsPerSecond = audio.MaximumReceiveBitsPerSecond,
@@ -333,7 +333,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
         if (offer.Video is { } video)
         {
-            List<SdpCodec> codecs = [];
+            ImmutableArray<SdpCodec>.Builder codecs = ImmutableArray.CreateBuilder<SdpCodec>();
             int payloadType = FirstVideoPayloadType;
             foreach (VideoCodecOffer codec in video.Codecs)
             {
@@ -373,7 +373,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             // FlexFEC (RFC 8627): received whenever the peer sends it; sent when asked for.
             codecs.Add(FlexFec.Codec(payloadType++));
             lines.Add(
-                new MediaLine("1", SdpMediaKind.Video, NewSsrc(), codecs)
+                new MediaLine("1", SdpMediaKind.Video, NewSsrc(), codecs.DrainToImmutable())
                 {
                     RtxSsrc = NewSsrc(),
                     FecSsrc = _options.ForwardErrorCorrection && video.Sends ? NewSsrc() : null,
@@ -385,7 +385,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
 
         return new PeerConnectionOptions
         {
-            Media = lines,
+            Media = lines.DrainToImmutable(),
             PayloadFormats = _services.PayloadFormats,
             StunServers = stun,
             TurnServers = turn,
@@ -780,6 +780,7 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
         : IDisposable
     {
         private readonly RtpFrameBuffer _buffer = new(format);
+        private readonly List<RtpFrameBuffer.AssembledFrame> _completed = [];
         private readonly RtpClockAligner _aligner = new(new ClockRate(format.ClockRate));
 
         // Frames still arriving, by RTP timestamp: when their first and last packets came, and the timing
@@ -827,13 +828,15 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 );
             }
 
-            RtpFrameBuffer.InsertResult result = _buffer.Insert(
+            _completed.Clear();
+            bool required = _buffer.Insert(
                 header.SequenceNumber,
                 header.Timestamp,
                 header.Marker,
-                payload
+                payload,
+                _completed
             );
-            foreach (RtpFrameBuffer.AssembledFrame frame in result.Frames)
+            foreach (RtpFrameBuffer.AssembledFrame frame in _completed)
             {
                 NtpTime? capture = _aligner.TryGetCapture(frame.Timestamp, out NtpTime at)
                     ? at
@@ -861,7 +864,6 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
             }
 
             long now = owner._time.GetTimestamp();
-            bool required = result.KeyframeRequired;
             if (_buffer.HasUnresolvedGap)
             {
                 _gapSince ??= now;

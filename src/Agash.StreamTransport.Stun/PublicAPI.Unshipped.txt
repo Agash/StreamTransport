@@ -1,10 +1,10 @@
 #nullable enable
 Agash.StreamTransport.Stun.CoturnSharedSecretIceServerProvider
-Agash.StreamTransport.Stun.CoturnSharedSecretIceServerProvider.CoturnSharedSecretIceServerProvider(System.Collections.Generic.IReadOnlyList<string!>! stunUrls, System.Collections.Generic.IReadOnlyList<string!>! turnUrls, string! sharedSecret, System.TimeSpan? credentialLifetime = null, string? user = null, System.TimeProvider? timeProvider = null) -> void
-Agash.StreamTransport.Stun.CoturnSharedSecretIceServerProvider.GetIceServersForPeer() -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
+Agash.StreamTransport.Stun.CoturnSharedSecretIceServerProvider.CoturnSharedSecretIceServerProvider(System.Collections.Immutable.ImmutableArray<string!> stunUrls, System.Collections.Immutable.ImmutableArray<string!> turnUrls, string! sharedSecret, System.TimeSpan? credentialLifetime = null, string? user = null, System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.Stun.CoturnSharedSecretIceServerProvider.GetIceServersForPeer() -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
 Agash.StreamTransport.Stun.StaticIceServerProvider
-Agash.StreamTransport.Stun.StaticIceServerProvider.GetIceServersForPeer() -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
-Agash.StreamTransport.Stun.StaticIceServerProvider.StaticIceServerProvider(System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>! iceServers) -> void
+Agash.StreamTransport.Stun.StaticIceServerProvider.GetIceServersForPeer() -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
+Agash.StreamTransport.Stun.StaticIceServerProvider.StaticIceServerProvider(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!> iceServers) -> void
 Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.AlternateDomain = 32771 -> Agash.StreamTransport.Stun.StunAttributeType
 Agash.StreamTransport.Stun.StunAttributeType.AlternateServer = 32803 -> Agash.StreamTransport.Stun.StunAttributeType
@@ -102,12 +102,12 @@ const Agash.StreamTransport.Stun.StunHeader.Length = 20 -> int
 const Agash.StreamTransport.Stun.StunHeader.MagicCookie = 554869826 -> uint
 const Agash.StreamTransport.Stun.StunHeader.TransactionIdLength = 12 -> int
 override Agash.StreamTransport.Stun.StunSecurityFeatures.GetHashCode() -> int
-static Agash.StreamTransport.Stun.StaticIceServerProvider.Stun(params string![]! stunUrls) -> Agash.StreamTransport.Stun.StaticIceServerProvider!
+static Agash.StreamTransport.Stun.StaticIceServerProvider.Stun(params System.Collections.Immutable.ImmutableArray<string!> stunUrls) -> Agash.StreamTransport.Stun.StaticIceServerProvider!
 static Agash.StreamTransport.Stun.StunBindingServer.AnyAddress(int port) -> System.Net.IPEndPoint!
 static Agash.StreamTransport.Stun.StunHeader.DecodeType(ushort type) -> (Agash.StreamTransport.Stun.StunMessageClass Class, Agash.StreamTransport.Stun.StunMethod Method)
 static Agash.StreamTransport.Stun.StunHeader.EncodeType(Agash.StreamTransport.Stun.StunMessageClass messageClass, Agash.StreamTransport.Stun.StunMethod method) -> ushort
 static Agash.StreamTransport.Stun.StunLongTermCredential.Key(Agash.StreamTransport.Stun.StunPasswordAlgorithm algorithm, string! username, System.ReadOnlySpan<byte> realm, string! password) -> byte[]!
-static Agash.StreamTransport.Stun.StunLongTermCredential.ReadAlgorithms(System.ReadOnlySpan<byte> value) -> System.Collections.Generic.List<ushort>!
+static Agash.StreamTransport.Stun.StunLongTermCredential.ReadAlgorithms(System.ReadOnlySpan<byte> value) -> System.Collections.Immutable.ImmutableArray<ushort>
 static Agash.StreamTransport.Stun.StunLongTermCredential.TryReadNonceCookie(System.ReadOnlySpan<byte> nonce, out Agash.StreamTransport.Stun.StunSecurityFeatures features) -> bool
 static Agash.StreamTransport.Stun.StunLongTermCredential.Userhash(string! username, System.ReadOnlySpan<byte> realm, System.Span<byte> destination) -> void
 static Agash.StreamTransport.Stun.StunLongTermCredential.WriteAlgorithm(Agash.StreamTransport.Stun.StunPasswordAlgorithm algorithm, System.Span<byte> destination) -> void

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -50,7 +51,7 @@ public sealed class SignalingRouter : ISignalingRouter
     {
         public static readonly EmptyIceServerProvider Instance = new();
 
-        public IReadOnlyList<IceServer> GetIceServersForPeer() => [];
+        public ImmutableArray<IceServer> GetIceServersForPeer() => [];
     }
 }
 

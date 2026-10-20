@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Agash.StreamTransport.WebRtc.Transport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -51,14 +52,14 @@ public sealed class MobilityEngineTests
 
     private sealed class FakeNetworkMonitor : INetworkMonitor
     {
-        public IReadOnlyList<NetworkPathInfo> Current { get; private set; } = [];
+        public ImmutableArray<NetworkPathInfo> Current { get; private set; } = [];
         public bool Started { get; private set; }
 
-        public event Action<IReadOnlyList<NetworkPathInfo>>? NetworksChanged;
+        public event Action<ImmutableArray<NetworkPathInfo>>? NetworksChanged;
 
         public void Start() => Started = true;
 
-        public void Raise(params NetworkPathInfo[] paths)
+        public void Raise(params ImmutableArray<NetworkPathInfo> paths)
         {
             Current = paths;
             NetworksChanged?.Invoke(paths);

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using Agash.StreamTransport.WebRtc.Sdp;
 
 namespace Agash.StreamTransport.WebRtc.Rtp;
@@ -203,13 +204,12 @@ public static class FlexFec
     /// </summary>
     /// <param name="sources">The protected packets; the first is the sequence number base.</param>
     /// <returns>The repair body.</returns>
-    internal static byte[] BuildRepair(IReadOnlyList<FecSourcePacket> sources)
+    internal static byte[] BuildRepair(ReadOnlySpan<FecSourcePacket> sources)
     {
-        ArgumentNullException.ThrowIfNull(sources);
-        if (sources.Count is 0 or > MaxProtected)
+        if (sources.Length is 0 or > MaxProtected)
         {
             throw new ArgumentException(
-                $"FlexFEC protects 1..{MaxProtected} packets, got {sources.Count}.",
+                $"FlexFEC protects 1..{MaxProtected} packets, got {sources.Length}.",
                 nameof(sources)
             );
         }

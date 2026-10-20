@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -17,13 +18,13 @@ internal static class StunServers
     /// <param name="servers">The ICE servers.</param>
     /// <param name="cancellationToken">Cancels resolution.</param>
     /// <returns>The resolved endpoints, and the URLs that did not resolve.</returns>
-    public static async Task<(List<IPEndPoint> Endpoints, List<string> Unresolved)> ResolveAsync(
-        IEnumerable<IceServer> servers,
-        CancellationToken cancellationToken
-    )
+    public static async Task<(
+        ImmutableArray<IPEndPoint> Endpoints,
+        ImmutableArray<string> Unresolved
+    )> ResolveAsync(IEnumerable<IceServer> servers, CancellationToken cancellationToken)
     {
-        List<IPEndPoint> endpoints = [];
-        List<string> unresolved = [];
+        ImmutableArray<IPEndPoint>.Builder endpoints = ImmutableArray.CreateBuilder<IPEndPoint>();
+        ImmutableArray<string>.Builder unresolved = ImmutableArray.CreateBuilder<string>();
         foreach (string url in servers.SelectMany(static s => s.Urls))
         {
             if (!TryParse(url, out string host, out int port))
@@ -37,7 +38,10 @@ internal static class StunServers
                     ? [literal]
                     : await Dns.GetHostAddressesAsync(host, cancellationToken)
                         .ConfigureAwait(false);
-                endpoints.AddRange(addresses.Select(address => new IPEndPoint(address, port)));
+                foreach (IPAddress address in addresses)
+                {
+                    endpoints.Add(new IPEndPoint(address, port));
+                }
             }
             catch (SocketException)
             {
@@ -46,15 +50,15 @@ internal static class StunServers
             }
         }
 
-        return (endpoints, unresolved);
+        return (endpoints.DrainToImmutable(), unresolved.DrainToImmutable());
     }
 
     /// <summary>The TURN servers among the ICE servers, with their credentials.</summary>
     /// <param name="servers">The ICE servers.</param>
     /// <returns>Every <c>turn:</c> or <c>turns:</c> URL this client supports.</returns>
-    public static List<TurnServer> Turn(IEnumerable<IceServer> servers)
+    public static ImmutableArray<TurnServer> Turn(IEnumerable<IceServer> servers)
     {
-        List<TurnServer> turn = [];
+        ImmutableArray<TurnServer>.Builder turn = ImmutableArray.CreateBuilder<TurnServer>();
         foreach (IceServer server in servers)
         {
             foreach (string url in server.Urls)
@@ -73,7 +77,7 @@ internal static class StunServers
             }
         }
 
-        return turn;
+        return turn.DrainToImmutable();
     }
 
     // stun:host[:port], with a bracketed IPv6 literal allowed.

@@ -151,7 +151,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
                     .ConfigureAwait(false);
             }
 
-            LogTrickled(id, fragment.Candidates.Count);
+            LogTrickled(id, fragment.Candidates.Length);
             return (StatusCodes.Status204NoContent, null, null);
         }
         finally
@@ -188,7 +188,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         resource.Offer = offer;
         resource.Tag = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
         var ours = TrickleIceFragment.FromFirstSection(answer);
-        LogRestarted(id, fragment.Candidates.Count, ours.Candidates.Count);
+        LogRestarted(id, fragment.Candidates.Length, ours.Candidates.Length);
         return (StatusCodes.Status200OK, resource.Tag, ours.Format());
     }
 

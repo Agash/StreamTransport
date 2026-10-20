@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Microsoft.Extensions.Logging;
@@ -25,9 +26,9 @@ public sealed partial class PeerConnection
     // sequence number transport feedback needs and the MID every bundled section maps (RFC 9143 section
     // 9.1); for audio the audio level (RFC 8834 section 5.2.2), and for video the orientation (section
     // 5.2.5), the per-frame timing and the playout delay the sender asks for.
-    private IReadOnlyList<SdpExtension> OfferedExtensions(SdpMediaKind kind)
+    private ImmutableArray<SdpExtension> OfferedExtensions(SdpMediaKind kind)
     {
-        IReadOnlyList<SdpExtension> plain = PlainExtensions(kind);
+        ImmutableArray<SdpExtension> plain = PlainExtensions(kind);
         if (!_options.EncryptHeaderExtensions)
         {
             return plain;
@@ -36,7 +37,10 @@ public sealed partial class PeerConnection
         // RFC 6904 section 4: the encrypted forms of the extensions that tell about the media, under
         // identifiers of their own beside the plain ones; the answer keeps one of each.
         int next = EncryptedIdBase;
-        List<SdpExtension> offered = [.. plain];
+        ImmutableArray<SdpExtension>.Builder offered = ImmutableArray.CreateBuilder<SdpExtension>(
+            plain.Length * 2
+        );
+        offered.AddRange(plain);
         foreach (SdpExtension extension in plain)
         {
             if (
@@ -50,7 +54,7 @@ public sealed partial class PeerConnection
             }
         }
 
-        return offered;
+        return offered.DrainToImmutable();
     }
 
     // Encrypted forms take identifiers after the plain ones, still in the one-byte range.
@@ -64,7 +68,7 @@ public sealed partial class PeerConnection
             extension.Attributes is { } attributes ? $"{extension.Uri} {attributes}" : extension.Uri
         );
 
-    private static IReadOnlyList<SdpExtension> PlainExtensions(SdpMediaKind kind)
+    private static ImmutableArray<SdpExtension> PlainExtensions(SdpMediaKind kind)
     {
         RtpExtensionMap ids = RtpExtensionMap.Offered;
         return kind == SdpMediaKind.Video
@@ -111,7 +115,7 @@ public sealed partial class PeerConnection
     {
         List<SdpMediaDescription> rtp =
         [
-            .. remote.Media.Where(static m => !m.Rejected && m.Codecs.Count > 0),
+            .. remote.Media.Where(static m => !m.Rejected && m.Codecs.Length > 0),
         ];
         _sendCryptex = _options.Cryptex && rtp.Count > 0 && rtp.TrueForAll(static m => m.Cryptex);
         if (_srtp is { } srtp)
@@ -141,9 +145,9 @@ public sealed partial class PeerConnection
     // offerer's identifier, with the direction mirrored (RFC 8285 section 7). An extension offered both in
     // the clear and encrypted (RFC 6904 section 4) is answered encrypted: every RFC 6904 endpoint can read
     // that form, and it keeps the value from the path where Cryptex is not used.
-    private IReadOnlyList<SdpExtension> AnsweredExtensions(SdpMediaDescription offer)
+    private ImmutableArray<SdpExtension> AnsweredExtensions(SdpMediaDescription offer)
     {
-        IReadOnlyList<SdpExtension> ours = PlainExtensions(offer.Kind);
+        ImmutableArray<SdpExtension> ours = PlainExtensions(offer.Kind);
         HashSet<string> encryptedOffered = [];
         foreach (SdpExtension offered in offer.Extensions)
         {
@@ -158,7 +162,9 @@ public sealed partial class PeerConnection
         }
 
         RtpExtensionIdSet conflicting = RtpExtensionMap.Conflicting(offer.Extensions);
-        List<SdpExtension> answered = [];
+        ImmutableArray<SdpExtension>.Builder answered = ImmutableArray.CreateBuilder<SdpExtension>(
+            offer.Extensions.Length
+        );
         foreach (SdpExtension mapping in offer.Extensions)
         {
             if (conflicting.Contains(mapping.Id))
@@ -207,7 +213,7 @@ public sealed partial class PeerConnection
             }
         }
 
-        return answered;
+        return answered.DrainToImmutable();
     }
 
     [LoggerMessage(

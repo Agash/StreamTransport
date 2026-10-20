@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Net;
 using Agash.StreamTransport.WebRtc.Rtp;
 using Agash.StreamTransport.WebRtc.Sdp;
@@ -334,7 +335,7 @@ public sealed class RtpExtensionTests
     );
 
     private static SdpDescription Description(
-        IReadOnlyList<SdpExtension> extensions,
+        ImmutableArray<SdpExtension> extensions,
         bool allowMixed
     ) =>
         new()

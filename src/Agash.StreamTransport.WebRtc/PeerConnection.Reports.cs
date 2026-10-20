@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Agash.StreamTransport.WebRtc.Rtcp;
@@ -487,7 +488,7 @@ public sealed partial class PeerConnection
     // A bandwidth every section states, summed; null when one does not.
     private static long? SumOf(SdpDescription? description, Func<SdpBandwidth, long?> select)
     {
-        if (description is null || description.Media.Count == 0)
+        if (description is null || description.Media.Length == 0)
         {
             return null;
         }
@@ -575,15 +576,16 @@ public sealed partial class PeerConnection
     {
         long now = NowMicros();
         ulong ntp = NtpAt(now);
-        List<RtcpReportBlock> blocks = [];
+        ImmutableArray<RtcpReportBlock>.Builder reception =
+            ImmutableArray.CreateBuilder<RtcpReportBlock>();
         List<(uint Ssrc, SendStatistics Statistics)> senders = [];
         lock (_reportGate)
         {
             foreach ((uint ssrc, RtpReceiveStatistics statistics) in _receiveStatistics)
             {
-                if (blocks.Count < 31 && statistics.Report(ssrc, now) is { } block)
+                if (reception.Count < 31 && statistics.Report(ssrc, now) is { } block)
                 {
-                    blocks.Add(block);
+                    reception.Add(block);
                 }
             }
 
@@ -593,6 +595,7 @@ public sealed partial class PeerConnection
             }
         }
 
+        ImmutableArray<RtcpReportBlock> blocks = reception.DrainToImmutable();
         int offset = 0;
         reporting = senders.Count;
         bool receiverReports = !senders.Exists(s => s.Ssrc == _rtcpSenderSsrc);
@@ -671,9 +674,9 @@ public sealed partial class PeerConnection
     // section of the remote description lists it (this endpoint offers both, and answers what was offered).
     private void NoteRtcpCapabilities(SdpDescription remote)
     {
-        bool reducedSize = remote.Media.Count > 0;
-        bool feedback = remote.Media.Count > 0;
-        bool transportFeedback = remote.Media.Count > 0;
+        bool reducedSize = remote.Media.Length > 0;
+        bool feedback = remote.Media.Length > 0;
+        bool transportFeedback = remote.Media.Length > 0;
         foreach (SdpMediaDescription media in remote.Media)
         {
             reducedSize &= media.RtcpReducedSize;

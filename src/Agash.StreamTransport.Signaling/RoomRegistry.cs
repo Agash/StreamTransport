@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
@@ -29,7 +30,7 @@ internal sealed partial class Room(RoomCode code, ILogger logger, SignalingMetri
     public ISignalingPeerTransport? TransportFor(PeerId id) =>
         _peers.TryGetValue(id, out Peer? peer) ? peer.Transport : null;
 
-    public IReadOnlyList<PeerInfo> Snapshot() => [.. _peers.Values.Select(static p => p.Info)];
+    public ImmutableArray<PeerInfo> Snapshot() => [.. _peers.Values.Select(static p => p.Info)];
 
     /// <summary>Send a message to every peer except <paramref name="except"/>.</summary>
     public async ValueTask BroadcastExceptAsync(

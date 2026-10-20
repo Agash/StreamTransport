@@ -228,12 +228,12 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
     // RFC 9429 section 5.3.1: the answer has the offer's sections, in its order, with its MIDs.
     private static bool Mirrors(WebRtcSdp.SdpDescription offer, WebRtcSdp.SdpDescription answer)
     {
-        if (offer.Media.Count != answer.Media.Count)
+        if (offer.Media.Length != answer.Media.Length)
         {
             return false;
         }
 
-        for (int i = 0; i < offer.Media.Count; i++)
+        for (int i = 0; i < offer.Media.Length; i++)
         {
             if (
                 offer.Media[i].Kind != answer.Media[i].Kind
@@ -255,7 +255,7 @@ public static class StreamTransportAspNetCoreEndpointRouteBuilderExtensions
     {
         int rejected = 0;
         int accepted = 0;
-        for (int i = 0; i < offer.Media.Count; i++)
+        for (int i = 0; i < offer.Media.Length; i++)
         {
             if (offer.Media[i].Rejected)
             {

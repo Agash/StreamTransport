@@ -24,7 +24,7 @@ public sealed class SignalingRouterTests
         Assert.AreEqual(welcome.PeerId, session.PeerId);
         Assert.AreEqual(
             0,
-            welcome.RoomState.Peers.Count,
+            welcome.RoomState.Peers.Length,
             "the publisher is the only peer and is not listed to itself."
         );
     }
@@ -80,7 +80,7 @@ public sealed class SignalingRouterTests
 
         // The subscriber's welcome lists the publisher.
         WelcomeMessage subWelcome = subTransport.Single<WelcomeMessage>();
-        Assert.AreEqual(1, subWelcome.RoomState.Peers.Count);
+        Assert.AreEqual(1, subWelcome.RoomState.Peers.Length);
         Assert.AreEqual(PeerRole.Publisher, subWelcome.RoomState.Peers[0].Role);
         Assert.AreEqual(publisher.PeerId, subWelcome.RoomState.Peers[0].PeerId);
 

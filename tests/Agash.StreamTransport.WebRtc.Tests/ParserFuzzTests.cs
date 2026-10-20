@@ -236,6 +236,7 @@ public sealed class ParserFuzzTests
         byte[][] seeds = [.. Enumerable.Range(0, writer.Count).Select(i => writer[i].ToArray())];
         using IRtpDepacketizer depacketizer = format.CreateDepacketizer();
         using var buffer = new RtpFrameBuffer(format);
+        List<RtpFrameBuffer.AssembledFrame> completed = [];
         var random = new Random(7);
         ushort sequence = 0;
         Fuzz(
@@ -253,14 +254,16 @@ public sealed class ParserFuzzTests
                     assembled.Dispose();
                 }
 
-                RtpFrameBuffer.InsertResult result = buffer.Insert(
+                completed.Clear();
+                _ = buffer.Insert(
                     (ushort)(sequence + random.Next(-3, 5)),
                     (uint)(random.Next(3) * 3000),
                     random.Next(3) == 0,
-                    input
+                    input,
+                    completed
                 );
                 sequence++;
-                foreach (RtpFrameBuffer.AssembledFrame done in result.Frames)
+                foreach (RtpFrameBuffer.AssembledFrame done in completed)
                 {
                     done.Frame.Dispose();
                 }

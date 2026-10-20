@@ -190,7 +190,7 @@ public sealed class SdpTests
         string text = SdpWriter.Write(original);
 
         Assert.IsTrue(SdpReader.TryParse(text, out SdpDescription parsed));
-        Assert.AreEqual(2, parsed.Media.Count);
+        Assert.AreEqual(2, parsed.Media.Length);
 
         SdpMediaDescription audio = parsed.Media[0];
         Assert.AreEqual(SdpMediaKind.Audio, audio.Kind);
@@ -198,7 +198,7 @@ public sealed class SdpTests
         Assert.AreEqual("abcd", audio.IceUfrag);
         Assert.AreEqual(SdpSetup.ActPass, audio.Setup);
         Assert.IsTrue(audio.RtcpMux);
-        Assert.AreEqual(1, audio.Codecs.Count);
+        Assert.AreEqual(1, audio.Codecs.Length);
         Assert.AreEqual(111, audio.Codecs[0].PayloadType);
         Assert.AreEqual("opus", audio.Codecs[0].EncodingName);
         Assert.AreEqual(48000, audio.Codecs[0].ClockRate);

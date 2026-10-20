@@ -61,11 +61,6 @@ public sealed class RtpFrameBuffer : IDisposable
         uint Timestamp
     );
 
-    /// <summary>The outcome of inserting one packet: the frames it completed (usually 0 or 1; a late/RTX packet
-    /// can complete several), and whether the receiver should request a keyframe (an IRAP missing its parameter
-    /// sets, or a whole-frame gap that leaves an emitted delta frame referencing a frame that was never decoded).</summary>
-    public readonly record struct InsertResult(List<AssembledFrame> Frames, bool KeyframeRequired);
-
     /// <summary>
     /// True while the buffer is stranded behind an unfilled sequence gap (packets received past a hole that
     /// NACK/RTX has not yet repaired). The receiver times this: if it persists beyond a recovery window it
@@ -74,24 +69,37 @@ public sealed class RtpFrameBuffer : IDisposable
     public bool HasUnresolvedGap => _highestInserted > MaxContinuous();
 
     /// <summary>
-    /// Insert one received RTP packet (payload borrowed for this call only). Returns the frames it completed
-    /// and whether a keyframe is needed. Out-of-order and RTX-recovered packets are placed at their sequence
-    /// slot and can complete frames that were waiting on them.
+    /// Insert one received RTP packet (payload borrowed for this call only). Out-of-order and RTX-recovered
+    /// packets are placed at their sequence slot and can complete frames that were waiting on them.
     /// </summary>
-    public InsertResult Insert(
+    /// <param name="sequenceNumber">The packet's RTP sequence number.</param>
+    /// <param name="rtpTimestamp">The packet's RTP timestamp.</param>
+    /// <param name="marker">The packet's marker bit.</param>
+    /// <param name="payload">The packet's payload.</param>
+    /// <param name="completed">
+    /// Receives the frames the packet completed: usually none or one, several when a late or repaired packet
+    /// fills a gap. The caller owns it and clears it between packets, so the receive path allocates none.
+    /// </param>
+    /// <returns>
+    /// Whether the receiver should request a keyframe: an IRAP missing its parameter sets, or a whole-frame
+    /// gap that leaves an emitted delta frame referencing a frame that was never decoded.
+    /// </returns>
+    public bool Insert(
         ushort sequenceNumber,
         uint rtpTimestamp,
         bool marker,
-        ReadOnlySpan<byte> payload
+        ReadOnlySpan<byte> payload,
+        List<AssembledFrame> completed
     )
     {
+        ArgumentNullException.ThrowIfNull(completed);
         long seq = Unwrap(sequenceNumber);
         ref Slot slot = ref _buffer[EuclideanMod(seq, BufferSize)];
 
         // A slot already holding a newer-or-equal frame means this packet is stale (sequence wrapped past it).
         if (slot.Present && slot.Seq == seq && TimestampAheadOrAt(slot.Timestamp, rtpTimestamp))
         {
-            return new InsertResult([], false);
+            return false;
         }
 
         // Reuse the slot, returning any previous (overwritten/wrapped-past) payload to the pool.
@@ -114,9 +122,7 @@ public sealed class RtpFrameBuffer : IDisposable
             _highestInserted = seq;
         }
 
-        var frames = new List<AssembledFrame>();
-        bool keyframeRequired = FindFrames(seq, frames);
-        return new InsertResult(frames, keyframeRequired);
+        return FindFrames(seq, completed);
     }
 
     // Walk forward from the inserted packet over the continuous run; on each frame-ending (marker) packet, walk

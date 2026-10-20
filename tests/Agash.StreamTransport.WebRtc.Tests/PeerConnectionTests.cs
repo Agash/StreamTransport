@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Net;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc;
@@ -385,7 +386,7 @@ public sealed class PeerConnectionTests
     public async Task OfferAnswer_BrowserH264Profiles_AnswerTheMatchingProfile()
     {
         // A browser offers several H.264 profiles; the answer takes the first that one of ours matches.
-        SdpCodec[] browser =
+        ImmutableArray<SdpCodec> browser =
         [
             new(102, "H264", 90000, null, "packetization-mode=1;profile-level-id=4d001f", []),
             new(104, "H264", 90000, null, "packetization-mode=1;profile-level-id=42e01f", []),
@@ -399,7 +400,7 @@ public sealed class PeerConnectionTests
             },
             Certificate
         );
-        SdpCodec[] ours =
+        ImmutableArray<SdpCodec> ours =
         [
             .. H264PayloadFormat.Instance.FormatParameterSets.Select(
                 (p, i) => H264PayloadFormat.Instance.ToSdpCodec(96 + i, p)
@@ -506,13 +507,13 @@ public sealed class PeerConnectionTests
         await using var answerer = new PeerConnection(answererOptions, Certificate);
 
         SdpDescription offer = offerer.CreateOffer();
-        Assert.AreEqual(2, offer.Media[0].Codecs.Count, "the offer advertises both codecs.");
+        Assert.AreEqual(2, offer.Media[0].Codecs.Length, "the offer advertises both codecs.");
 
         answerer.SetRemoteDescription(offer, SdpType.Offer);
         SdpDescription answer = answerer.CreateAnswer();
 
         // The answer keeps only the codec the answerer supports, in the offerer's payload-type space.
-        Assert.AreEqual(1, answer.Media[0].Codecs.Count);
+        Assert.AreEqual(1, answer.Media[0].Codecs.Length);
         Assert.AreEqual("H265", answer.Media[0].Codecs[0].EncodingName);
         Assert.AreEqual(96, answer.Media[0].Codecs[0].PayloadType);
 

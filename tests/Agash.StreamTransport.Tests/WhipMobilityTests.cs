@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Net;
 using Agash.StreamTransport.AspNetCore;
 using Agash.StreamTransport.Codecs.FFmpeg;
@@ -260,9 +261,9 @@ public sealed class WhipMobilityTests
     // The host's interfaces as far as mobility is told: a change is whatever the test says it is.
     private sealed class SimulatedNetworkMonitor : INetworkMonitor
     {
-        public IReadOnlyList<NetworkPathInfo> Current { get; private set; } = [];
+        public ImmutableArray<NetworkPathInfo> Current { get; private set; } = [];
 
-        public event Action<IReadOnlyList<NetworkPathInfo>>? NetworksChanged;
+        public event Action<ImmutableArray<NetworkPathInfo>>? NetworksChanged;
 
         public void Start() { }
 

@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.WebSockets;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Signaling;
 using Agash.StreamTransport.Stun;
@@ -126,9 +128,8 @@ static IIceServerProvider BuildIceProvider(string stunUrl)
     }
 
     // Bring-your-own external coturn: advertise STUN + TURN with ephemeral credentials.
-    string[] urls = turnUrls.Split(
-        ',',
-        StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+    ImmutableArray<string> urls = ImmutableCollectionsMarshal.AsImmutableArray(
+        turnUrls.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     );
     return new CoturnSharedSecretIceServerProvider([stunUrl], urls, turnSecret);
 }

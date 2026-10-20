@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 
 namespace Agash.StreamTransport.WebRtc.Transport;
 
@@ -44,7 +45,7 @@ public sealed class MobilityEngine : IDisposable
         return registration;
     }
 
-    private void OnNetworksChanged(IReadOnlyList<NetworkPathInfo> paths)
+    private void OnNetworksChanged(ImmutableArray<NetworkPathInfo> paths)
     {
         foreach (Registration registration in _recoverers.Keys)
         {

@@ -31,6 +31,7 @@ public sealed class RtpRoundTripTests
         IRtpPacketizer packetizer = format.CreatePacketizer();
         RtpPayloadWriter writer = new();
         using RtpFrameBuffer buffer = new(format);
+        List<RtpFrameBuffer.AssembledFrame> completed = [];
         List<byte[]> received = [];
         bool firstIsKeyframe = false;
         ushort sequence = 65_000; // crosses the 16-bit wrap
@@ -46,14 +47,16 @@ public sealed class RtpRoundTripTests
             foreach (int p in order)
             {
                 Assert.IsLessThanOrEqualTo(maxPayloadSize, writer[p].Length);
-                RtpFrameBuffer.InsertResult result = buffer.Insert(
+                completed.Clear();
+                bool keyframeRequired = buffer.Insert(
                     (ushort)(first + p),
                     timestamp,
                     p == writer.Count - 1,
-                    writer[p].Span
+                    writer[p].Span,
+                    completed
                 );
-                Assert.IsFalse(result.KeyframeRequired, $"Frame {i} asked for a keyframe.");
-                foreach (RtpFrameBuffer.AssembledFrame frame in result.Frames)
+                Assert.IsFalse(keyframeRequired, $"Frame {i} asked for a keyframe.");
+                foreach (RtpFrameBuffer.AssembledFrame frame in completed)
                 {
                     firstIsKeyframe |= received.Count == 0 && frame.IsKeyframe;
                     using (frame.Frame)

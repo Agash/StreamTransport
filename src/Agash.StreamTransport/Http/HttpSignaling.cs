@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -522,7 +523,9 @@ internal sealed partial class HttpSdpChannel(
 
     // OPTIONS on the endpoint returns the ICE servers the server advertises (RFC 9725 section 4.6); a
     // server that answers nothing useful leaves the session with none.
-    public async Task<List<IceServer>> DiscoverIceServersAsync(CancellationToken cancellationToken)
+    public async Task<ImmutableArray<IceServer>> DiscoverIceServersAsync(
+        CancellationToken cancellationToken
+    )
     {
         try
         {
@@ -536,13 +539,13 @@ internal sealed partial class HttpSdpChannel(
             using HttpResponseMessage response = await _http
                 .SendAsync(request, timeout.Token)
                 .ConfigureAwait(false);
-            List<IceServer> servers = response.Headers.TryGetValues(
+            ImmutableArray<IceServer> servers = response.Headers.TryGetValues(
                 "Link",
                 out IEnumerable<string>? links
             )
                 ? IceServerLinks.Parse(links)
                 : [];
-            LogDiscovered(_endpoint, servers.Count);
+            LogDiscovered(_endpoint, servers.Length);
             return servers;
         }
         catch (HttpRequestException exception)
@@ -641,7 +644,7 @@ internal sealed partial class HttpSdpChannel(
             _iceSession = response.Headers.ETag;
             answer = restarted.ApplyTo(_remote!);
             _remote = answer;
-            LogRestarted(resource, restarted.Candidates.Count);
+            LogRestarted(resource, restarted.Candidates.Length);
         }
         finally
         {
@@ -680,7 +683,7 @@ internal sealed partial class HttpSdpChannel(
                 _pending.Clear();
             }
 
-            string body = TrickleIceFragment.ForFirstSection(local, candidates).Format();
+            string body = TrickleIceFragment.ForFirstSection(local, [.. candidates]).Format();
             using HttpRequestMessage request = new(HttpMethod.Patch, resource)
             {
                 Content = new StringContent(body, Encoding.UTF8, TrickleIceFragment.MediaType),

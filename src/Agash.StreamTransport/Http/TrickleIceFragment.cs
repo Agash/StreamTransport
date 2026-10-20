@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 
 namespace Agash.StreamTransport.Http;
@@ -28,7 +29,7 @@ public sealed record TrickleIceFragment(
     string? Password,
     string MediaLine,
     string? Mid,
-    IReadOnlyList<string> Candidates,
+    ImmutableArray<string> Candidates,
     bool EndOfCandidates = false
 )
 {
@@ -57,10 +58,9 @@ public sealed record TrickleIceFragment(
     /// <param name="sdp">The session description.</param>
     /// <param name="candidates">The candidates to carry.</param>
     /// <returns>The fragment.</returns>
-    public static TrickleIceFragment ForFirstSection(string sdp, IReadOnlyList<string> candidates)
+    public static TrickleIceFragment ForFirstSection(string sdp, ImmutableArray<string> candidates)
     {
         ArgumentNullException.ThrowIfNull(sdp);
-        ArgumentNullException.ThrowIfNull(candidates);
         string? ufrag = null;
         string? password = null;
         string? mediaLine = null;
@@ -153,7 +153,7 @@ public sealed record TrickleIceFragment(
             }
         }
 
-        return ForFirstSection(sdp, candidates);
+        return ForFirstSection(sdp, [.. candidates]);
     }
 
     /// <summary>
@@ -311,7 +311,7 @@ public sealed record TrickleIceFragment(
             password,
             mediaLine ?? DefaultMediaLine,
             mid,
-            candidates,
+            [.. candidates],
             end
         )
         {

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -67,7 +68,7 @@ public sealed partial class MediaPublisher : IAsyncDisposable
     }
 
     /// <summary>The sessions being served now.</summary>
-    public IReadOnlyList<PublishedSession> Sessions =>
+    public ImmutableArray<PublishedSession> Sessions =>
         [.. _served.Select(static entry => new PublishedSession(entry.Key, entry.Value))];
 
     /// <summary>Serves the subscribers present now and every one that joins later.</summary>

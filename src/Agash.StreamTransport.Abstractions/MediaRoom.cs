@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Agash.StreamTransport;
 
 /// <summary>
@@ -16,10 +18,10 @@ public interface IMediaRoom : IAsyncDisposable
     PeerId Self { get; }
 
     /// <summary>The other peers currently present, kept live as peers join and leave.</summary>
-    IReadOnlyList<PeerInfo> Peers { get; }
+    ImmutableArray<PeerInfo> Peers { get; }
 
     /// <summary>The ICE servers to use for connections in this room (STUN, plus any TURN with credentials).</summary>
-    IReadOnlyList<IceServer> IceServers { get; }
+    ImmutableArray<IceServer> IceServers { get; }
 
     /// <summary>Raised when another peer joins.</summary>
     event Action<PeerInfo>? PeerJoined;

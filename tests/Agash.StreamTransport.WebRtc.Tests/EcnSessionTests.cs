@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Net;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Rtp;
@@ -26,7 +27,7 @@ public sealed class EcnSessionTests
     [TestMethod]
     public void EcnCapableRtp_IsWrittenAndRead()
     {
-        SdpCodec[] codecs = [H264];
+        ImmutableArray<SdpCodec> codecs = [H264];
         SdpDescription description = new()
         {
             Media =

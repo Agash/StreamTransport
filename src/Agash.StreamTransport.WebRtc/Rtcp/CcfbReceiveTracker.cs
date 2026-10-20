@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Agash.StreamTransport.WebRtc.Rtcp;
 
 /// <summary>
@@ -144,7 +146,13 @@ internal sealed class CcfbReceiveTracker
                     : new CcfbMetric(false, 0, 0);
             }
 
-            reports.Add(new CcfbStreamReport(ssrc, (ushort)begin, metrics));
+            reports.Add(
+                new CcfbStreamReport(
+                    ssrc,
+                    (ushort)begin,
+                    ImmutableCollectionsMarshal.AsImmutableArray(metrics)
+                )
+            );
         }
 
         _nextInFeedback = end;

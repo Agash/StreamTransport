@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Agash.StreamTransport.AspNetCore;
 
 /// <summary>
@@ -14,7 +16,7 @@ public static class HttpMediaCors
     /// <c>Accept-Post</c> and <c>Accept-Patch</c> name what the endpoint and the session take. Pass them to
     /// <c>CorsPolicyBuilder.WithExposedHeaders</c>.
     /// </summary>
-    public static IReadOnlyList<string> ExposedHeaders { get; } =
+    public static ImmutableArray<string> ExposedHeaders { get; } =
     ["Location", "Link", "ETag", "Accept-Post", "Accept-Patch"];
 
     /// <summary>
@@ -22,10 +24,10 @@ public static class HttpMediaCors
     /// 4.7.1), <c>Content-Type</c> for SDP and trickle fragments, and <c>If-Match</c> for the ICE session.
     /// Pass them to <c>CorsPolicyBuilder.WithHeaders</c>.
     /// </summary>
-    public static IReadOnlyList<string> AllowedHeaders { get; } =
+    public static ImmutableArray<string> AllowedHeaders { get; } =
     ["Authorization", "Content-Type", "If-Match"];
 
     /// <summary>The methods the endpoint and its sessions take. Pass them to <c>WithMethods</c>.</summary>
-    public static IReadOnlyList<string> AllowedMethods { get; } =
+    public static ImmutableArray<string> AllowedMethods { get; } =
     ["GET", "HEAD", "OPTIONS", "POST", "PATCH", "DELETE"];
 }

@@ -41,14 +41,14 @@ Agash.StreamTransport.IDuplexSignalingTransport
 Agash.StreamTransport.IDuplexSignalingTransport.MessageReceived -> System.Func<Agash.StreamTransport.SignalingMessage!, System.Threading.Tasks.Task!>?
 Agash.StreamTransport.IDuplexSignalingTransport.RunAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.IIceServerProvider
-Agash.StreamTransport.IIceServerProvider.GetIceServersForPeer() -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
+Agash.StreamTransport.IIceServerProvider.GetIceServersForPeer() -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
 Agash.StreamTransport.IMediaRoom
 Agash.StreamTransport.IMediaRoom.ChannelFor(Agash.StreamTransport.PeerId peer) -> Agash.StreamTransport.ISignalingChannel!
 Agash.StreamTransport.IMediaRoom.ControlReceived -> System.Action<Agash.StreamTransport.PeerControlMessage!>?
-Agash.StreamTransport.IMediaRoom.IceServers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
+Agash.StreamTransport.IMediaRoom.IceServers.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
 Agash.StreamTransport.IMediaRoom.PeerJoined -> System.Action<Agash.StreamTransport.PeerInfo>?
 Agash.StreamTransport.IMediaRoom.PeerLeft -> System.Action<Agash.StreamTransport.PeerId>?
-Agash.StreamTransport.IMediaRoom.Peers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PeerInfo>!
+Agash.StreamTransport.IMediaRoom.Peers.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.PeerInfo>
 Agash.StreamTransport.IMediaRoom.Self.get -> Agash.StreamTransport.PeerId
 Agash.StreamTransport.IMediaRoom.SendControlAsync(string! topic, string! payload, Agash.StreamTransport.PeerId? to = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.IMediaTransport
@@ -121,10 +121,10 @@ Agash.StreamTransport.IceServer
 Agash.StreamTransport.IceServer.<Clone>$() -> Agash.StreamTransport.IceServer!
 Agash.StreamTransport.IceServer.Credential.get -> string?
 Agash.StreamTransport.IceServer.Credential.init -> void
-Agash.StreamTransport.IceServer.Deconstruct(out System.Collections.Generic.IReadOnlyList<string!>! Urls, out string? Username, out string? Credential) -> void
+Agash.StreamTransport.IceServer.Deconstruct(out System.Collections.Immutable.ImmutableArray<string!> Urls, out string? Username, out string? Credential) -> void
 Agash.StreamTransport.IceServer.Equals(Agash.StreamTransport.IceServer? other) -> bool
-Agash.StreamTransport.IceServer.IceServer(System.Collections.Generic.IReadOnlyList<string!>! Urls, string? Username = null, string? Credential = null) -> void
-Agash.StreamTransport.IceServer.Urls.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.IceServer.IceServer(System.Collections.Immutable.ImmutableArray<string!> Urls, string? Username = null, string? Credential = null) -> void
+Agash.StreamTransport.IceServer.Urls.get -> System.Collections.Immutable.ImmutableArray<string!>
 Agash.StreamTransport.IceServer.Urls.init -> void
 Agash.StreamTransport.IceServer.Username.get -> string?
 Agash.StreamTransport.IceServer.Username.init -> void
@@ -273,13 +273,13 @@ Agash.StreamTransport.RoomState
 Agash.StreamTransport.RoomState.<Clone>$() -> Agash.StreamTransport.RoomState!
 Agash.StreamTransport.RoomState.Code.get -> Agash.StreamTransport.RoomCode
 Agash.StreamTransport.RoomState.Code.init -> void
-Agash.StreamTransport.RoomState.Deconstruct(out Agash.StreamTransport.RoomCode Code, out System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PeerInfo>! Peers, out System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>! IceServers) -> void
+Agash.StreamTransport.RoomState.Deconstruct(out Agash.StreamTransport.RoomCode Code, out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.PeerInfo> Peers, out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!> IceServers) -> void
 Agash.StreamTransport.RoomState.Equals(Agash.StreamTransport.RoomState? other) -> bool
-Agash.StreamTransport.RoomState.IceServers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
+Agash.StreamTransport.RoomState.IceServers.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
 Agash.StreamTransport.RoomState.IceServers.init -> void
-Agash.StreamTransport.RoomState.Peers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PeerInfo>!
+Agash.StreamTransport.RoomState.Peers.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.PeerInfo>
 Agash.StreamTransport.RoomState.Peers.init -> void
-Agash.StreamTransport.RoomState.RoomState(Agash.StreamTransport.RoomCode Code, System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PeerInfo>! Peers, System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>! IceServers) -> void
+Agash.StreamTransport.RoomState.RoomState(Agash.StreamTransport.RoomCode Code, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.PeerInfo> Peers, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!> IceServers) -> void
 Agash.StreamTransport.SdpKind
 Agash.StreamTransport.SdpKind.Answer = 1 -> Agash.StreamTransport.SdpKind
 Agash.StreamTransport.SdpKind.Offer = 0 -> Agash.StreamTransport.SdpKind

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
@@ -99,8 +100,8 @@ public sealed class RtpRtcpTests
     [TestMethod]
     public void SenderReport_WriteThenParse_PreservesNtpRtpMapping()
     {
-        var blocks = new RtcpReportBlock[]
-        {
+        ImmutableArray<RtcpReportBlock> blocks =
+        [
             new(
                 Ssrc: 0xAABBCCDD,
                 FractionLost: 5,
@@ -110,7 +111,7 @@ public sealed class RtpRtcpTests
                 LastSenderReport: 0x12345678,
                 DelaySinceLastSenderReport: 65536
             ),
-        };
+        ];
         var sr = new RtcpSenderReport(
             0x11112222,
             NtpTimestamp: 0xE1E2E3E4_F1F2F3F4,
@@ -131,7 +132,7 @@ public sealed class RtpRtcpTests
         Assert.AreEqual(90000u, parsed.RtpTimestamp);
         Assert.AreEqual(1234u, parsed.SenderPacketCount);
         Assert.AreEqual(567890u, parsed.SenderOctetCount);
-        Assert.AreEqual(1, parsed.ReportBlocks.Count);
+        Assert.AreEqual(1, parsed.ReportBlocks.Length);
         Assert.AreEqual(0xAABBCCDDu, parsed.ReportBlocks[0].Ssrc);
         Assert.AreEqual(100, parsed.ReportBlocks[0].CumulativeLost);
         Assert.AreEqual(5000u, parsed.ReportBlocks[0].ExtendedHighestSequence);
@@ -140,7 +141,7 @@ public sealed class RtpRtcpTests
     [TestMethod]
     public void ReceiverReport_WriteThenParse_RoundTrips()
     {
-        var blocks = new RtcpReportBlock[] { new(0xDEADBEEF, 0, 0, 12345, 7, 0, 0) };
+        ImmutableArray<RtcpReportBlock> blocks = [new(0xDEADBEEF, 0, 0, 12345, 7, 0, 0)];
         var rr = new RtcpReceiverReport(0x99887766, blocks);
 
         byte[] buffer = new byte[128];
@@ -150,7 +151,7 @@ public sealed class RtpRtcpTests
             RtcpReceiverReport.TryParse(buffer.AsSpan(0, length), out RtcpReceiverReport parsed)
         );
         Assert.AreEqual(0x99887766u, parsed.Ssrc);
-        Assert.AreEqual(1, parsed.ReportBlocks.Count);
+        Assert.AreEqual(1, parsed.ReportBlocks.Length);
         Assert.AreEqual(0xDEADBEEFu, parsed.ReportBlocks[0].Ssrc);
         Assert.AreEqual(12345u, parsed.ReportBlocks[0].ExtendedHighestSequence);
     }

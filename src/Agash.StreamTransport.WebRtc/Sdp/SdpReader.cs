@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.WebRtc.Ice;
 using Dtls.Core;
 
@@ -22,13 +24,15 @@ public static class SdpReader
 
         string sessionUfrag = "",
             sessionPwd = "";
-        List<DtlsFingerprint> sessionFingerprints = [];
+        ImmutableArray<DtlsFingerprint>.Builder sessionFingerprints =
+            ImmutableArray.CreateBuilder<DtlsFingerprint>();
         SdpSetup? sessionSetup = SdpSetup.ActPass;
         bool iceLite = false;
         List<IceCandidate> sessionCandidates = [];
         List<string> sessionIgnored = [];
         IceOptions sessionIceOptions = IceOptions.None;
-        List<SdpExtension> sessionExtensions = [];
+        ImmutableArray<SdpExtension>.Builder sessionExtensions =
+            ImmutableArray.CreateBuilder<SdpExtension>();
         bool sessionAllowMixed = false;
 
         var media = new List<MediaBuilder>();
@@ -36,7 +40,7 @@ public static class SdpReader
         bool skipping = false;
         long sessionId = 0;
         long sessionVersion = 0;
-        List<string>? bundleGroup = null;
+        ImmutableArray<string>? bundleGroup = null;
         SdpBandwidth sessionBandwidth = default;
         bool sessionCryptex = false;
 
@@ -109,7 +113,9 @@ public static class SdpReader
 
             if (current is null && TryValue(line, "a=group:BUNDLE", out string group))
             {
-                bundleGroup = [.. group.Split(' ', StringSplitOptions.RemoveEmptyEntries)];
+                bundleGroup = ImmutableCollectionsMarshal.AsImmutableArray(
+                    group.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                );
                 continue;
             }
 
@@ -199,17 +205,20 @@ public static class SdpReader
             return false;
         }
 
-        var result = new List<SdpMediaDescription>(media.Count);
+        ImmutableArray<DtlsFingerprint> sharedFingerprints = sessionFingerprints.DrainToImmutable();
+        ImmutableArray<SdpExtension> sharedExtensions = sessionExtensions.DrainToImmutable();
+        ImmutableArray<SdpMediaDescription>.Builder result =
+            ImmutableArray.CreateBuilder<SdpMediaDescription>(media.Count);
         foreach (MediaBuilder m in media)
         {
-            IReadOnlyList<DtlsFingerprint> fingerprints =
-                m.Fingerprints.Count > 0 ? m.Fingerprints : sessionFingerprints;
+            ImmutableArray<DtlsFingerprint> fingerprints =
+                m.Fingerprints.Count > 0 ? m.Fingerprints.DrainToImmutable() : sharedFingerprints;
 
             // JSEP: no usable fingerprint is a negotiation failure. RFC 8842 section 5.1: DTLS never uses
             // holdconn, and a setup value outside RFC 4145's is not SDP this reader can act on. RFC 8842
             // section 4: a tls-id outside its syntax is malformed.
             if (
-                fingerprints.Count == 0
+                fingerprints.Length == 0
                 || (m.SetupSeen ? m.Setup : sessionSetup) is not { } setup
                 || m.InvalidTlsId
             )
@@ -242,12 +251,13 @@ public static class SdpReader
                     TransportWideFeedback = m.TransportWideFeedback,
                     Ecn = m.Ecn,
                     // RFC 8285 section 5: mappings are all at session level or all at media level.
-                    Extensions = m.Extensions.Count > 0 ? m.Extensions : sessionExtensions,
+                    Extensions =
+                        m.Extensions.Count > 0 ? m.Extensions.DrainToImmutable() : sharedExtensions,
                     ExtmapAllowMixed = m.ExtmapAllowMixed || sessionAllowMixed,
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
                     FecSsrc = m.FecSsrc,
-                    PreviousSsrcs = m.PreviousSsrcs,
+                    PreviousSsrcs = m.PreviousSsrcs.DrainToImmutable(),
                     MediaStreamId = m.MediaStreamId,
                     TrackId = m.TrackId,
                     Cname = m.Cname,
@@ -262,7 +272,7 @@ public static class SdpReader
 
         description = new SdpDescription
         {
-            Media = result,
+            Media = result.DrainToImmutable(),
             IceLite = iceLite,
             BundleGroup = bundleGroup,
             SessionId = sessionId,
@@ -308,7 +318,7 @@ public static class SdpReader
         string line,
         ref string ufrag,
         ref string pwd,
-        List<DtlsFingerprint> fingerprints,
+        ImmutableArray<DtlsFingerprint>.Builder fingerprints,
         ref SdpSetup? setup
     )
     {
@@ -424,7 +434,8 @@ public static class SdpReader
         public SdpDirection Direction { get; private set; } = SdpDirection.SendRecv;
         public string? IceUfrag { get; private set; }
         public string? IcePwd { get; private set; }
-        public List<DtlsFingerprint> Fingerprints { get; } = [];
+        public ImmutableArray<DtlsFingerprint>.Builder Fingerprints { get; } =
+            ImmutableArray.CreateBuilder<DtlsFingerprint>();
         public SdpSetup? Setup { get; private set; }
         public bool SetupSeen { get; private set; }
         public string? TlsId { get; private set; }
@@ -449,7 +460,8 @@ public static class SdpReader
 
         public SdpEcnCapability? Ecn { get; private set; }
 
-        public List<SdpExtension> Extensions { get; } = [];
+        public ImmutableArray<SdpExtension>.Builder Extensions { get; } =
+            ImmutableArray.CreateBuilder<SdpExtension>();
 
         public bool ExtmapAllowMixed { get; private set; }
 
@@ -500,14 +512,15 @@ public static class SdpReader
 
         public uint? FecSsrc { get; private set; }
 
-        public List<uint> PreviousSsrcs { get; } = [];
+        public ImmutableArray<uint>.Builder PreviousSsrcs { get; } =
+            ImmutableArray.CreateBuilder<uint>();
         public bool PortZero { get; init; }
         public bool BundleOnly { get; private set; }
         public bool RtcpMuxOnly { get; private set; }
 
         public bool Cryptex { get; set; }
         public string Protocol { get; init; } = "";
-        public IReadOnlyList<string> Formats { get; init; } = [];
+        public ImmutableArray<string> Formats { get; init; } = [];
         public List<IceCandidate> Candidates { get; } = [];
 
         public List<string> IgnoredCandidates { get; } = [];
@@ -536,7 +549,10 @@ public static class SdpReader
                 Kind = kind,
                 PortZero = parts[1] == "0",
                 Protocol = parts[2],
-                Formats = parts.Length > 3 ? parts[3..] : [],
+                Formats =
+                    parts.Length > 3
+                        ? ImmutableCollectionsMarshal.AsImmutableArray(parts[3..])
+                        : [],
             };
             for (int i = 3; i < parts.Length; i++)
             {
@@ -677,9 +693,11 @@ public static class SdpReader
             }
         }
 
-        public IReadOnlyList<SdpCodec> BuildCodecs()
+        public ImmutableArray<SdpCodec> BuildCodecs()
         {
-            var codecs = new List<SdpCodec>(_payloadOrder.Count);
+            ImmutableArray<SdpCodec>.Builder codecs = ImmutableArray.CreateBuilder<SdpCodec>(
+                _payloadOrder.Count
+            );
             foreach (int pt in _payloadOrder)
             {
                 if (
@@ -705,7 +723,7 @@ public static class SdpReader
                 );
             }
 
-            return codecs;
+            return codecs.DrainToImmutable();
         }
 
         // RFC 3551 section 6: payload types a description may list without an a=rtpmap.

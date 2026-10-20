@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Text;
@@ -668,7 +669,7 @@ public sealed class HttpMediaTests
             ),
         ];
 
-        List<IceServer> parsed = IceServerLinks.Parse([
+        ImmutableArray<IceServer> parsed = IceServerLinks.Parse([
             string.Join(", ", IceServerLinks.Format(servers)),
             "<https://example.net>; rel=\"next\"",
         ]);
@@ -699,7 +700,9 @@ public sealed class HttpMediaTests
         using HttpResponseMessage options = await http.SendAsync(
             new HttpRequestMessage(HttpMethod.Options, "/whip")
         );
-        List<IceServer> advertised = IceServerLinks.Parse(options.Headers.GetValues("Link"));
+        ImmutableArray<IceServer> advertised = IceServerLinks.Parse(
+            options.Headers.GetValues("Link")
+        );
 
         Assert.HasCount(1, advertised);
         Assert.AreEqual("turn:relay.example.net", advertised[0].Urls[0]);

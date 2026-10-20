@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -162,7 +163,7 @@ public interface IIceSocketFactory
 /// <summary>The production <see cref="IIceSocketFactory"/>: real UDP sockets over the host's interfaces.</summary>
 public sealed class UdpIceSocketFactory : IIceSocketFactory
 {
-    private readonly IReadOnlyList<string> _preferences;
+    private readonly ImmutableArray<string> _preferences;
 
     /// <summary>Gather on every usable local address.</summary>
     public UdpIceSocketFactory()
@@ -170,8 +171,8 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
 
     /// <summary>Gather only on local addresses matching <paramref name="localAddressPreferences"/> (see
     /// <see cref="LocalAddressFilter"/>). An empty list gathers everything.</summary>
-    public UdpIceSocketFactory(IReadOnlyList<string> localAddressPreferences) =>
-        _preferences = localAddressPreferences ?? [];
+    public UdpIceSocketFactory(ImmutableArray<string> localAddressPreferences) =>
+        _preferences = localAddressPreferences;
 
     /// <inheritdoc/>
     public EcnSupport Ecn =>
@@ -331,14 +332,14 @@ public static class LocalAddressFilter
     /// <summary>True if <paramref name="address"/> on the given NIC should be gathered under <paramref name="selectors"/>
     /// (empty selectors include everything; otherwise a match on family keyword, literal IP, or NIC name/id/description).</summary>
     public static bool Includes(
-        IReadOnlyList<string> selectors,
+        ImmutableArray<string> selectors,
         string nicName,
         string nicId,
         string nicDescription,
         IPAddress address
     )
     {
-        if (selectors.Count == 0)
+        if (selectors.Length == 0)
         {
             return true;
         }

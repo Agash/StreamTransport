@@ -82,33 +82,31 @@ public sealed partial class PeerConnection : IAsyncDisposable
         };
 
     // RFC 8842 section 4: tls-id goes on the section carrying the transport, the first not rejected.
-    private static List<SdpMediaDescription> WithTlsId(
-        List<SdpMediaDescription> media,
-        string tlsId
-    )
+    private static void TagTlsId(ImmutableArray<SdpMediaDescription>.Builder media, string tlsId)
     {
-        int tag = media.FindIndex(static m => !m.Rejected);
-        if (tag >= 0)
+        for (int i = 0; i < media.Count; i++)
         {
-            media[tag] = media[tag] with { TlsId = tlsId };
+            if (!media[i].Rejected)
+            {
+                media[i] = media[i] with { TlsId = tlsId };
+                return;
+            }
         }
-
-        return media;
     }
 
     private SdpDescription Describe(
-        List<SdpMediaDescription> media,
-        IReadOnlyList<string>? bundle
+        ImmutableArray<SdpMediaDescription> media,
+        ImmutableArray<string>? bundle
     ) =>
         new()
         {
             Media = media,
             SessionId = _sessionId,
             SessionVersion = Interlocked.Increment(ref _sessionVersion),
-            BundleGroup = bundle is { Count: > 0 } ? bundle : null,
+            BundleGroup = bundle is { Length: > 0 } ? bundle : null,
         };
 
-    private IReadOnlyList<DtlsFingerprint> _expectedRemoteFingerprints = [];
+    private ImmutableArray<DtlsFingerprint> _expectedRemoteFingerprints = [];
     private int _state = (int)PeerConnectionState.New;
 
     // This side's tls-id (RFC 8842 section 4): 144 random bits, in the attribute's alphabet. A new one
@@ -220,7 +218,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// on the answerer, or <see cref="SetRemoteDescription"/> with an answer on the offerer). The media layer
     /// reads the agreed codec + payload type + send SSRC from here.
     /// </summary>
-    public IReadOnlyList<NegotiatedMediaInfo> NegotiatedMedia { get; private set; } = [];
+    public ImmutableArray<NegotiatedMediaInfo> NegotiatedMedia { get; private set; } = [];
 
     /// <summary>The local DTLS certificate fingerprint (advertised in offers/answers).</summary>
     public DtlsFingerprint LocalFingerprint => _certificate.Fingerprint;
@@ -228,7 +226,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
     /// <summary>Creates the offer, generates local credentials, and starts gathering ICE candidates.</summary>
     public SdpDescription CreateOffer()
     {
-        var media = new List<SdpMediaDescription>(_options.Media.Count);
+        ImmutableArray<SdpMediaDescription>.Builder media =
+            ImmutableArray.CreateBuilder<SdpMediaDescription>(_options.Media.Length);
         foreach (MediaLine line in _options.Media)
         {
             media.Add(
@@ -241,7 +240,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     line.Direction,
                     line.RtxSsrc,
                     line.FecSsrc
-                )
+                ) with
+                {
+                    RtcpMuxOnly = true,
+                }
             );
         }
 
@@ -250,9 +252,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             StartIce(IceRole.Controlling);
         }
 
+        TagTlsId(media, _localTlsId);
         return Describe(
-            WithTlsId([.. media.Select(static m => m with { RtcpMuxOnly = true })], _localTlsId),
-            [.. media.Select(static m => m.Mid)]
+            media.DrainToImmutable(),
+            ImmutableArray.CreateRange(_options.Media, static l => l.Mid)
         );
     }
 
@@ -271,10 +274,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
         SdpSetup answerSetup = _dtlsRole == DtlsRole.Client ? SdpSetup.Active : SdpSetup.Passive;
         _association ??= new DtlsAssociation(offered0.TlsId, [.. offered0.Fingerprints], _dtlsRole);
 
-        var media = new List<SdpMediaDescription>(offer.Media.Count);
-        var negotiated = new List<NegotiatedMediaInfo>(offer.Media.Count);
+        ImmutableArray<SdpMediaDescription>.Builder media =
+            ImmutableArray.CreateBuilder<SdpMediaDescription>(offer.Media.Length);
+        ImmutableArray<NegotiatedMediaInfo>.Builder negotiated =
+            ImmutableArray.CreateBuilder<NegotiatedMediaInfo>(offer.Media.Length);
         HashSet<SdpMediaKind> answeredKinds = [];
-        bool bundled = offer.BundleGroup is { Count: > 0 };
+        bool bundled = offer.BundleGroup is { Length: > 0 };
         foreach (SdpMediaDescription remote in offer.Media)
         {
             uint ssrc = LocalSsrcFor(remote.Mid, remote.Kind);
@@ -304,9 +309,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
             // Answer with the offered codecs we also support (matched by encoding name + clock), keeping the
             // offerer's payload types and preference order and describing each with our own format
             // parameters and feedback (RFC 3264). If we support none, echo the offer.
-            IReadOnlyList<SdpCodec> local = LocalCodecsFor(remote.Kind);
-            List<SdpCodec> offered = [];
-            List<SdpCodec> answered = [];
+            ImmutableArray<SdpCodec> local = LocalCodecsFor(remote.Kind);
+            ImmutableArray<SdpCodec>.Builder offered = ImmutableArray.CreateBuilder<SdpCodec>();
+            ImmutableArray<SdpCodec>.Builder answered = ImmutableArray.CreateBuilder<SdpCodec>();
             foreach (SdpCodec rc in remote.Codecs)
             {
                 // RFC 5761 section 4: with RTCP multiplexed, 64 to 95 are not payload types.
@@ -326,7 +331,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     // packetization modes), and the first that matches is the one used.
                     if (
                         CodecsMatch(lc, rc)
-                        && !answered.Exists(a =>
+                        && !answered.Any(a =>
                             string.Equals(
                                 a.EncodingName,
                                 lc.EncodingName,
@@ -380,10 +385,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
             _ = answeredKinds.Add(remote.Kind);
 
-            bool repairs = answered.Exists(Rtx.IsRtx);
-            bool protects = answered.Exists(FlexFec.IsFlexFec);
-            IReadOnlyList<SdpCodec> answerCodecs = answered;
-            IReadOnlyList<SdpCodec> remoteCodecs = offered;
+            ImmutableArray<SdpCodec> answerCodecs = answered.DrainToImmutable();
+            ImmutableArray<SdpCodec> remoteCodecs = offered.DrainToImmutable();
+            bool repairs = answerCodecs.Any(Rtx.IsRtx);
+            bool protects = answerCodecs.Any(FlexFec.IsFlexFec);
 
             media.Add(
                 BuildMediaSection(
@@ -418,8 +423,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
             );
         }
 
-        AgreeExtensions(new SdpDescription { Media = media });
-        NegotiatedMedia = negotiated;
+        // RFC 8842 section 5.3: tls-id only when the offer carried one.
+        if (offered0.TlsId is not null)
+        {
+            TagTlsId(media, _localTlsId);
+        }
+
+        ImmutableArray<SdpMediaDescription> sections = media.DrainToImmutable();
+        AgreeExtensions(new SdpDescription { Media = sections });
+        NegotiatedMedia = negotiated.DrainToImmutable();
         ApplyRemoteBandwidth(offer);
         NoteVoiceActivity(offer);
         NoteCryptex(offer);
@@ -432,20 +444,14 @@ public sealed partial class PeerConnection : IAsyncDisposable
             StartIce(offer.IceLite ? IceRole.Controlling : IceRole.Controlled);
         }
 
-        // RFC 8842 section 5.3: tls-id only when the offer carried one.
-        if (offered0.TlsId is not null)
-        {
-            media = WithTlsId(media, _localTlsId);
-        }
-
         // RFC 9143 section 7.3: a BUNDLE group only when the offer had one, of the sections accepted.
         return Describe(
-            media,
+            sections,
             bundled
                 ?
                 [
-                    .. offer.BundleGroup!.Where(mid =>
-                        media.Exists(m => m.Mid == mid && !m.Rejected)
+                    .. offer.BundleGroup!.Value.Where(mid =>
+                        sections.Any(m => m.Mid == mid && !m.Rejected)
                     ),
                 ]
                 : null
@@ -472,10 +478,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
         };
 
     // The feedback both sides list for a codec pair, the wildcard included (RFC 4585 section 4.2).
-    private static IReadOnlyList<string> AgreedFeedback(SdpCodec local, SdpCodec remote) =>
+    private static ImmutableArray<string> AgreedFeedback(SdpCodec local, SdpCodec remote) =>
         [
-            .. (local.RtcpFeedback ?? []).Where(fb =>
-                (remote.RtcpFeedback ?? []).Contains(fb, StringComparer.OrdinalIgnoreCase)
+            .. local.RtcpFeedback.Where(fb =>
+                remote.RtcpFeedback.Contains(fb, StringComparer.OrdinalIgnoreCase)
             ),
         ];
 
@@ -496,17 +502,13 @@ public sealed partial class PeerConnection : IAsyncDisposable
     // RFC 4585 section 4.2: feedback both descriptions list for one of the section's codecs.
     private static bool FeedbackAgreed(NegotiatedMediaInfo section, string feedback)
     {
-        for (int i = 0; i < section.Codecs.Count && i < section.RemoteCodecs.Count; i++)
+        for (int i = 0; i < section.Codecs.Length && i < section.RemoteCodecs.Length; i++)
         {
             if (
-                (section.Codecs[i].RtcpFeedback ?? []).Contains(
-                    feedback,
-                    StringComparer.OrdinalIgnoreCase
-                )
-                && (section.RemoteCodecs[i].RtcpFeedback ?? []).Contains(
-                    feedback,
-                    StringComparer.OrdinalIgnoreCase
-                )
+                section.Codecs[i].RtcpFeedback.Contains(feedback, StringComparer.OrdinalIgnoreCase)
+                && section
+                    .RemoteCodecs[i]
+                    .RtcpFeedback.Contains(feedback, StringComparer.OrdinalIgnoreCase)
             )
             {
                 return true;
@@ -534,7 +536,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     public SdpDescription WithLocalCandidates(SdpDescription description)
     {
         ArgumentNullException.ThrowIfNull(description);
-        IceCandidate[] candidates;
+        ImmutableArray<IceCandidate> candidates;
         lock (_localCandidates)
         {
             candidates = [.. _localCandidates];
@@ -581,7 +583,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         // Build the offer from current media with the new credentials; the agent already exists (restarted),
         // so unlike CreateOffer this does not start a fresh ICE agent.
-        var media = new List<SdpMediaDescription>(_options.Media.Count);
+        ImmutableArray<SdpMediaDescription>.Builder media =
+            ImmutableArray.CreateBuilder<SdpMediaDescription>(_options.Media.Length);
         foreach (MediaLine line in _options.Media)
         {
             media.Add(
@@ -598,7 +601,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             );
         }
 
-        return new SdpDescription { Media = WithTlsId(media, _localTlsId) };
+        TagTlsId(media, _localTlsId);
+        return new SdpDescription { Media = media.DrainToImmutable() };
     }
 
     /// <summary>Applies the peer's session description and, for an answer, fixes the DTLS role.</summary>
@@ -687,7 +691,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _association ??= new DtlsAssociation(first.TlsId, [.. first.Fingerprints], role);
 
             // Record what the answerer accepted (in our payload-type space) as the negotiated media.
-            var negotiated = new List<NegotiatedMediaInfo>(description.Media.Count);
+            ImmutableArray<NegotiatedMediaInfo>.Builder negotiated =
+                ImmutableArray.CreateBuilder<NegotiatedMediaInfo>(description.Media.Length);
             foreach (SdpMediaDescription answered in description.Media)
             {
                 if (answered.Rejected)
@@ -696,16 +701,16 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     continue;
                 }
 
-                IReadOnlyList<SdpCodec> offered = LocalCodecsFor(answered.Kind);
-                List<SdpCodec> ours =
-                [
-                    .. answered.Codecs.Select(ac =>
+                ImmutableArray<SdpCodec> offered = LocalCodecsFor(answered.Kind);
+                var ours = ImmutableArray.CreateRange(
+                    answered.Codecs,
+                    static (ac, offered) =>
                         offered.FirstOrDefault(oc => oc.PayloadType == ac.PayloadType)
                             is { EncodingName: not null } oc
                             ? oc
-                            : ac
-                    ),
-                ];
+                            : ac,
+                    offered
+                );
                 negotiated.Add(
                     new NegotiatedMediaInfo(
                         answered.Kind,
@@ -722,7 +727,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 );
             }
 
-            NegotiatedMedia = negotiated;
+            NegotiatedMedia = negotiated.DrainToImmutable();
             ApplyRemoteBandwidth(description);
             NoteVoiceActivity(description);
             NoteCryptex(description);
@@ -1730,7 +1735,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     private SdpMediaDescription BuildMediaSection(
         string mid,
         SdpMediaKind kind,
-        IReadOnlyList<SdpCodec> codecs,
+        ImmutableArray<SdpCodec> codecs,
         uint ssrc,
         SdpSetup setup,
         SdpDirection direction,
@@ -1912,7 +1917,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
 
     // The codecs this endpoint can handle for a kind, taken from the configured offer lines.
-    private IReadOnlyList<SdpCodec> LocalCodecsFor(SdpMediaKind kind)
+    private ImmutableArray<SdpCodec> LocalCodecsFor(SdpMediaKind kind)
     {
         foreach (MediaLine line in _options.Media)
         {

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -65,9 +66,9 @@ public static class StunLongTermCredential
     /// <summary>The algorithms a PASSWORD-ALGORITHMS value lists, in its order (section 14.11).</summary>
     /// <param name="value">The value.</param>
     /// <returns>The algorithm numbers; unknown ones included.</returns>
-    public static List<ushort> ReadAlgorithms(ReadOnlySpan<byte> value)
+    public static ImmutableArray<ushort> ReadAlgorithms(ReadOnlySpan<byte> value)
     {
-        List<ushort> algorithms = [];
+        ImmutableArray<ushort>.Builder algorithms = ImmutableArray.CreateBuilder<ushort>();
         int at = 0;
         while (at + 4 <= value.Length)
         {
@@ -76,7 +77,7 @@ public static class StunLongTermCredential
             at += 4 + ((parameters + 3) & ~3);
         }
 
-        return algorithms;
+        return algorithms.DrainToImmutable();
     }
 
     /// <summary>A PASSWORD-ALGORITHM value naming an algorithm without parameters (section 14.12).</summary>

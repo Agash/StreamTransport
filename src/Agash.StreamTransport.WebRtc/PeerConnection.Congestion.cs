@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
@@ -493,7 +494,13 @@ public sealed partial class PeerConnection
         {
             int prefix = WriteFeedbackPrefix(rtcp);
             int length =
-                prefix + Ccfb.Build(rtcp[prefix..], _rtcpSenderSsrc, reports, reportTimestamp);
+                prefix
+                + Ccfb.Build(
+                    rtcp[prefix..],
+                    _rtcpSenderSsrc,
+                    CollectionsMarshal.AsSpan(reports),
+                    reportTimestamp
+                );
             int protectedLength = srtp.ProtectRtcp(rtcp, length);
             CountRtcpSent(protectedLength);
             _ = agent.SendInPlaceAsync(
@@ -516,7 +523,7 @@ public sealed partial class PeerConnection
 
     // A report block's bytes: SSRC, begin and count, then two bytes a packet padded to 32 bits.
     private static int BlockLength(CcfbStreamReport report) =>
-        8 + (((report.Metrics.Count + 1) / 2) * 4);
+        8 + (((report.Metrics.Length + 1) / 2) * 4);
 
     // Under _ccGate: when the next report may go, from the bytes reports have cost against the rate limit.
     private void ScheduleNextFeedback(long nowMicros, int bytes)
@@ -587,7 +594,7 @@ public sealed partial class PeerConnection
             TimeSpan reportedAt = transport ? default : UnwrapReportTimestamp(compactTimestamp);
             foreach (CcfbStreamReport stream in _ccfbScratch)
             {
-                for (int i = 0; i < stream.Metrics.Count; i++)
+                for (int i = 0; i < stream.Metrics.Length; i++)
                 {
                     ushort seq = (ushort)(stream.BeginSequence + i);
                     if (!_sentIds.TryGetValue(Key(stream.Ssrc, seq), out long id))

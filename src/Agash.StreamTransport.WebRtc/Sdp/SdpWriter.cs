@@ -49,7 +49,7 @@ public static class SdpWriter
             sb.Append("a=ice-lite\r\n");
         }
 
-        if (description.BundleGroup is { Count: > 0 } bundled)
+        if (description.BundleGroup is { Length: > 0 } bundled)
         {
             sb.Append("a=group:BUNDLE ").Append(string.Join(' ', bundled)).Append("\r\n");
         }
@@ -82,7 +82,7 @@ public static class SdpWriter
             sb.Append(CultureInfo.InvariantCulture, $" {codec.PayloadType}");
         }
 
-        if (media.Codecs.Count == 0)
+        if (media.Codecs.Length == 0)
         {
             foreach (string format in media.Formats)
             {
@@ -91,7 +91,7 @@ public static class SdpWriter
         }
 
         // RFC 8866 section 5.14: an m= line lists at least one format, a rejected one with nothing to list too.
-        if (media.Codecs.Count == 0 && media.Formats.Count == 0)
+        if (media.Codecs.Length == 0 && media.Formats.Length == 0)
         {
             sb.Append(" 0");
         }
@@ -261,7 +261,7 @@ public static class SdpWriter
             }
 
             sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{ssrc} cname:{cname}\r\n");
-            if (media.PreviousSsrcs.Count > 0)
+            if (media.PreviousSsrcs.Length > 0)
             {
                 sb.Append(
                     CultureInfo.InvariantCulture,

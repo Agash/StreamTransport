@@ -42,7 +42,7 @@ public sealed class DependencyInjectionTests
         await using var pc = factory.Create(options);
 
         SdpDescription offer = pc.CreateOffer();
-        Assert.AreEqual(1, offer.Media.Count);
+        Assert.AreEqual(1, offer.Media.Length);
         Assert.AreEqual(certificate.Fingerprint, offer.Media[0].Fingerprints[0]);
         Assert.IsTrue(
             pc.CurrentCapacity.TargetBitsPerSecond > 0,

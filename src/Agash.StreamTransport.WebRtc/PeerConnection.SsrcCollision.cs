@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Frozen;
+using System.Collections.Immutable;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Sdp;
 using Agash.StreamTransport.WebRtc.Srtp;
@@ -61,7 +62,7 @@ public sealed partial class PeerConnection
     }
 
     // The SSRCs a description written now names as previous ones for a stream (section 6.2).
-    private IReadOnlyList<uint> PreviousSsrcs(uint setup)
+    private ImmutableArray<uint> PreviousSsrcs(uint setup)
     {
         if (!_wireSsrcs.ContainsKey(setup))
         {
@@ -70,7 +71,7 @@ public sealed partial class PeerConnection
 
         lock (_ssrcGate)
         {
-            List<uint> previous = [];
+            ImmutableArray<uint>.Builder previous = ImmutableArray.CreateBuilder<uint>();
             foreach ((uint retired, uint from) in _retiredFrom)
             {
                 if (from == setup)
@@ -79,7 +80,7 @@ public sealed partial class PeerConnection
                 }
             }
 
-            return previous;
+            return previous.DrainToImmutable();
         }
     }
 

@@ -23,9 +23,9 @@ Agash.StreamTransport.Http.TrickleIceFragment.<Clone>$() -> Agash.StreamTranspor
 Agash.StreamTransport.Http.TrickleIceFragment.ApplyTo(string! sdp) -> string!
 Agash.StreamTransport.Http.TrickleIceFragment.BundleGroup.get -> string?
 Agash.StreamTransport.Http.TrickleIceFragment.BundleGroup.init -> void
-Agash.StreamTransport.Http.TrickleIceFragment.Candidates.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Agash.StreamTransport.Http.TrickleIceFragment.Candidates.get -> System.Collections.Immutable.ImmutableArray<string!>
 Agash.StreamTransport.Http.TrickleIceFragment.Candidates.init -> void
-Agash.StreamTransport.Http.TrickleIceFragment.Deconstruct(out string? UsernameFragment, out string? Password, out string! MediaLine, out string? Mid, out System.Collections.Generic.IReadOnlyList<string!>! Candidates, out bool EndOfCandidates) -> void
+Agash.StreamTransport.Http.TrickleIceFragment.Deconstruct(out string? UsernameFragment, out string? Password, out string! MediaLine, out string? Mid, out System.Collections.Immutable.ImmutableArray<string!> Candidates, out bool EndOfCandidates) -> void
 Agash.StreamTransport.Http.TrickleIceFragment.EndOfCandidates.get -> bool
 Agash.StreamTransport.Http.TrickleIceFragment.EndOfCandidates.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.Equals(Agash.StreamTransport.Http.TrickleIceFragment? other) -> bool
@@ -40,7 +40,7 @@ Agash.StreamTransport.Http.TrickleIceFragment.Mid.get -> string?
 Agash.StreamTransport.Http.TrickleIceFragment.Mid.init -> void
 Agash.StreamTransport.Http.TrickleIceFragment.Password.get -> string?
 Agash.StreamTransport.Http.TrickleIceFragment.Password.init -> void
-Agash.StreamTransport.Http.TrickleIceFragment.TrickleIceFragment(string? UsernameFragment, string? Password, string! MediaLine, string? Mid, System.Collections.Generic.IReadOnlyList<string!>! Candidates, bool EndOfCandidates = false) -> void
+Agash.StreamTransport.Http.TrickleIceFragment.TrickleIceFragment(string? UsernameFragment, string? Password, string! MediaLine, string? Mid, System.Collections.Immutable.ImmutableArray<string!> Candidates, bool EndOfCandidates = false) -> void
 Agash.StreamTransport.Http.TrickleIceFragment.UsernameFragment.get -> string?
 Agash.StreamTransport.Http.TrickleIceFragment.UsernameFragment.init -> void
 Agash.StreamTransport.Http.WhepClient
@@ -111,7 +111,7 @@ Agash.StreamTransport.MediaProfile.ScreenShare = 1 -> Agash.StreamTransport.Medi
 Agash.StreamTransport.MediaPublisher
 Agash.StreamTransport.MediaPublisher.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.MediaPublisher.MediaPublisher(Agash.StreamTransport.IMediaRoom! room, Agash.StreamTransport.IMediaSessionFactory! sessions, Agash.StreamTransport.MediaEndpoints! sources, Agash.StreamTransport.MediaSessionOptions! options, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.MediaPublisher!>? logger = null) -> void
-Agash.StreamTransport.MediaPublisher.Sessions.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PublishedSession>!
+Agash.StreamTransport.MediaPublisher.Sessions.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.PublishedSession>
 Agash.StreamTransport.MediaPublisher.Start() -> void
 Agash.StreamTransport.MediaSessionOptions
 Agash.StreamTransport.MediaSessionOptions.<Clone>$() -> Agash.StreamTransport.MediaSessionOptions!
@@ -200,10 +200,10 @@ Agash.StreamTransport.RoomClient
 Agash.StreamTransport.RoomClient.ChannelFor(Agash.StreamTransport.PeerId peer) -> Agash.StreamTransport.ISignalingChannel!
 Agash.StreamTransport.RoomClient.ControlReceived -> System.Action<Agash.StreamTransport.PeerControlMessage!>?
 Agash.StreamTransport.RoomClient.DisposeAsync() -> System.Threading.Tasks.ValueTask
-Agash.StreamTransport.RoomClient.IceServers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.IceServer!>!
+Agash.StreamTransport.RoomClient.IceServers.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
 Agash.StreamTransport.RoomClient.PeerJoined -> System.Action<Agash.StreamTransport.PeerInfo>?
 Agash.StreamTransport.RoomClient.PeerLeft -> System.Action<Agash.StreamTransport.PeerId>?
-Agash.StreamTransport.RoomClient.Peers.get -> System.Collections.Generic.IReadOnlyList<Agash.StreamTransport.PeerInfo>!
+Agash.StreamTransport.RoomClient.Peers.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.PeerInfo>
 Agash.StreamTransport.RoomClient.Self.get -> Agash.StreamTransport.PeerId
 Agash.StreamTransport.RoomClient.SendControlAsync(string! topic, string! payload, Agash.StreamTransport.PeerId? to = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.RoomClient.State.get -> Agash.StreamTransport.RoomState!
@@ -340,8 +340,8 @@ override Agash.StreamTransport.VideoFrameTimingReport.ToString() -> string!
 static Agash.StreamTransport.Http.HttpSignalingOptions.operator !=(Agash.StreamTransport.Http.HttpSignalingOptions? left, Agash.StreamTransport.Http.HttpSignalingOptions? right) -> bool
 static Agash.StreamTransport.Http.HttpSignalingOptions.operator ==(Agash.StreamTransport.Http.HttpSignalingOptions? left, Agash.StreamTransport.Http.HttpSignalingOptions? right) -> bool
 static Agash.StreamTransport.Http.IceServerLinks.Format(System.Collections.Generic.IEnumerable<Agash.StreamTransport.IceServer!>! servers) -> System.Collections.Generic.IEnumerable<string!>!
-static Agash.StreamTransport.Http.IceServerLinks.Parse(System.Collections.Generic.IEnumerable<string!>! values) -> System.Collections.Generic.List<Agash.StreamTransport.IceServer!>!
-static Agash.StreamTransport.Http.TrickleIceFragment.ForFirstSection(string! sdp, System.Collections.Generic.IReadOnlyList<string!>! candidates) -> Agash.StreamTransport.Http.TrickleIceFragment!
+static Agash.StreamTransport.Http.IceServerLinks.Parse(System.Collections.Generic.IEnumerable<string!>! values) -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.IceServer!>
+static Agash.StreamTransport.Http.TrickleIceFragment.ForFirstSection(string! sdp, System.Collections.Immutable.ImmutableArray<string!> candidates) -> Agash.StreamTransport.Http.TrickleIceFragment!
 static Agash.StreamTransport.Http.TrickleIceFragment.FromFirstSection(string! sdp) -> Agash.StreamTransport.Http.TrickleIceFragment!
 static Agash.StreamTransport.Http.TrickleIceFragment.TryParse(string! body, out Agash.StreamTransport.Http.TrickleIceFragment! fragment) -> bool
 static Agash.StreamTransport.Http.TrickleIceFragment.operator !=(Agash.StreamTransport.Http.TrickleIceFragment? left, Agash.StreamTransport.Http.TrickleIceFragment? right) -> bool

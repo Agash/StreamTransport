@@ -32,7 +32,7 @@ public sealed class RtpFrameBufferTests
         Assert.AreEqual(0, pb.Insert(seq++, ts, marker: false, SingleNal(Vps)).Frames.Count);
         Assert.AreEqual(0, pb.Insert(seq++, ts, marker: false, SingleNal(Sps)).Frames.Count);
         Assert.AreEqual(0, pb.Insert(seq++, ts, marker: false, SingleNal(Pps)).Frames.Count);
-        RtpFrameBuffer.InsertResult result = pb.Insert(seq, ts, marker: true, SingleNal(IdrWRadl));
+        InsertOutcome result = pb.Insert(seq, ts, marker: true, SingleNal(IdrWRadl));
 
         Assert.AreEqual(1, result.Frames.Count, "the IDR marker packet completes the keyframe.");
         Assert.IsTrue(result.Frames[0].IsKeyframe, "VPS+SPS+PPS+IDR is a keyframe.");
@@ -53,7 +53,7 @@ public sealed class RtpFrameBufferTests
         Assert.AreEqual(1, pb.Insert(seq++, kfTs, true, SingleNal(IdrWRadl)).Frames.Count);
 
         // Two one-packet delta frames at seq 2004 and 2005, but 2005 arrives BEFORE 2004 (reordering / RTX).
-        RtpFrameBuffer.InsertResult outOfOrder = pb.Insert(2005, 183000, true, SingleNal(TrailR));
+        InsertOutcome outOfOrder = pb.Insert(2005, 183000, true, SingleNal(TrailR));
         Assert.AreEqual(
             0,
             outOfOrder.Frames.Count,
@@ -62,7 +62,7 @@ public sealed class RtpFrameBufferTests
         Assert.IsTrue(pb.HasUnresolvedGap, "the buffer reports the unfilled hole at 2004.");
 
         // The missing packet arrives: it completes its own frame AND unblocks the buffered 2005.
-        RtpFrameBuffer.InsertResult filled = pb.Insert(2004, 182000, true, SingleNal(TrailR));
+        InsertOutcome filled = pb.Insert(2004, 182000, true, SingleNal(TrailR));
         Assert.AreEqual(
             2,
             filled.Frames.Count,
@@ -83,7 +83,7 @@ public sealed class RtpFrameBufferTests
         ushort seq = 3000;
         const uint ts = 270000;
         pb.Insert(seq++, ts, false, SingleNal(Vps));
-        RtpFrameBuffer.InsertResult result = pb.Insert(seq, ts, true, SingleNal(IdrWRadl));
+        InsertOutcome result = pb.Insert(seq, ts, true, SingleNal(IdrWRadl));
 
         Assert.AreEqual(0, result.Frames.Count, "an IRAP without SPS/PPS is not assembled.");
         Assert.IsTrue(
@@ -122,7 +122,7 @@ public sealed class RtpFrameBufferTests
         List<byte[]> packets = Packets(H264PayloadFormat.Instance, accessUnit, 1100);
         using RtpFrameBuffer buffer = new(H264PayloadFormat.Instance);
 
-        RtpFrameBuffer.InsertResult result = buffer.Insert(10, 9000, true, packets[0]);
+        InsertOutcome result = buffer.Insert(10, 9000, true, packets[0]);
 
         Assert.IsEmpty(result.Frames);
         Assert.IsTrue(result.KeyframeRequired);
@@ -150,7 +150,7 @@ public sealed class RtpFrameBufferTests
 
         // The delta frame after the keyframe's is lost; the one after it arrives.
         ushort next = (ushort)(60_000 + keyPackets.Count + 1);
-        RtpFrameBuffer.InsertResult late = buffer.Insert(
+        InsertOutcome late = buffer.Insert(
             next,
             9000,
             true,
@@ -180,7 +180,7 @@ public sealed class RtpFrameBufferTests
         int[] order = [0, .. Enumerable.Range(1, packets.Count - 1).Reverse()];
         foreach (int i in order)
         {
-            RtpFrameBuffer.InsertResult result = buffer.Insert(
+            InsertOutcome result = buffer.Insert(
                 (ushort)(firstSequence + i),
                 timestamp,
                 i == packets.Count - 1,

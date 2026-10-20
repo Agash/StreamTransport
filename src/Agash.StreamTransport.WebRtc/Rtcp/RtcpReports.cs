@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
 
 namespace Agash.StreamTransport.WebRtc.Rtcp;
@@ -78,13 +80,13 @@ public readonly record struct RtcpSenderReport(
     uint RtpTimestamp,
     uint SenderPacketCount,
     uint SenderOctetCount,
-    IReadOnlyList<RtcpReportBlock> ReportBlocks
+    ImmutableArray<RtcpReportBlock> ReportBlocks
 )
 {
     /// <summary>Serializes the sender report, returning the number of bytes written.</summary>
     public int Write(Span<byte> destination)
     {
-        int count = ReportBlocks.Count;
+        int count = ReportBlocks.Length;
         int length = 28 + (count * RtcpReportBlock.Length);
         destination[0] = (byte)(0x80 | count); // V=2, P=0, RC
         destination[1] = (byte)RtcpPacketType.SenderReport;
@@ -130,7 +132,7 @@ public readonly record struct RtcpSenderReport(
                 BinaryPrimitives.ReadUInt32BigEndian(body[12..]),
                 BinaryPrimitives.ReadUInt32BigEndian(body[16..]),
                 BinaryPrimitives.ReadUInt32BigEndian(body[20..]),
-                blocks
+                ImmutableCollectionsMarshal.AsImmutableArray(blocks)
             );
             return true;
         }
@@ -142,13 +144,13 @@ public readonly record struct RtcpSenderReport(
 /// <summary>An RTCP Receiver Report (RFC 3550 §6.4.2).</summary>
 public readonly record struct RtcpReceiverReport(
     uint Ssrc,
-    IReadOnlyList<RtcpReportBlock> ReportBlocks
+    ImmutableArray<RtcpReportBlock> ReportBlocks
 )
 {
     /// <summary>Serializes the receiver report, returning the number of bytes written.</summary>
     public int Write(Span<byte> destination)
     {
-        int count = ReportBlocks.Count;
+        int count = ReportBlocks.Length;
         int length = 8 + (count * RtcpReportBlock.Length);
         destination[0] = (byte)(0x80 | count);
         destination[1] = (byte)RtcpPacketType.ReceiverReport;
@@ -187,7 +189,7 @@ public readonly record struct RtcpReceiverReport(
 
             report = new RtcpReceiverReport(
                 BinaryPrimitives.ReadUInt32BigEndian(element.Body),
-                blocks
+                ImmutableCollectionsMarshal.AsImmutableArray(blocks)
             );
             return true;
         }

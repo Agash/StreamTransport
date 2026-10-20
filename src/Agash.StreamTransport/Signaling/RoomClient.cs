@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Net.WebSockets;
 
 namespace Agash.StreamTransport;
@@ -36,7 +37,7 @@ public sealed class RoomClient : IMediaRoom
     public RoomState State { get; private set; } = new(default, [], []);
 
     /// <summary>The ICE servers the router provisioned for this peer (STUN, plus any TURN with credentials).</summary>
-    public IReadOnlyList<IceServer> IceServers => State.IceServers;
+    public ImmutableArray<IceServer> IceServers => State.IceServers;
 
     /// <summary>Raised when another peer joins the room.</summary>
     public event Action<PeerInfo>? PeerJoined;
@@ -157,7 +158,7 @@ public sealed class RoomClient : IMediaRoom
     /// The peers currently in the room (other than this one), kept live as peers join and leave. Prefer
     /// this over <see cref="State"/>.<see cref="RoomState.Peers"/>, which is only the snapshot from join.
     /// </summary>
-    public IReadOnlyList<PeerInfo> Peers => [.. _peers.Values];
+    public ImmutableArray<PeerInfo> Peers => [.. _peers.Values];
 
     /// <summary>
     /// The signaling channel for the media session with <paramref name="peer"/>, created on first use.

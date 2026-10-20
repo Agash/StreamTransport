@@ -23,7 +23,7 @@ public sealed class WebRtcSessionDescriptionFormat : ISessionDescriptionFormat
     {
         if (
             !SdpReader.TryParse(description.Sdp, out SdpDescription parsed)
-            || parsed.Media.Count == 0
+            || parsed.Media.Length == 0
         )
         {
             return false;
@@ -40,7 +40,7 @@ public sealed class WebRtcSessionDescriptionFormat : ISessionDescriptionFormat
             if (
                 string.IsNullOrEmpty(section.IceUfrag)
                 || string.IsNullOrEmpty(section.IcePwd)
-                || section.Fingerprints.Count == 0
+                || section.Fingerprints.Length == 0
                 || (section.Setup == SdpSetup.ActPass) != offer
             )
             {

@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 
 namespace Agash.StreamTransport.WebRtc.Rtcp;
 
@@ -12,7 +14,7 @@ public readonly record struct CcfbMetric(bool Received, byte Ecn, ushort Arrival
 public readonly record struct CcfbStreamReport(
     uint Ssrc,
     ushort BeginSequence,
-    IReadOnlyList<CcfbMetric> Metrics
+    ImmutableArray<CcfbMetric> Metrics
 );
 
 /// <summary>
@@ -52,7 +54,7 @@ public static class Ccfb
     public static int Build(
         Span<byte> destination,
         uint senderSsrc,
-        IReadOnlyList<CcfbStreamReport> streams,
+        ReadOnlySpan<CcfbStreamReport> streams,
         uint reportTimestamp
     )
     {
@@ -70,7 +72,7 @@ public static class Ccfb
             );
             BinaryPrimitives.WriteUInt16BigEndian(
                 destination[(offset + 6)..],
-                (ushort)stream.Metrics.Count
+                (ushort)stream.Metrics.Length
             );
             offset += 8;
 
@@ -85,7 +87,7 @@ public static class Ccfb
                 offset += 2;
             }
 
-            if (stream.Metrics.Count % 2 != 0)
+            if (stream.Metrics.Length % 2 != 0)
             {
                 BinaryPrimitives.WriteUInt16BigEndian(destination[offset..], 0); // pad to 32-bit boundary
                 offset += 2;
@@ -148,7 +150,13 @@ public static class Ccfb
                     o += 2; // skip pad
                 }
 
-                streams.Add(new CcfbStreamReport(ssrc, beginSeq, metrics));
+                streams.Add(
+                    new CcfbStreamReport(
+                        ssrc,
+                        beginSeq,
+                        ImmutableCollectionsMarshal.AsImmutableArray(metrics)
+                    )
+                );
             }
 
             reportTimestamp = BinaryPrimitives.ReadUInt32BigEndian(body[end..]);

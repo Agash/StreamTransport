@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Dtls.Core;
 
 namespace Agash.StreamTransport.WebRtc.Sdp;
@@ -70,7 +71,7 @@ public readonly record struct SdpCodec(
     int ClockRate,
     int? Channels,
     string? FormatParameters,
-    IReadOnlyList<string> RtcpFeedback
+    ImmutableArray<string> RtcpFeedback
 );
 
 /// <summary>
@@ -95,7 +96,7 @@ public sealed record SdpMediaDescription
     public bool Rejected { get; init; }
 
     /// <summary>The offered/answered codecs in preference order.</summary>
-    public required IReadOnlyList<SdpCodec> Codecs { get; init; }
+    public required ImmutableArray<SdpCodec> Codecs { get; init; }
 
     /// <summary>The ICE username fragment (<c>a=ice-ufrag</c>).</summary>
     public required string IceUfrag { get; init; }
@@ -107,7 +108,7 @@ public sealed record SdpMediaDescription
     /// The DTLS certificate fingerprints (<c>a=fingerprint</c>, RFC 8122 section 5.1): one or more, of
     /// one or more hash functions; the peer's certificate has to match one using the strongest.
     /// </summary>
-    public required IReadOnlyList<DtlsFingerprint> Fingerprints { get; init; }
+    public required ImmutableArray<DtlsFingerprint> Fingerprints { get; init; }
 
     /// <summary>
     /// The DTLS association's identifier on this side (<c>a=tls-id</c>, RFC 8842 section 4), on the
@@ -137,7 +138,7 @@ public sealed record SdpMediaDescription
     /// (a data channel's <c>webrtc-datachannel</c>); empty for RTP sections, which list
     /// <see cref="Codecs"/>.
     /// </summary>
-    public IReadOnlyList<string> Formats { get; init; } = [];
+    public ImmutableArray<string> Formats { get; init; } = [];
 
     /// <summary>
     /// Whether the endpoint receives RTP with encrypted header extensions and CSRCs (<c>a=cryptex</c>, RFC 9335
@@ -196,7 +197,7 @@ public sealed record SdpMediaDescription
     public SdpEcnCapability? Ecn { get; init; }
 
     /// <summary>The RTP header extensions mapped for this section (<c>a=extmap</c>, RFC 8285).</summary>
-    public IReadOnlyList<SdpExtension> Extensions { get; init; } = [];
+    public ImmutableArray<SdpExtension> Extensions { get; init; } = [];
 
     /// <summary>
     /// Whether one- and two-byte extension elements may mix in one packet (<c>a=extmap-allow-mixed</c>,
@@ -223,7 +224,7 @@ public sealed record SdpMediaDescription
     /// The SSRCs the media source used before a collision moved it to <see cref="Ssrc"/>
     /// (<c>a=ssrc:... previous-ssrc:</c>, RFC 5576 section 6.2); empty for none.
     /// </summary>
-    public IReadOnlyList<uint> PreviousSsrcs { get; init; } = [];
+    public ImmutableArray<uint> PreviousSsrcs { get; init; } = [];
 
     /// <summary>The RTCP canonical name (<c>a=ssrc ... cname:</c>).</summary>
     public string? Cname { get; init; }
@@ -232,14 +233,14 @@ public sealed record SdpMediaDescription
     /// The ICE candidates carried in the section (<c>a=candidate</c>), as a peer that does not trickle
     /// (WHIP, WHEP, an ICE-lite server) sends them.
     /// </summary>
-    public IReadOnlyList<Ice.IceCandidate> Candidates { get; init; } = [];
+    public ImmutableArray<Ice.IceCandidate> Candidates { get; init; } = [];
 
     /// <summary>
     /// The <c>a=candidate</c> values this stack cannot use, as written: mDNS host names (RFC 8839 section
     /// 5.1), TCP candidates and malformed lines. A peer behind an mDNS name is still reached, as a
     /// peer-reflexive candidate, once its checks arrive.
     /// </summary>
-    public IReadOnlyList<string> IgnoredCandidates { get; init; } = [];
+    public ImmutableArray<string> IgnoredCandidates { get; init; } = [];
 
     /// <summary>The ICE options the section signals (<c>a=ice-options</c>), at session or media level.</summary>
     public Ice.IceOptions IceOptions { get; init; } = Ice.IceOptions.Trickle;
@@ -276,7 +277,7 @@ public readonly record struct SdpExtension(
 public sealed record SdpDescription
 {
     /// <summary>The media sections, in m-line order.</summary>
-    public required IReadOnlyList<SdpMediaDescription> Media { get; init; }
+    public required ImmutableArray<SdpMediaDescription> Media { get; init; }
 
     /// <summary>The session identifier for the <c>o=</c> line.</summary>
     public long SessionId { get; init; } = SecureRandom.SessionId();
@@ -291,7 +292,7 @@ public sealed record SdpDescription
     /// The mids of the BUNDLE group (<c>a=group:BUNDLE</c>, RFC 9143), offerer-tagged first; null when the
     /// description has none. An answer has one only when the offer did (section 7.3).
     /// </summary>
-    public IReadOnlyList<string>? BundleGroup { get; init; }
+    public ImmutableArray<string>? BundleGroup { get; init; }
 
     /// <summary>Whether the peer runs ICE-lite (<c>a=ice-lite</c>), answering checks without making its own.</summary>
     public bool IceLite { get; init; }

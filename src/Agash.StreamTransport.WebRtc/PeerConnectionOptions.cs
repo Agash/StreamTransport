@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.WebRtc.Ice;
@@ -16,7 +17,7 @@ public sealed record MediaLine(
     string Mid,
     SdpMediaKind Kind,
     uint LocalSsrc,
-    IReadOnlyList<SdpCodec> Codecs
+    ImmutableArray<SdpCodec> Codecs
 )
 {
     /// <summary>
@@ -60,8 +61,8 @@ public sealed record NegotiatedMediaInfo(
     SdpMediaKind Kind,
     string Mid,
     uint LocalSsrc,
-    IReadOnlyList<SdpCodec> Codecs,
-    IReadOnlyList<SdpCodec> RemoteCodecs
+    ImmutableArray<SdpCodec> Codecs,
+    ImmutableArray<SdpCodec> RemoteCodecs
 )
 {
     /// <summary>
@@ -133,7 +134,7 @@ public sealed class PeerConnectionOptions
     public Adaptation.PathMtuOptions? PathMtu { get; init; } = new();
 
     /// <summary>The media lines to negotiate (offerer side); the answerer mirrors the remote offer.</summary>
-    public IReadOnlyList<MediaLine> Media { get; init; } = [];
+    public ImmutableArray<MediaLine> Media { get; init; } = [];
 
     /// <summary>
     /// The payload formats that decide whether an offered codec matches one of this endpoint's, beyond
@@ -150,10 +151,10 @@ public sealed class PeerConnectionOptions
     public IIceSocketFactory? SocketFactory { get; init; }
 
     /// <summary>STUN servers to gather server-reflexive candidates from.</summary>
-    public IReadOnlyList<IPEndPoint> StunServers { get; init; } = [];
+    public ImmutableArray<IPEndPoint> StunServers { get; init; } = [];
 
     /// <summary>TURN servers to allocate relayed candidates on.</summary>
-    public IReadOnlyList<TurnServer> TurnServers { get; init; } = [];
+    public ImmutableArray<TurnServer> TurnServers { get; init; } = [];
 
     /// <summary>Which candidates ICE gathers; <see cref="IceTransportPolicy.Relay"/> sends only through TURN.</summary>
     public IceTransportPolicy IceTransportPolicy { get; init; } = IceTransportPolicy.All;
@@ -168,7 +169,7 @@ public sealed class PeerConnectionOptions
     /// the link; pinning NIC names (e.g. the two cellular modems on an IRL field uplink) keeps gathering off
     /// unwanted interfaces such as Wi-Fi.
     /// </summary>
-    public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
+    public ImmutableArray<string> LocalAddressPreferences { get; init; } = [];
 
     /// <summary>
     /// How loss repair is planned when FlexFEC is negotiated: the FEC group size follows the path's loss,

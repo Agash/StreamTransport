@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 
 namespace Agash.StreamTransport.Http;
@@ -34,10 +35,10 @@ public static class IceServerLinks
     /// <summary>The ICE servers among link values; links of other relations are skipped.</summary>
     /// <param name="values">The <c>Link</c> header values, each possibly holding several links.</param>
     /// <returns>The servers.</returns>
-    public static List<IceServer> Parse(IEnumerable<string> values)
+    public static ImmutableArray<IceServer> Parse(IEnumerable<string> values)
     {
         ArgumentNullException.ThrowIfNull(values);
-        List<IceServer> servers = [];
+        ImmutableArray<IceServer>.Builder servers = ImmutableArray.CreateBuilder<IceServer>();
         foreach (string value in values)
         {
             foreach (string link in Split(value, ','))
@@ -74,7 +75,7 @@ public static class IceServerLinks
             }
         }
 
-        return servers;
+        return servers.DrainToImmutable();
     }
 
     // Splits on a separator outside quotes and angle brackets.
