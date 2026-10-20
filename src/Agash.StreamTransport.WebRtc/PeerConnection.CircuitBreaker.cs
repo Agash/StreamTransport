@@ -196,6 +196,15 @@ public sealed partial class PeerConnection
         CircuitBreakerChanged?.Invoke(state, reason);
     }
 
+    // A stream that left its SSRC (a collision) leaves its breaker: nothing is sent or reported on it.
+    private void ForgetBreaker(uint ssrc)
+    {
+        lock (_breakerGate)
+        {
+            _ = _breakers.Remove(ssrc);
+        }
+    }
+
     // While reduced, the capacity the pacer and the media layer see is held to the breaker's cap.
     private CapacityEstimate ApplyBreakerCap(CapacityEstimate estimate)
     {

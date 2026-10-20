@@ -641,6 +641,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         _refuseNewAssociation = false;
         _remoteDescription = description;
+        AvoidSignalledCollisions(description);
         NoteRtcpCapabilities(description);
         _expectedRemoteFingerprints = first.Fingerprints;
 
@@ -951,6 +952,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         int payloadLength = payload.Length;
         StampPacerExit(packet.Buffer, header.Ssrc, header.SequenceNumber);
+        RewriteSsrc(packet.Buffer);
+        header = header with { Ssrc = WireSsrc(header.Ssrc) };
         int length = StampTransportSequence(
             packet.Buffer,
             packet.Length,
@@ -1442,8 +1445,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
     }
 
     // Repairs go through the pacer ahead of new video and inside the same budget (RFC 4588 section 7).
-    private void Retransmit(uint mediaSsrc, List<ushort> lostSequences)
+    private void Retransmit(uint wireSsrc, List<ushort> lostSequences)
     {
+        // Feedback names the SSRC as it went out; the history keeps the one the stream set up with.
+        uint mediaSsrc = SetupSsrc(wireSsrc);
         if (
             !_retransmit
             || !Volatile.Read(ref _rtx).Send.TryGetValue(mediaSsrc, out RtxSender? rtx)
@@ -1511,6 +1516,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             return;
         }
+
+        // RFC 3550 section 8.2: the peer sending from one of this side's SSRCs.
+        CheckCollision(header.Ssrc);
 
         // Congestion feedback and reception reports cover what crossed the wire, so a retransmission
         // counts under the RTX stream's SSRC and sequence.
@@ -1644,12 +1652,15 @@ public sealed partial class PeerConnection : IAsyncDisposable
             IcePwd = _localIceCredentials.Password,
             Fingerprints = [_certificate.Fingerprint],
             Setup = setup,
-            Ssrc = ssrc == 0 ? null : ssrc,
-            RtxSsrc = ssrc == 0 ? null : rtxSsrc,
+            Ssrc = ssrc == 0 ? null : WireSsrc(ssrc),
+            PreviousSsrcs = ssrc == 0 ? [] : PreviousSsrcs(ssrc),
+            RtxSsrc = ssrc == 0 || rtxSsrc is not { } rtx ? null : WireSsrc(rtx),
             FecSsrc =
-                ssrc == 0 || direction is SdpDirection.RecvOnly or SdpDirection.Inactive
+                ssrc == 0
+                || direction is SdpDirection.RecvOnly or SdpDirection.Inactive
+                || fecSsrc is not { } fec
                     ? null
-                    : fecSsrc,
+                    : WireSsrc(fec),
             Cname = _cname,
             Ecn = LocalEcnCapability,
             Extensions = OfferedExtensions(kind),
@@ -1682,7 +1693,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     and not 0
         )
         {
-            return local;
+            return WireSsrc(local);
         }
 
         if (

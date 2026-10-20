@@ -58,7 +58,7 @@ public sealed partial class PeerConnection
                 {
                     if (ssrc is { } local and not 0)
                     {
-                        localMids[local] = tag;
+                        localMids[WireSsrc(local)] = tag;
                     }
                 }
             }

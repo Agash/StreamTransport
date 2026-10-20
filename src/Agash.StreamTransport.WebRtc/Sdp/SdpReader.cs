@@ -247,6 +247,7 @@ public static class SdpReader
                     Ssrc = m.Ssrc,
                     RtxSsrc = m.RtxSsrc,
                     FecSsrc = m.FecSsrc,
+                    PreviousSsrcs = m.PreviousSsrcs,
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
                     IgnoredCandidates = [.. sessionIgnored, .. m.IgnoredCandidates],
@@ -483,6 +484,8 @@ public static class SdpReader
         public uint? RtxSsrc { get; private set; }
 
         public uint? FecSsrc { get; private set; }
+
+        public List<uint> PreviousSsrcs { get; } = [];
         public bool PortZero { get; init; }
         public bool BundleOnly { get; private set; }
         public bool RtcpMuxOnly { get; private set; }
@@ -751,12 +754,43 @@ public static class SdpReader
         private void ParseSsrc(string value)
         {
             string[] parts = value.Split(' ', 2);
-            if (uint.TryParse(parts[0], out uint ssrc))
+            if (
+                uint.TryParse(
+                    parts[0],
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out uint ssrc
+                )
+            )
             {
                 Ssrc ??= ssrc;
                 if (parts.Length == 2 && TryValue(parts[1], "cname:", out string cname))
                 {
                     Cname ??= cname;
+                }
+                else if (
+                    parts.Length == 2
+                    && TryValue(parts[1], "previous-ssrc:", out string previous)
+                    && ssrc == Ssrc
+                )
+                {
+                    // RFC 5576 section 6.2: one or more SSRCs the source used before.
+                    foreach (
+                        string each in previous.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    )
+                    {
+                        if (
+                            uint.TryParse(
+                                each,
+                                NumberStyles.None,
+                                CultureInfo.InvariantCulture,
+                                out uint old
+                            )
+                        )
+                        {
+                            PreviousSsrcs.Add(old);
+                        }
+                    }
                 }
             }
         }

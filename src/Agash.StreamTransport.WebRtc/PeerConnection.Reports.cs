@@ -371,6 +371,7 @@ public sealed partial class PeerConnection
     private void NoteRtcpMembers(ReadOnlySpan<byte> rtcp, int wireLength, long now)
     {
         int reporting = 0;
+        uint colliding = 0;
         lock (_reportGate)
         {
             int before = _remoteMembers.Count;
@@ -410,6 +411,12 @@ public sealed partial class PeerConnection
                 )
                 {
                     reporting++;
+
+                    // RFC 3550 section 8.2: the peer reporting from one of this side's SSRCs.
+                    if (IsLocalWireSsrc(sender))
+                    {
+                        colliding = sender;
+                    }
                 }
 
                 if (
@@ -434,6 +441,11 @@ public sealed partial class PeerConnection
                 scheduler.MembersLeft(now, members, _membership.Members);
                 _membership = _membership with { Members = members };
             }
+        }
+
+        if (colliding != 0)
+        {
+            ResolveCollision(colliding, "the peer reports from it");
         }
     }
 

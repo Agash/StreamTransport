@@ -189,6 +189,7 @@ Agash.StreamTransport.WebRtc.PeerConnection.EcnStateChanged -> System.Action<Aga
 Agash.StreamTransport.WebRtc.PeerConnection.KeyframeRequested -> System.Action<uint>?
 Agash.StreamTransport.WebRtc.PeerConnection.LocalFingerprint.get -> Dtls.Core.DtlsFingerprint
 Agash.StreamTransport.WebRtc.PeerConnection.LocalIceCandidate -> System.Action<Agash.StreamTransport.WebRtc.Ice.IceCandidate>?
+Agash.StreamTransport.WebRtc.PeerConnection.LocalSsrcChanged -> System.Action<uint, uint>?
 Agash.StreamTransport.WebRtc.PeerConnection.MaximumDatagramSize.get -> int
 Agash.StreamTransport.WebRtc.PeerConnection.MaximumDatagramSizeChanged -> System.Action<int>?
 Agash.StreamTransport.WebRtc.PeerConnection.MaximumRtpPayloadSize.get -> int
@@ -746,6 +747,8 @@ Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.MediaStreamId.get -> string
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.MediaStreamId.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Mid.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Mid.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.PreviousSsrcs.get -> System.Collections.Generic.IReadOnlyList<uint>!
+Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.PreviousSsrcs.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Protocol.get -> string!
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Protocol.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription.Rejected.get -> bool

@@ -210,6 +210,12 @@ public sealed record SdpMediaDescription
     /// </summary>
     public uint? FecSsrc { get; init; }
 
+    /// <summary>
+    /// The SSRCs the media source used before a collision moved it to <see cref="Ssrc"/>
+    /// (<c>a=ssrc:... previous-ssrc:</c>, RFC 5576 section 6.2); empty for none.
+    /// </summary>
+    public IReadOnlyList<uint> PreviousSsrcs { get; init; } = [];
+
     /// <summary>The RTCP canonical name (<c>a=ssrc ... cname:</c>).</summary>
     public string? Cname { get; init; }
 

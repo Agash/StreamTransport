@@ -261,6 +261,13 @@ public static class SdpWriter
             }
 
             sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{ssrc} cname:{cname}\r\n");
+            if (media.PreviousSsrcs.Count > 0)
+            {
+                sb.Append(
+                    CultureInfo.InvariantCulture,
+                    $"a=ssrc:{ssrc} previous-ssrc:{string.Join(' ', media.PreviousSsrcs)}\r\n"
+                );
+            }
             if (media.RtxSsrc is { } rtxSsrc)
             {
                 sb.Append(CultureInfo.InvariantCulture, $"a=ssrc:{rtxSsrc} cname:{cname}\r\n");
