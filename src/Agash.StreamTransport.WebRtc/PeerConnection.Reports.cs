@@ -543,13 +543,23 @@ public sealed partial class PeerConnection
             return;
         }
 
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(1400);
+        // Built behind the headroom a relay frames into, so the packet goes out in place.
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            Ice.IceAgent.SendHeadroom + Ice.IceAgent.SendTailroom + 1400
+        );
+        Span<byte> rtcp = buffer.AsSpan(Ice.IceAgent.SendHeadroom);
         try
         {
-            int length = WriteReports(buffer, goodbye, out int reporting);
-            int protectedLength = srtp.ProtectRtcp(buffer, length);
+            int length = WriteReports(rtcp, goodbye, out int reporting);
+            int protectedLength = srtp.ProtectRtcp(rtcp, length);
             CountRtcpSent(protectedLength, reporting);
-            _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
+            _ = agent.SendInPlaceAsync(
+                buffer,
+                Ice.IceAgent.SendHeadroom,
+                protectedLength,
+                default,
+                default
+            );
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -12,6 +12,8 @@ namespace Agash.StreamTransport.WebRtc.Tests;
 [TestClass]
 public sealed class TurnAllocationTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestMethod]
     [DataRow(TurnTransport.Udp)]
     [DataRow(TurnTransport.Tcp)]
@@ -153,6 +155,78 @@ public sealed class TurnAllocationTests
             server.RefusedSends,
             "no Send indication went out ahead of the permission"
         );
+    }
+
+    // RFC 8656 sections 11.4 and 12.4: a datagram with free bytes in front of it is framed there, a Send
+    // indication before the channel is bound and ChannelData after, and the peer gets exactly the data.
+    [TestMethod]
+    [Timeout(10_000)]
+    public async Task SendInPlace_FramesInTheHeadroom_AndThePeerGetsTheData()
+    {
+        await using var server = new TestTurnServer(IPAddress.Loopback);
+        using TurnAllocation allocation = await Allocate(
+            server,
+            TurnTransport.Udp,
+            TimeProvider.System
+        );
+        _ = Pump(allocation);
+        using var peer = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        peer.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var destination = (IPEndPoint)peer.LocalEndPoint!;
+        await allocation.SendAsync("permit"u8.ToArray(), destination, default);
+        CollectionAssert.AreEqual("permit"u8.ToArray(), await ReceiveAsync(peer));
+
+        HashSet<byte> framings = [];
+        for (int i = 0; i < 20 && framings.Count < 2; i++)
+        {
+            byte[] buffer = new byte[IceAgent.SendHeadroom + 5 + IceAgent.SendTailroom];
+            buffer.AsSpan(0, IceAgent.SendHeadroom).Fill(0xEE);
+            "media"u8.CopyTo(buffer.AsSpan(IceAgent.SendHeadroom));
+
+            await allocation.SendInPlaceAsync(
+                buffer,
+                IceAgent.SendHeadroom,
+                5,
+                destination,
+                default,
+                TestContext.CancellationToken
+            );
+
+            CollectionAssert.AreEqual("media"u8.ToArray(), await ReceiveAsync(peer));
+            // A ChannelData header's first byte is 0x40 to 0x4F; a Send indication's header ends 36 bytes
+            // before an IPv4 peer's data.
+            byte channelByte = buffer[IceAgent.SendHeadroom - 4];
+            framings.Add(
+                channelByte is >= 0x40 and <= 0x4F ? (byte)1
+                : buffer[IceAgent.SendHeadroom - 36] == 0x00
+                && buffer[IceAgent.SendHeadroom - 35] == 0x16
+                    ? (byte)2
+                : (byte)0
+            );
+            await server.WhenChannelBound.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.CancellationToken
+            );
+        }
+
+        Assert.DoesNotContain((byte)0, framings, "the frame was written in the headroom");
+        Assert.Contains((byte)1, framings, "ChannelData once the channel is bound");
+    }
+
+    private async Task<byte[]> ReceiveAsync(Socket peer)
+    {
+        byte[] buffer = new byte[64];
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.CancellationToken
+        );
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        SocketReceiveFromResult arrived = await peer.ReceiveFromAsync(
+            buffer,
+            SocketFlags.None,
+            new IPEndPoint(IPAddress.Any, 0),
+            timeout.Token
+        );
+        return buffer[..arrived.ReceivedBytes];
     }
 
     // RFC 8656 section 11.4: a Data indication from an address with no active permission is dropped.

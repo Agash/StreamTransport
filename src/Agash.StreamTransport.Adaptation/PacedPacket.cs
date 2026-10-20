@@ -10,4 +10,14 @@ namespace Agash.StreamTransport.Adaptation;
 /// </param>
 /// <param name="Length">The packet's length.</param>
 /// <param name="Class">What it carries.</param>
-public readonly record struct PacedPacket(byte[] Buffer, int Length, TrafficClass Class);
+public readonly record struct PacedPacket(byte[] Buffer, int Length, TrafficClass Class)
+{
+    /// <summary>
+    /// Where the packet starts in <see cref="Buffer"/>. The bytes before it are free for a transport to
+    /// write its own header into, so the packet goes out without a copy (a TURN relay's ChannelData).
+    /// </summary>
+    public int Offset { get; init; }
+
+    /// <summary>The packet's bytes.</summary>
+    public Memory<byte> Packet => Buffer.AsMemory(Offset, Length);
+}

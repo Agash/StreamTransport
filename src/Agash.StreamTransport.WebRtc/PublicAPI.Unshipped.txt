@@ -8,6 +8,7 @@ Agash.StreamTransport.WebRtc.Ice.IIceSocket
 Agash.StreamTransport.WebRtc.Ice.IIceSocket.LocalEndPoint.get -> System.Net.IPEndPoint!
 Agash.StreamTransport.WebRtc.Ice.IIceSocket.ReceiveAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.WebRtc.Ice.IceReceiveResult>
 Agash.StreamTransport.WebRtc.Ice.IIceSocket.SendAsync(System.ReadOnlyMemory<byte> data, System.Net.IPEndPoint! destination, Agash.StreamTransport.Adaptation.IpMarking marking, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.Ice.IIceSocket.SendInPlaceAsync(System.Memory<byte> buffer, int offset, int length, System.Net.IPEndPoint! destination, Agash.StreamTransport.Adaptation.IpMarking marking, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory
 Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.Ecn.get -> Agash.StreamTransport.WebRtc.Ice.EcnSupport
 Agash.StreamTransport.WebRtc.Ice.IIceSocketFactory.GetLocalAddresses(bool includeLoopback) -> System.Collections.Generic.IEnumerable<System.Net.IPAddress!>!
@@ -31,6 +32,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPath.get -> Agash.StreamTransp
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedPathChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IcePath?>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SelectedRoundTrip.get -> System.TimeSpan?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SendAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.IpMarking marking = default(Agash.StreamTransport.Adaptation.IpMarking), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebRtc.Ice.IceAgent.SendInPlaceAsync(System.Memory<byte> buffer, int offset, int length, Agash.StreamTransport.Adaptation.IpMarking marking, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteCredentials(Agash.StreamTransport.WebRtc.Ice.IceCredentials remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRemoteOptions(Agash.StreamTransport.WebRtc.Ice.IceOptions remote) -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.SetRole(Agash.StreamTransport.WebRtc.IceRole role) -> void
@@ -38,7 +40,7 @@ Agash.StreamTransport.WebRtc.Ice.IceAgent.Start() -> void
 Agash.StreamTransport.WebRtc.Ice.IceAgent.State.get -> Agash.StreamTransport.WebRtc.Ice.IceConnectionState
 Agash.StreamTransport.WebRtc.Ice.IceAgent.StateChanged -> System.Action<Agash.StreamTransport.WebRtc.Ice.IceConnectionState>?
 Agash.StreamTransport.WebRtc.Ice.IceAgent.TriggerRecovery() -> void
-Agash.StreamTransport.WebRtc.Ice.IceAgent.TrySendOnStandbyAsync(System.ReadOnlyMemory<byte> data, Agash.StreamTransport.Adaptation.IpMarking marking = default(Agash.StreamTransport.Adaptation.IpMarking), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+Agash.StreamTransport.WebRtc.Ice.IceAgent.TrySendOnStandbyAsync(System.Memory<byte> buffer, int offset, int length, Agash.StreamTransport.Adaptation.IpMarking marking = default(Agash.StreamTransport.Adaptation.IpMarking), System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 Agash.StreamTransport.WebRtc.Ice.IceAgent.WhenGatheredAsync(System.TimeSpan limit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 Agash.StreamTransport.WebRtc.Ice.IceCandidate
 Agash.StreamTransport.WebRtc.Ice.IceCandidate.ComponentId.get -> int
@@ -888,6 +890,8 @@ abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Create
 abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.CreatePacketizer() -> Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.IRtpPacketizer!
 abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.EncodingName.get -> string!
 abstract Agash.StreamTransport.WebRtc.Rtp.PayloadFormats.RtpPayloadFormat.Kind.get -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaKind
+const Agash.StreamTransport.WebRtc.Ice.IceAgent.SendHeadroom = 48 -> int
+const Agash.StreamTransport.WebRtc.Ice.IceAgent.SendTailroom = 3 -> int
 const Agash.StreamTransport.WebRtc.Ice.IceCandidate.RtpComponent = 1 -> int
 const Agash.StreamTransport.WebRtc.Rtcp.Ccfb.ArrivalTimeOverRange = 8190 -> ushort
 const Agash.StreamTransport.WebRtc.Rtcp.Ccfb.ArrivalTimeUnknown = 8191 -> ushort

@@ -60,7 +60,7 @@ public sealed partial class PeerConnection
     }
 
     // In the pacer's send, before protection: the pacer exit of a timing packet.
-    private void StampPacerExit(byte[] packet, uint ssrc, ushort sequence)
+    private void StampPacerExit(Span<byte> packet, uint ssrc, ushort sequence)
     {
         if (
             _pacerStamps.IsEmpty
@@ -71,7 +71,7 @@ public sealed partial class PeerConnection
         }
 
         BinaryPrimitives.WriteUInt16BigEndian(
-            packet.AsSpan(stamp.At + VideoTiming.PacerExitOffset),
+            packet[(stamp.At + VideoTiming.PacerExitOffset)..],
             VideoTiming.Delta(NtpDifference(stamp.Capture, NtpNow))
         );
     }

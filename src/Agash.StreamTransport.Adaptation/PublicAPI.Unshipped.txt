@@ -122,8 +122,11 @@ Agash.StreamTransport.Adaptation.PacedPacket.Deconstruct(out byte[]! Buffer, out
 Agash.StreamTransport.Adaptation.PacedPacket.Equals(Agash.StreamTransport.Adaptation.PacedPacket other) -> bool
 Agash.StreamTransport.Adaptation.PacedPacket.Length.get -> int
 Agash.StreamTransport.Adaptation.PacedPacket.Length.init -> void
+Agash.StreamTransport.Adaptation.PacedPacket.Offset.get -> int
+Agash.StreamTransport.Adaptation.PacedPacket.Offset.init -> void
 Agash.StreamTransport.Adaptation.PacedPacket.PacedPacket() -> void
 Agash.StreamTransport.Adaptation.PacedPacket.PacedPacket(byte[]! Buffer, int Length, Agash.StreamTransport.Adaptation.TrafficClass Class) -> void
+Agash.StreamTransport.Adaptation.PacedPacket.Packet.get -> System.Memory<byte>
 Agash.StreamTransport.Adaptation.Pacer
 Agash.StreamTransport.Adaptation.Pacer.BitsPerSecond.get -> long
 Agash.StreamTransport.Adaptation.Pacer.BitsPerSecond.set -> void

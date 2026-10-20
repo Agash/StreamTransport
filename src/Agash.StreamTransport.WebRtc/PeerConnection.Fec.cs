@@ -122,14 +122,16 @@ public sealed partial class PeerConnection
             }
 
             byte[] repair = ArrayPool<byte>.Shared.Rent(
-                RtpPacket.FixedHeaderLength
+                Ice.IceAgent.SendHeadroom
+                    + Ice.IceAgent.SendTailroom
+                    + RtpPacket.FixedHeaderLength
                     + FlexFec.CsrcLength
                     + body.Length
                     + TransportSequenceRoom
                     + SrtpSession.MaxProtectionOverhead
             );
             int length = FlexFec.WriteRepairPacket(
-                repair,
+                repair.AsSpan(Ice.IceAgent.SendHeadroom),
                 sender.PayloadType,
                 NextSequence(sender.FecSsrc),
                 _fecAccumulator.LatestTimestamp,
@@ -137,7 +139,10 @@ public sealed partial class PeerConnection
                 sender.ProtectedSsrc,
                 body
             );
-            return new PacedPacket(repair, length, TrafficClass.Repair);
+            return new PacedPacket(repair, length, TrafficClass.Repair)
+            {
+                Offset = Ice.IceAgent.SendHeadroom,
+            };
         }
     }
 

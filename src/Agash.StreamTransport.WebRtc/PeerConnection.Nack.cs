@@ -120,28 +120,38 @@ public sealed partial class PeerConnection
             return;
         }
 
+        // Built behind the headroom a relay frames into, so the packet goes out in place.
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            FeedbackPrefixCapacity
+            Ice.IceAgent.SendHeadroom
+                + Ice.IceAgent.SendTailroom
+                + FeedbackPrefixCapacity
                 + 12
                 + (sequences.Count * 4)
                 + SrtpSession.MaxRtcpProtectionOverhead
         );
+        Span<byte> rtcp = buffer.AsSpan(Ice.IceAgent.SendHeadroom);
         try
         {
-            int prefix = WriteFeedbackPrefix(buffer);
+            int prefix = WriteFeedbackPrefix(rtcp);
             int length =
                 prefix
                 + RtcpFeedback.BuildNack(
-                    buffer.AsSpan(prefix),
+                    rtcp[prefix..],
                     FeedbackSenderFor(mediaSsrc),
                     mediaSsrc,
                     System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sequences)
                 );
-            int protectedLength = srtp.ProtectRtcp(buffer, length);
+            int protectedLength = srtp.ProtectRtcp(rtcp, length);
             CountRtcpSent(protectedLength);
             Interlocked.Add(ref _nackSequencesRequested, sequences.Count);
             _metrics.NackedSequences.Add(sequences.Count);
-            _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
+            _ = agent.SendInPlaceAsync(
+                buffer,
+                Ice.IceAgent.SendHeadroom,
+                protectedLength,
+                default,
+                default
+            );
         }
         catch (Exception)
         {

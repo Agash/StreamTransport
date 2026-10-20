@@ -326,6 +326,51 @@ public sealed partial class IceAgent : IAsyncDisposable
     }
 
     /// <summary>
+    /// The free bytes a datagram should have in front of it: the largest framing a relay puts there, a
+    /// TURN Send indication to an IPv6 peer (RFC 8656 section 11.4: STUN header, XOR-PEER-ADDRESS and the
+    /// DATA attribute's header).
+    /// </summary>
+    public const int SendHeadroom = 48;
+
+    /// <summary>The free bytes a datagram should have after it: the padding to 4 bytes a relay adds.</summary>
+    public const int SendTailroom = 3;
+
+    /// <summary>
+    /// Sends a datagram that has <see cref="SendHeadroom"/> free bytes in front of it over the selected
+    /// pair, so a relay frames it in place. Dropped while no pair is selected.
+    /// </summary>
+    /// <param name="buffer">The buffer, the datagram inside it.</param>
+    /// <param name="offset">Where the datagram starts.</param>
+    /// <param name="length">The datagram's length.</param>
+    /// <param name="marking">Its DSCP and ECN codepoint.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed to the socket.</returns>
+    public async ValueTask SendInPlaceAsync(
+        Memory<byte> buffer,
+        int offset,
+        int length,
+        IpMarking marking,
+        CancellationToken cancellationToken
+    )
+    {
+        if (Volatile.Read(ref _selection) is not { } selection)
+        {
+            return;
+        }
+
+        await selection
+            .Socket.Socket.SendInPlaceAsync(
+                buffer,
+                offset,
+                length,
+                selection.Remote,
+                marking,
+                cancellationToken
+            )
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Sends a media or DTLS datagram over the selected pair. While no pair is selected (during a
     /// recovery) the datagram is dropped: it would be lost on the dead path anyway, and the media pump
     /// must not fault while ICE re-nominates.
@@ -355,12 +400,16 @@ public sealed partial class IceAgent : IAsyncDisposable
     /// one, so repairs travel a path independent of the media's; false, and nothing sent, when there is
     /// none.
     /// </summary>
-    /// <param name="data">The datagram.</param>
+    /// <param name="buffer">The buffer, the datagram inside it with <see cref="SendHeadroom"/> before it.</param>
+    /// <param name="offset">Where the datagram starts.</param>
+    /// <param name="length">The datagram's length.</param>
     /// <param name="marking">Its DSCP; never ECT, as the standby path's ECN is not validated.</param>
     /// <param name="cancellationToken">Cancels the send.</param>
     /// <returns>Whether it was sent on a standby pair.</returns>
     public async ValueTask<bool> TrySendOnStandbyAsync(
-        ReadOnlyMemory<byte> data,
+        Memory<byte> buffer,
+        int offset,
+        int length,
         IpMarking marking = default,
         CancellationToken cancellationToken = default
     )
@@ -371,8 +420,10 @@ public sealed partial class IceAgent : IAsyncDisposable
         }
 
         await standby
-            .Socket.Socket.SendAsync(
-                data,
+            .Socket.Socket.SendInPlaceAsync(
+                buffer,
+                offset,
+                length,
                 standby.Remote,
                 marking with
                 {

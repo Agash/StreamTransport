@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Agash.StreamTransport.Adaptation;
@@ -166,13 +167,32 @@ internal sealed partial class TurnAllocation : IIceSocket
     }
 
     /// <inheritdoc/>
-    public async ValueTask SendAsync(
+    public ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
         IpMarking marking,
         CancellationToken cancellationToken = default
+    ) =>
+        SendInPlaceAsync(
+            MemoryMarshal.AsMemory(data),
+            0,
+            data.Length,
+            destination,
+            marking,
+            cancellationToken
+        );
+
+    /// <inheritdoc/>
+    public async ValueTask SendInPlaceAsync(
+        Memory<byte> buffer,
+        int offset,
+        int length,
+        IPEndPoint destination,
+        IpMarking marking,
+        CancellationToken cancellationToken
     )
     {
+        Memory<byte> data = buffer.Slice(offset, length);
         Peer peer;
         bool bind;
         bool request = false;
@@ -230,7 +250,7 @@ internal sealed partial class TurnAllocation : IIceSocket
             _ = BindAsync(peer);
         }
 
-        await RelayAsync(peer, data, cancellationToken).ConfigureAwait(false);
+        await RelayAsync(peer, buffer, offset, length, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -811,26 +831,100 @@ internal sealed partial class TurnAllocation : IIceSocket
         return peer;
     }
 
+    // The datagram framed for the relay: a ChannelData header (RFC 8656 section 12.4) or a Send
+    // indication (section 11.4) written into the free bytes in front of it, and the DATA attribute's
+    // padding after it, so it goes out without a copy. One without that room is framed in a copy.
     private async ValueTask RelayAsync(
         Peer peer,
-        ReadOnlyMemory<byte> data,
+        Memory<byte> buffer,
+        int offset,
+        int length,
         CancellationToken cancellationToken
     )
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(data.Length + 64);
+        int header = peer.Bound ? ChannelDataHeader : SendIndicationHeader(peer.Endpoint);
+        int padding = peer.Bound ? 0 : (4 - (length & 3)) & 3;
+        if (offset >= header && buffer.Length - offset - length >= padding)
+        {
+            Memory<byte> frame = buffer.Slice(offset - header, header + length + padding);
+            if (peer.Bound)
+            {
+                WriteChannelDataHeader(frame.Span, peer.Channel, length);
+            }
+            else
+            {
+                WriteSendIndicationHeader(frame.Span, peer.Endpoint, header, length, padding);
+            }
+
+            await _connection.SendAsync(frame, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        byte[] copy = ArrayPool<byte>.Shared.Rent(length + SendIndicationRoom);
         try
         {
-            int length = peer.Bound
-                ? WriteChannelData(buffer, peer.Channel, data.Span)
-                : WriteSendIndication(buffer, peer.Endpoint, data.Span);
+            ReadOnlySpan<byte> data = buffer.Span.Slice(offset, length);
+            int framed = peer.Bound
+                ? WriteChannelData(copy, peer.Channel, data)
+                : WriteSendIndication(copy, peer.Endpoint, data);
             await _connection
-                .SendAsync(buffer.AsMemory(0, length), cancellationToken)
+                .SendAsync(copy.AsMemory(0, framed), cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(copy);
         }
+    }
+
+    // RFC 8656 section 12.4: channel number and length.
+    private const int ChannelDataHeader = 4;
+
+    // The most a Send indication adds around its data, padding included.
+    private const int SendIndicationRoom = 64;
+
+    // STUN header, XOR-PEER-ADDRESS for the peer's family, and the DATA attribute's header.
+    private static int SendIndicationHeader(IPEndPoint peer) =>
+        StunHeader.Length
+        + 4
+        + (peer.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 20 : 8)
+        + 4;
+
+    private static void WriteChannelDataHeader(Span<byte> frame, ushort channel, int length)
+    {
+        BinaryPrimitives.WriteUInt16BigEndian(frame, channel);
+        BinaryPrimitives.WriteUInt16BigEndian(frame[2..], (ushort)length);
+    }
+
+    // The Send indication around data already in place: the header and XOR-PEER-ADDRESS through the
+    // writer, the DATA attribute's header by hand, the padding zeroed, the message length set to cover it.
+    private static void WriteSendIndicationHeader(
+        Span<byte> frame,
+        IPEndPoint peer,
+        int header,
+        int length,
+        int padding
+    )
+    {
+        Span<byte> id = stackalloc byte[StunHeader.TransactionIdLength];
+        RandomNumberGenerator.Fill(id);
+        StunMessageWriter writer = new(
+            frame[..(header - 4)],
+            StunMessageClass.Indication,
+            StunMethod.Send,
+            id
+        );
+        writer.AddXorAddress(StunAttributeType.XorPeerAddress, peer);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            frame[(header - 4)..],
+            (ushort)StunAttributeType.Data
+        );
+        BinaryPrimitives.WriteUInt16BigEndian(frame[(header - 2)..], (ushort)length);
+        frame.Slice(header + length, padding).Clear();
+        BinaryPrimitives.WriteUInt16BigEndian(
+            frame[2..],
+            (ushort)(header - StunHeader.Length + length + padding)
+        );
     }
 
     // The timer's callback: one maintenance pass at a time.

@@ -41,7 +41,7 @@ public sealed partial class PeerConnection
 
     // In the pacer's send, before protection: the packet takes the next transport-wide number, and the
     // number maps to the sent packet. Returns the packet's length, which may have grown.
-    private int StampTransportSequence(byte[] packet, int length, out ushort? sequence)
+    private int StampTransportSequence(Span<byte> packet, int length, out ushort? sequence)
     {
         sequence = null;
         if (!TransportFeedbackActive)
@@ -53,7 +53,13 @@ public sealed partial class PeerConnection
         int stamped = Volatile
             .Read(ref _extensions)
             .InsertTransportSequence(
-                packet.AsSpan(0, packet.Length - SrtpSession.MaxProtectionOverhead),
+                packet[
+                    ..(
+                        packet.Length
+                        - SrtpSession.MaxProtectionOverhead
+                        - Ice.IceAgent.SendTailroom
+                    )
+                ],
                 length,
                 next
             );
@@ -96,19 +102,23 @@ public sealed partial class PeerConnection
                 break;
             }
 
+            // Built behind the headroom a relay frames into, so the packet goes out in place.
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
-                FeedbackPrefixCapacity
+                Ice.IceAgent.SendHeadroom
+                    + Ice.IceAgent.SendTailroom
+                    + FeedbackPrefixCapacity
                     + MaxFeedbackPacketBytes
                     + 64
                     + SrtpSession.MaxRtcpProtectionOverhead
             );
+            Span<byte> rtcp = buffer.AsSpan(Ice.IceAgent.SendHeadroom);
             try
             {
-                int prefix = WriteFeedbackPrefix(buffer);
+                int prefix = WriteFeedbackPrefix(rtcp);
                 int length =
                     prefix
                     + TransportFeedback.Build(
-                        buffer.AsSpan(prefix),
+                        rtcp[prefix..],
                         _rtcpSenderSsrc,
                         _lastReceivedSsrc,
                         _transportFeedbackCount++,
@@ -119,9 +129,15 @@ public sealed partial class PeerConnection
                         out int consumed
                     );
                 start += Math.Max(1, consumed);
-                int protectedLength = srtp.ProtectRtcp(buffer, length);
+                int protectedLength = srtp.ProtectRtcp(rtcp, length);
                 CountRtcpSent(protectedLength);
-                _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
+                _ = agent.SendInPlaceAsync(
+                    buffer,
+                    Ice.IceAgent.SendHeadroom,
+                    protectedLength,
+                    default,
+                    default
+                );
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {

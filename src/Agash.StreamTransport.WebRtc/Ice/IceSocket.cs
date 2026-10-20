@@ -102,6 +102,27 @@ public interface IIceSocket : IDisposable
         CancellationToken cancellationToken = default
     );
 
+    /// <summary>
+    /// Sends <paramref name="length"/> bytes at <paramref name="offset"/> of <paramref name="buffer"/>,
+    /// where the bytes before the datagram, and up to <see cref="IceAgent.SendTailroom"/> after it, are
+    /// free: a socket that wraps datagrams (a TURN relay) writes its framing there instead of copying.
+    /// </summary>
+    /// <param name="buffer">The buffer, the datagram inside it.</param>
+    /// <param name="offset">Where the datagram starts.</param>
+    /// <param name="length">The datagram's length.</param>
+    /// <param name="destination">Where to.</param>
+    /// <param name="marking">Its DSCP and ECN codepoint.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed over.</returns>
+    ValueTask SendInPlaceAsync(
+        Memory<byte> buffer,
+        int offset,
+        int length,
+        IPEndPoint destination,
+        IpMarking marking,
+        CancellationToken cancellationToken
+    ) => SendAsync(buffer.Slice(offset, length), destination, marking, cancellationToken);
+
     /// <summary>Receive the next datagram into <paramref name="buffer"/>.</summary>
     ValueTask<IceReceiveResult> ReceiveAsync(
         Memory<byte> buffer,

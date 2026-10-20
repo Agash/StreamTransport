@@ -843,16 +843,19 @@ public sealed partial class PeerConnection : IAsyncDisposable
         ushort sequence = NextSequence(ssrc);
         extensions = WithMid(ssrc, extensions);
 
-        // RTP header + optional abs-capture-time + payload, with room to protect it in place. Rented from
-        // the shared pool so the per-packet path does not allocate (matters on an SBC's GC).
+        // RTP header + optional abs-capture-time + payload, with room to protect it in place and room
+        // around it for a relay's framing. Rented from the shared pool so the per-packet path does not
+        // allocate (matters on an SBC's GC).
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            RtpPacket.FixedHeaderLength
+            IceAgent.SendHeadroom
+                + IceAgent.SendTailroom
+                + RtpPacket.FixedHeaderLength
                 + Volatile.Read(ref _extensions).MaximumBlockLength
                 + payload.Length
                 + SrtpSession.MaxProtectionOverhead
         );
         int rtpLength = RtpPacket.WriteWithTimingOffset(
-            buffer,
+            buffer.AsSpan(IceAgent.SendHeadroom),
             marker,
             payloadType,
             sequence,
@@ -867,7 +870,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         {
             NotePacerStamp(ssrc, sequence, timingAt, timedCapture);
         }
-        ReadOnlySpan<byte> packet = buffer.AsSpan(0, rtpLength);
+        ReadOnlySpan<byte> packet = buffer.AsSpan(IceAgent.SendHeadroom, rtpLength);
 
         // FlexFEC protects the video stream: the cleartext is what FEC XORs.
         PacedPacket? fecRepair =
@@ -887,6 +890,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 rtpLength,
                 _audioSsrcs.Contains(ssrc) ? TrafficClass.Audio : TrafficClass.Video
             )
+            {
+                Offset = IceAgent.SendHeadroom,
+            }
         );
 
         // The repair rides its own SSRC behind the group it protects, and is not itself protected.
@@ -921,35 +927,44 @@ public sealed partial class PeerConnection : IAsyncDisposable
             return;
         }
 
+        // Built behind the headroom a relay frames into, so the packet goes out in place.
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            FeedbackPrefixCapacity + 32 + SrtpSession.MaxRtcpProtectionOverhead
+            IceAgent.SendHeadroom
+                + IceAgent.SendTailroom
+                + FeedbackPrefixCapacity
+                + 32
+                + SrtpSession.MaxRtcpProtectionOverhead
         );
         try
         {
-            int prefix = WriteFeedbackPrefix(buffer);
+            Span<byte> rtcp = buffer.AsSpan(IceAgent.SendHeadroom);
+            int prefix = WriteFeedbackPrefix(rtcp);
             int length =
                 prefix
                 + (
                     pli
                         ? RtcpFeedback.BuildPli(
-                            buffer.AsSpan(prefix),
+                            rtcp[prefix..],
                             FeedbackSenderFor(mediaSsrc),
                             mediaSsrc
                         )
                         : RtcpFeedback.BuildFir(
-                            buffer.AsSpan(prefix),
+                            rtcp[prefix..],
                             FeedbackSenderFor(mediaSsrc),
                             mediaSsrc,
                             (byte)Interlocked.Increment(ref _firSequence)
                         )
                 );
-            int protectedLength = srtp.ProtectRtcp(buffer, length);
+            int protectedLength = srtp.ProtectRtcp(rtcp, length);
             CountRtcpSent(protectedLength);
             Interlocked.Increment(ref _keyframeRequestsSent);
             await agent
-                .SendAsync(
-                    buffer.AsMemory(0, protectedLength),
-                    cancellationToken: cancellationToken
+                .SendInPlaceAsync(
+                    buffer,
+                    IceAgent.SendHeadroom,
+                    protectedLength,
+                    default,
+                    cancellationToken
                 )
                 .ConfigureAwait(false);
         }
@@ -983,7 +998,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
             || _iceAgent is not { } agent
             || TransmissionCeased
             || !RtpPacket.TryParse(
-                packet.Buffer.AsSpan(0, packet.Length),
+                packet.Packet.Span,
                 out RtpHeader header,
                 out ReadOnlySpan<byte> payload
             )
@@ -998,15 +1013,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         int payloadLength = payload.Length;
-        StampPacerExit(packet.Buffer, header.Ssrc, header.SequenceNumber);
-        RewriteSsrc(packet.Buffer);
+        Span<byte> wire = packet.Buffer.AsSpan(packet.Offset);
+        StampPacerExit(wire, header.Ssrc, header.SequenceNumber);
+        RewriteSsrc(wire);
         header = header with { Ssrc = WireSsrc(header.Ssrc) };
-        int length = StampTransportSequence(
-            packet.Buffer,
-            packet.Length,
-            out ushort? transportSequence
-        );
-        if (!srtp.TryProtectRtp(packet.Buffer, length, out int protectedLength))
+        int length = StampTransportSequence(wire, packet.Length, out ushort? transportSequence);
+        if (!srtp.TryProtectRtp(wire, length, out int protectedLength))
         {
             LogOutOfOrderDropped(_logger, header.Ssrc, header.SequenceNumber);
             if (packet.Class == TrafficClass.Probe)
@@ -1068,8 +1080,10 @@ public sealed partial class PeerConnection : IAsyncDisposable
             _metrics.PacketsSent.Add(1);
         }
 
-        return agent.SendAsync(
-            packet.Buffer.AsMemory(0, protectedLength),
+        return agent.SendInPlaceAsync(
+            packet.Buffer,
+            packet.Offset,
+            protectedLength,
             MarkingFor(packet.Class, ecn),
             cancellationToken
         );
@@ -1094,18 +1108,27 @@ public sealed partial class PeerConnection : IAsyncDisposable
             Interlocked.Increment(ref _rtxPacketsSent);
         }
 
-        ReadOnlyMemory<byte> data = packet.Buffer.AsMemory(0, protectedLength);
         if (
             !await agent
                 .TrySendOnStandbyAsync(
-                    data,
+                    packet.Buffer,
+                    packet.Offset,
+                    protectedLength,
                     MarkingFor(TrafficClass.Repair, EcnCodepoint.NotEct),
                     cancellationToken
                 )
                 .ConfigureAwait(false)
         )
         {
-            await agent.SendAsync(data, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await agent
+                .SendInPlaceAsync(
+                    packet.Buffer,
+                    packet.Offset,
+                    protectedLength,
+                    default,
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
         }
     }
 
@@ -1530,12 +1553,17 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
             ReadOnlySpan<byte> original = held[..heldLength];
             byte[] buffer = ArrayPool<byte>.Shared.Rent(
-                original.Length + 2 + TransportSequenceRoom + SrtpSession.MaxProtectionOverhead
+                IceAgent.SendHeadroom
+                    + IceAgent.SendTailroom
+                    + original.Length
+                    + 2
+                    + TransportSequenceRoom
+                    + SrtpSession.MaxProtectionOverhead
             );
             if (
                 RtxStream.TryWrap(
                     original,
-                    buffer,
+                    buffer.AsSpan(IceAgent.SendHeadroom),
                     rtxPayloadType,
                     rtx.Ssrc,
                     rtx.NextSequence(),
@@ -1543,7 +1571,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 )
             )
             {
-                _pacer.Enqueue(new PacedPacket(buffer, rtxLength, TrafficClass.Retransmission));
+                _pacer.Enqueue(
+                    new PacedPacket(buffer, rtxLength, TrafficClass.Retransmission)
+                    {
+                        Offset = IceAgent.SendHeadroom,
+                    }
+                );
             }
             else
             {

@@ -177,7 +177,9 @@ public sealed partial class PeerConnection
     )
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            original.Length
+            IceAgent.SendHeadroom
+                + IceAgent.SendTailroom
+                + original.Length
                 + RtxRoom
                 + MaxRtpPadding
                 + TransportSequenceRoom
@@ -186,7 +188,7 @@ public sealed partial class PeerConnection
         if (
             !RtxStream.TryWrap(
                 original,
-                buffer,
+                buffer.AsSpan(IceAgent.SendHeadroom),
                 rtxPayloadType,
                 rtx.Ssrc,
                 rtx.NextSequence(),
@@ -208,10 +210,16 @@ public sealed partial class PeerConnection
         );
 
         // RFC 3550 section 5.1: the P bit, then padding whose last octet counts it.
-        buffer[0] |= 0x20;
-        buffer.AsSpan(length, padding - 1).Clear();
-        buffer[length + padding - 1] = (byte)padding;
-        _pacer.Enqueue(new PacedPacket(buffer, length + padding, TrafficClass.Probe));
+        Span<byte> probe = buffer.AsSpan(IceAgent.SendHeadroom);
+        probe[0] |= 0x20;
+        probe.Slice(length, padding - 1).Clear();
+        probe[length + padding - 1] = (byte)padding;
+        _pacer.Enqueue(
+            new PacedPacket(buffer, length + padding, TrafficClass.Probe)
+            {
+                Offset = IceAgent.SendHeadroom,
+            }
+        );
     }
 
     // A probe the pacer was handed but the connection did not send.

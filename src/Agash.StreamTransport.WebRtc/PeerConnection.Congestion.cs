@@ -479,21 +479,30 @@ public sealed partial class PeerConnection
         uint reportTimestamp
     )
     {
+        // Built behind the headroom a relay frames into, so the packet goes out in place.
         byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            FeedbackPrefixCapacity
+            Ice.IceAgent.SendHeadroom
+                + Ice.IceAgent.SendTailroom
+                + FeedbackPrefixCapacity
                 + MaxFeedbackPacketBytes
                 + 64
                 + SrtpSession.MaxRtcpProtectionOverhead
         );
+        Span<byte> rtcp = buffer.AsSpan(Ice.IceAgent.SendHeadroom);
         try
         {
-            int prefix = WriteFeedbackPrefix(buffer);
+            int prefix = WriteFeedbackPrefix(rtcp);
             int length =
-                prefix
-                + Ccfb.Build(buffer.AsSpan(prefix), _rtcpSenderSsrc, reports, reportTimestamp);
-            int protectedLength = srtp.ProtectRtcp(buffer, length);
+                prefix + Ccfb.Build(rtcp[prefix..], _rtcpSenderSsrc, reports, reportTimestamp);
+            int protectedLength = srtp.ProtectRtcp(rtcp, length);
             CountRtcpSent(protectedLength);
-            _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
+            _ = agent.SendInPlaceAsync(
+                buffer,
+                Ice.IceAgent.SendHeadroom,
+                protectedLength,
+                default,
+                default
+            );
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
