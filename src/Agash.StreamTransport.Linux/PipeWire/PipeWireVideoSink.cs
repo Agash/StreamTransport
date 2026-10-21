@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Agash.StreamTransport.Linux.Vulkan;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
@@ -34,9 +35,14 @@ public sealed record PipeWireVideoSinkOptions
 /// the GPU: DMA-BUF frames (BGRA, RGBA or NV12) go into buffers shared with the consumer, drawn there by
 /// a processor (<see cref="Render{TState}"/>) or copied there once on the GPU; a consumer that cannot
 /// import a shared buffer gets them read back into memory. Frames in memory (BGRA, RGBA, NV12 or I420)
-/// are written once into the daemon's buffer. The node takes the size, format, colour and storage of the
-/// first frame, declares the colour so consumers convert it correctly, and is made again when any of
-/// them change.
+/// are written once into the daemon's buffer.
+/// <para>
+/// The node enumerates every format the sink delivers, as a camera does, the first frame's first: shared
+/// buffers in BGRA, RGBA and NV12, memory in those and I420. The consumer picks one, and
+/// <see cref="Constraints"/> then names that format alone, so the session converts frames into it. The
+/// node takes the size, colour and storage of the first frame, declares the colour so consumers convert
+/// it correctly, and is made again when any of them change.
+/// </para>
 /// </summary>
 public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
 {
@@ -47,7 +53,13 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     private readonly Lock _gate = new();
     private readonly Dictionary<int, VulkanImage[]> _shared = [];
     private PipeWireVideoOutput? _output;
+
+    // The node's size, and the format of the frames it was last handed.
     private VideoFormat _format;
+
+    // The formats the node offers; the frames' own first.
+    private ImmutableArray<PixelFormat> _offered = [];
+    private Narrowed? _narrowed;
     private VideoColor _color;
     private bool _gpu;
     private VulkanEngine? _engine;
@@ -81,14 +93,69 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     /// </summary>
     public TimeSpan? OutputLatency => Volatile.Read(ref _output)?.Time?.Delay;
 
+    // Shared buffers are drawn in these; memory takes I420 besides.
+    private static readonly ImmutableArray<PixelFormat> GpuFormats =
+    [
+        PixelFormat.Bgra,
+        PixelFormat.Rgba,
+        PixelFormat.Nv12,
+    ];
+
+    private static readonly ImmutableArray<PixelFormat> AnyFormats =
+    [
+        PixelFormat.Bgra,
+        PixelFormat.Rgba,
+        PixelFormat.Nv12,
+        PixelFormat.I420,
+    ];
+
+    private static readonly VideoConstraints Any = new(
+        [VideoStorageKind.DmaBuf, VideoStorageKind.Cpu],
+        AnyFormats,
+        DrmModifiers: [VulkanEngine.LinearModifier]
+    );
+
+    // The constraints for the format a consumer settled on, made once per format.
+    private sealed record Narrowed(PixelFormat Format, VideoConstraints Constraints);
+
     /// <inheritdoc/>
-    /// <remarks>DMA-BUF frames in BGRA, RGBA or NV12 in rows; memory frames in any of the four.</remarks>
-    public VideoConstraints Constraints { get; } =
-        new(
-            [VideoStorageKind.DmaBuf, VideoStorageKind.Cpu],
-            [PixelFormat.Bgra, PixelFormat.Rgba, PixelFormat.Nv12, PixelFormat.I420],
-            DrmModifiers: [VulkanEngine.LinearModifier]
-        );
+    /// <remarks>
+    /// DMA-BUF frames in BGRA, RGBA or NV12 in rows, memory frames in any of the four, until a consumer
+    /// settles on a format; that format alone after, in the storages it comes in. The instance changes
+    /// only when the consumer's choice does.
+    /// </remarks>
+    public VideoConstraints Constraints
+    {
+        get
+        {
+            PipeWireVideoOutput? output = Volatile.Read(ref _output);
+            if (
+                output is null
+                || PipeWireMapping.ToMedia(output.NegotiatedPixelFormat) is not { } picked
+            )
+            {
+                return Any;
+            }
+
+            Narrowed? narrowed = Volatile.Read(ref _narrowed);
+            if (narrowed?.Format != picked)
+            {
+                narrowed = new Narrowed(
+                    picked,
+                    new VideoConstraints(
+                        GpuFormats.Contains(picked)
+                            ? [VideoStorageKind.DmaBuf, VideoStorageKind.Cpu]
+                            : [VideoStorageKind.Cpu],
+                        [picked],
+                        DrmModifiers: [VulkanEngine.LinearModifier]
+                    )
+                );
+                Volatile.Write(ref _narrowed, narrowed);
+            }
+
+            return narrowed.Constraints;
+        }
+    }
 
     /// <summary>The node's id once the daemon has assigned one.</summary>
     public uint? NodeId => _output?.NodeId;
@@ -107,10 +174,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     {
         bool gpu = frame.Storage.Kind == VideoStorageKind.DmaBuf;
         PixelFormat pixels = frame.Format.PixelFormat;
-        if (
-            !Constraints.Accepts(frame.Storage, pixels)
-            || (gpu && pixels is not (PixelFormat.Bgra or PixelFormat.Rgba or PixelFormat.Nv12))
-        )
+        if (!Any.Accepts(frame.Storage, pixels) || (gpu && !GpuFormats.Contains(pixels)))
         {
             throw new ArgumentException(
                 $"The sink takes BGRA, RGBA or NV12 on DMA-BUFs, or those and I420 in memory; a processor makes them. The frame is {pixels} {frame.Storage.Kind}.",
@@ -125,13 +189,30 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             format = new(pixels, frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
-            if (_output is null || format != _format || frame.Color != _color || gpu != _gpu)
+
+            // A frame in another offered format keeps the node: it is the session converting into
+            // the format the consumer picked.
+            if (
+                _output is null
+                || format.CodedSize != _format.CodedSize
+                || !_offered.Contains(pixels)
+                || frame.Color != _color
+                || gpu != _gpu
+            )
             {
                 Restart(format, frame.Color, gpu, frame.Storage.Device);
             }
 
+            _format = format;
             output = _output!;
             engine = _engine;
+        }
+
+        // Frames still in a format the consumer did not pick, while the session turns to the one it did,
+        // are not the node's layout.
+        if (PipeWireMapping.ToMedia(output.NegotiatedPixelFormat) is { } picked && picked != pixels)
+        {
+            return;
         }
 
         if (
@@ -201,7 +282,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             if (
                 _output is null
                 || !_gpu
-                || format.PixelFormat != _format.PixelFormat
+                || PipeWireMapping.ToMedia(_output.NegotiatedPixelFormat) != format.PixelFormat
                 || format.CodedSize != _format.CodedSize
             )
             {
@@ -233,7 +314,10 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 DrmSyncTimeline? ready = frame.Acquire is { } acquire
                     ? new DrmSyncTimeline(acquire.Fd, acquire.Point, -1, 0)
                     : null;
-                VideoTarget target = new(new VideoStorage(Describe(images, ready)), format);
+                VideoTarget target = new(
+                    new VideoStorage(Describe(images, format.PixelFormat, ready)),
+                    format
+                );
                 _lentSync = ready;
                 _lent = images;
                 try
@@ -278,7 +362,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         }
     }
 
-    // A node of the frame's size, format, colour and storage; called holding the lock.
+    // A node of the frame's size, colour and storage, offering its format first; called holding the lock.
     private void Restart(VideoFormat format, VideoColor color, bool gpu, GpuIdentity? device)
     {
         _output?.Dispose();
@@ -287,12 +371,13 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         _format = format;
         _color = color;
         _gpu = gpu;
+        _offered = [format.PixelFormat, .. AnyFormats.Where(f => f != format.PixelFormat)];
         PipeWireVideoOutput output = new(
             _context,
             _name,
             format.CodedSize.Width,
             format.CodedSize.Height,
-            PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
+            [.. _offered.Select(f => PipeWireMapping.ToPipeWire(f)!.Value)],
             _options.FrameRate,
             PipeWireMapping.ToPipeWire(color)
         )
@@ -314,8 +399,14 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 output.HostMemoryFallback = true;
                 DmaBufDeviceOffer offer = new(
                     Drm(_engine.Identity),
-                    PipeWireMapping.ToPipeWire(format.PixelFormat)!.Value,
-                    [(long)VulkanEngine.LinearModifier]
+                    [
+                        .. _offered
+                            .Where(GpuFormats.Contains)
+                            .Select(f => new DmaBufFormatModifiers(
+                                PipeWireMapping.ToPipeWire(f)!.Value,
+                                [(long)VulkanEngine.LinearModifier]
+                            )),
+                    ]
                 );
                 output.ConnectDmaBuf([offer], PipeWireVideoOutput.ExplicitSyncAvailable);
             }
@@ -361,7 +452,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 VkImageUsageFlags.TransferDst | VkImageUsageFlags.TransferSrc;
             // One DMA-BUF per picture, its planes at their offsets: importers such as VA-API map only
             // pictures made of a single object.
-            VulkanImage[] images = _format.PixelFormat switch
+            VulkanImage[] images = PipeWireMapping.ToMedia(sender.NegotiatedPixelFormat) switch
             {
                 PixelFormat.Nv12 => VulkanImage.ExportPicture(
                     engine,
@@ -411,7 +502,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         VulkanTransfer.Copy(
             _engine!,
             in image,
-            _format.PixelFormat,
+            frame.Format.PixelFormat,
             frame.Format.CodedSize.Width,
             frame.Format.CodedSize.Height,
             _lent!,
@@ -429,8 +520,12 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         public readonly VideoFrame Frame = frame;
     }
 
-    // A buffer's images as DMA-BUF storage on the sink's GPU.
-    private DmaBufImage Describe(VulkanImage[] images, DrmSyncTimeline? ready = null)
+    // A buffer's images, a picture in the given format, as DMA-BUF storage on the sink's GPU.
+    private DmaBufImage Describe(
+        VulkanImage[] images,
+        PixelFormat format,
+        DrmSyncTimeline? ready = null
+    )
     {
         Span<DmaBufPlane> planes = stackalloc DmaBufPlane[images.Length];
         for (int i = 0; i < images.Length; i++)
@@ -440,7 +535,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
 
         return new DmaBufImage(
             planes,
-            DrmFourcc.Of(_format.PixelFormat),
+            DrmFourcc.Of(format),
             VulkanEngine.LinearModifier,
             _engine!.Identity,
             ready
