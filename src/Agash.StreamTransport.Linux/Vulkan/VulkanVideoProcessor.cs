@@ -248,7 +248,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         // A batch that ends unsubmitted lets go of the frame with its other holds.
         using (batch)
         {
-            batch.Then(input.Dispose);
+            batch.Then(input);
             if (!batch.WaitFor(in image))
             {
                 throw new TimeoutException("The producer's GPU did not finish writing the frame.");
@@ -328,7 +328,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 VkImageUsageFlags.Storage
             );
             using VulkanEngine.Batch batch = _engine.Begin();
-            batch.Then(lease.Dispose);
+            batch.Then(lease);
             if (
                 !batch.WaitFor(in image)
                 || (into.Sync is null && !batch.WaitFor(in into, write: true))
@@ -342,7 +342,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             {
                 // Nothing waits, so the input is held until the drawing has read it.
                 VideoFrameLease input = frame.Retain();
-                batch.Then(input.Dispose);
+                batch.Then(input);
                 batch.Signal(in ready);
                 _submitted = batch.Submit();
                 return true;
@@ -399,7 +399,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             format.CodedSize.Height,
             VkImageUsageFlags.Sampled
         );
-        batch.Then(sourceLease.Dispose);
+        batch.Then(sourceLease);
         VulkanImage source = sourceLease.Image;
         (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(_outputColour);
         VideoSize size = Info.Output.Size;
@@ -422,7 +422,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         VkImageView chromaView = chroma.View(VkFormat.R8G8Unorm);
         ComputeKernel kernel = _engine.RgbToYuv;
         VkDescriptorSet set = kernel.RentSet();
-        batch.Then(() => kernel.ReturnSet(set));
+        batch.Then(kernel, set);
         {
             VkDescriptorImageInfo* images = stackalloc VkDescriptorImageInfo[3];
             images[0] = new VkDescriptorImageInfo
@@ -499,7 +499,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             ],
             VkImageUsageFlags.Storage
         );
-        batch.Then(pictureLease.Dispose);
+        batch.Then(pictureLease);
         VulkanImage luma = pictureLease.Planes[0];
         VulkanImage chroma = pictureLease.Planes[1];
 
@@ -532,7 +532,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         VkImageView rgbView = rgb.View(VkFormat.R8G8B8A8Unorm);
         ComputeKernel kernel = _engine.YuvToRgb;
         VkDescriptorSet set = kernel.RentSet();
-        batch.Then(() => kernel.ReturnSet(set));
+        batch.Then(kernel, set);
         {
             VkDescriptorImageInfo* images = stackalloc VkDescriptorImageInfo[3];
             images[0] = new VkDescriptorImageInfo

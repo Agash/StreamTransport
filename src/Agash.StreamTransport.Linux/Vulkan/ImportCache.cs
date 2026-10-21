@@ -113,7 +113,7 @@ internal sealed unsafe partial class ImportCache
         }
     }
 
-    private void Release(Entry entry)
+    internal void Release(Entry entry)
     {
         lock (_gate)
         {
@@ -170,21 +170,22 @@ internal sealed unsafe partial class ImportCache
     /// <summary>A held import.</summary>
     public readonly struct Lease : IDisposable
     {
-        private readonly ImportCache _cache;
-        private readonly Entry _entry;
-
         internal Lease(ImportCache cache, Entry entry)
         {
-            _cache = cache;
-            _entry = entry;
+            Cache = cache;
+            Entry = entry;
         }
 
-        public VulkanImage Image => _entry.Images[0];
+        public VulkanImage Image => Entry!.Images[0];
+
+        internal ImportCache? Cache { get; }
+
+        internal Entry? Entry { get; }
 
         /// <summary>A picture import's planes, one view each.</summary>
-        public VulkanImage[] Planes => _entry.Images;
+        public VulkanImage[] Planes => Entry!.Images;
 
         // A default lease holds nothing and releases nothing.
-        public void Dispose() => _cache?.Release(_entry);
+        public void Dispose() => Cache?.Release(Entry!);
     }
 }

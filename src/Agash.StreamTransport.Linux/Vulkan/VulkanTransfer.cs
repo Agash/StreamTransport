@@ -142,17 +142,16 @@ internal static unsafe class VulkanTransfer
                 // The consumer waits for the copy on its GPU: nothing waits here, and the sources stay
                 // imported until the copy has run.
                 batch.Signal(in ready);
-                ImportCache.Lease[] kept = [.. leases[..held]];
-                held = 0;
-                batch.Then(() =>
+                foreach (ImportCache.Lease lease in leases[..held])
                 {
-                    foreach (ImportCache.Lease lease in kept)
-                    {
-                        lease.Dispose();
-                    }
+                    batch.Then(in lease);
+                }
 
-                    keep?.Dispose();
-                });
+                held = 0;
+                if (keep is not null)
+                {
+                    batch.Then(keep);
+                }
                 _ = batch.Submit();
             }
             else
@@ -554,10 +553,7 @@ internal static unsafe class VulkanTransfer
             VkMemoryAllocateInfo allocate = new()
             {
                 allocationSize = requirements.size,
-                memoryTypeIndex = engine.MemoryType(
-                    requirements.memoryTypeBits,
-                    VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent
-                ),
+                memoryTypeIndex = engine.HostMemoryType(requirements.memoryTypeBits),
             };
             VkDeviceMemory memory;
             api.vkAllocateMemory(&allocate, null, &memory).CheckResult();

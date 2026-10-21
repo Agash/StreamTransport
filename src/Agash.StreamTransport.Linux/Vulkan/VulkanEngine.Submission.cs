@@ -14,7 +14,10 @@ internal sealed unsafe partial class VulkanEngine
 
     private readonly List<Slot> _slots = [];
     private readonly Lock _pendingGate = new();
-    private readonly Queue<(ulong Value, Action Release)> _pending = new();
+    private readonly Queue<(ulong Value, List<Release> Releases)> _pending = new();
+
+    // Release lists the completion thread is done with, handed back to slots, so a batch allocates none.
+    private readonly Stack<List<Release>> _spareReleases = new();
     private readonly SemaphoreSlim _pendingAdded = new(0);
     private VkSemaphore _timeline;
     private ulong _submitted;
@@ -148,14 +151,23 @@ internal sealed unsafe partial class VulkanEngine
         while (true)
         {
             _pendingAdded.Wait();
-            (ulong Value, Action Release) next;
+            (ulong Value, List<Release> Releases) next;
             lock (_pendingGate)
             {
                 next = _pending.Dequeue();
             }
 
             Wait(next.Value);
-            next.Release();
+            foreach (Release release in next.Releases)
+            {
+                release.Run(this);
+            }
+
+            next.Releases.Clear();
+            lock (_pendingGate)
+            {
+                _spareReleases.Push(next.Releases);
+            }
         }
     }
 
@@ -211,42 +223,25 @@ internal sealed unsafe partial class VulkanEngine
         slot.Value = value;
 
         // Semaphores imported for this batch's waits and signals are destroyed once it has run.
-        if (waits > 0 || slot.Signals.Count > 0)
+        foreach ((VkSemaphore semaphore, _) in slot.Waits)
         {
-            VkSemaphore[] imported =
-            [
-                .. slot.Waits.Select(wait => wait.Semaphore),
-                .. slot.Signals.Select(signal => signal.Semaphore),
-            ];
-            slot.Releases.Add(() =>
-            {
-                foreach (VkSemaphore semaphore in imported)
-                {
-                    Api.vkDestroySemaphore(semaphore, null);
-                }
-            });
+            slot.Releases.Add(Release.Of(semaphore));
+        }
+
+        foreach ((VkSemaphore semaphore, _) in slot.Signals)
+        {
+            slot.Releases.Add(Release.Of(semaphore));
         }
 
         slot.Waits.Clear();
         slot.Signals.Clear();
         if (slot.Releases.Count > 0)
         {
-            Action[] releases = [.. slot.Releases];
-            slot.Releases.Clear();
+            // The list goes to the completion thread whole; the slot takes a spare one.
             lock (_pendingGate)
             {
-                _pending.Enqueue(
-                    (
-                        value,
-                        () =>
-                        {
-                            foreach (Action release in releases)
-                            {
-                                release();
-                            }
-                        }
-                    )
-                );
+                _pending.Enqueue((value, slot.Releases));
+                slot.Releases = _spareReleases.TryPop(out List<Release>? spare) ? spare : [];
             }
 
             _ = _pendingAdded.Release();
@@ -390,8 +385,19 @@ internal sealed unsafe partial class VulkanEngine
                 (_engine.ImportTimeline(target.AcquireSyncobj), target.AcquirePoint)
             );
 
-        /// <summary>Lets go of something once the GPU has run the batch.</summary>
-        public void Then(Action release) => Current.Releases.Add(release);
+        /// <summary>Disposes something once the GPU has run the batch.</summary>
+        /// <param name="held">What the batch reads or writes, such as a retained frame.</param>
+        public void Then(IDisposable held) => Current.Releases.Add(Release.Of(held));
+
+        /// <summary>Lets go of an imported picture once the GPU has run the batch.</summary>
+        /// <param name="lease">The import.</param>
+        public void Then(in ImportCache.Lease lease) => Current.Releases.Add(Release.Of(in lease));
+
+        /// <summary>Returns a kernel's descriptor set once the GPU has run the batch.</summary>
+        /// <param name="kernel">The kernel the set came from.</param>
+        /// <param name="set">The set.</param>
+        public void Then(ComputeKernel kernel, VkDescriptorSet set) =>
+            Current.Releases.Add(Release.Of(kernel, set));
 
         /// <summary>Runs the batch without waiting for it.</summary>
         /// <returns>The timeline value the batch signals when it has run.</returns>
@@ -425,9 +431,9 @@ internal sealed unsafe partial class VulkanEngine
                 }
 
                 slot.Waits.Clear();
-                foreach (Action release in slot.Releases)
+                foreach (Release release in slot.Releases)
                 {
-                    release();
+                    release.Run(_engine);
                 }
 
                 slot.Releases.Clear();
@@ -447,7 +453,54 @@ internal sealed unsafe partial class VulkanEngine
 
         public List<(VkSemaphore Semaphore, ulong Value)> Signals { get; } = [];
 
-        public List<Action> Releases { get; } = [];
+        public List<Release> Releases { get; set; } = [];
+    }
+
+    // What a batch lets go of once the GPU has run it, held as data rather than a delegate, so recording a
+    // frame allocates nothing.
+    private readonly struct Release
+    {
+        private readonly object? _owner;
+        private readonly object? _entry;
+        private readonly VkSemaphore _semaphore;
+        private readonly VkDescriptorSet _set;
+
+        private Release(object? owner, object? entry, VkSemaphore semaphore, VkDescriptorSet set)
+        {
+            _owner = owner;
+            _entry = entry;
+            _semaphore = semaphore;
+            _set = set;
+        }
+
+        public static Release Of(IDisposable held) => new(held, null, default, default);
+
+        public static Release Of(in ImportCache.Lease lease) =>
+            new(lease.Cache, lease.Entry, default, default);
+
+        public static Release Of(ComputeKernel kernel, VkDescriptorSet set) =>
+            new(kernel, null, default, set);
+
+        public static Release Of(VkSemaphore semaphore) => new(null, null, semaphore, default);
+
+        public void Run(VulkanEngine engine)
+        {
+            switch (_owner)
+            {
+                case ImportCache cache:
+                    cache.Release((ImportCache.Entry)_entry!);
+                    break;
+                case ComputeKernel kernel:
+                    kernel.ReturnSet(_set);
+                    break;
+                case IDisposable held:
+                    held.Dispose();
+                    break;
+                default:
+                    engine.Api.vkDestroySemaphore(_semaphore, null);
+                    break;
+            }
+        }
     }
 
     private static readonly TimeSpan WriterTimeout = TimeSpan.FromSeconds(1);

@@ -212,6 +212,32 @@ internal sealed unsafe partial class VulkanEngine
         return set;
     }
 
+    /// <summary>
+    /// A host-visible, coherent memory type for staging, cached where the GPU has one: the CPU reads a
+    /// read-back from it, and uncached (write-combined) memory reads tens of times slower.
+    /// </summary>
+    /// <param name="allowed">The memory types the buffer allows.</param>
+    /// <returns>The memory type.</returns>
+    public uint HostMemoryType(uint allowed)
+    {
+        const VkMemoryPropertyFlags coherent =
+            VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent;
+        for (uint i = 0; i < _memory.memoryTypeCount; i++)
+        {
+            VkMemoryPropertyFlags flags = _memory.memoryTypes[(int)i].propertyFlags;
+            if (
+                (allowed & (1u << (int)i)) != 0
+                && (flags & (coherent | VkMemoryPropertyFlags.HostCached))
+                    == (coherent | VkMemoryPropertyFlags.HostCached)
+            )
+            {
+                return i;
+            }
+        }
+
+        return MemoryType(allowed, coherent);
+    }
+
     /// <summary>A memory type both allowed and with the properties asked for.</summary>
     public uint MemoryType(uint allowed, VkMemoryPropertyFlags properties)
     {
