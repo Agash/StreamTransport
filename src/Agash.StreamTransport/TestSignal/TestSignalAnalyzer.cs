@@ -90,6 +90,11 @@ public sealed class TestSignalAnalyzer
     } = 0.1f;
 
     /// <summary>A video output that measures, then hands frames to <paramref name="inner"/>.</summary>
+    /// <remarks>
+    /// In front of an output it takes what the output takes. Pictures in memory in NV12 or I420 are
+    /// measured; GPU frames, and frames a processor draws straight into the output's surface, reach the
+    /// output untouched and are not.
+    /// </remarks>
     /// <param name="inner">The real output, or null to only measure.</param>
     /// <returns>The measuring output.</returns>
     public IVideoSink WrapVideo(IVideoSink? inner = null) => new VideoTap(this, inner);
@@ -299,10 +304,17 @@ public sealed class TestSignalAnalyzer
         }
     }
 
+    private static readonly VideoConstraints AnalyzedVideo = VideoConstraints.Cpu(
+        PixelFormat.Nv12,
+        PixelFormat.I420
+    );
+
+    private static readonly AudioConstraints AnalyzedAudio = new([48_000], [SampleFormat.F32], 2);
+
+    // Constraints are read through, as the output may change them.
     private sealed class VideoTap(TestSignalAnalyzer analyzer, IVideoSink? inner) : IVideoSink
     {
-        public VideoConstraints Constraints { get; } =
-            inner?.Constraints ?? VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420);
+        public VideoConstraints Constraints => inner?.Constraints ?? AnalyzedVideo;
 
         public TimeSpan? OutputLatency => inner?.OutputLatency;
 
@@ -311,12 +323,19 @@ public sealed class TestSignalAnalyzer
             analyzer.OnVideo(in frame);
             inner?.OnFrame(in frame);
         }
+
+        public VideoRenderResult Render<TState>(
+            VideoFormat format,
+            scoped in TState state,
+            VideoTargetRenderer<TState> render
+        )
+            where TState : allows ref struct =>
+            inner?.Render(format, in state, render) ?? VideoRenderResult.Unavailable;
     }
 
     private sealed class AudioTap(TestSignalAnalyzer analyzer, IAudioSink? inner) : IAudioSink
     {
-        public AudioConstraints Constraints { get; } =
-            inner?.Constraints ?? new AudioConstraints([48_000], [SampleFormat.F32], 2);
+        public AudioConstraints Constraints => inner?.Constraints ?? AnalyzedAudio;
 
         public TimeSpan? OutputLatency => inner?.OutputLatency;
 

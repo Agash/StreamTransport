@@ -61,7 +61,8 @@ internal sealed record CommandLine(
                              none
           --size <WxH>       the capture size asked of a camera
           --fps <rate>       the capture rate asked of a camera
-          --measure          subscribe to a test signal and report A/V offset and latency
+          --measure          subscribe to a test signal and report A/V offset and latency;
+                             with --video the output still shows it (GPU frames unmeasured)
           --profile <name>   interactive | screen | irl | avatar
           --codec <name>     h264 | h265 | av1   the one video codec to offer
           --turn <url>       a turn: or turns: URL, used with --turn-user and --turn-password

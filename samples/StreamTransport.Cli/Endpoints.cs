@@ -52,12 +52,7 @@ internal sealed class Endpoints : IDisposable
                 TestSignalAnalyzer? analyzer = command.Measure ? new TestSignalAnalyzer() : null;
                 endpoints.Analyzer = analyzer;
                 IVideoSink? videoSink = null;
-                if (analyzer is not null)
-                {
-                    // Measuring reads the pictures in memory, so the video goes to the analyzer alone.
-                    videoSink = analyzer.WrapVideo();
-                }
-                else if (command.Video is { } video)
+                if (command.Video is { } video)
                 {
                     (string provider, string? name) = Split(video);
                     videoSink = endpoints.Own(
@@ -67,6 +62,13 @@ internal sealed class Endpoints : IDisposable
                             cancellationToken
                         )
                     );
+                }
+
+                // Measuring sits in front of the output: pictures in memory are measured on their way
+                // to it, GPU frames reach it untouched. Without an output the analyzer takes the video.
+                if (analyzer is not null)
+                {
+                    videoSink = analyzer.WrapVideo(videoSink);
                 }
 
                 IAudioSink? audioSink = command.Audio is null
