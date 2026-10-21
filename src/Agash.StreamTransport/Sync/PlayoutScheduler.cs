@@ -117,6 +117,9 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
         private readonly WakeSignal _wake;
         private readonly Task _loop;
 
+        // The last picture shown, so a later-arriving earlier one is not shown after it.
+        private MediaTime _lastShown = new(long.MinValue);
+
         public Lane(PlayoutScheduler owner, PlayoutStream stream)
         {
             _owner = owner;
@@ -130,6 +133,20 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
         {
             lock (_gate)
             {
+                // libwebrtc's render queue (VideoRenderFrames::AddFrame): a picture already more than
+                // half a second past its slot is dropped while others wait, so a backlog drains rather than
+                // plays out late; with none waiting it still shows, so a slow machine shows something.
+                if (
+                    _stream == PlayoutStream.Video
+                    && _queue.Count > 0
+                    && slot.Release + StaleAfter < _owner._clock.Now
+                )
+                {
+                    entry.Dispose();
+                    _owner.NoteVideoBehind(1);
+                    return;
+                }
+
                 _queue.Enqueue(entry, slot);
             }
 
@@ -195,7 +212,8 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
 
                     _ = _queue.Dequeue();
 
-                    // Of the pictures due now, only the latest is shown: the rest are already late.
+                    // Of the pictures due now, only the latest is shown: the rest are already late
+                    // (VideoRenderFrames::FrameToRender).
                     while (
                         _stream == PlayoutStream.Video
                         && _queue.TryPeek(out IPlayoutEntry? later, out Slot laterSlot)
@@ -204,8 +222,30 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
                     {
                         entry.Dispose();
                         entry = _queue.Dequeue();
+                        slot = laterSlot;
                         superseded++;
                     }
+
+                    // A picture whose slot is before the last one shown would go backwards in time.
+                    if (_stream == PlayoutStream.Video)
+                    {
+                        if (slot.Release < _lastShown)
+                        {
+                            entry.Dispose();
+                            superseded++;
+                            entry = null;
+                        }
+                        else
+                        {
+                            _lastShown = slot.Release;
+                        }
+                    }
+                }
+
+                if (entry is null)
+                {
+                    _owner.NoteVideoBehind(superseded);
+                    continue;
                 }
 
                 if (superseded > 0)
@@ -234,6 +274,9 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
         _ = Interlocked.Add(ref _videoDropped, dropped);
         LogVideoBehind(dropped);
     }
+
+    // How late past its slot a picture may arrive and still queue behind others.
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromMilliseconds(500);
 
     // When an entry is released, and, among entries released together, the capture order.
     private readonly record struct Slot(MediaTime Release, NtpTime Capture) : IComparable<Slot>

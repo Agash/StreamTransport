@@ -199,6 +199,41 @@ public sealed class PlayoutSchedulerTests
     }
 
     [TestMethod]
+    public async Task Scheduler_PictureOlderThanTheLastShown_IsNotShown()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(40),
+            played.Entry(1)
+        );
+        time.Advance(Fixed);
+        await played.WaitForAsync(1);
+
+        // Captured before the one shown, it arrives after: showing it would step back in time.
+        ConcurrentQueue<int> late = [];
+        Entry earlier = new(0, late);
+        scheduler.Schedule(PlayoutStream.Video, start, earlier);
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(80),
+            played.Entry(2)
+        );
+        time.Advance(TimeSpan.FromMilliseconds(80));
+        await played.WaitForAsync(2);
+
+        CollectionAssert.AreEqual(new[] { 1, 2 }, played.Ids);
+        Assert.IsEmpty(late);
+        Assert.IsTrue(earlier.Disposed);
+    }
+
+    [TestMethod]
     public async Task Scheduler_AudioFallenBehind_PlaysEverySlot()
     {
         FakeTimeProvider time = new();
