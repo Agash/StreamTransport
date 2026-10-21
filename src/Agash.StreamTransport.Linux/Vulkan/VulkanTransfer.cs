@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using Agash.StreamTransport.Media;
 using Vortice.Vulkan;
 
@@ -208,11 +210,65 @@ internal static unsafe class VulkanTransfer
             packed += layout[plane].Width * layout[plane].Texel * layout[plane].Height;
         }
 
-        Staging staging = readback.Reserve(engine, packed);
         using ImportCache.Lease first = Import(engine, in source, 0, layout[0], height);
         using ImportCache.Lease second = nv12
             ? Import(engine, in source, 1, layout[1], height)
             : default;
+        int chromaStride = stride * layout[1].Width * layout[1].Texel / (width * layout[0].Texel);
+
+        // Straight into the destination where the GPU imports it, rows at the destination's strides;
+        // pinned for the copy, which has finished when the import is freed.
+        fixed (byte* target = destination)
+        {
+            if (
+                HostImport.TryCreate(engine, target, destination.Length, out HostImport? direct)
+                && stride % layout[0].Texel == 0
+                && chromaStride % layout[1].Texel == 0
+            )
+            {
+                using (direct)
+                using (VulkanEngine.Batch batch = engine.Begin())
+                {
+                    if (!batch.WaitFor(in source))
+                    {
+                        throw new TimeoutException(
+                            "The producer's GPU did not finish writing the frame."
+                        );
+                    }
+
+                    ulong at = 0;
+                    for (int plane = 0; plane < planes; plane++)
+                    {
+                        VulkanImage image = plane == 0 ? first.Image : second.Image;
+                        int rowStride = plane == 0 ? stride : chromaStride;
+                        VkBufferImageCopy region = Region(image) with
+                        {
+                            bufferOffset = at,
+                            bufferRowLength = (uint)(rowStride / layout[plane].Texel),
+                        };
+                        Recording.Acquire(engine, batch.Commands, [image]);
+                        engine.Api.vkCmdCopyImageToBuffer(
+                            batch.Commands,
+                            image.Image,
+                            VkImageLayout.General,
+                            direct.Buffer,
+                            1,
+                            &region
+                        );
+                        Recording.Release(engine, batch.Commands, [image]);
+                        at += (ulong)(rowStride * layout[plane].Height);
+                    }
+
+                    batch.SubmitAndWait();
+                }
+
+                return;
+            }
+
+            direct?.Dispose();
+        }
+
+        Staging staging = readback.Reserve(engine, packed);
         using (VulkanEngine.Batch batch = engine.Begin())
         {
             if (!batch.WaitFor(in source))
@@ -336,6 +392,103 @@ internal static unsafe class VulkanTransfer
         }
 
         return staging.Bytes[..packed];
+    }
+
+    // Memory of the caller's imported as a buffer the GPU copies into (VK_EXT_external_memory_host), for
+    // the length of one copy; none where the GPU does not import host memory or the memory is not
+    // aligned as it needs.
+    private sealed class HostImport : IDisposable
+    {
+        private readonly VulkanEngine _engine;
+        private readonly VkDeviceMemory _memory;
+
+        private HostImport(VulkanEngine engine, VkBuffer buffer, VkDeviceMemory memory)
+        {
+            _engine = engine;
+            Buffer = buffer;
+            _memory = memory;
+        }
+
+        public VkBuffer Buffer { get; }
+
+        public static bool TryCreate(
+            VulkanEngine engine,
+            byte* pointer,
+            int length,
+            [NotNullWhen(true)] out HostImport? import
+        )
+        {
+            import = null;
+            if (
+                engine.HostImportAlignment is not { } alignment
+                || (ulong)pointer % alignment != 0
+                || (ulong)length % alignment != 0
+            )
+            {
+                return false;
+            }
+
+            VkDeviceApi api = engine.Api;
+            VkMemoryHostPointerPropertiesEXT host = new();
+            if (
+                api.vkGetMemoryHostPointerPropertiesEXT(
+                    VkExternalMemoryHandleTypeFlags.HostAllocationEXT,
+                    pointer,
+                    &host
+                ) != VkResult.Success
+            )
+            {
+                return false;
+            }
+
+            VkExternalMemoryBufferCreateInfo external = new()
+            {
+                handleTypes = VkExternalMemoryHandleTypeFlags.HostAllocationEXT,
+            };
+            VkBufferCreateInfo info = new()
+            {
+                pNext = &external,
+                size = (ulong)length,
+                usage = VkBufferUsageFlags.TransferDst,
+                sharingMode = VkSharingMode.Exclusive,
+            };
+            VkBuffer buffer;
+            if (api.vkCreateBuffer(&info, null, &buffer) != VkResult.Success)
+            {
+                return false;
+            }
+
+            VkMemoryRequirements requirements;
+            api.vkGetBufferMemoryRequirements(buffer, &requirements);
+            uint types = requirements.memoryTypeBits & host.memoryTypeBits;
+            VkImportMemoryHostPointerInfoEXT pointerInfo = new()
+            {
+                handleType = VkExternalMemoryHandleTypeFlags.HostAllocationEXT,
+                pHostPointer = pointer,
+            };
+            VkMemoryAllocateInfo allocate = new()
+            {
+                pNext = &pointerInfo,
+                allocationSize = (ulong)length,
+                memoryTypeIndex = types == 0 ? 0 : (uint)BitOperations.TrailingZeroCount(types),
+            };
+            VkDeviceMemory memory;
+            if (types == 0 || api.vkAllocateMemory(&allocate, null, &memory) != VkResult.Success)
+            {
+                api.vkDestroyBuffer(buffer, null);
+                return false;
+            }
+
+            api.vkBindBufferMemory(buffer, memory, 0).CheckResult();
+            import = new HostImport(engine, buffer, memory);
+            return true;
+        }
+
+        public void Dispose()
+        {
+            _engine.Api.vkDestroyBuffer(Buffer, null);
+            _engine.Api.vkFreeMemory(_memory, null);
+        }
     }
 
     /// <summary>

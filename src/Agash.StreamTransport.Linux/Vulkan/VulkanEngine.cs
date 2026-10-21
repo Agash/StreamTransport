@@ -33,6 +33,10 @@ internal sealed unsafe partial class VulkanEngine
         "VK_KHR_external_semaphore_fd",
     ];
 
+    // Imports a caller's own memory as a buffer, so a read-back lands there without a CPU copy (FFmpeg's
+    // host-mapped transfers); used where the GPU has it.
+    private const string HostMemoryExtension = "VK_EXT_external_memory_host";
+
     private readonly VkInstanceApi _instanceApi;
     private readonly VkPhysicalDevice _physical;
     private readonly VkPhysicalDeviceMemoryProperties _memory;
@@ -61,7 +65,10 @@ internal sealed unsafe partial class VulkanEngine
             queueCount = 1,
             pQueuePriorities = &priority,
         };
-        using VkStringArray extensions = new(DeviceExtensions);
+        bool hostMemory = Available(_instanceApi, physical).Contains(HostMemoryExtension);
+        using VkStringArray extensions = new(
+            hostMemory ? [.. DeviceExtensions, HostMemoryExtension] : DeviceExtensions
+        );
         VkPhysicalDeviceVulkan12Features features = new() { timelineSemaphore = true };
         VkDeviceCreateInfo deviceInfo = new()
         {
@@ -75,6 +82,13 @@ internal sealed unsafe partial class VulkanEngine
         _instanceApi.vkCreateDevice(physical, &deviceInfo, null, &device).CheckResult();
         Device = device;
         Api = GetApi(Instance.Value.Instance, device);
+        if (hostMemory)
+        {
+            VkPhysicalDeviceExternalMemoryHostPropertiesEXT host = new();
+            VkPhysicalDeviceProperties2 properties = new() { pNext = &host };
+            _instanceApi.vkGetPhysicalDeviceProperties2(physical, &properties);
+            HostImportAlignment = host.minImportedHostPointerAlignment;
+        }
         VkQueue queue = default;
         Api.vkGetDeviceQueue(queueFamily, 0, &queue);
         _queue = queue;
@@ -321,7 +335,16 @@ internal sealed unsafe partial class VulkanEngine
             );
     }
 
-    private static bool HasExtensions(VkInstanceApi api, VkPhysicalDevice device)
+    /// <summary>
+    /// The alignment a host pointer and size need to be imported as a buffer, when the GPU imports host
+    /// memory (VK_EXT_external_memory_host); null when it does not.
+    /// </summary>
+    public ulong? HostImportAlignment { get; }
+
+    private static bool HasExtensions(VkInstanceApi api, VkPhysicalDevice device) =>
+        DeviceExtensions.All(Available(api, device).Contains);
+
+    private static HashSet<string> Available(VkInstanceApi api, VkPhysicalDevice device)
     {
         uint count = 0;
         api.vkEnumerateDeviceExtensionProperties(device, null, &count, null).CheckResult();
@@ -333,7 +356,7 @@ internal sealed unsafe partial class VulkanEngine
             available.Add(Marshal.PtrToStringUTF8((nint)properties[i].extensionName)!);
         }
 
-        return DeviceExtensions.All(available.Contains);
+        return available;
     }
 
     private static uint? ComputeFamily(VkInstanceApi api, VkPhysicalDevice device)
