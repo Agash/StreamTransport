@@ -184,6 +184,7 @@ internal sealed unsafe partial class ImportCache
         /// <summary>A picture import's planes, one view each.</summary>
         public VulkanImage[] Planes => _entry.Images;
 
-        public void Dispose() => _cache.Release(_entry);
+        // A default lease holds nothing and releases nothing.
+        public void Dispose() => _cache?.Release(_entry);
     }
 }
