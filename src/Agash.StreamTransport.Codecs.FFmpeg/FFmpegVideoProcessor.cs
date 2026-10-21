@@ -40,14 +40,14 @@ public sealed class FFmpegVideoProcessorFactory : IVideoProcessorFactory
 
         if (processing.Alpha == AlphaLayout.PackSideBySide)
         {
-            // Colour with alpha in, an opaque 4:2:0 frame twice as wide out.
+            // Colour in, with or without alpha (an opaque source packs a fully opaque half, so the
+            // negotiated layout holds whatever the source), an opaque 4:2:0 frame twice as wide out.
             VideoSize colour = processing.Size ?? input.Size;
             PixelFormat? packed = processing.Output.PixelFormats.FirstOrDefault(static f =>
                 f is PixelFormat.Nv12 or PixelFormat.I420
             );
             return
-                HasAlpha(input.PixelFormat)
-                && packed is PixelFormat.Nv12 or PixelFormat.I420
+                packed is PixelFormat.Nv12 or PixelFormat.I420
                 && colour.Width % 2 == 0
                 && colour.Height % 2 == 0
                 ? Info(packed.Value, colour with { Width = colour.Width * 2 })
@@ -222,18 +222,28 @@ internal sealed class FFmpegVideoProcessor(
         // Alpha straight from the source when the size stays, since swscale's alpha path rounds;
         // from the converted picture when it was scaled.
         PixelFormat? source = Formats.FromFFmpeg(_source.PixelFormat);
+        bool opaque = source is not (PixelFormat.Bgra or PixelFormat.Rgba or PixelFormat.Yuva420);
         bool direct = _source.Width == width && _source.Height == height;
         bool packedRgb = direct && source is PixelFormat.Bgra or PixelFormat.Rgba;
         FF.ReadOnlyImagePlane a =
-            packedRgb ? _source.GetPlane(0)
+            opaque ? default
+            : packedRgb ? _source.GetPlane(0)
             : direct ? _source.GetPlane(3)
             : _work.GetPlane(3);
         FF.ImagePlane luma = _output.GetWritablePlane(0);
         bool full = target.Range == ColorRange.Full;
+        byte solid = ToLuma(byte.MaxValue, full);
         for (int row = 0; row < height; row++)
         {
             Span<byte> line = luma.GetRow(row);
             y.GetRow(row)[..width].CopyTo(line);
+            if (opaque)
+            {
+                // A source without alpha is opaque throughout.
+                line[width..(2 * width)].Fill(solid);
+                continue;
+            }
+
             ReadOnlySpan<byte> alphaRow = a.GetRow(row);
             for (int x = 0; x < width; x++)
             {

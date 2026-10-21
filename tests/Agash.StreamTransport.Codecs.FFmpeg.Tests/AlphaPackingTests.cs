@@ -152,17 +152,51 @@ public sealed class AlphaPackingTests
         }
     }
 
+    // A source without alpha keeps a negotiated side-by-side layout: its alpha half is opaque throughout.
     [TestMethod]
-    public void Pack_OfAFormatWithoutAlpha_IsRefused() =>
-        Assert.IsNull(
-            Factory.QueryCapabilities(
-                Description(PixelFormat.I420, Width),
-                new VideoProcessing(
-                    VideoConstraints.Cpu(PixelFormat.Nv12),
-                    Alpha: AlphaLayout.PackSideBySide
-                )
+    public void Pack_OpaqueSource_PacksAnOpaqueAlphaHalf()
+    {
+        VideoSize size = new(Width, Height);
+        byte[] nv12 = new byte[PlaneLayout.PackedSize(PixelFormat.Nv12, size)];
+        for (int i = 0; i < Width * Height; i++)
+        {
+            nv12[i] = (byte)(16 + (i % Width));
+        }
+
+        nv12.AsSpan(Width * Height).Fill(128);
+        using IVideoProcessor processor = Factory.Create(
+            Description(PixelFormat.Nv12, Width),
+            new VideoProcessing(
+                VideoConstraints.Cpu(PixelFormat.Nv12),
+                Alpha: AlphaLayout.PackSideBySide
             )
         );
+        Kept kept = new();
+
+        processor.Process(
+            new VideoFrame(
+                new CpuImage(PlaneLayout.Packed(PixelFormat.Nv12, size)),
+                new VideoFormat(PixelFormat.Nv12, Width, Height),
+                MediaTimestamp.Captured(MediaTime.Zero),
+                nv12,
+                VideoColor.Bt709
+            ),
+            kept
+        );
+
+        using VideoFrameLease lease = kept.Lease!;
+        Assert.AreEqual(new VideoFormat(PixelFormat.Nv12, Width * 2, Height), lease.Frame.Format);
+        Assert.IsTrue(lease.Frame.Storage.TryGetValue(out CpuImage image));
+        ReadOnlySpan<byte> luma = lease.Frame.GetPlane(0);
+        for (int row = 0; row < Height; row++)
+        {
+            ReadOnlySpan<byte> line = luma.Slice(row * image.Planes[0].Stride, Width * 2);
+            Assert.AreEqual(nv12[row * Width], line[0], 1, "the colour stays on the left");
+            Assert.IsTrue(line[Width..].IndexOfAnyExcept((byte)235) < 0, $"row {row} is opaque");
+        }
+
+        Assert.AreEqual(128, lease.Frame.GetPlane(1)[Width]);
+    }
 
     // Smooth colour, so 4:2:0 subsampling keeps it, over an alpha ramp from left to right.
     private static byte[] Picture()

@@ -92,15 +92,12 @@ public sealed class ProcessorTests
     }
 
     [TestMethod]
-    public void QueryCapabilities_GpuInputAlphaOrGpuOutput_IsRefused()
+    public void QueryCapabilities_GpuInputOrGpuOutput_IsRefused()
     {
         VideoProcessing toNv12 = new(VideoConstraints.Cpu(PixelFormat.Nv12));
 
         Assert.IsNull(
             Factory.QueryCapabilities(I420Input with { Storage = VideoStorageKind.D3D11 }, toNv12)
-        );
-        Assert.IsNull(
-            Factory.QueryCapabilities(I420Input, toNv12 with { Alpha = AlphaLayout.PackSideBySide })
         );
         Assert.IsNull(
             Factory.QueryCapabilities(
