@@ -361,7 +361,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             _delivering
             ?? throw new InvalidOperationException("Frames are retained only while delivered.");
         picture.Hold();
-        return new DmaBufFrameLease(in frame, picture);
+        return DmaBufFrameLease.Of(in frame, picture);
     }
 
     public void Dispose()

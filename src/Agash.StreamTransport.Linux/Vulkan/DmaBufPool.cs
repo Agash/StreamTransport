@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Agash.StreamTransport.Media;
 using Vortice.Vulkan;
 
@@ -192,12 +193,18 @@ internal sealed class PooledDmaBuf(DmaBufPool pool, VulkanImage[] planes)
     }
 }
 
-/// <summary>A frame on a pooled picture, kept by a consumer; the picture returns to its pool on release.</summary>
+/// <summary>
+/// A frame on a pooled picture, kept by a consumer; the picture returns to its pool on release, and the
+/// lease to a pool of its own, so keeping a frame allocates nothing once warm.
+/// </summary>
 internal sealed class DmaBufFrameLease : VideoFrameLease, IVideoFrameRetainer
 {
-    private readonly PooledDmaBuf _picture;
+    // Released leases, for the next frame kept; any lease holds any picture.
+    private static readonly ConcurrentBag<DmaBufFrameLease> Spare = [];
 
-    public DmaBufFrameLease(in VideoFrame frame, PooledDmaBuf picture)
+    private PooledDmaBuf _picture;
+
+    private DmaBufFrameLease(in VideoFrame frame, PooledDmaBuf picture)
         : base(
             frame.Storage,
             frame.Format,
@@ -210,13 +217,31 @@ internal sealed class DmaBufFrameLease : VideoFrameLease, IVideoFrameRetainer
         _picture = picture;
     }
 
+    /// <summary>A lease on a frame of the picture, which the caller has already held for it.</summary>
+    public static DmaBufFrameLease Of(in VideoFrame frame, PooledDmaBuf picture)
+    {
+        if (!Spare.TryTake(out DmaBufFrameLease? lease))
+        {
+            return new DmaBufFrameLease(in frame, picture);
+        }
+
+        lease._picture = picture;
+        lease.Reuse(in frame);
+        return lease;
+    }
+
     protected override IVideoFrameRetainer KeepAgain => this;
 
     public VideoFrameLease Retain(in VideoFrame frame)
     {
         _picture.Hold();
-        return new DmaBufFrameLease(in frame, _picture);
+        return Of(in frame, _picture);
     }
 
-    protected override void Release() => _picture.Release();
+    protected override void Release()
+    {
+        PooledDmaBuf picture = _picture;
+        Spare.Add(this);
+        picture.Release();
+    }
 }

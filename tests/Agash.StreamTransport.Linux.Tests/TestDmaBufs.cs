@@ -91,7 +91,7 @@ internal static class TestDmaBufs
         public VideoFrameLease Retain(in VideoFrame frame)
         {
             picture.Hold();
-            return new DmaBufFrameLease(in frame, picture);
+            return DmaBufFrameLease.Of(in frame, picture);
         }
     }
 }

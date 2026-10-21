@@ -330,22 +330,22 @@ public abstract class VideoFrameLease : IDisposable
     }
 
     /// <summary>Where the pixels are.</summary>
-    public VideoStorage Storage { get; }
+    public VideoStorage Storage { get; private set; }
 
     /// <summary>The pixel format and geometry.</summary>
-    public VideoFormat Format { get; }
+    public VideoFormat Format { get; private set; }
 
     /// <summary>When the frame was made.</summary>
-    public MediaTimestamp Timestamp { get; }
+    public MediaTimestamp Timestamp { get; private set; }
 
     /// <summary>How samples map to colours.</summary>
-    public VideoColor Color { get; }
+    public VideoColor Color { get; private set; }
 
     /// <summary>How to turn the buffer upright.</summary>
-    public VideoOrientation Orientation { get; }
+    public VideoOrientation Orientation { get; private set; }
 
     /// <summary>How long the frame is shown.</summary>
-    public TimeSpan Duration { get; }
+    public TimeSpan Duration { get; private set; }
 
     /// <summary>Whether the lease has been released.</summary>
     public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
@@ -408,6 +408,25 @@ public abstract class VideoFrameLease : IDisposable
     /// with its own way of keeping frames (a pooled surface held again) overrides it.
     /// </summary>
     protected virtual IVideoFrameRetainer? KeepAgain => new Sharer(this);
+
+    /// <summary>
+    /// Arms a released lease for another frame: it takes the frame's description and one holder again.
+    /// For a producer that pools its leases, so keeping a frame allocates nothing; only that producer
+    /// calls it, and only once the lease has been released. A lease is not used after its
+    /// <see cref="Dispose"/>, as a pooled one is someone else's frame by then.
+    /// </summary>
+    /// <param name="frame">The frame the lease now holds.</param>
+    protected void Reuse(in VideoFrame frame)
+    {
+        Storage = frame.Storage;
+        Format = frame.Format;
+        Timestamp = frame.Timestamp;
+        Color = frame.Color;
+        Orientation = frame.Orientation;
+        Duration = frame.Duration;
+        Volatile.Write(ref _holders, 1);
+        Volatile.Write(ref _disposed, 0);
+    }
 
     /// <inheritdoc/>
     public void Dispose()

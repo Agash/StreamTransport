@@ -660,6 +660,7 @@ Agash.StreamTransport.Media.VideoFrameLease.Format.get -> Agash.StreamTransport.
 Agash.StreamTransport.Media.VideoFrameLease.Frame.get -> Agash.StreamTransport.Media.VideoFrame
 Agash.StreamTransport.Media.VideoFrameLease.IsDisposed.get -> bool
 Agash.StreamTransport.Media.VideoFrameLease.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.VideoFrameLease.Reuse(in Agash.StreamTransport.Media.VideoFrame frame) -> void
 Agash.StreamTransport.Media.VideoFrameLease.Storage.get -> Agash.StreamTransport.Media.VideoStorage
 Agash.StreamTransport.Media.VideoFrameLease.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
 Agash.StreamTransport.Media.VideoFrameLease.VideoFrameLease(Agash.StreamTransport.Media.VideoStorage storage, Agash.StreamTransport.Media.VideoFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp, Agash.StreamTransport.Media.VideoColor color, Agash.StreamTransport.Media.VideoOrientation orientation, System.TimeSpan duration) -> void

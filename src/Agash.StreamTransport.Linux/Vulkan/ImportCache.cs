@@ -124,16 +124,15 @@ internal sealed unsafe partial class ImportCache
     // Called holding the gate.
     private void DropIdle()
     {
-        List<Key>? idle = null;
         foreach ((Key key, Entry entry) in _entries)
         {
             if (entry.Holds == 0 && _uses - entry.LastUse > Idle)
             {
-                (idle ??= []).Add(key);
+                _idle.Add(key);
             }
         }
 
-        foreach (Key key in idle ?? [])
+        foreach (Key key in _idle)
         {
             _entries.Remove(key, out Entry? entry);
             foreach (VulkanImage image in entry!.Images)
@@ -141,7 +140,12 @@ internal sealed unsafe partial class ImportCache
                 image.Dispose();
             }
         }
+
+        _idle.Clear();
     }
+
+    // The keys DropIdle removes, kept between calls so a lookup allocates nothing; under the gate.
+    private readonly List<Key> _idle = [];
 
     private readonly record struct Key(
         (ulong Device, ulong Inode) Buffer,
