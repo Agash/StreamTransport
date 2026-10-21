@@ -297,7 +297,9 @@ try
         );
         await obs.Scenes.SetCurrentProgramSceneAsync(new() { SceneName = Scene });
         long signalItem = (
-            await obs.SceneItems.GetSceneItemIdAsync(new(Scene, "Signal"))
+            await obs.SceneItems.GetSceneItemIdAsync(
+                new() { SceneName = Scene, SourceName = "Signal" }
+            )
         )!.SceneItemId;
 
         // Fill the canvas, so the picture's centre, where the flash is, is the recording's centre.
