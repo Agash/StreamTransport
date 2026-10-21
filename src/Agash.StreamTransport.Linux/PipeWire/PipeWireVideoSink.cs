@@ -411,6 +411,20 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         )
         {
             PushFrames = true,
+
+            // A GPU node reads frames back for a consumer reading memory, converting them on the way in
+            // one shader pass: packed RGB first there, which such consumers read best.
+            HostMemoryFormats = gpu
+                ?
+                [
+                    .. _offered
+                        .Where(f => f is PixelFormat.Bgra or PixelFormat.Rgba)
+                        .Concat(
+                            _offered.Where(f => f is not (PixelFormat.Bgra or PixelFormat.Rgba))
+                        )
+                        .Select(f => PipeWireMapping.ToPipeWire(f)!.Value),
+                ]
+                : default,
         };
         try
         {
