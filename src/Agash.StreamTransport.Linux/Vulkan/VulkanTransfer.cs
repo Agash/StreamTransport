@@ -49,34 +49,6 @@ internal static unsafe class VulkanTransfer
         batch.SubmitAndWait();
     }
 
-    /// <summary>Reads an image's rows, packed tightly.</summary>
-    /// <param name="engine">The GPU.</param>
-    /// <param name="image">The image.</param>
-    /// <param name="bytesPerTexel">The image's texel size.</param>
-    /// <returns>The rows.</returns>
-    public static byte[] Download(VulkanEngine engine, VulkanImage image, int bytesPerTexel)
-    {
-        int size = image.Width * bytesPerTexel * image.Height;
-        using Staging staging = new(engine, size);
-        VkBufferImageCopy region = Region(image);
-        using (VulkanEngine.Batch batch = engine.Begin())
-        {
-            Recording.Acquire(engine, batch.Commands, [image]);
-            engine.Api.vkCmdCopyImageToBuffer(
-                batch.Commands,
-                image.Image,
-                VkImageLayout.General,
-                staging.Buffer,
-                1,
-                &region
-            );
-            Recording.Release(engine, batch.Commands, [image]);
-            batch.SubmitAndWait();
-        }
-
-        return staging.Bytes.ToArray();
-    }
-
     /// <summary>
     /// Copies a DMA-BUF picture, plane by plane, into images of the same format and size on the GPU:
     /// what fills a consumer's buffer. With <paramref name="signal"/> the copy signals that point when it
@@ -196,64 +168,205 @@ internal static unsafe class VulkanTransfer
     }
 
     /// <summary>
-    /// Reads a DMA-BUF picture's planes into memory, rows packed tightly: for a consumer that can only
-    /// take frames in memory.
+    /// Reads a DMA-BUF picture back into memory, its planes one after another at
+    /// <paramref name="stride"/> (the chroma plane at the stride its width scales it to), through
+    /// <paramref name="readback"/>'s staging buffer: what a consumer reading memory is handed.
     /// </summary>
     /// <param name="engine">The GPU.</param>
+    /// <param name="readback">The staging kept between pictures.</param>
     /// <param name="source">The picture.</param>
     /// <param name="format">Its pixel format: BGRA, RGBA or NV12.</param>
     /// <param name="width">Its width.</param>
     /// <param name="height">Its height.</param>
-    /// <returns>One array per plane.</returns>
-    public static byte[][] Read(
+    /// <param name="destination">Where the planes go.</param>
+    /// <param name="stride">Bytes per row of the first plane in <paramref name="destination"/>.</param>
+    /// <exception cref="TimeoutException">The producer's GPU did not finish the picture.</exception>
+    public static void Read(
         VulkanEngine engine,
+        Readback readback,
         in DmaBufImage source,
         PixelFormat format,
         int width,
-        int height
+        int height,
+        Span<byte> destination,
+        int stride
     )
     {
-        int planes = format == PixelFormat.Nv12 ? 2 : 1;
-        byte[][] bytes = new byte[planes][];
-        using (VulkanEngine.Batch wait = engine.Begin())
+        ArgumentNullException.ThrowIfNull(readback);
+        bool nv12 = format == PixelFormat.Nv12;
+        int planes = nv12 ? 2 : 1;
+        Span<(VkFormat Format, int Width, int Height, int Texel)> layout =
+        [
+            nv12 ? (VkFormat.R8Unorm, width, height, 1)
+            : format == PixelFormat.Rgba ? (VkFormat.R8G8B8A8Unorm, width, height, 4)
+            : (VkFormat.B8G8R8A8Unorm, width, height, 4),
+            (VkFormat.R8G8Unorm, width / 2, height / 2, 2),
+        ];
+        int packed = 0;
+        for (int plane = 0; plane < planes; plane++)
         {
-            if (!wait.WaitFor(in source))
+            packed += layout[plane].Width * layout[plane].Texel * layout[plane].Height;
+        }
+
+        Staging staging = readback.Reserve(engine, packed);
+        using ImportCache.Lease first = Import(engine, in source, 0, layout[0], height);
+        using ImportCache.Lease second = nv12
+            ? Import(engine, in source, 1, layout[1], height)
+            : default;
+        using (VulkanEngine.Batch batch = engine.Begin())
+        {
+            if (!batch.WaitFor(in source))
             {
                 throw new TimeoutException("The producer's GPU did not finish writing the frame.");
             }
 
-            // An empty batch ordered after the producer: the downloads queue behind it.
-            _ = wait.Submit();
+            ulong offset = 0;
+            for (int plane = 0; plane < planes; plane++)
+            {
+                VulkanImage image = plane == 0 ? first.Image : second.Image;
+                VkBufferImageCopy region = Region(image) with { bufferOffset = offset };
+                Recording.Acquire(engine, batch.Commands, [image]);
+                engine.Api.vkCmdCopyImageToBuffer(
+                    batch.Commands,
+                    image.Image,
+                    VkImageLayout.General,
+                    staging.Buffer,
+                    1,
+                    &region
+                );
+                Recording.Release(engine, batch.Commands, [image]);
+                offset += (ulong)(image.Width * layout[plane].Texel * image.Height);
+            }
+
+            batch.SubmitAndWait();
         }
 
+        ReadOnlySpan<byte> bytes = staging.Bytes;
+        int from = 0;
+        int to = 0;
         for (int plane = 0; plane < planes; plane++)
         {
-            (VkFormat vk, int w, int h, int texel) = (format, plane) switch
+            int rowBytes = layout[plane].Width * layout[plane].Texel;
+            int planeStride = plane == 0 ? stride : stride * rowBytes / (width * layout[0].Texel);
+            for (int row = 0; row < layout[plane].Height; row++)
             {
-                (PixelFormat.Nv12, 0) => (VkFormat.R8Unorm, width, height, 1),
-                (PixelFormat.Nv12, _) => (VkFormat.R8G8Unorm, width / 2, height / 2, 2),
-                (PixelFormat.Rgba, _) => (VkFormat.R8G8B8A8Unorm, width, height, 4),
-                _ => (VkFormat.B8G8R8A8Unorm, width, height, 4),
-            };
-            DmaBufPlane from =
-                plane < source.PlaneCount
-                    ? source[plane]
-                    : source[0] with
-                    {
-                        Offset = source[0].Offset + (source[0].Stride * height),
-                    };
-            using ImportCache.Lease imported = engine.Imports.Import(
-                from,
-                source.Modifier,
-                vk,
-                w,
-                h,
-                VkImageUsageFlags.TransferSrc
-            );
-            bytes[plane] = Download(engine, imported.Image, texel);
+                bytes
+                    .Slice(from + (row * rowBytes), rowBytes)
+                    .CopyTo(destination[(to + (row * planeStride))..]);
+            }
+
+            from += rowBytes * layout[plane].Height;
+            to += planeStride * layout[plane].Height;
+        }
+    }
+
+    // A plane of a DMA-BUF picture as an image to copy from; a single-object NV12 picture keeps its
+    // chroma after the luma, at the luma's stride.
+    private static ImportCache.Lease Import(
+        VulkanEngine engine,
+        in DmaBufImage source,
+        int plane,
+        (VkFormat Format, int Width, int Height, int Texel) layout,
+        int height
+    )
+    {
+        DmaBufPlane from =
+            plane < source.PlaneCount
+                ? source[plane]
+                : source[0] with
+                {
+                    Offset = source[0].Offset + (source[0].Stride * height),
+                };
+        return engine.Imports.Import(
+            from,
+            source.Modifier,
+            layout.Format,
+            layout.Width,
+            layout.Height,
+            VkImageUsageFlags.TransferSrc
+        );
+    }
+
+    /// <summary>
+    /// Reads images back into memory, plane after plane, through a staging buffer kept between frames
+    /// and grown when a larger picture comes; the bytes stay valid until the next read.
+    /// </summary>
+    /// <param name="engine">The GPU.</param>
+    /// <param name="readback">The staging kept between pictures.</param>
+    /// <param name="planes">The images, one per plane.</param>
+    /// <param name="bytesPerTexel">Each image's texel size.</param>
+    /// <returns>The planes, packed one after another.</returns>
+    public static ReadOnlySpan<byte> Read(
+        VulkanEngine engine,
+        Readback readback,
+        ReadOnlySpan<VulkanImage> planes,
+        ReadOnlySpan<int> bytesPerTexel
+    )
+    {
+        ArgumentNullException.ThrowIfNull(readback);
+        int packed = 0;
+        for (int plane = 0; plane < planes.Length; plane++)
+        {
+            packed += planes[plane].Width * bytesPerTexel[plane] * planes[plane].Height;
         }
 
-        return bytes;
+        Staging staging = readback.Reserve(engine, packed);
+        using (VulkanEngine.Batch batch = engine.Begin())
+        {
+            ulong offset = 0;
+            for (int plane = 0; plane < planes.Length; plane++)
+            {
+                VkBufferImageCopy region = Region(planes[plane]) with { bufferOffset = offset };
+                Recording.Acquire(engine, batch.Commands, [planes[plane]]);
+                engine.Api.vkCmdCopyImageToBuffer(
+                    batch.Commands,
+                    planes[plane].Image,
+                    VkImageLayout.General,
+                    staging.Buffer,
+                    1,
+                    &region
+                );
+                Recording.Release(engine, batch.Commands, [planes[plane]]);
+                offset += (ulong)(
+                    planes[plane].Width * bytesPerTexel[plane] * planes[plane].Height
+                );
+            }
+
+            batch.SubmitAndWait();
+        }
+
+        return staging.Bytes[..packed];
+    }
+
+    /// <summary>
+    /// The staging a reader keeps between pictures, so reading one back allocates nothing once the
+    /// first of its size was read. One reader at a time.
+    /// </summary>
+    public sealed class Readback : IDisposable
+    {
+        private Staging? _staging;
+        private bool _disposed;
+
+        internal Staging Reserve(VulkanEngine engine, int size)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_staging is null || _staging.Size < size || _staging.Engine != engine)
+            {
+                _staging?.Dispose();
+                _staging = null;
+                _staging = new Staging(engine, size);
+            }
+
+            return _staging;
+        }
+
+        /// <summary>Frees the staging.</summary>
+        public void Dispose()
+        {
+            _disposed = true;
+            _staging?.Dispose();
+            _staging = null;
+        }
     }
 
     private static VkBufferImageCopy Region(VulkanImage image) =>
@@ -264,17 +377,15 @@ internal static unsafe class VulkanTransfer
         };
 
     // A host-visible, coherent buffer, mapped for its lifetime.
-    private sealed class Staging : IDisposable
+    internal sealed class Staging : IDisposable
     {
-        private readonly VulkanEngine _engine;
         private readonly VkDeviceMemory _memory;
         private readonly void* _mapped;
-        private readonly int _size;
 
         public Staging(VulkanEngine engine, int size)
         {
-            _engine = engine;
-            _size = size;
+            Engine = engine;
+            Size = size;
             VkDeviceApi api = engine.Api;
             VkBufferCreateInfo info = new()
             {
@@ -306,13 +417,17 @@ internal static unsafe class VulkanTransfer
 
         public VkBuffer Buffer { get; }
 
-        public Span<byte> Bytes => new(_mapped, _size);
+        public VulkanEngine Engine { get; }
+
+        public int Size { get; }
+
+        public Span<byte> Bytes => new(_mapped, Size);
 
         public void Dispose()
         {
-            _engine.Api.vkUnmapMemory(_memory);
-            _engine.Api.vkDestroyBuffer(Buffer, null);
-            _engine.Api.vkFreeMemory(_memory, null);
+            Engine.Api.vkUnmapMemory(_memory);
+            Engine.Api.vkDestroyBuffer(Buffer, null);
+            Engine.Api.vkFreeMemory(_memory, null);
         }
     }
 }

@@ -47,9 +47,25 @@ internal static class TestDmaBufs
         return picture;
     }
 
-    // Read once the picture's producer has written it, as any reader on the CPU waits.
-    public static byte[][] Download(DmaBufImage image, PixelFormat format, int width, int height) =>
-        VulkanTransfer.Read(Engine, in image, format, width, height);
+    // Read once the picture's producer has written it, as any reader on the CPU waits, split per plane.
+    public static byte[][] Download(DmaBufImage image, PixelFormat format, int width, int height)
+    {
+        int luma = width * TexelBytes(format, 0) * height;
+        int chroma = format == PixelFormat.Nv12 ? width / 2 * 2 * (height / 2) : 0;
+        byte[] packed = new byte[luma + chroma];
+        using VulkanTransfer.Readback readback = new();
+        VulkanTransfer.Read(
+            Engine,
+            readback,
+            in image,
+            format,
+            width,
+            height,
+            packed,
+            width * TexelBytes(format, 0)
+        );
+        return format == PixelFormat.Nv12 ? [packed[..luma], packed[luma..]] : [packed];
+    }
 
     private static int TexelBytes(PixelFormat format, int plane) =>
         format == PixelFormat.Nv12 ? plane + 1 : 4;

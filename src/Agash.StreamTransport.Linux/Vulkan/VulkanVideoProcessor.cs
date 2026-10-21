@@ -141,6 +141,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
     // How long a producer's GPU may still be writing a frame when it hands it over.
     private readonly VideoProcessing _processing;
     private readonly VulkanEngine _engine;
+    private readonly VulkanTransfer.Readback _readback = new();
     private readonly DmaBufPool _pool;
     private readonly VideoColor _outputColour;
     private readonly Lock _gate = new();
@@ -267,20 +268,22 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         }
     }
 
-    // The result read back plane by plane once the GPU finished, handed on from memory; a consumer that
-    // keeps it copies it.
+    // The result read back once the GPU finished, through staging kept between frames, handed on from
+    // that memory; a consumer that keeps it copies it.
     private void ReadBack(PooledDmaBuf output, in VideoFrame frame, IVideoFrameConsumer consumer)
     {
         VideoStreamDescription described = Info.Output;
         bool nv12 = described.PixelFormat == PixelFormat.Nv12;
-        byte[] first = VulkanTransfer.Download(_engine, output.Planes[0], nv12 ? 1 : 4);
-        byte[] second = nv12 ? VulkanTransfer.Download(_engine, output.Planes[1], 2) : [];
+        int lumaBytes = output.Planes[0].Width * (nv12 ? 1 : 4) * output.Planes[0].Height;
+        ReadOnlySpan<byte> planes = nv12
+            ? VulkanTransfer.Read(_engine, _readback, output.Planes.AsSpan(0, 2), [1, 2])
+            : VulkanTransfer.Read(_engine, _readback, output.Planes.AsSpan(0, 1), [4]);
         var result = VideoFrame.FromPlanes(
             new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
             frame.Timestamp,
-            first,
+            planes[..lumaBytes],
             output.Planes[0].Width * (nv12 ? 1 : 4),
-            second,
+            nv12 ? planes[lumaBytes..] : default,
             nv12 ? output.Planes[1].Width * 2 : 0,
             color: _outputColour,
             orientation: frame.Orientation,
@@ -371,6 +374,7 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 _disposed = true;
                 _engine.Wait(_submitted);
                 _pool.Dispose();
+                _readback.Dispose();
             }
         }
     }
