@@ -196,7 +196,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
                 _output is null
                 || format.CodedSize != _format.CodedSize
                 || !_offered.Contains(pixels)
-                || frame.Color != _color
+                || !SameColor(frame.Color, pixels)
                 || gpu != _gpu
             )
             {
@@ -361,6 +361,14 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             DropShared();
         }
     }
+
+    // A frame in the node's first format is compared whole. One in another format the node offers, which
+    // the session converted it into for the consumer, carries that format's own matrix and range (RGB has
+    // neither), so only its primaries and transfer must match; called holding the lock.
+    private bool SameColor(VideoColor color, PixelFormat pixels) =>
+        pixels == _offered[0]
+            ? color == _color
+            : color.Primaries == _color.Primaries && color.Transfer == _color.Transfer;
 
     // A node of the frame's size, colour and storage, offering its format first; called holding the lock.
     private void Restart(VideoFormat format, VideoColor color, bool gpu, GpuIdentity? device)
