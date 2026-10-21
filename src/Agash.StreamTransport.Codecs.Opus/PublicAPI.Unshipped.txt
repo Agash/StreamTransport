@@ -1,0 +1,40 @@
+#nullable enable
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder.Conceal(System.TimeSpan duration, Agash.StreamTransport.Media.MediaTimestamp timestamp, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder.Decode(in Agash.StreamTransport.Media.EncodedAudioFrame frame, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder.Dispose() -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder.OpusAudioDecoder() -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder.Output.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoder.Recover(in Agash.StreamTransport.Media.EncodedAudioFrame next, System.TimeSpan lostDuration, Agash.StreamTransport.Media.MediaTimestamp lostTimestamp, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoderFactory
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoderFactory.Create(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.IAudioDecoder!
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoderFactory.OpusAudioDecoderFactory() -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoderFactory.QueryCapabilities(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.AudioDecoderInfo?
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoderFactory.Rank.get -> int
+Agash.StreamTransport.Codecs.Opus.OpusAudioDecoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!>
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoder
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoder.Dispose() -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoder.Encode(in Agash.StreamTransport.Media.AudioFrame frame, Agash.StreamTransport.Media.IEncodedAudioConsumer! consumer) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoder.Input.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoder.OpusAudioEncoder(Agash.StreamTransport.Media.AudioEncoderConfiguration! configuration, Agash.StreamTransport.Codecs.Opus.OpusOptions? options = null) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoder.Reconfigure(int bitsPerSecond) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.Create(Agash.StreamTransport.Media.AudioEncoderConfiguration! configuration) -> Agash.StreamTransport.Media.IAudioEncoder!
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.OpusAudioEncoderFactory(Agash.StreamTransport.Codecs.Opus.OpusOptions? options = null) -> void
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.QueryCapabilities(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.AudioEncoderInfo?
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.Rank.get -> int
+Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!>
+Agash.StreamTransport.Codecs.Opus.OpusOptions
+Agash.StreamTransport.Codecs.Opus.OpusOptions.<Clone>$() -> Agash.StreamTransport.Codecs.Opus.OpusOptions!
+Agash.StreamTransport.Codecs.Opus.OpusOptions.Complexity.get -> int
+Agash.StreamTransport.Codecs.Opus.OpusOptions.Complexity.init -> void
+Agash.StreamTransport.Codecs.Opus.OpusOptions.Equals(Agash.StreamTransport.Codecs.Opus.OpusOptions? other) -> bool
+Agash.StreamTransport.Codecs.Opus.OpusOptions.OpusOptions() -> void
+Microsoft.Extensions.DependencyInjection.StreamTransportOpusServiceCollectionExtensions
+override Agash.StreamTransport.Codecs.Opus.OpusOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Codecs.Opus.OpusOptions.GetHashCode() -> int
+override Agash.StreamTransport.Codecs.Opus.OpusOptions.ToString() -> string!
+static Agash.StreamTransport.Codecs.Opus.OpusAudioEncoderFactory.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
+static Agash.StreamTransport.Codecs.Opus.OpusOptions.operator !=(Agash.StreamTransport.Codecs.Opus.OpusOptions? left, Agash.StreamTransport.Codecs.Opus.OpusOptions? right) -> bool
+static Agash.StreamTransport.Codecs.Opus.OpusOptions.operator ==(Agash.StreamTransport.Codecs.Opus.OpusOptions? left, Agash.StreamTransport.Codecs.Opus.OpusOptions? right) -> bool
+static Microsoft.Extensions.DependencyInjection.StreamTransportOpusServiceCollectionExtensions.AddOpusCodecs(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Agash.StreamTransport.Codecs.Opus.OpusOptions? options = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

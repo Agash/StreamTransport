@@ -75,12 +75,14 @@ public sealed class RtxTests
             history.Store(seq, packet.AsSpan(0, 20));
         }
 
-        Assert.IsTrue(history.TryGet(2, out ReadOnlyMemory<byte> got));
-        Assert.AreEqual(2, got.Span[3]);
+        byte[] got = new byte[RtpSendHistory.MaximumPacketLength];
+        Assert.IsTrue(history.TryCopy(2, got, out int length));
+        Assert.AreEqual(20, length);
+        Assert.AreEqual(2, got[3]);
 
         // Storing seq 5 evicts seq 1 (both map to slot 1 in a capacity-4 buffer).
         history.Store(5, packet);
-        Assert.IsFalse(history.TryGet(1, out _));
-        Assert.IsTrue(history.TryGet(5, out _));
+        Assert.IsFalse(history.TryCopy(1, got, out _));
+        Assert.IsTrue(history.TryCopy(5, got, out _));
     }
 }

@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework Condition="'$(BuildMacOS)' == 'true'">net11.0-macos</TargetFramework>
+    <TargetFramework Condition="'$(BuildMacOS)' != 'true'">net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- A test module on this target is an app bundle. It is emitted only for a RID-specific build, so
+       the host RID is pinned; the app launches directly, since LaunchServices drops the arguments
+       and environment the test runner's handshake needs; and Main.cs starts AppKit, which Metal,
+       IOSurface and Syphon need, before handing over to the runner. -->
+  <PropertyGroup Condition="'$(BuildMacOS)' == 'true'">
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''"
+      >$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+    <ApplicationId>com.agash.streamtransport.macos.tests</ApplicationId>
+    <RunWithOpen>false</RunWithOpen>
+  </PropertyGroup>
+
+  <!-- Off macOS the project builds empty and is not a test module. -->
+  <PropertyGroup Condition="'$(BuildMacOS)' != 'true'">
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsTestProject>false</IsTestProject>
+    <OutputType>Library</OutputType>
+    <EnableMSTestRunner>false</EnableMSTestRunner>
+    <TestingPlatformDotnetTestSupport>false</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(BuildMacOS)' == 'true'">
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.MacOS\Agash.StreamTransport.MacOS.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+</Project>

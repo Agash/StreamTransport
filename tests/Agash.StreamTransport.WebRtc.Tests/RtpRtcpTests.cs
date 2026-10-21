@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using Agash.StreamTransport.Media;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Rtp;
 
@@ -53,13 +55,14 @@ public sealed class RtpRtcpTests
             timestamp: 1000,
             ssrc: 0x55667788,
             payload,
-            absCaptureTimeExtensionId: 1,
-            absCaptureTimeNtp: ntp
+            RtpExtensionMap.Offered,
+            new RtpExtensionValues(ntp)
         );
 
         Assert.IsTrue(
             RtpPacket.TryParse(
                 buffer.AsSpan(0, length),
+                RtpExtensionMap.Offered,
                 out RtpHeader header,
                 out ReadOnlySpan<byte> parsedPayload
             )
@@ -67,6 +70,24 @@ public sealed class RtpRtcpTests
         Assert.AreEqual(ntp, header.AbsoluteCaptureTimeNtp);
         Assert.AreEqual(1000u, header.Timestamp);
         CollectionAssert.AreEqual(payload, parsedPayload.ToArray());
+    }
+
+    // RFC 3550 section 5.1: the padding octets the last octet counts are not payload; a count past the
+    // payload makes the packet invalid (A.1), and a padding-only RTX packet carries no original.
+    [TestMethod]
+    public void RtpPacket_TryParse_StripsPaddingAndRejectsAnOverlongCount()
+    {
+        byte[] packet = [0xA0, 96, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0x41, 0x42, 0, 0, 3];
+        Assert.IsTrue(RtpPacket.TryParse(packet, out _, out ReadOnlySpan<byte> payload));
+        CollectionAssert.AreEqual(new byte[] { 0x41, 0x42 }, payload.ToArray());
+
+        packet[^1] = 6;
+        Assert.IsFalse(RtpPacket.TryParse(packet, out _, out _));
+        packet[^1] = 0;
+        Assert.IsFalse(RtpPacket.TryParse(packet, out _, out _));
+
+        byte[] paddingOnlyRtx = [0xA0, 97, 0, 9, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 4];
+        Assert.IsFalse(RtxStream.TryUnwrap(paddingOnlyRtx, new byte[64], 96, 3, out _));
     }
 
     [TestMethod]
@@ -79,8 +100,8 @@ public sealed class RtpRtcpTests
     [TestMethod]
     public void SenderReport_WriteThenParse_PreservesNtpRtpMapping()
     {
-        var blocks = new RtcpReportBlock[]
-        {
+        ImmutableArray<RtcpReportBlock> blocks =
+        [
             new(
                 Ssrc: 0xAABBCCDD,
                 FractionLost: 5,
@@ -90,7 +111,7 @@ public sealed class RtpRtcpTests
                 LastSenderReport: 0x12345678,
                 DelaySinceLastSenderReport: 65536
             ),
-        };
+        ];
         var sr = new RtcpSenderReport(
             0x11112222,
             NtpTimestamp: 0xE1E2E3E4_F1F2F3F4,
@@ -111,7 +132,7 @@ public sealed class RtpRtcpTests
         Assert.AreEqual(90000u, parsed.RtpTimestamp);
         Assert.AreEqual(1234u, parsed.SenderPacketCount);
         Assert.AreEqual(567890u, parsed.SenderOctetCount);
-        Assert.AreEqual(1, parsed.ReportBlocks.Count);
+        Assert.AreEqual(1, parsed.ReportBlocks.Length);
         Assert.AreEqual(0xAABBCCDDu, parsed.ReportBlocks[0].Ssrc);
         Assert.AreEqual(100, parsed.ReportBlocks[0].CumulativeLost);
         Assert.AreEqual(5000u, parsed.ReportBlocks[0].ExtendedHighestSequence);
@@ -120,7 +141,7 @@ public sealed class RtpRtcpTests
     [TestMethod]
     public void ReceiverReport_WriteThenParse_RoundTrips()
     {
-        var blocks = new RtcpReportBlock[] { new(0xDEADBEEF, 0, 0, 12345, 7, 0, 0) };
+        ImmutableArray<RtcpReportBlock> blocks = [new(0xDEADBEEF, 0, 0, 12345, 7, 0, 0)];
         var rr = new RtcpReceiverReport(0x99887766, blocks);
 
         byte[] buffer = new byte[128];
@@ -130,7 +151,7 @@ public sealed class RtpRtcpTests
             RtcpReceiverReport.TryParse(buffer.AsSpan(0, length), out RtcpReceiverReport parsed)
         );
         Assert.AreEqual(0x99887766u, parsed.Ssrc);
-        Assert.AreEqual(1, parsed.ReportBlocks.Count);
+        Assert.AreEqual(1, parsed.ReportBlocks.Length);
         Assert.AreEqual(0xDEADBEEFu, parsed.ReportBlocks[0].Ssrc);
         Assert.AreEqual(12345u, parsed.ReportBlocks[0].ExtendedHighestSequence);
     }

@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agash.StreamTransport;
 
@@ -11,9 +13,23 @@ namespace Agash.StreamTransport;
 /// disposing the transport closes and disposes the socket (the client owns its socket; the relay handler
 /// keeps ownership of the request socket).
 /// </summary>
-public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocket = false)
-    : IDuplexSignalingTransport
+/// <param name="socket">The connected socket.</param>
+/// <param name="ownsSocket">Whether disposing the transport closes and disposes the socket.</param>
+/// <param name="logger">The logging; none when null.</param>
+/// <param name="timeProvider">The clock the close timeout runs on; the system's when null.</param>
+public sealed partial class WebSocketSignalingTransport(
+    WebSocket socket,
+    bool ownsSocket = false,
+    ILogger<WebSocketSignalingTransport>? logger = null,
+    TimeProvider? timeProvider = null
+) : IDuplexSignalingTransport
 {
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+
+    private readonly ILogger _logger = logger ?? NullLogger<WebSocketSignalingTransport>.Instance;
+
+    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
+
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     /// <summary>Raised for each inbound signaling message.</summary>
@@ -55,13 +71,16 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
                         .ReceiveAsync(buffer, cancellationToken)
                         .ConfigureAwait(false);
                 }
-                catch (WebSocketException)
+                catch (WebSocketException exception)
                 {
+                    LogConnectionLost(exception, exception.WebSocketErrorCode);
                     return;
                 }
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
+                    LogClosedByPeer(result.CloseStatus, result.CloseStatusDescription);
+                    await AnswerCloseAsync().ConfigureAwait(false);
                     return;
                 }
 
@@ -75,9 +94,11 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
                     message.GetBuffer().AsSpan(0, (int)message.Length)
                 );
             }
-            catch (System.Text.Json.JsonException)
+            catch (System.Text.Json.JsonException exception)
             {
-                continue; // drop malformed frame, keep the connection.
+                // A malformed frame is dropped and the connection kept.
+                LogMalformedFrame(exception, message.Length);
+                continue;
             }
 
             if (parsed is not null && MessageReceived is { } handler)
@@ -87,27 +108,51 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
         }
     }
 
+    // Completes a close the peer started. Without the reply the peer's CloseAsync waits for a frame
+    // that never comes.
+    private async Task AnswerCloseAsync()
+    {
+        if (socket.State != WebSocketState.CloseReceived)
+        {
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(CloseTimeout, _time);
+        try
+        {
+            await socket
+                .CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, timeout.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
+        {
+            // Deliberately not logged: the peer has already closed; failing to acknowledge it only
+            // means its close handshake ends by its own timeout.
+        }
+    }
+
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
         if (ownsSocket)
         {
+            // A peer that never answers the close frame must not hold disposal: give the handshake a
+            // moment, then drop the connection.
+            using var timeout = new CancellationTokenSource(CloseTimeout, _time);
             try
             {
                 if (socket.State == WebSocketState.Open)
                 {
                     await socket
-                        .CloseAsync(
-                            WebSocketCloseStatus.NormalClosure,
-                            null,
-                            CancellationToken.None
-                        )
+                        .CloseAsync(WebSocketCloseStatus.NormalClosure, null, timeout.Token)
                         .ConfigureAwait(false);
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
             {
-                // Best-effort close.
+                // Deliberately not logged: the connection is being torn down either way, and an
+                // unanswered or failed close changes nothing for the caller.
+                socket.Abort();
             }
 
             socket.Dispose();
@@ -115,4 +160,25 @@ public sealed class WebSocketSignalingTransport(WebSocket socket, bool ownsSocke
 
         _sendLock.Dispose();
     }
+
+    [LoggerMessage(
+        EventId = 2820,
+        Level = LogLevel.Information,
+        Message = "The signaling connection was lost ({ErrorCode})."
+    )]
+    private partial void LogConnectionLost(Exception exception, WebSocketError errorCode);
+
+    [LoggerMessage(
+        EventId = 2821,
+        Level = LogLevel.Debug,
+        Message = "The peer closed the signaling connection ({Status}: {Description})."
+    )]
+    private partial void LogClosedByPeer(WebSocketCloseStatus? status, string? description);
+
+    [LoggerMessage(
+        EventId = 2822,
+        Level = LogLevel.Warning,
+        Message = "Dropped a signaling frame of {Bytes} bytes that is not a signaling message."
+    )]
+    private partial void LogMalformedFrame(Exception exception, long bytes);
 }

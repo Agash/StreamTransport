@@ -1,0 +1,1136 @@
+#nullable enable
+Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.Layer = 3 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.None = 0 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.PackSideBySide = 1 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.UnpackSideBySide = 2 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AudioCodecFormat
+Agash.StreamTransport.Media.AudioCodecFormat.<Clone>$() -> Agash.StreamTransport.Media.AudioCodecFormat!
+Agash.StreamTransport.Media.AudioCodecFormat.AudioCodecFormat(Agash.StreamTransport.Media.AudioCodecId Codec, System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>! Parameters) -> void
+Agash.StreamTransport.Media.AudioCodecFormat.AudioCodecFormat(Agash.StreamTransport.Media.AudioCodecId codec) -> void
+Agash.StreamTransport.Media.AudioCodecFormat.Codec.get -> Agash.StreamTransport.Media.AudioCodecId
+Agash.StreamTransport.Media.AudioCodecFormat.Codec.init -> void
+Agash.StreamTransport.Media.AudioCodecFormat.Deconstruct(out Agash.StreamTransport.Media.AudioCodecId Codec, out System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>! Parameters) -> void
+Agash.StreamTransport.Media.AudioCodecFormat.Equals(Agash.StreamTransport.Media.AudioCodecFormat? other) -> bool
+Agash.StreamTransport.Media.AudioCodecFormat.Parameters.get -> System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>!
+Agash.StreamTransport.Media.AudioCodecFormat.Parameters.init -> void
+Agash.StreamTransport.Media.AudioCodecId
+Agash.StreamTransport.Media.AudioCodecId.AudioCodecId() -> void
+Agash.StreamTransport.Media.AudioCodecId.AudioCodecId(string! name) -> void
+Agash.StreamTransport.Media.AudioCodecId.Equals(Agash.StreamTransport.Media.AudioCodecId other) -> bool
+Agash.StreamTransport.Media.AudioCodecId.Name.get -> string!
+Agash.StreamTransport.Media.AudioConstraints
+Agash.StreamTransport.Media.AudioConstraints.<Clone>$() -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.Media.AudioConstraints.Accepts(Agash.StreamTransport.Media.AudioFormat format) -> bool
+Agash.StreamTransport.Media.AudioConstraints.AudioConstraints(System.Collections.Immutable.ImmutableArray<int> SampleRates, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.SampleFormat> SampleFormats, int MaximumChannels) -> void
+Agash.StreamTransport.Media.AudioConstraints.Deconstruct(out System.Collections.Immutable.ImmutableArray<int> SampleRates, out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.SampleFormat> SampleFormats, out int MaximumChannels) -> void
+Agash.StreamTransport.Media.AudioConstraints.Equals(Agash.StreamTransport.Media.AudioConstraints? other) -> bool
+Agash.StreamTransport.Media.AudioConstraints.MaximumChannels.get -> int
+Agash.StreamTransport.Media.AudioConstraints.MaximumChannels.init -> void
+Agash.StreamTransport.Media.AudioConstraints.SampleFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.SampleFormat>
+Agash.StreamTransport.Media.AudioConstraints.SampleFormats.init -> void
+Agash.StreamTransport.Media.AudioConstraints.SampleRates.get -> System.Collections.Immutable.ImmutableArray<int>
+Agash.StreamTransport.Media.AudioConstraints.SampleRates.init -> void
+Agash.StreamTransport.Media.AudioContent
+Agash.StreamTransport.Media.AudioContent.Music = 0 -> Agash.StreamTransport.Media.AudioContent
+Agash.StreamTransport.Media.AudioContent.Speech = 1 -> Agash.StreamTransport.Media.AudioContent
+Agash.StreamTransport.Media.AudioConverter
+Agash.StreamTransport.Media.AudioConverter.AudioConverter(Agash.StreamTransport.Media.AudioFormat input, Agash.StreamTransport.Media.AudioFormat output) -> void
+Agash.StreamTransport.Media.AudioConverter.Convert(in Agash.StreamTransport.Media.AudioFrame frame, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.AudioConverter.Delay.get -> System.TimeSpan
+Agash.StreamTransport.Media.AudioConverter.Feeding(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> Agash.StreamTransport.Media.IAudioFrameConsumer!
+Agash.StreamTransport.Media.AudioConverter.Input.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioConverter.Output.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioDecoderInfo
+Agash.StreamTransport.Media.AudioDecoderInfo.<Clone>$() -> Agash.StreamTransport.Media.AudioDecoderInfo!
+Agash.StreamTransport.Media.AudioDecoderInfo.AudioDecoderInfo(string! ImplementationName, Agash.StreamTransport.Media.AudioFormat Output) -> void
+Agash.StreamTransport.Media.AudioDecoderInfo.Deconstruct(out string! ImplementationName, out Agash.StreamTransport.Media.AudioFormat Output) -> void
+Agash.StreamTransport.Media.AudioDecoderInfo.Equals(Agash.StreamTransport.Media.AudioDecoderInfo? other) -> bool
+Agash.StreamTransport.Media.AudioDecoderInfo.ImplementationName.get -> string!
+Agash.StreamTransport.Media.AudioDecoderInfo.ImplementationName.init -> void
+Agash.StreamTransport.Media.AudioDecoderInfo.Output.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioDecoderInfo.Output.init -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration
+Agash.StreamTransport.Media.AudioEncoderConfiguration.<Clone>$() -> Agash.StreamTransport.Media.AudioEncoderConfiguration!
+Agash.StreamTransport.Media.AudioEncoderConfiguration.AudioEncoderConfiguration(Agash.StreamTransport.Media.AudioCodecFormat! Format, Agash.StreamTransport.Media.AudioFormat Input, int BitsPerSecond, System.TimeSpan FrameDuration = default(System.TimeSpan), Agash.StreamTransport.Media.AudioContent Content = Agash.StreamTransport.Media.AudioContent.Music, int ExpectedLossPercent = 0) -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.BitsPerSecond.get -> int
+Agash.StreamTransport.Media.AudioEncoderConfiguration.BitsPerSecond.init -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Content.get -> Agash.StreamTransport.Media.AudioContent
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Content.init -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Deconstruct(out Agash.StreamTransport.Media.AudioCodecFormat! Format, out Agash.StreamTransport.Media.AudioFormat Input, out int BitsPerSecond, out System.TimeSpan FrameDuration, out Agash.StreamTransport.Media.AudioContent Content, out int ExpectedLossPercent) -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Equals(Agash.StreamTransport.Media.AudioEncoderConfiguration? other) -> bool
+Agash.StreamTransport.Media.AudioEncoderConfiguration.ExpectedLossPercent.get -> int
+Agash.StreamTransport.Media.AudioEncoderConfiguration.ExpectedLossPercent.init -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Format.get -> Agash.StreamTransport.Media.AudioCodecFormat!
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Format.init -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.FrameDuration.get -> System.TimeSpan
+Agash.StreamTransport.Media.AudioEncoderConfiguration.FrameDuration.init -> void
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Input.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioEncoderConfiguration.Input.init -> void
+Agash.StreamTransport.Media.AudioEncoderInfo
+Agash.StreamTransport.Media.AudioEncoderInfo.<Clone>$() -> Agash.StreamTransport.Media.AudioEncoderInfo!
+Agash.StreamTransport.Media.AudioEncoderInfo.AudioEncoderInfo(string! ImplementationName, Agash.StreamTransport.Media.AudioConstraints! Input) -> void
+Agash.StreamTransport.Media.AudioEncoderInfo.Deconstruct(out string! ImplementationName, out Agash.StreamTransport.Media.AudioConstraints! Input) -> void
+Agash.StreamTransport.Media.AudioEncoderInfo.Equals(Agash.StreamTransport.Media.AudioEncoderInfo? other) -> bool
+Agash.StreamTransport.Media.AudioEncoderInfo.ImplementationName.get -> string!
+Agash.StreamTransport.Media.AudioEncoderInfo.ImplementationName.init -> void
+Agash.StreamTransport.Media.AudioEncoderInfo.Input.get -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.Media.AudioEncoderInfo.Input.init -> void
+Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioFormat.AudioFormat() -> void
+Agash.StreamTransport.Media.AudioFormat.AudioFormat(Agash.StreamTransport.Media.SampleFormat SampleFormat, int SampleRate, int Channels) -> void
+Agash.StreamTransport.Media.AudioFormat.BytesPerFrame.get -> int
+Agash.StreamTransport.Media.AudioFormat.BytesPerSample.get -> int
+Agash.StreamTransport.Media.AudioFormat.Channels.get -> int
+Agash.StreamTransport.Media.AudioFormat.Channels.init -> void
+Agash.StreamTransport.Media.AudioFormat.Deconstruct(out Agash.StreamTransport.Media.SampleFormat SampleFormat, out int SampleRate, out int Channels) -> void
+Agash.StreamTransport.Media.AudioFormat.Equals(Agash.StreamTransport.Media.AudioFormat other) -> bool
+Agash.StreamTransport.Media.AudioFormat.SampleFormat.get -> Agash.StreamTransport.Media.SampleFormat
+Agash.StreamTransport.Media.AudioFormat.SampleFormat.init -> void
+Agash.StreamTransport.Media.AudioFormat.SampleRate.get -> int
+Agash.StreamTransport.Media.AudioFormat.SampleRate.init -> void
+Agash.StreamTransport.Media.AudioFrame
+Agash.StreamTransport.Media.AudioFrame.AudioFrame() -> void
+Agash.StreamTransport.Media.AudioFrame.AudioFrame(System.ReadOnlySpan<byte> samples, Agash.StreamTransport.Media.AudioFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp) -> void
+Agash.StreamTransport.Media.AudioFrame.Duration.get -> System.TimeSpan
+Agash.StreamTransport.Media.AudioFrame.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioFrame.Retain() -> Agash.StreamTransport.Media.AudioFrameLease!
+Agash.StreamTransport.Media.AudioFrame.SampleCount.get -> int
+Agash.StreamTransport.Media.AudioFrame.Samples.get -> System.ReadOnlySpan<byte>
+Agash.StreamTransport.Media.AudioFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.AudioFrameLease
+Agash.StreamTransport.Media.AudioFrameLease.Dispose() -> void
+Agash.StreamTransport.Media.AudioFrameLease.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioFrameLease.Frame.get -> Agash.StreamTransport.Media.AudioFrame
+Agash.StreamTransport.Media.AudioFrameLease.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.AudioInput
+Agash.StreamTransport.Media.AudioInput.AudioInput(Agash.StreamTransport.Media.IAudioSource! source, Agash.StreamTransport.Media.AudioInputInfo! info, System.IDisposable? owner = null) -> void
+Agash.StreamTransport.Media.AudioInput.Connect(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> System.IDisposable!
+Agash.StreamTransport.Media.AudioInput.Dispose() -> void
+Agash.StreamTransport.Media.AudioInput.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.AudioInput.Info.get -> Agash.StreamTransport.Media.AudioInputInfo!
+Agash.StreamTransport.Media.AudioInputInfo
+Agash.StreamTransport.Media.AudioInputInfo.<Clone>$() -> Agash.StreamTransport.Media.AudioInputInfo!
+Agash.StreamTransport.Media.AudioInputInfo.AudioInputInfo(string! Provider, string! Id, string! Name, Agash.StreamTransport.Media.MediaInputKind Kind, bool IsDefault = false) -> void
+Agash.StreamTransport.Media.AudioInputInfo.Deconstruct(out string! Provider, out string! Id, out string! Name, out Agash.StreamTransport.Media.MediaInputKind Kind, out bool IsDefault) -> void
+Agash.StreamTransport.Media.AudioInputInfo.Equals(Agash.StreamTransport.Media.AudioInputInfo? other) -> bool
+Agash.StreamTransport.Media.AudioInputInfo.Id.get -> string!
+Agash.StreamTransport.Media.AudioInputInfo.Id.init -> void
+Agash.StreamTransport.Media.AudioInputInfo.IsDefault.get -> bool
+Agash.StreamTransport.Media.AudioInputInfo.IsDefault.init -> void
+Agash.StreamTransport.Media.AudioInputInfo.Kind.get -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.AudioInputInfo.Kind.init -> void
+Agash.StreamTransport.Media.AudioInputInfo.Name.get -> string!
+Agash.StreamTransport.Media.AudioInputInfo.Name.init -> void
+Agash.StreamTransport.Media.AudioInputInfo.Provider.get -> string!
+Agash.StreamTransport.Media.AudioInputInfo.Provider.init -> void
+Agash.StreamTransport.Media.AudioLevel
+Agash.StreamTransport.Media.AudioLevel.AudioLevel() -> void
+Agash.StreamTransport.Media.AudioLevel.AudioLevel(int decibelsBelowOverload, bool? voice = null) -> void
+Agash.StreamTransport.Media.AudioLevel.DecibelsBelowOverload.get -> int
+Agash.StreamTransport.Media.AudioLevel.Equals(Agash.StreamTransport.Media.AudioLevel other) -> bool
+Agash.StreamTransport.Media.AudioLevel.Voice.get -> bool?
+Agash.StreamTransport.Media.AudioOutput
+Agash.StreamTransport.Media.AudioOutput.AudioOutput(Agash.StreamTransport.Media.IAudioSink! sink, string! provider, string! name, System.IDisposable? owner = null) -> void
+Agash.StreamTransport.Media.AudioOutput.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.Media.AudioOutput.Dispose() -> void
+Agash.StreamTransport.Media.AudioOutput.Name.get -> string!
+Agash.StreamTransport.Media.AudioOutput.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
+Agash.StreamTransport.Media.AudioOutput.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Media.AudioOutput.Provider.get -> string!
+Agash.StreamTransport.Media.ChromaSiting
+Agash.StreamTransport.Media.ChromaSiting.Center = 2 -> Agash.StreamTransport.Media.ChromaSiting
+Agash.StreamTransport.Media.ChromaSiting.Left = 1 -> Agash.StreamTransport.Media.ChromaSiting
+Agash.StreamTransport.Media.ChromaSiting.TopLeft = 3 -> Agash.StreamTransport.Media.ChromaSiting
+Agash.StreamTransport.Media.ChromaSiting.Unspecified = 0 -> Agash.StreamTransport.Media.ChromaSiting
+Agash.StreamTransport.Media.ClockRate
+Agash.StreamTransport.Media.ClockRate.ClockRate() -> void
+Agash.StreamTransport.Media.ClockRate.ClockRate(int Hertz) -> void
+Agash.StreamTransport.Media.ClockRate.Deconstruct(out int Hertz) -> void
+Agash.StreamTransport.Media.ClockRate.Equals(Agash.StreamTransport.Media.ClockRate other) -> bool
+Agash.StreamTransport.Media.ClockRate.Hertz.get -> int
+Agash.StreamTransport.Media.ClockRate.Hertz.init -> void
+Agash.StreamTransport.Media.ClockRate.ToTicks(System.TimeSpan duration) -> long
+Agash.StreamTransport.Media.ClockRate.ToTimeSpan(long ticks) -> System.TimeSpan
+Agash.StreamTransport.Media.ColorConversion
+Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.ColorMatrix.Bt2020 = 3 -> Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.ColorMatrix.Bt601 = 1 -> Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.ColorMatrix.Bt709 = 2 -> Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.ColorMatrix.Identity = 4 -> Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.ColorMatrix.Unspecified = 0 -> Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.ColorPrimaries
+Agash.StreamTransport.Media.ColorPrimaries.Bt2020 = 3 -> Agash.StreamTransport.Media.ColorPrimaries
+Agash.StreamTransport.Media.ColorPrimaries.Bt601 = 1 -> Agash.StreamTransport.Media.ColorPrimaries
+Agash.StreamTransport.Media.ColorPrimaries.Bt709 = 2 -> Agash.StreamTransport.Media.ColorPrimaries
+Agash.StreamTransport.Media.ColorPrimaries.Unspecified = 0 -> Agash.StreamTransport.Media.ColorPrimaries
+Agash.StreamTransport.Media.ColorRange
+Agash.StreamTransport.Media.ColorRange.Full = 2 -> Agash.StreamTransport.Media.ColorRange
+Agash.StreamTransport.Media.ColorRange.Limited = 1 -> Agash.StreamTransport.Media.ColorRange
+Agash.StreamTransport.Media.ColorRange.Unspecified = 0 -> Agash.StreamTransport.Media.ColorRange
+Agash.StreamTransport.Media.CpuImage
+Agash.StreamTransport.Media.CpuImage.CpuImage() -> void
+Agash.StreamTransport.Media.CpuImage.CpuImage(Agash.StreamTransport.Media.PlaneLayout Planes) -> void
+Agash.StreamTransport.Media.CpuImage.Deconstruct(out Agash.StreamTransport.Media.PlaneLayout Planes) -> void
+Agash.StreamTransport.Media.CpuImage.Equals(Agash.StreamTransport.Media.CpuImage other) -> bool
+Agash.StreamTransport.Media.CpuImage.Planes.get -> Agash.StreamTransport.Media.PlaneLayout
+Agash.StreamTransport.Media.CpuImage.Planes.init -> void
+Agash.StreamTransport.Media.D3D11Image
+Agash.StreamTransport.Media.D3D11Image.Adapter.get -> Agash.StreamTransport.Media.GpuIdentity
+Agash.StreamTransport.Media.D3D11Image.Adapter.init -> void
+Agash.StreamTransport.Media.D3D11Image.D3D11Image() -> void
+Agash.StreamTransport.Media.D3D11Image.D3D11Image(nint Texture, int Subresource, Agash.StreamTransport.Media.GpuIdentity Adapter, Agash.StreamTransport.Media.D3D11Sync Sync = default(Agash.StreamTransport.Media.D3D11Sync)) -> void
+Agash.StreamTransport.Media.D3D11Image.Deconstruct(out nint Texture, out int Subresource, out Agash.StreamTransport.Media.GpuIdentity Adapter, out Agash.StreamTransport.Media.D3D11Sync Sync) -> void
+Agash.StreamTransport.Media.D3D11Image.Equals(Agash.StreamTransport.Media.D3D11Image other) -> bool
+Agash.StreamTransport.Media.D3D11Image.Subresource.get -> int
+Agash.StreamTransport.Media.D3D11Image.Subresource.init -> void
+Agash.StreamTransport.Media.D3D11Image.Sync.get -> Agash.StreamTransport.Media.D3D11Sync
+Agash.StreamTransport.Media.D3D11Image.Sync.init -> void
+Agash.StreamTransport.Media.D3D11Image.Texture.get -> nint
+Agash.StreamTransport.Media.D3D11Image.Texture.init -> void
+Agash.StreamTransport.Media.D3D11Sync
+Agash.StreamTransport.Media.D3D11Sync.D3D11Sync() -> void
+Agash.StreamTransport.Media.D3D11Sync.D3D11Sync(Agash.StreamTransport.Media.D3D11SyncKind Kind, nint Fence = 0, ulong Value = 0) -> void
+Agash.StreamTransport.Media.D3D11Sync.Deconstruct(out Agash.StreamTransport.Media.D3D11SyncKind Kind, out nint Fence, out ulong Value) -> void
+Agash.StreamTransport.Media.D3D11Sync.Equals(Agash.StreamTransport.Media.D3D11Sync other) -> bool
+Agash.StreamTransport.Media.D3D11Sync.Fence.get -> nint
+Agash.StreamTransport.Media.D3D11Sync.Fence.init -> void
+Agash.StreamTransport.Media.D3D11Sync.Kind.get -> Agash.StreamTransport.Media.D3D11SyncKind
+Agash.StreamTransport.Media.D3D11Sync.Kind.init -> void
+Agash.StreamTransport.Media.D3D11Sync.Value.get -> ulong
+Agash.StreamTransport.Media.D3D11Sync.Value.init -> void
+Agash.StreamTransport.Media.D3D11SyncKind
+Agash.StreamTransport.Media.D3D11SyncKind.Fence = 2 -> Agash.StreamTransport.Media.D3D11SyncKind
+Agash.StreamTransport.Media.D3D11SyncKind.KeyedMutex = 1 -> Agash.StreamTransport.Media.D3D11SyncKind
+Agash.StreamTransport.Media.D3D11SyncKind.None = 0 -> Agash.StreamTransport.Media.D3D11SyncKind
+Agash.StreamTransport.Media.D3D12Image
+Agash.StreamTransport.Media.D3D12Image.Adapter.get -> Agash.StreamTransport.Media.GpuIdentity
+Agash.StreamTransport.Media.D3D12Image.Adapter.init -> void
+Agash.StreamTransport.Media.D3D12Image.D3D12Image() -> void
+Agash.StreamTransport.Media.D3D12Image.D3D12Image(nint Resource, int Subresource, Agash.StreamTransport.Media.GpuIdentity Adapter, Agash.StreamTransport.Media.D3D12Sync Sync = default(Agash.StreamTransport.Media.D3D12Sync)) -> void
+Agash.StreamTransport.Media.D3D12Image.Deconstruct(out nint Resource, out int Subresource, out Agash.StreamTransport.Media.GpuIdentity Adapter, out Agash.StreamTransport.Media.D3D12Sync Sync) -> void
+Agash.StreamTransport.Media.D3D12Image.Equals(Agash.StreamTransport.Media.D3D12Image other) -> bool
+Agash.StreamTransport.Media.D3D12Image.Resource.get -> nint
+Agash.StreamTransport.Media.D3D12Image.Resource.init -> void
+Agash.StreamTransport.Media.D3D12Image.Subresource.get -> int
+Agash.StreamTransport.Media.D3D12Image.Subresource.init -> void
+Agash.StreamTransport.Media.D3D12Image.Sync.get -> Agash.StreamTransport.Media.D3D12Sync
+Agash.StreamTransport.Media.D3D12Image.Sync.init -> void
+Agash.StreamTransport.Media.D3D12Sync
+Agash.StreamTransport.Media.D3D12Sync.D3D12Sync() -> void
+Agash.StreamTransport.Media.D3D12Sync.D3D12Sync(nint ProducerQueue = 0, nint Fence = 0, ulong Value = 0, nint ReleaseQueue = 0) -> void
+Agash.StreamTransport.Media.D3D12Sync.Deconstruct(out nint ProducerQueue, out nint Fence, out ulong Value, out nint ReleaseQueue) -> void
+Agash.StreamTransport.Media.D3D12Sync.Equals(Agash.StreamTransport.Media.D3D12Sync other) -> bool
+Agash.StreamTransport.Media.D3D12Sync.Fence.get -> nint
+Agash.StreamTransport.Media.D3D12Sync.Fence.init -> void
+Agash.StreamTransport.Media.D3D12Sync.ProducerQueue.get -> nint
+Agash.StreamTransport.Media.D3D12Sync.ProducerQueue.init -> void
+Agash.StreamTransport.Media.D3D12Sync.ReleaseQueue.get -> nint
+Agash.StreamTransport.Media.D3D12Sync.ReleaseQueue.init -> void
+Agash.StreamTransport.Media.D3D12Sync.Value.get -> ulong
+Agash.StreamTransport.Media.D3D12Sync.Value.init -> void
+Agash.StreamTransport.Media.DmaBufIdentity
+Agash.StreamTransport.Media.DmaBufImage
+Agash.StreamTransport.Media.DmaBufImage.Device.get -> Agash.StreamTransport.Media.GpuIdentity
+Agash.StreamTransport.Media.DmaBufImage.DmaBufImage() -> void
+Agash.StreamTransport.Media.DmaBufImage.DmaBufImage(System.ReadOnlySpan<Agash.StreamTransport.Media.DmaBufPlane> planes, uint drmFormat, ulong modifier, Agash.StreamTransport.Media.GpuIdentity device, Agash.StreamTransport.Media.DrmSyncTimeline? sync = null) -> void
+Agash.StreamTransport.Media.DmaBufImage.DrmFormat.get -> uint
+Agash.StreamTransport.Media.DmaBufImage.Equals(Agash.StreamTransport.Media.DmaBufImage other) -> bool
+Agash.StreamTransport.Media.DmaBufImage.Modifier.get -> ulong
+Agash.StreamTransport.Media.DmaBufImage.PlaneCount.get -> int
+Agash.StreamTransport.Media.DmaBufImage.Sync.get -> Agash.StreamTransport.Media.DrmSyncTimeline?
+Agash.StreamTransport.Media.DmaBufImage.this[int index].get -> Agash.StreamTransport.Media.DmaBufPlane
+Agash.StreamTransport.Media.DmaBufPlane
+Agash.StreamTransport.Media.DmaBufPlane.Deconstruct(out int Fd, out int Offset, out int Stride) -> void
+Agash.StreamTransport.Media.DmaBufPlane.DmaBufPlane() -> void
+Agash.StreamTransport.Media.DmaBufPlane.DmaBufPlane(int Fd, int Offset, int Stride) -> void
+Agash.StreamTransport.Media.DmaBufPlane.Equals(Agash.StreamTransport.Media.DmaBufPlane other) -> bool
+Agash.StreamTransport.Media.DmaBufPlane.Fd.get -> int
+Agash.StreamTransport.Media.DmaBufPlane.Fd.init -> void
+Agash.StreamTransport.Media.DmaBufPlane.Offset.get -> int
+Agash.StreamTransport.Media.DmaBufPlane.Offset.init -> void
+Agash.StreamTransport.Media.DmaBufPlane.Stride.get -> int
+Agash.StreamTransport.Media.DmaBufPlane.Stride.init -> void
+Agash.StreamTransport.Media.DmaBufPlanes
+Agash.StreamTransport.Media.DmaBufPlanes.DmaBufPlanes() -> void
+Agash.StreamTransport.Media.DrmSyncTimeline
+Agash.StreamTransport.Media.DrmSyncTimeline.AcquirePoint.get -> ulong
+Agash.StreamTransport.Media.DrmSyncTimeline.AcquirePoint.init -> void
+Agash.StreamTransport.Media.DrmSyncTimeline.AcquireSyncobj.get -> int
+Agash.StreamTransport.Media.DrmSyncTimeline.AcquireSyncobj.init -> void
+Agash.StreamTransport.Media.DrmSyncTimeline.Deconstruct(out int AcquireSyncobj, out ulong AcquirePoint, out int ReleaseSyncobj, out ulong ReleasePoint) -> void
+Agash.StreamTransport.Media.DrmSyncTimeline.DrmSyncTimeline() -> void
+Agash.StreamTransport.Media.DrmSyncTimeline.DrmSyncTimeline(int AcquireSyncobj, ulong AcquirePoint, int ReleaseSyncobj, ulong ReleasePoint) -> void
+Agash.StreamTransport.Media.DrmSyncTimeline.Equals(Agash.StreamTransport.Media.DrmSyncTimeline other) -> bool
+Agash.StreamTransport.Media.DrmSyncTimeline.ReleasePoint.get -> ulong
+Agash.StreamTransport.Media.DrmSyncTimeline.ReleasePoint.init -> void
+Agash.StreamTransport.Media.DrmSyncTimeline.ReleaseSyncobj.get -> int
+Agash.StreamTransport.Media.DrmSyncTimeline.ReleaseSyncobj.init -> void
+Agash.StreamTransport.Media.EncodeRequest
+Agash.StreamTransport.Media.EncodeRequest.Deconstruct(out bool Keyframe) -> void
+Agash.StreamTransport.Media.EncodeRequest.EncodeRequest() -> void
+Agash.StreamTransport.Media.EncodeRequest.EncodeRequest(bool Keyframe = false) -> void
+Agash.StreamTransport.Media.EncodeRequest.Equals(Agash.StreamTransport.Media.EncodeRequest other) -> bool
+Agash.StreamTransport.Media.EncodeRequest.Keyframe.get -> bool
+Agash.StreamTransport.Media.EncodeRequest.Keyframe.init -> void
+Agash.StreamTransport.Media.EncodeTuning
+Agash.StreamTransport.Media.EncodeTuning.Interactive = 0 -> Agash.StreamTransport.Media.EncodeTuning
+Agash.StreamTransport.Media.EncodeTuning.LossResilient = 2 -> Agash.StreamTransport.Media.EncodeTuning
+Agash.StreamTransport.Media.EncodeTuning.ScreenContent = 1 -> Agash.StreamTransport.Media.EncodeTuning
+Agash.StreamTransport.Media.EncodedAudioFrame
+Agash.StreamTransport.Media.EncodedAudioFrame.Codec.get -> Agash.StreamTransport.Media.AudioCodecId
+Agash.StreamTransport.Media.EncodedAudioFrame.Data.get -> System.ReadOnlySpan<byte>
+Agash.StreamTransport.Media.EncodedAudioFrame.Duration.get -> System.TimeSpan
+Agash.StreamTransport.Media.EncodedAudioFrame.EncodedAudioFrame() -> void
+Agash.StreamTransport.Media.EncodedAudioFrame.EncodedAudioFrame(System.ReadOnlySpan<byte> data, Agash.StreamTransport.Media.AudioCodecId codec, Agash.StreamTransport.Media.MediaTimestamp timestamp, System.TimeSpan duration) -> void
+Agash.StreamTransport.Media.EncodedAudioFrame.Level.get -> Agash.StreamTransport.Media.AudioLevel?
+Agash.StreamTransport.Media.EncodedAudioFrame.Level.init -> void
+Agash.StreamTransport.Media.EncodedAudioFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.EncodedFrameBuffer
+Agash.StreamTransport.Media.EncodedFrameBuffer.Dispose() -> void
+Agash.StreamTransport.Media.EncodedFrameBuffer.EncodedFrameBuffer() -> void
+Agash.StreamTransport.Media.EncodedFrameBuffer.EncodedFrameBuffer(byte[]! array, int length) -> void
+Agash.StreamTransport.Media.EncodedFrameBuffer.Equals(Agash.StreamTransport.Media.EncodedFrameBuffer other) -> bool
+Agash.StreamTransport.Media.EncodedFrameBuffer.Length.get -> int
+Agash.StreamTransport.Media.EncodedFrameBuffer.Memory.get -> System.ReadOnlyMemory<byte>
+Agash.StreamTransport.Media.EncodedFrameBuffer.Span.get -> System.ReadOnlySpan<byte>
+Agash.StreamTransport.Media.EncodedVideoFrame
+Agash.StreamTransport.Media.EncodedVideoFrame.Codec.get -> Agash.StreamTransport.Media.VideoCodecId
+Agash.StreamTransport.Media.EncodedVideoFrame.Data.get -> System.ReadOnlySpan<byte>
+Agash.StreamTransport.Media.EncodedVideoFrame.EncodedVideoFrame() -> void
+Agash.StreamTransport.Media.EncodedVideoFrame.EncodedVideoFrame(System.ReadOnlySpan<byte> data, Agash.StreamTransport.Media.VideoCodecId codec, bool keyframe, Agash.StreamTransport.Media.MediaTimestamp timestamp) -> void
+Agash.StreamTransport.Media.EncodedVideoFrame.Keyframe.get -> bool
+Agash.StreamTransport.Media.EncodedVideoFrame.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.EncodedVideoFrame.Orientation.init -> void
+Agash.StreamTransport.Media.EncodedVideoFrame.Retain() -> Agash.StreamTransport.Media.EncodedVideoFrameLease!
+Agash.StreamTransport.Media.EncodedVideoFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.EncodedVideoFrameLease
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Codec.get -> Agash.StreamTransport.Media.VideoCodecId
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Dispose() -> void
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Frame.get -> Agash.StreamTransport.Media.EncodedVideoFrame
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Keyframe.get -> bool
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.EncodedVideoFrameLease.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.GpuIdentity
+Agash.StreamTransport.Media.GpuIdentity.Deconstruct(out Agash.StreamTransport.Media.GpuIdentityKind Kind, out ulong Value) -> void
+Agash.StreamTransport.Media.GpuIdentity.Equals(Agash.StreamTransport.Media.GpuIdentity other) -> bool
+Agash.StreamTransport.Media.GpuIdentity.GpuIdentity() -> void
+Agash.StreamTransport.Media.GpuIdentity.GpuIdentity(Agash.StreamTransport.Media.GpuIdentityKind Kind, ulong Value) -> void
+Agash.StreamTransport.Media.GpuIdentity.Kind.get -> Agash.StreamTransport.Media.GpuIdentityKind
+Agash.StreamTransport.Media.GpuIdentity.Kind.init -> void
+Agash.StreamTransport.Media.GpuIdentity.Value.get -> ulong
+Agash.StreamTransport.Media.GpuIdentity.Value.init -> void
+Agash.StreamTransport.Media.GpuIdentityKind
+Agash.StreamTransport.Media.GpuIdentityKind.DrmDevice = 1 -> Agash.StreamTransport.Media.GpuIdentityKind
+Agash.StreamTransport.Media.GpuIdentityKind.DxgiAdapterLuid = 0 -> Agash.StreamTransport.Media.GpuIdentityKind
+Agash.StreamTransport.Media.GpuIdentityKind.MetalRegistryId = 2 -> Agash.StreamTransport.Media.GpuIdentityKind
+Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264Profile.Baseline = 1 -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264Profile.ConstrainedBaseline = 0 -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264Profile.ConstrainedHigh = 3 -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264Profile.High = 4 -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264Profile.Main = 2 -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264Profile.PredictiveHigh444 = 5 -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264ProfileLevelId
+Agash.StreamTransport.Media.H264ProfileLevelId.Deconstruct(out Agash.StreamTransport.Media.H264Profile Profile, out int Level) -> void
+Agash.StreamTransport.Media.H264ProfileLevelId.Equals(Agash.StreamTransport.Media.H264ProfileLevelId other) -> bool
+Agash.StreamTransport.Media.H264ProfileLevelId.H264ProfileLevelId() -> void
+Agash.StreamTransport.Media.H264ProfileLevelId.H264ProfileLevelId(Agash.StreamTransport.Media.H264Profile Profile, int Level) -> void
+Agash.StreamTransport.Media.H264ProfileLevelId.Level.get -> int
+Agash.StreamTransport.Media.H264ProfileLevelId.Level.init -> void
+Agash.StreamTransport.Media.H264ProfileLevelId.Profile.get -> Agash.StreamTransport.Media.H264Profile
+Agash.StreamTransport.Media.H264ProfileLevelId.Profile.init -> void
+Agash.StreamTransport.Media.IAudioDecoder
+Agash.StreamTransport.Media.IAudioDecoder.Conceal(System.TimeSpan duration, Agash.StreamTransport.Media.MediaTimestamp timestamp, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.IAudioDecoder.Decode(in Agash.StreamTransport.Media.EncodedAudioFrame frame, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.IAudioDecoder.Output.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.IAudioDecoderFactory
+Agash.StreamTransport.Media.IAudioDecoderFactory.Create(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.IAudioDecoder!
+Agash.StreamTransport.Media.IAudioDecoderFactory.QueryCapabilities(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.AudioDecoderInfo?
+Agash.StreamTransport.Media.IAudioDecoderFactory.Rank.get -> int
+Agash.StreamTransport.Media.IAudioDecoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!>
+Agash.StreamTransport.Media.IAudioEncoder
+Agash.StreamTransport.Media.IAudioEncoder.Encode(in Agash.StreamTransport.Media.AudioFrame frame, Agash.StreamTransport.Media.IEncodedAudioConsumer! consumer) -> void
+Agash.StreamTransport.Media.IAudioEncoder.Input.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.IAudioEncoder.Reconfigure(int bitsPerSecond) -> void
+Agash.StreamTransport.Media.IAudioEncoderFactory
+Agash.StreamTransport.Media.IAudioEncoderFactory.Create(Agash.StreamTransport.Media.AudioEncoderConfiguration! configuration) -> Agash.StreamTransport.Media.IAudioEncoder!
+Agash.StreamTransport.Media.IAudioEncoderFactory.QueryCapabilities(Agash.StreamTransport.Media.AudioCodecFormat! format) -> Agash.StreamTransport.Media.AudioEncoderInfo?
+Agash.StreamTransport.Media.IAudioEncoderFactory.Rank.get -> int
+Agash.StreamTransport.Media.IAudioEncoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecFormat!>
+Agash.StreamTransport.Media.IAudioFrameConsumer
+Agash.StreamTransport.Media.IAudioFrameConsumer.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
+Agash.StreamTransport.Media.IAudioInput
+Agash.StreamTransport.Media.IAudioInput.Info.get -> Agash.StreamTransport.Media.AudioInputInfo!
+Agash.StreamTransport.Media.IAudioInputProvider
+Agash.StreamTransport.Media.IAudioInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>
+Agash.StreamTransport.Media.IAudioInputProvider.Name.get -> string!
+Agash.StreamTransport.Media.IAudioInputProvider.OpenAsync(Agash.StreamTransport.Media.AudioInputInfo! input, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioInput!>
+Agash.StreamTransport.Media.IAudioInputProvider.Rank.get -> int
+Agash.StreamTransport.Media.IAudioLossRecovery
+Agash.StreamTransport.Media.IAudioLossRecovery.Recover(in Agash.StreamTransport.Media.EncodedAudioFrame next, System.TimeSpan lostDuration, Agash.StreamTransport.Media.MediaTimestamp lostTimestamp, Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.IAudioOutput
+Agash.StreamTransport.Media.IAudioOutput.Name.get -> string!
+Agash.StreamTransport.Media.IAudioOutput.Provider.get -> string!
+Agash.StreamTransport.Media.IAudioOutputProvider
+Agash.StreamTransport.Media.IAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.Media.IAudioOutputProvider.Name.get -> string!
+Agash.StreamTransport.Media.IAudioSink
+Agash.StreamTransport.Media.IAudioSink.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.Media.IAudioSink.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Media.IAudioSource
+Agash.StreamTransport.Media.IAudioSource.Connect(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> System.IDisposable!
+Agash.StreamTransport.Media.IAudioSource.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Media.IEncodedAudioConsumer
+Agash.StreamTransport.Media.IEncodedAudioConsumer.OnEncoded(in Agash.StreamTransport.Media.EncodedAudioFrame frame) -> void
+Agash.StreamTransport.Media.IEncodedVideoConsumer
+Agash.StreamTransport.Media.IEncodedVideoConsumer.OnEncoded(in Agash.StreamTransport.Media.EncodedVideoFrame frame) -> void
+Agash.StreamTransport.Media.IOSurfaceImage
+Agash.StreamTransport.Media.IOSurfaceImage.Deconstruct(out nint Surface, out Agash.StreamTransport.Media.GpuIdentity Device, out nint SharedEvent, out ulong SignalValue) -> void
+Agash.StreamTransport.Media.IOSurfaceImage.Device.get -> Agash.StreamTransport.Media.GpuIdentity
+Agash.StreamTransport.Media.IOSurfaceImage.Device.init -> void
+Agash.StreamTransport.Media.IOSurfaceImage.Equals(Agash.StreamTransport.Media.IOSurfaceImage other) -> bool
+Agash.StreamTransport.Media.IOSurfaceImage.IOSurfaceImage() -> void
+Agash.StreamTransport.Media.IOSurfaceImage.IOSurfaceImage(nint Surface, Agash.StreamTransport.Media.GpuIdentity Device, nint SharedEvent = 0, ulong SignalValue = 0) -> void
+Agash.StreamTransport.Media.IOSurfaceImage.SharedEvent.get -> nint
+Agash.StreamTransport.Media.IOSurfaceImage.SharedEvent.init -> void
+Agash.StreamTransport.Media.IOSurfaceImage.SignalValue.get -> ulong
+Agash.StreamTransport.Media.IOSurfaceImage.SignalValue.init -> void
+Agash.StreamTransport.Media.IOSurfaceImage.Surface.get -> nint
+Agash.StreamTransport.Media.IOSurfaceImage.Surface.init -> void
+Agash.StreamTransport.Media.IVideoDecoder
+Agash.StreamTransport.Media.IVideoDecoder.Decode(in Agash.StreamTransport.Media.EncodedVideoFrame frame, Agash.StreamTransport.Media.IVideoFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.IVideoDecoder.Info.get -> Agash.StreamTransport.Media.VideoDecoderInfo!
+Agash.StreamTransport.Media.IVideoDecoderFactory
+Agash.StreamTransport.Media.IVideoDecoderFactory.Create(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.VideoConstraints! output) -> Agash.StreamTransport.Media.IVideoDecoder!
+Agash.StreamTransport.Media.IVideoDecoderFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.VideoConstraints! output) -> Agash.StreamTransport.Media.VideoDecoderInfo?
+Agash.StreamTransport.Media.IVideoDecoderFactory.Rank.get -> int
+Agash.StreamTransport.Media.IVideoDecoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecFormat!>
+Agash.StreamTransport.Media.IVideoEncoder
+Agash.StreamTransport.Media.IVideoEncoder.Encode(in Agash.StreamTransport.Media.VideoFrame frame, in Agash.StreamTransport.Media.EncodeRequest request, Agash.StreamTransport.Media.IEncodedVideoConsumer! consumer) -> void
+Agash.StreamTransport.Media.IVideoEncoder.Flush(Agash.StreamTransport.Media.IEncodedVideoConsumer! consumer) -> void
+Agash.StreamTransport.Media.IVideoEncoder.Info.get -> Agash.StreamTransport.Media.VideoEncoderInfo!
+Agash.StreamTransport.Media.IVideoEncoder.Reconfigure(in Agash.StreamTransport.Media.RateTarget target) -> void
+Agash.StreamTransport.Media.IVideoEncoderFactory
+Agash.StreamTransport.Media.IVideoEncoderFactory.Create(Agash.StreamTransport.Media.VideoEncoderConfiguration! configuration, Agash.StreamTransport.Media.GpuIdentity? device) -> Agash.StreamTransport.Media.IVideoEncoder!
+Agash.StreamTransport.Media.IVideoEncoderFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.GpuIdentity? device) -> Agash.StreamTransport.Media.VideoEncoderInfo?
+Agash.StreamTransport.Media.IVideoEncoderFactory.Rank.get -> int
+Agash.StreamTransport.Media.IVideoEncoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecFormat!>
+Agash.StreamTransport.Media.IVideoFrameConsumer
+Agash.StreamTransport.Media.IVideoFrameConsumer.OnFrame(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.Media.IVideoFrameRetainer
+Agash.StreamTransport.Media.IVideoFrameRetainer.Retain(in Agash.StreamTransport.Media.VideoFrame frame) -> Agash.StreamTransport.Media.VideoFrameLease!
+Agash.StreamTransport.Media.IVideoInput
+Agash.StreamTransport.Media.IVideoInput.Info.get -> Agash.StreamTransport.Media.VideoInputInfo!
+Agash.StreamTransport.Media.IVideoInput.Mode.get -> Agash.StreamTransport.Media.VideoInputMode?
+Agash.StreamTransport.Media.IVideoInputProvider
+Agash.StreamTransport.Media.IVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.Media.IVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.Media.IVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.Media.IVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.Media.IVideoOutput
+Agash.StreamTransport.Media.IVideoOutput.Name.get -> string!
+Agash.StreamTransport.Media.IVideoOutput.Provider.get -> string!
+Agash.StreamTransport.Media.IVideoOutputProvider
+Agash.StreamTransport.Media.IVideoOutputProvider.CreateAsync(string! name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoOutput!>
+Agash.StreamTransport.Media.IVideoOutputProvider.Name.get -> string!
+Agash.StreamTransport.Media.IVideoProcessor
+Agash.StreamTransport.Media.IVideoProcessor.Info.get -> Agash.StreamTransport.Media.VideoProcessorInfo!
+Agash.StreamTransport.Media.IVideoProcessor.Process(in Agash.StreamTransport.Media.VideoFrame frame, Agash.StreamTransport.Media.IVideoFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.IVideoProcessor.TryProcess(in Agash.StreamTransport.Media.VideoFrame frame, in Agash.StreamTransport.Media.VideoTarget target) -> bool
+Agash.StreamTransport.Media.IVideoProcessorFactory
+Agash.StreamTransport.Media.IVideoProcessorFactory.Create(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.IVideoProcessor!
+Agash.StreamTransport.Media.IVideoProcessorFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.VideoProcessorInfo?
+Agash.StreamTransport.Media.IVideoProcessorFactory.Rank.get -> int
+Agash.StreamTransport.Media.IVideoSink
+Agash.StreamTransport.Media.IVideoSink.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Media.IVideoSink.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Media.IVideoSink.Render<TState>(Agash.StreamTransport.Media.VideoFormat format, scoped in TState state, Agash.StreamTransport.Media.VideoTargetRenderer<TState>! render) -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Media.IVideoSource
+Agash.StreamTransport.Media.IVideoSource.Connect(Agash.StreamTransport.Media.IVideoFrameConsumer! consumer, Agash.StreamTransport.Media.VideoConstraints! constraints) -> System.IDisposable!
+Agash.StreamTransport.Media.MediaClock
+Agash.StreamTransport.Media.MediaClock.MediaClock(System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.Media.MediaClock.Now.get -> Agash.StreamTransport.Media.MediaTime
+Agash.StreamTransport.Media.MediaClock.TimeProvider.get -> System.TimeProvider!
+Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Application = 1 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Camera = 0 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Generated = 6 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Loopback = 5 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Microphone = 4 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Network = 3 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Other = 7 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaInputKind.Screen = 2 -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.MediaTime
+Agash.StreamTransport.Media.MediaTime.CompareTo(Agash.StreamTransport.Media.MediaTime other) -> int
+Agash.StreamTransport.Media.MediaTime.Deconstruct(out long Nanoseconds) -> void
+Agash.StreamTransport.Media.MediaTime.Equals(Agash.StreamTransport.Media.MediaTime other) -> bool
+Agash.StreamTransport.Media.MediaTime.MediaTime() -> void
+Agash.StreamTransport.Media.MediaTime.MediaTime(long Nanoseconds) -> void
+Agash.StreamTransport.Media.MediaTime.Nanoseconds.get -> long
+Agash.StreamTransport.Media.MediaTime.Nanoseconds.init -> void
+Agash.StreamTransport.Media.MediaTime.ToTimeSpan() -> System.TimeSpan
+Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.MediaTimestamp.Deconstruct(out Agash.StreamTransport.Media.MediaTime Time, out Agash.StreamTransport.Media.TimestampKind Kind, out System.TimeSpan ProducerLatency) -> void
+Agash.StreamTransport.Media.MediaTimestamp.Equals(Agash.StreamTransport.Media.MediaTimestamp other) -> bool
+Agash.StreamTransport.Media.MediaTimestamp.Kind.get -> Agash.StreamTransport.Media.TimestampKind
+Agash.StreamTransport.Media.MediaTimestamp.Kind.init -> void
+Agash.StreamTransport.Media.MediaTimestamp.MediaTimestamp() -> void
+Agash.StreamTransport.Media.MediaTimestamp.MediaTimestamp(Agash.StreamTransport.Media.MediaTime Time, Agash.StreamTransport.Media.TimestampKind Kind, System.TimeSpan ProducerLatency = default(System.TimeSpan)) -> void
+Agash.StreamTransport.Media.MediaTimestamp.Origin.get -> Agash.StreamTransport.Media.MediaTime
+Agash.StreamTransport.Media.MediaTimestamp.ProducerLatency.get -> System.TimeSpan
+Agash.StreamTransport.Media.MediaTimestamp.ProducerLatency.init -> void
+Agash.StreamTransport.Media.MediaTimestamp.Time.get -> Agash.StreamTransport.Media.MediaTime
+Agash.StreamTransport.Media.MediaTimestamp.Time.init -> void
+Agash.StreamTransport.Media.NtpTime
+Agash.StreamTransport.Media.NtpTime.Deconstruct(out ulong Value) -> void
+Agash.StreamTransport.Media.NtpTime.Equals(Agash.StreamTransport.Media.NtpTime other) -> bool
+Agash.StreamTransport.Media.NtpTime.Nanoseconds.get -> long
+Agash.StreamTransport.Media.NtpTime.NtpTime() -> void
+Agash.StreamTransport.Media.NtpTime.NtpTime(ulong Value) -> void
+Agash.StreamTransport.Media.NtpTime.Value.get -> ulong
+Agash.StreamTransport.Media.NtpTime.Value.init -> void
+Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.Bgra = 3 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.I420 = 2 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.Nv12 = 0 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.P010 = 1 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.Rgba = 4 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.Uyvy = 7 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.Yuva420 = 5 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PixelFormat.Yuy2 = 6 -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.PlaneLayout
+Agash.StreamTransport.Media.PlaneLayout.Count.get -> int
+Agash.StreamTransport.Media.PlaneLayout.Equals(Agash.StreamTransport.Media.PlaneLayout other) -> bool
+Agash.StreamTransport.Media.PlaneLayout.PlaneLayout() -> void
+Agash.StreamTransport.Media.PlaneLayout.PlaneLayout(System.ReadOnlySpan<Agash.StreamTransport.Media.VideoPlane> planes) -> void
+Agash.StreamTransport.Media.PlaneLayout.this[int index].get -> Agash.StreamTransport.Media.VideoPlane
+Agash.StreamTransport.Media.RateTarget
+Agash.StreamTransport.Media.RateTarget.BitsPerSecond.get -> long
+Agash.StreamTransport.Media.RateTarget.BitsPerSecond.init -> void
+Agash.StreamTransport.Media.RateTarget.Deconstruct(out long BitsPerSecond, out double FramesPerSecond) -> void
+Agash.StreamTransport.Media.RateTarget.Equals(Agash.StreamTransport.Media.RateTarget other) -> bool
+Agash.StreamTransport.Media.RateTarget.FramesPerSecond.get -> double
+Agash.StreamTransport.Media.RateTarget.FramesPerSecond.init -> void
+Agash.StreamTransport.Media.RateTarget.RateTarget() -> void
+Agash.StreamTransport.Media.RateTarget.RateTarget(long BitsPerSecond, double FramesPerSecond) -> void
+Agash.StreamTransport.Media.SampleFormat
+Agash.StreamTransport.Media.SampleFormat.F32 = 1 -> Agash.StreamTransport.Media.SampleFormat
+Agash.StreamTransport.Media.SampleFormat.S16 = 0 -> Agash.StreamTransport.Media.SampleFormat
+Agash.StreamTransport.Media.TimestampKind
+Agash.StreamTransport.Media.TimestampKind.Capture = 0 -> Agash.StreamTransport.Media.TimestampKind
+Agash.StreamTransport.Media.TimestampKind.Observation = 1 -> Agash.StreamTransport.Media.TimestampKind
+Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.TransferFunction.Bt709 = 1 -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.TransferFunction.Hlg = 4 -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.TransferFunction.Linear = 5 -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.TransferFunction.Pq = 3 -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.TransferFunction.Srgb = 2 -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.TransferFunction.Unspecified = 0 -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.VideoCodecFormat
+Agash.StreamTransport.Media.VideoCodecFormat.<Clone>$() -> Agash.StreamTransport.Media.VideoCodecFormat!
+Agash.StreamTransport.Media.VideoCodecFormat.Codec.get -> Agash.StreamTransport.Media.VideoCodecId
+Agash.StreamTransport.Media.VideoCodecFormat.Codec.init -> void
+Agash.StreamTransport.Media.VideoCodecFormat.Deconstruct(out Agash.StreamTransport.Media.VideoCodecId Codec, out System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>! Parameters) -> void
+Agash.StreamTransport.Media.VideoCodecFormat.Equals(Agash.StreamTransport.Media.VideoCodecFormat? other) -> bool
+Agash.StreamTransport.Media.VideoCodecFormat.Parameters.get -> System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>!
+Agash.StreamTransport.Media.VideoCodecFormat.Parameters.init -> void
+Agash.StreamTransport.Media.VideoCodecFormat.VideoCodecFormat(Agash.StreamTransport.Media.VideoCodecId Codec, System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>! Parameters) -> void
+Agash.StreamTransport.Media.VideoCodecFormat.VideoCodecFormat(Agash.StreamTransport.Media.VideoCodecId codec) -> void
+Agash.StreamTransport.Media.VideoCodecId
+Agash.StreamTransport.Media.VideoCodecId.Equals(Agash.StreamTransport.Media.VideoCodecId other) -> bool
+Agash.StreamTransport.Media.VideoCodecId.Name.get -> string!
+Agash.StreamTransport.Media.VideoCodecId.VideoCodecId() -> void
+Agash.StreamTransport.Media.VideoCodecId.VideoCodecId(string! name) -> void
+Agash.StreamTransport.Media.VideoColor
+Agash.StreamTransport.Media.VideoColor.ChromaSiting.get -> Agash.StreamTransport.Media.ChromaSiting
+Agash.StreamTransport.Media.VideoColor.ChromaSiting.init -> void
+Agash.StreamTransport.Media.VideoColor.ConvertedTo(Agash.StreamTransport.Media.PixelFormat format) -> Agash.StreamTransport.Media.VideoColor
+Agash.StreamTransport.Media.VideoColor.Deconstruct(out Agash.StreamTransport.Media.ColorMatrix Matrix, out Agash.StreamTransport.Media.ColorRange Range, out Agash.StreamTransport.Media.ColorPrimaries Primaries, out Agash.StreamTransport.Media.TransferFunction Transfer, out Agash.StreamTransport.Media.ChromaSiting ChromaSiting) -> void
+Agash.StreamTransport.Media.VideoColor.Equals(Agash.StreamTransport.Media.VideoColor other) -> bool
+Agash.StreamTransport.Media.VideoColor.Matrix.get -> Agash.StreamTransport.Media.ColorMatrix
+Agash.StreamTransport.Media.VideoColor.Matrix.init -> void
+Agash.StreamTransport.Media.VideoColor.Primaries.get -> Agash.StreamTransport.Media.ColorPrimaries
+Agash.StreamTransport.Media.VideoColor.Primaries.init -> void
+Agash.StreamTransport.Media.VideoColor.Range.get -> Agash.StreamTransport.Media.ColorRange
+Agash.StreamTransport.Media.VideoColor.Range.init -> void
+Agash.StreamTransport.Media.VideoColor.Transfer.get -> Agash.StreamTransport.Media.TransferFunction
+Agash.StreamTransport.Media.VideoColor.Transfer.init -> void
+Agash.StreamTransport.Media.VideoColor.VideoColor() -> void
+Agash.StreamTransport.Media.VideoColor.VideoColor(Agash.StreamTransport.Media.ColorMatrix Matrix, Agash.StreamTransport.Media.ColorRange Range, Agash.StreamTransport.Media.ColorPrimaries Primaries, Agash.StreamTransport.Media.TransferFunction Transfer, Agash.StreamTransport.Media.ChromaSiting ChromaSiting = Agash.StreamTransport.Media.ChromaSiting.Unspecified) -> void
+Agash.StreamTransport.Media.VideoConstraints
+Agash.StreamTransport.Media.VideoConstraints.<Clone>$() -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Media.VideoConstraints.Accepts(Agash.StreamTransport.Media.VideoStorage storage, Agash.StreamTransport.Media.PixelFormat format) -> bool
+Agash.StreamTransport.Media.VideoConstraints.Deconstruct(out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoStorageKind> Storages, out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.PixelFormat> PixelFormats, out Agash.StreamTransport.Media.GpuIdentity? Device, out System.Collections.Immutable.ImmutableArray<ulong> DrmModifiers, out int HeldFrames) -> void
+Agash.StreamTransport.Media.VideoConstraints.Device.get -> Agash.StreamTransport.Media.GpuIdentity?
+Agash.StreamTransport.Media.VideoConstraints.Device.init -> void
+Agash.StreamTransport.Media.VideoConstraints.DrmModifiers.get -> System.Collections.Immutable.ImmutableArray<ulong>
+Agash.StreamTransport.Media.VideoConstraints.DrmModifiers.init -> void
+Agash.StreamTransport.Media.VideoConstraints.Equals(Agash.StreamTransport.Media.VideoConstraints? other) -> bool
+Agash.StreamTransport.Media.VideoConstraints.HeldFrames.get -> int
+Agash.StreamTransport.Media.VideoConstraints.HeldFrames.init -> void
+Agash.StreamTransport.Media.VideoConstraints.PixelFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.PixelFormat>
+Agash.StreamTransport.Media.VideoConstraints.PixelFormats.init -> void
+Agash.StreamTransport.Media.VideoConstraints.Storages.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoStorageKind>
+Agash.StreamTransport.Media.VideoConstraints.Storages.init -> void
+Agash.StreamTransport.Media.VideoConstraints.VideoConstraints(System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoStorageKind> Storages, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.PixelFormat> PixelFormats, Agash.StreamTransport.Media.GpuIdentity? Device = null, System.Collections.Immutable.ImmutableArray<ulong> DrmModifiers = default(System.Collections.Immutable.ImmutableArray<ulong>), int HeldFrames = 0) -> void
+Agash.StreamTransport.Media.VideoDecoderInfo
+Agash.StreamTransport.Media.VideoDecoderInfo.<Clone>$() -> Agash.StreamTransport.Media.VideoDecoderInfo!
+Agash.StreamTransport.Media.VideoDecoderInfo.DecodesAlphaLayer.get -> bool
+Agash.StreamTransport.Media.VideoDecoderInfo.DecodesAlphaLayer.init -> void
+Agash.StreamTransport.Media.VideoDecoderInfo.Deconstruct(out string! ImplementationName, out bool IsHardwareAccelerated, out Agash.StreamTransport.Media.VideoConstraints! Output, out bool DecodesAlphaLayer) -> void
+Agash.StreamTransport.Media.VideoDecoderInfo.Equals(Agash.StreamTransport.Media.VideoDecoderInfo? other) -> bool
+Agash.StreamTransport.Media.VideoDecoderInfo.ImplementationName.get -> string!
+Agash.StreamTransport.Media.VideoDecoderInfo.ImplementationName.init -> void
+Agash.StreamTransport.Media.VideoDecoderInfo.IsHardwareAccelerated.get -> bool
+Agash.StreamTransport.Media.VideoDecoderInfo.IsHardwareAccelerated.init -> void
+Agash.StreamTransport.Media.VideoDecoderInfo.Output.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Media.VideoDecoderInfo.Output.init -> void
+Agash.StreamTransport.Media.VideoDecoderInfo.VideoDecoderInfo(string! ImplementationName, bool IsHardwareAccelerated, Agash.StreamTransport.Media.VideoConstraints! Output, bool DecodesAlphaLayer = false) -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration
+Agash.StreamTransport.Media.VideoEncoderConfiguration.<Clone>$() -> Agash.StreamTransport.Media.VideoEncoderConfiguration!
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Alpha.get -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Alpha.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Color.get -> Agash.StreamTransport.Media.VideoColor
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Color.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Deconstruct(out Agash.StreamTransport.Media.VideoCodecFormat! Format, out Agash.StreamTransport.Media.VideoSize Size, out Agash.StreamTransport.Media.RateTarget Rate, out System.TimeSpan KeyframeInterval, out Agash.StreamTransport.Media.EncodeTuning Tuning, out Agash.StreamTransport.Media.VideoColor Color, out Agash.StreamTransport.Media.AlphaLayout Alpha) -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Equals(Agash.StreamTransport.Media.VideoEncoderConfiguration? other) -> bool
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Format.get -> Agash.StreamTransport.Media.VideoCodecFormat!
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Format.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.KeyframeInterval.get -> System.TimeSpan
+Agash.StreamTransport.Media.VideoEncoderConfiguration.KeyframeInterval.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Rate.get -> Agash.StreamTransport.Media.RateTarget
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Rate.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Size.get -> Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Size.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Tuning.get -> Agash.StreamTransport.Media.EncodeTuning
+Agash.StreamTransport.Media.VideoEncoderConfiguration.Tuning.init -> void
+Agash.StreamTransport.Media.VideoEncoderConfiguration.VideoEncoderConfiguration(Agash.StreamTransport.Media.VideoCodecFormat! Format, Agash.StreamTransport.Media.VideoSize Size, Agash.StreamTransport.Media.RateTarget Rate, System.TimeSpan KeyframeInterval = default(System.TimeSpan), Agash.StreamTransport.Media.EncodeTuning Tuning = Agash.StreamTransport.Media.EncodeTuning.Interactive, Agash.StreamTransport.Media.VideoColor Color = default(Agash.StreamTransport.Media.VideoColor), Agash.StreamTransport.Media.AlphaLayout Alpha = Agash.StreamTransport.Media.AlphaLayout.None) -> void
+Agash.StreamTransport.Media.VideoEncoderInfo
+Agash.StreamTransport.Media.VideoEncoderInfo.<Clone>$() -> Agash.StreamTransport.Media.VideoEncoderInfo!
+Agash.StreamTransport.Media.VideoEncoderInfo.Deconstruct(out string! ImplementationName, out bool IsHardwareAccelerated, out Agash.StreamTransport.Media.VideoConstraints! Input, out int WidthAlignment, out int HeightAlignment, out Agash.StreamTransport.Media.VideoSize MaximumSize, out bool ReconfigurableRate, out bool EncodesAlphaLayer) -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.EncodesAlphaLayer.get -> bool
+Agash.StreamTransport.Media.VideoEncoderInfo.EncodesAlphaLayer.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.Equals(Agash.StreamTransport.Media.VideoEncoderInfo? other) -> bool
+Agash.StreamTransport.Media.VideoEncoderInfo.HeightAlignment.get -> int
+Agash.StreamTransport.Media.VideoEncoderInfo.HeightAlignment.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.ImplementationName.get -> string!
+Agash.StreamTransport.Media.VideoEncoderInfo.ImplementationName.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.Input.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Media.VideoEncoderInfo.Input.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.IsHardwareAccelerated.get -> bool
+Agash.StreamTransport.Media.VideoEncoderInfo.IsHardwareAccelerated.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.MaximumSize.get -> Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Media.VideoEncoderInfo.MaximumSize.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.ReconfigurableRate.get -> bool
+Agash.StreamTransport.Media.VideoEncoderInfo.ReconfigurableRate.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.VideoEncoderInfo(string! ImplementationName, bool IsHardwareAccelerated, Agash.StreamTransport.Media.VideoConstraints! Input, int WidthAlignment, int HeightAlignment, Agash.StreamTransport.Media.VideoSize MaximumSize, bool ReconfigurableRate, bool EncodesAlphaLayer = false) -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.WidthAlignment.get -> int
+Agash.StreamTransport.Media.VideoEncoderInfo.WidthAlignment.init -> void
+Agash.StreamTransport.Media.VideoFormat
+Agash.StreamTransport.Media.VideoFormat.CodedSize.get -> Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Media.VideoFormat.CodedSize.init -> void
+Agash.StreamTransport.Media.VideoFormat.Deconstruct(out Agash.StreamTransport.Media.PixelFormat PixelFormat, out Agash.StreamTransport.Media.VideoSize CodedSize, out Agash.StreamTransport.Media.VideoRect VisibleRect) -> void
+Agash.StreamTransport.Media.VideoFormat.Equals(Agash.StreamTransport.Media.VideoFormat other) -> bool
+Agash.StreamTransport.Media.VideoFormat.PixelFormat.get -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.VideoFormat.PixelFormat.init -> void
+Agash.StreamTransport.Media.VideoFormat.VideoFormat() -> void
+Agash.StreamTransport.Media.VideoFormat.VideoFormat(Agash.StreamTransport.Media.PixelFormat PixelFormat, Agash.StreamTransport.Media.VideoSize CodedSize, Agash.StreamTransport.Media.VideoRect VisibleRect) -> void
+Agash.StreamTransport.Media.VideoFormat.VideoFormat(Agash.StreamTransport.Media.PixelFormat pixelFormat, int width, int height) -> void
+Agash.StreamTransport.Media.VideoFormat.VisibleRect.get -> Agash.StreamTransport.Media.VideoRect
+Agash.StreamTransport.Media.VideoFormat.VisibleRect.init -> void
+Agash.StreamTransport.Media.VideoFrame
+Agash.StreamTransport.Media.VideoFrame.Color.get -> Agash.StreamTransport.Media.VideoColor
+Agash.StreamTransport.Media.VideoFrame.Duration.get -> System.TimeSpan
+Agash.StreamTransport.Media.VideoFrame.Format.get -> Agash.StreamTransport.Media.VideoFormat
+Agash.StreamTransport.Media.VideoFrame.GetPlane(int index) -> System.ReadOnlySpan<byte>
+Agash.StreamTransport.Media.VideoFrame.LeftOf(int width) -> Agash.StreamTransport.Media.VideoFrame
+Agash.StreamTransport.Media.VideoFrame.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.VideoFrame.PlaneCount.get -> int
+Agash.StreamTransport.Media.VideoFrame.Retain() -> Agash.StreamTransport.Media.VideoFrameLease!
+Agash.StreamTransport.Media.VideoFrame.Storage.get -> Agash.StreamTransport.Media.VideoStorage
+Agash.StreamTransport.Media.VideoFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.VideoFrame.VideoFrame() -> void
+Agash.StreamTransport.Media.VideoFrame.VideoFrame(Agash.StreamTransport.Media.VideoStorage storage, Agash.StreamTransport.Media.VideoFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp, System.ReadOnlySpan<byte> cpuData = default(System.ReadOnlySpan<byte>), Agash.StreamTransport.Media.VideoColor color = default(Agash.StreamTransport.Media.VideoColor), Agash.StreamTransport.Media.VideoOrientation orientation = default(Agash.StreamTransport.Media.VideoOrientation), System.TimeSpan duration = default(System.TimeSpan), Agash.StreamTransport.Media.IVideoFrameRetainer? retainer = null) -> void
+Agash.StreamTransport.Media.VideoFrame.WithOrientation(Agash.StreamTransport.Media.VideoOrientation orientation) -> Agash.StreamTransport.Media.VideoFrame
+Agash.StreamTransport.Media.VideoFrameLease
+Agash.StreamTransport.Media.VideoFrameLease.Color.get -> Agash.StreamTransport.Media.VideoColor
+Agash.StreamTransport.Media.VideoFrameLease.Dispose() -> void
+Agash.StreamTransport.Media.VideoFrameLease.Duration.get -> System.TimeSpan
+Agash.StreamTransport.Media.VideoFrameLease.Format.get -> Agash.StreamTransport.Media.VideoFormat
+Agash.StreamTransport.Media.VideoFrameLease.Frame.get -> Agash.StreamTransport.Media.VideoFrame
+Agash.StreamTransport.Media.VideoFrameLease.IsDisposed.get -> bool
+Agash.StreamTransport.Media.VideoFrameLease.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.VideoFrameLease.Reuse(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.Media.VideoFrameLease.Storage.get -> Agash.StreamTransport.Media.VideoStorage
+Agash.StreamTransport.Media.VideoFrameLease.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.VideoFrameLease.VideoFrameLease(Agash.StreamTransport.Media.VideoStorage storage, Agash.StreamTransport.Media.VideoFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp, Agash.StreamTransport.Media.VideoColor color, Agash.StreamTransport.Media.VideoOrientation orientation, System.TimeSpan duration) -> void
+Agash.StreamTransport.Media.VideoInput
+Agash.StreamTransport.Media.VideoInput.Connect(Agash.StreamTransport.Media.IVideoFrameConsumer! consumer, Agash.StreamTransport.Media.VideoConstraints! constraints) -> System.IDisposable!
+Agash.StreamTransport.Media.VideoInput.Dispose() -> void
+Agash.StreamTransport.Media.VideoInput.Info.get -> Agash.StreamTransport.Media.VideoInputInfo!
+Agash.StreamTransport.Media.VideoInput.Mode.get -> Agash.StreamTransport.Media.VideoInputMode?
+Agash.StreamTransport.Media.VideoInput.VideoInput(Agash.StreamTransport.Media.IVideoSource! source, Agash.StreamTransport.Media.VideoInputInfo! info, Agash.StreamTransport.Media.VideoInputMode? mode = null, System.IDisposable? owner = null) -> void
+Agash.StreamTransport.Media.VideoInputInfo
+Agash.StreamTransport.Media.VideoInputInfo.<Clone>$() -> Agash.StreamTransport.Media.VideoInputInfo!
+Agash.StreamTransport.Media.VideoInputInfo.Deconstruct(out string! Provider, out string! Id, out string! Name, out Agash.StreamTransport.Media.MediaInputKind Kind, out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputMode> Modes) -> void
+Agash.StreamTransport.Media.VideoInputInfo.DeviceKey.get -> string?
+Agash.StreamTransport.Media.VideoInputInfo.DeviceKey.init -> void
+Agash.StreamTransport.Media.VideoInputInfo.Equals(Agash.StreamTransport.Media.VideoInputInfo? other) -> bool
+Agash.StreamTransport.Media.VideoInputInfo.Id.get -> string!
+Agash.StreamTransport.Media.VideoInputInfo.Id.init -> void
+Agash.StreamTransport.Media.VideoInputInfo.Kind.get -> Agash.StreamTransport.Media.MediaInputKind
+Agash.StreamTransport.Media.VideoInputInfo.Kind.init -> void
+Agash.StreamTransport.Media.VideoInputInfo.Modes.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputMode>
+Agash.StreamTransport.Media.VideoInputInfo.Modes.init -> void
+Agash.StreamTransport.Media.VideoInputInfo.Name.get -> string!
+Agash.StreamTransport.Media.VideoInputInfo.Name.init -> void
+Agash.StreamTransport.Media.VideoInputInfo.Provider.get -> string!
+Agash.StreamTransport.Media.VideoInputInfo.Provider.init -> void
+Agash.StreamTransport.Media.VideoInputInfo.VideoInputInfo(string! Provider, string! Id, string! Name, Agash.StreamTransport.Media.MediaInputKind Kind, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputMode> Modes) -> void
+Agash.StreamTransport.Media.VideoInputMode
+Agash.StreamTransport.Media.VideoInputMode.Deconstruct(out Agash.StreamTransport.Media.PixelFormat PixelFormat, out Agash.StreamTransport.Media.VideoSize Size, out double FrameRate) -> void
+Agash.StreamTransport.Media.VideoInputMode.Equals(Agash.StreamTransport.Media.VideoInputMode other) -> bool
+Agash.StreamTransport.Media.VideoInputMode.FrameRate.get -> double
+Agash.StreamTransport.Media.VideoInputMode.FrameRate.init -> void
+Agash.StreamTransport.Media.VideoInputMode.PixelFormat.get -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.VideoInputMode.PixelFormat.init -> void
+Agash.StreamTransport.Media.VideoInputMode.Size.get -> Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Media.VideoInputMode.Size.init -> void
+Agash.StreamTransport.Media.VideoInputMode.VideoInputMode() -> void
+Agash.StreamTransport.Media.VideoInputMode.VideoInputMode(Agash.StreamTransport.Media.PixelFormat PixelFormat, Agash.StreamTransport.Media.VideoSize Size, double FrameRate) -> void
+Agash.StreamTransport.Media.VideoInputRequest
+Agash.StreamTransport.Media.VideoInputRequest.<Clone>$() -> Agash.StreamTransport.Media.VideoInputRequest!
+Agash.StreamTransport.Media.VideoInputRequest.Choose(System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.VideoInputMode>! modes) -> Agash.StreamTransport.Media.VideoInputMode?
+Agash.StreamTransport.Media.VideoInputRequest.Equals(Agash.StreamTransport.Media.VideoInputRequest? other) -> bool
+Agash.StreamTransport.Media.VideoInputRequest.FrameRate.get -> double?
+Agash.StreamTransport.Media.VideoInputRequest.FrameRate.init -> void
+Agash.StreamTransport.Media.VideoInputRequest.PixelFormat.get -> Agash.StreamTransport.Media.PixelFormat?
+Agash.StreamTransport.Media.VideoInputRequest.PixelFormat.init -> void
+Agash.StreamTransport.Media.VideoInputRequest.Size.get -> Agash.StreamTransport.Media.VideoSize?
+Agash.StreamTransport.Media.VideoInputRequest.Size.init -> void
+Agash.StreamTransport.Media.VideoInputRequest.VideoInputRequest() -> void
+Agash.StreamTransport.Media.VideoOrientation
+Agash.StreamTransport.Media.VideoOrientation.Deconstruct(out Agash.StreamTransport.Media.VideoRotation Rotation, out bool Mirrored) -> void
+Agash.StreamTransport.Media.VideoOrientation.Equals(Agash.StreamTransport.Media.VideoOrientation other) -> bool
+Agash.StreamTransport.Media.VideoOrientation.Mirrored.get -> bool
+Agash.StreamTransport.Media.VideoOrientation.Mirrored.init -> void
+Agash.StreamTransport.Media.VideoOrientation.Rotation.get -> Agash.StreamTransport.Media.VideoRotation
+Agash.StreamTransport.Media.VideoOrientation.Rotation.init -> void
+Agash.StreamTransport.Media.VideoOrientation.VideoOrientation() -> void
+Agash.StreamTransport.Media.VideoOrientation.VideoOrientation(Agash.StreamTransport.Media.VideoRotation Rotation, bool Mirrored = false) -> void
+Agash.StreamTransport.Media.VideoOutput
+Agash.StreamTransport.Media.VideoOutput.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Media.VideoOutput.Dispose() -> void
+Agash.StreamTransport.Media.VideoOutput.Name.get -> string!
+Agash.StreamTransport.Media.VideoOutput.OnFrame(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.Media.VideoOutput.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Media.VideoOutput.Provider.get -> string!
+Agash.StreamTransport.Media.VideoOutput.Render<TState>(Agash.StreamTransport.Media.VideoFormat format, scoped in TState state, Agash.StreamTransport.Media.VideoTargetRenderer<TState>! render) -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Media.VideoOutput.VideoOutput(Agash.StreamTransport.Media.IVideoSink! sink, string! provider, string! name, System.IDisposable? owner = null) -> void
+Agash.StreamTransport.Media.VideoPlane
+Agash.StreamTransport.Media.VideoPlane.Deconstruct(out int Offset, out int Stride) -> void
+Agash.StreamTransport.Media.VideoPlane.Equals(Agash.StreamTransport.Media.VideoPlane other) -> bool
+Agash.StreamTransport.Media.VideoPlane.Offset.get -> int
+Agash.StreamTransport.Media.VideoPlane.Offset.init -> void
+Agash.StreamTransport.Media.VideoPlane.Stride.get -> int
+Agash.StreamTransport.Media.VideoPlane.Stride.init -> void
+Agash.StreamTransport.Media.VideoPlane.VideoPlane() -> void
+Agash.StreamTransport.Media.VideoPlane.VideoPlane(int Offset, int Stride) -> void
+Agash.StreamTransport.Media.VideoPlanes
+Agash.StreamTransport.Media.VideoPlanes.VideoPlanes() -> void
+Agash.StreamTransport.Media.VideoProcessing
+Agash.StreamTransport.Media.VideoProcessing.<Clone>$() -> Agash.StreamTransport.Media.VideoProcessing!
+Agash.StreamTransport.Media.VideoProcessing.Alpha.get -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.VideoProcessing.Alpha.init -> void
+Agash.StreamTransport.Media.VideoProcessing.Color.get -> Agash.StreamTransport.Media.VideoColor?
+Agash.StreamTransport.Media.VideoProcessing.Color.init -> void
+Agash.StreamTransport.Media.VideoProcessing.Deconstruct(out Agash.StreamTransport.Media.VideoConstraints! Output, out Agash.StreamTransport.Media.VideoSize? Size, out Agash.StreamTransport.Media.VideoColor? Color, out Agash.StreamTransport.Media.AlphaLayout Alpha) -> void
+Agash.StreamTransport.Media.VideoProcessing.Equals(Agash.StreamTransport.Media.VideoProcessing? other) -> bool
+Agash.StreamTransport.Media.VideoProcessing.Output.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Media.VideoProcessing.Output.init -> void
+Agash.StreamTransport.Media.VideoProcessing.Size.get -> Agash.StreamTransport.Media.VideoSize?
+Agash.StreamTransport.Media.VideoProcessing.Size.init -> void
+Agash.StreamTransport.Media.VideoProcessing.VideoProcessing(Agash.StreamTransport.Media.VideoConstraints! Output, Agash.StreamTransport.Media.VideoSize? Size = null, Agash.StreamTransport.Media.VideoColor? Color = null, Agash.StreamTransport.Media.AlphaLayout Alpha = Agash.StreamTransport.Media.AlphaLayout.None) -> void
+Agash.StreamTransport.Media.VideoProcessorInfo
+Agash.StreamTransport.Media.VideoProcessorInfo.<Clone>$() -> Agash.StreamTransport.Media.VideoProcessorInfo!
+Agash.StreamTransport.Media.VideoProcessorInfo.Deconstruct(out string! ImplementationName, out bool IsHardwareAccelerated, out Agash.StreamTransport.Media.VideoStreamDescription Output) -> void
+Agash.StreamTransport.Media.VideoProcessorInfo.Equals(Agash.StreamTransport.Media.VideoProcessorInfo? other) -> bool
+Agash.StreamTransport.Media.VideoProcessorInfo.ImplementationName.get -> string!
+Agash.StreamTransport.Media.VideoProcessorInfo.ImplementationName.init -> void
+Agash.StreamTransport.Media.VideoProcessorInfo.IsHardwareAccelerated.get -> bool
+Agash.StreamTransport.Media.VideoProcessorInfo.IsHardwareAccelerated.init -> void
+Agash.StreamTransport.Media.VideoProcessorInfo.Output.get -> Agash.StreamTransport.Media.VideoStreamDescription
+Agash.StreamTransport.Media.VideoProcessorInfo.Output.init -> void
+Agash.StreamTransport.Media.VideoProcessorInfo.VideoProcessorInfo(string! ImplementationName, bool IsHardwareAccelerated, Agash.StreamTransport.Media.VideoStreamDescription Output) -> void
+Agash.StreamTransport.Media.VideoRect
+Agash.StreamTransport.Media.VideoRect.Deconstruct(out int X, out int Y, out int Width, out int Height) -> void
+Agash.StreamTransport.Media.VideoRect.Equals(Agash.StreamTransport.Media.VideoRect other) -> bool
+Agash.StreamTransport.Media.VideoRect.Height.get -> int
+Agash.StreamTransport.Media.VideoRect.Height.init -> void
+Agash.StreamTransport.Media.VideoRect.VideoRect() -> void
+Agash.StreamTransport.Media.VideoRect.VideoRect(int X, int Y, int Width, int Height) -> void
+Agash.StreamTransport.Media.VideoRect.Width.get -> int
+Agash.StreamTransport.Media.VideoRect.Width.init -> void
+Agash.StreamTransport.Media.VideoRect.X.get -> int
+Agash.StreamTransport.Media.VideoRect.X.init -> void
+Agash.StreamTransport.Media.VideoRect.Y.get -> int
+Agash.StreamTransport.Media.VideoRect.Y.init -> void
+Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Media.VideoRenderResult.Rendered = 1 -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Media.VideoRenderResult.Skipped = 2 -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Media.VideoRenderResult.Unavailable = 0 -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Media.VideoRotation
+Agash.StreamTransport.Media.VideoRotation.Clockwise90 = 1 -> Agash.StreamTransport.Media.VideoRotation
+Agash.StreamTransport.Media.VideoRotation.CounterClockwise90 = 3 -> Agash.StreamTransport.Media.VideoRotation
+Agash.StreamTransport.Media.VideoRotation.None = 0 -> Agash.StreamTransport.Media.VideoRotation
+Agash.StreamTransport.Media.VideoRotation.Rotate180 = 2 -> Agash.StreamTransport.Media.VideoRotation
+Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Media.VideoSize.Deconstruct(out int Width, out int Height) -> void
+Agash.StreamTransport.Media.VideoSize.Equals(Agash.StreamTransport.Media.VideoSize other) -> bool
+Agash.StreamTransport.Media.VideoSize.Height.get -> int
+Agash.StreamTransport.Media.VideoSize.Height.init -> void
+Agash.StreamTransport.Media.VideoSize.VideoSize() -> void
+Agash.StreamTransport.Media.VideoSize.VideoSize(int Width, int Height) -> void
+Agash.StreamTransport.Media.VideoSize.Width.get -> int
+Agash.StreamTransport.Media.VideoSize.Width.init -> void
+Agash.StreamTransport.Media.VideoStorage
+Agash.StreamTransport.Media.VideoStorage.Device.get -> Agash.StreamTransport.Media.GpuIdentity?
+Agash.StreamTransport.Media.VideoStorage.Equals(Agash.StreamTransport.Media.VideoStorage other) -> bool
+Agash.StreamTransport.Media.VideoStorage.Kind.get -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStorage.TryGetValue(out Agash.StreamTransport.Media.CpuImage value) -> bool
+Agash.StreamTransport.Media.VideoStorage.TryGetValue(out Agash.StreamTransport.Media.D3D11Image value) -> bool
+Agash.StreamTransport.Media.VideoStorage.TryGetValue(out Agash.StreamTransport.Media.D3D12Image value) -> bool
+Agash.StreamTransport.Media.VideoStorage.TryGetValue(out Agash.StreamTransport.Media.DmaBufImage value) -> bool
+Agash.StreamTransport.Media.VideoStorage.TryGetValue(out Agash.StreamTransport.Media.IOSurfaceImage value) -> bool
+Agash.StreamTransport.Media.VideoStorage.Value.get -> object?
+Agash.StreamTransport.Media.VideoStorage.VideoStorage() -> void
+Agash.StreamTransport.Media.VideoStorage.VideoStorage(Agash.StreamTransport.Media.CpuImage image) -> void
+Agash.StreamTransport.Media.VideoStorage.VideoStorage(Agash.StreamTransport.Media.D3D11Image image) -> void
+Agash.StreamTransport.Media.VideoStorage.VideoStorage(Agash.StreamTransport.Media.D3D12Image image) -> void
+Agash.StreamTransport.Media.VideoStorage.VideoStorage(Agash.StreamTransport.Media.DmaBufImage image) -> void
+Agash.StreamTransport.Media.VideoStorage.VideoStorage(Agash.StreamTransport.Media.IOSurfaceImage image) -> void
+Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStorageKind.Cpu = 0 -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStorageKind.D3D11 = 2 -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStorageKind.D3D12 = 1 -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStorageKind.DmaBuf = 4 -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStorageKind.IOSurface = 3 -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStreamDescription
+Agash.StreamTransport.Media.VideoStreamDescription.Deconstruct(out Agash.StreamTransport.Media.VideoStorageKind Storage, out Agash.StreamTransport.Media.PixelFormat PixelFormat, out Agash.StreamTransport.Media.VideoSize Size, out Agash.StreamTransport.Media.GpuIdentity? Device) -> void
+Agash.StreamTransport.Media.VideoStreamDescription.Device.get -> Agash.StreamTransport.Media.GpuIdentity?
+Agash.StreamTransport.Media.VideoStreamDescription.Device.init -> void
+Agash.StreamTransport.Media.VideoStreamDescription.Equals(Agash.StreamTransport.Media.VideoStreamDescription other) -> bool
+Agash.StreamTransport.Media.VideoStreamDescription.PixelFormat.get -> Agash.StreamTransport.Media.PixelFormat
+Agash.StreamTransport.Media.VideoStreamDescription.PixelFormat.init -> void
+Agash.StreamTransport.Media.VideoStreamDescription.Size.get -> Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Media.VideoStreamDescription.Size.init -> void
+Agash.StreamTransport.Media.VideoStreamDescription.Storage.get -> Agash.StreamTransport.Media.VideoStorageKind
+Agash.StreamTransport.Media.VideoStreamDescription.Storage.init -> void
+Agash.StreamTransport.Media.VideoStreamDescription.VideoStreamDescription() -> void
+Agash.StreamTransport.Media.VideoStreamDescription.VideoStreamDescription(Agash.StreamTransport.Media.VideoStorageKind Storage, Agash.StreamTransport.Media.PixelFormat PixelFormat, Agash.StreamTransport.Media.VideoSize Size, Agash.StreamTransport.Media.GpuIdentity? Device = null) -> void
+Agash.StreamTransport.Media.VideoTarget
+Agash.StreamTransport.Media.VideoTarget.Deconstruct(out Agash.StreamTransport.Media.VideoStorage Storage, out Agash.StreamTransport.Media.VideoFormat Format) -> void
+Agash.StreamTransport.Media.VideoTarget.Equals(Agash.StreamTransport.Media.VideoTarget other) -> bool
+Agash.StreamTransport.Media.VideoTarget.Format.get -> Agash.StreamTransport.Media.VideoFormat
+Agash.StreamTransport.Media.VideoTarget.Format.init -> void
+Agash.StreamTransport.Media.VideoTarget.Storage.get -> Agash.StreamTransport.Media.VideoStorage
+Agash.StreamTransport.Media.VideoTarget.Storage.init -> void
+Agash.StreamTransport.Media.VideoTarget.VideoTarget() -> void
+Agash.StreamTransport.Media.VideoTarget.VideoTarget(Agash.StreamTransport.Media.VideoStorage Storage, Agash.StreamTransport.Media.VideoFormat Format) -> void
+Agash.StreamTransport.Media.VideoTargetRenderer<TState>
+abstract Agash.StreamTransport.Media.VideoFrameLease.Release() -> void
+const Agash.StreamTransport.Media.AudioLevel.Silent = 127 -> int
+const Agash.StreamTransport.Media.ColorConversion.ChromaCentre = 0.5019608 -> float
+const Agash.StreamTransport.Media.DmaBufImage.LinearModifier = 0 -> ulong
+const Agash.StreamTransport.Media.H264ProfileLevelId.ParameterName = "profile-level-id" -> string!
+const Agash.StreamTransport.Media.VideoPlanes.MaximumPlanes = 4 -> int
+override Agash.StreamTransport.Media.AudioCodecFormat.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioCodecFormat.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioCodecFormat.ToString() -> string!
+override Agash.StreamTransport.Media.AudioCodecId.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioCodecId.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioCodecId.ToString() -> string!
+override Agash.StreamTransport.Media.AudioConstraints.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioConstraints.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioConstraints.ToString() -> string!
+override Agash.StreamTransport.Media.AudioDecoderInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioDecoderInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioDecoderInfo.ToString() -> string!
+override Agash.StreamTransport.Media.AudioEncoderConfiguration.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioEncoderConfiguration.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioEncoderConfiguration.ToString() -> string!
+override Agash.StreamTransport.Media.AudioEncoderInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioEncoderInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioEncoderInfo.ToString() -> string!
+override Agash.StreamTransport.Media.AudioFormat.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioInputInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioInputInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioInputInfo.ToString() -> string!
+override Agash.StreamTransport.Media.AudioLevel.GetHashCode() -> int
+override Agash.StreamTransport.Media.ClockRate.GetHashCode() -> int
+override Agash.StreamTransport.Media.CpuImage.GetHashCode() -> int
+override Agash.StreamTransport.Media.D3D11Image.GetHashCode() -> int
+override Agash.StreamTransport.Media.D3D11Sync.GetHashCode() -> int
+override Agash.StreamTransport.Media.D3D12Image.GetHashCode() -> int
+override Agash.StreamTransport.Media.D3D12Sync.GetHashCode() -> int
+override Agash.StreamTransport.Media.DmaBufImage.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.DmaBufImage.GetHashCode() -> int
+override Agash.StreamTransport.Media.DmaBufPlane.GetHashCode() -> int
+override Agash.StreamTransport.Media.DrmSyncTimeline.GetHashCode() -> int
+override Agash.StreamTransport.Media.EncodeRequest.GetHashCode() -> int
+override Agash.StreamTransport.Media.EncodedFrameBuffer.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.EncodedFrameBuffer.GetHashCode() -> int
+override Agash.StreamTransport.Media.GpuIdentity.GetHashCode() -> int
+override Agash.StreamTransport.Media.H264ProfileLevelId.GetHashCode() -> int
+override Agash.StreamTransport.Media.H264ProfileLevelId.ToString() -> string!
+override Agash.StreamTransport.Media.IOSurfaceImage.GetHashCode() -> int
+override Agash.StreamTransport.Media.MediaTime.GetHashCode() -> int
+override Agash.StreamTransport.Media.MediaTimestamp.GetHashCode() -> int
+override Agash.StreamTransport.Media.NtpTime.GetHashCode() -> int
+override Agash.StreamTransport.Media.PlaneLayout.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.PlaneLayout.GetHashCode() -> int
+override Agash.StreamTransport.Media.RateTarget.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoCodecFormat.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoCodecFormat.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoCodecFormat.ToString() -> string!
+override Agash.StreamTransport.Media.VideoCodecId.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoCodecId.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoCodecId.ToString() -> string!
+override Agash.StreamTransport.Media.VideoColor.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoConstraints.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoConstraints.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoConstraints.ToString() -> string!
+override Agash.StreamTransport.Media.VideoDecoderInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoDecoderInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoDecoderInfo.ToString() -> string!
+override Agash.StreamTransport.Media.VideoEncoderConfiguration.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoEncoderConfiguration.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoEncoderConfiguration.ToString() -> string!
+override Agash.StreamTransport.Media.VideoEncoderInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoEncoderInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoEncoderInfo.ToString() -> string!
+override Agash.StreamTransport.Media.VideoFormat.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoInputInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoInputInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoInputInfo.ToString() -> string!
+override Agash.StreamTransport.Media.VideoInputMode.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoInputMode.ToString() -> string!
+override Agash.StreamTransport.Media.VideoInputRequest.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoInputRequest.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoInputRequest.ToString() -> string!
+override Agash.StreamTransport.Media.VideoOrientation.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoPlane.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoProcessing.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoProcessing.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoProcessing.ToString() -> string!
+override Agash.StreamTransport.Media.VideoProcessorInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoProcessorInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoProcessorInfo.ToString() -> string!
+override Agash.StreamTransport.Media.VideoRect.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoSize.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoStorage.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.VideoStorage.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoStreamDescription.GetHashCode() -> int
+override Agash.StreamTransport.Media.VideoTarget.GetHashCode() -> int
+static Agash.StreamTransport.Media.AudioCodecFormat.operator !=(Agash.StreamTransport.Media.AudioCodecFormat? left, Agash.StreamTransport.Media.AudioCodecFormat? right) -> bool
+static Agash.StreamTransport.Media.AudioCodecFormat.operator ==(Agash.StreamTransport.Media.AudioCodecFormat? left, Agash.StreamTransport.Media.AudioCodecFormat? right) -> bool
+static Agash.StreamTransport.Media.AudioCodecId.BuiltIn.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecId>
+static Agash.StreamTransport.Media.AudioCodecId.Opus.get -> Agash.StreamTransport.Media.AudioCodecId
+static Agash.StreamTransport.Media.AudioCodecId.operator !=(Agash.StreamTransport.Media.AudioCodecId left, Agash.StreamTransport.Media.AudioCodecId right) -> bool
+static Agash.StreamTransport.Media.AudioCodecId.operator ==(Agash.StreamTransport.Media.AudioCodecId left, Agash.StreamTransport.Media.AudioCodecId right) -> bool
+static Agash.StreamTransport.Media.AudioConstraints.operator !=(Agash.StreamTransport.Media.AudioConstraints? left, Agash.StreamTransport.Media.AudioConstraints? right) -> bool
+static Agash.StreamTransport.Media.AudioConstraints.operator ==(Agash.StreamTransport.Media.AudioConstraints? left, Agash.StreamTransport.Media.AudioConstraints? right) -> bool
+static Agash.StreamTransport.Media.AudioConverter.Target(Agash.StreamTransport.Media.AudioFormat source, Agash.StreamTransport.Media.AudioConstraints! constraints) -> Agash.StreamTransport.Media.AudioFormat
+static Agash.StreamTransport.Media.AudioDecoderInfo.operator !=(Agash.StreamTransport.Media.AudioDecoderInfo? left, Agash.StreamTransport.Media.AudioDecoderInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioDecoderInfo.operator ==(Agash.StreamTransport.Media.AudioDecoderInfo? left, Agash.StreamTransport.Media.AudioDecoderInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioEncoderConfiguration.operator !=(Agash.StreamTransport.Media.AudioEncoderConfiguration? left, Agash.StreamTransport.Media.AudioEncoderConfiguration? right) -> bool
+static Agash.StreamTransport.Media.AudioEncoderConfiguration.operator ==(Agash.StreamTransport.Media.AudioEncoderConfiguration? left, Agash.StreamTransport.Media.AudioEncoderConfiguration? right) -> bool
+static Agash.StreamTransport.Media.AudioEncoderInfo.operator !=(Agash.StreamTransport.Media.AudioEncoderInfo? left, Agash.StreamTransport.Media.AudioEncoderInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioEncoderInfo.operator ==(Agash.StreamTransport.Media.AudioEncoderInfo? left, Agash.StreamTransport.Media.AudioEncoderInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioFormat.operator !=(Agash.StreamTransport.Media.AudioFormat left, Agash.StreamTransport.Media.AudioFormat right) -> bool
+static Agash.StreamTransport.Media.AudioFormat.operator ==(Agash.StreamTransport.Media.AudioFormat left, Agash.StreamTransport.Media.AudioFormat right) -> bool
+static Agash.StreamTransport.Media.AudioInputInfo.operator !=(Agash.StreamTransport.Media.AudioInputInfo? left, Agash.StreamTransport.Media.AudioInputInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioInputInfo.operator ==(Agash.StreamTransport.Media.AudioInputInfo? left, Agash.StreamTransport.Media.AudioInputInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioLevel.FromMeanSquare(double meanSquare) -> Agash.StreamTransport.Media.AudioLevel
+static Agash.StreamTransport.Media.AudioLevel.Measure(in Agash.StreamTransport.Media.AudioFrame frame) -> (double SumOfSquares, long Samples)
+static Agash.StreamTransport.Media.AudioLevel.Silence.get -> Agash.StreamTransport.Media.AudioLevel
+static Agash.StreamTransport.Media.AudioLevel.operator !=(Agash.StreamTransport.Media.AudioLevel left, Agash.StreamTransport.Media.AudioLevel right) -> bool
+static Agash.StreamTransport.Media.AudioLevel.operator ==(Agash.StreamTransport.Media.AudioLevel left, Agash.StreamTransport.Media.AudioLevel right) -> bool
+static Agash.StreamTransport.Media.ClockRate.operator !=(Agash.StreamTransport.Media.ClockRate left, Agash.StreamTransport.Media.ClockRate right) -> bool
+static Agash.StreamTransport.Media.ClockRate.operator ==(Agash.StreamTransport.Media.ClockRate left, Agash.StreamTransport.Media.ClockRate right) -> bool
+static Agash.StreamTransport.Media.ColorConversion.RgbToYCbCr(Agash.StreamTransport.Media.VideoColor color) -> (System.Numerics.Vector4 Y, System.Numerics.Vector4 Cb, System.Numerics.Vector4 Cr)
+static Agash.StreamTransport.Media.ColorConversion.YCbCrToRgb(Agash.StreamTransport.Media.VideoColor color) -> (float LumaOffset, float LumaScale, System.Numerics.Vector4 R, System.Numerics.Vector4 G, System.Numerics.Vector4 B)
+static Agash.StreamTransport.Media.CpuImage.operator !=(Agash.StreamTransport.Media.CpuImage left, Agash.StreamTransport.Media.CpuImage right) -> bool
+static Agash.StreamTransport.Media.CpuImage.operator ==(Agash.StreamTransport.Media.CpuImage left, Agash.StreamTransport.Media.CpuImage right) -> bool
+static Agash.StreamTransport.Media.D3D11Image.operator !=(Agash.StreamTransport.Media.D3D11Image left, Agash.StreamTransport.Media.D3D11Image right) -> bool
+static Agash.StreamTransport.Media.D3D11Image.operator ==(Agash.StreamTransport.Media.D3D11Image left, Agash.StreamTransport.Media.D3D11Image right) -> bool
+static Agash.StreamTransport.Media.D3D11Sync.operator !=(Agash.StreamTransport.Media.D3D11Sync left, Agash.StreamTransport.Media.D3D11Sync right) -> bool
+static Agash.StreamTransport.Media.D3D11Sync.operator ==(Agash.StreamTransport.Media.D3D11Sync left, Agash.StreamTransport.Media.D3D11Sync right) -> bool
+static Agash.StreamTransport.Media.D3D12Image.operator !=(Agash.StreamTransport.Media.D3D12Image left, Agash.StreamTransport.Media.D3D12Image right) -> bool
+static Agash.StreamTransport.Media.D3D12Image.operator ==(Agash.StreamTransport.Media.D3D12Image left, Agash.StreamTransport.Media.D3D12Image right) -> bool
+static Agash.StreamTransport.Media.D3D12Sync.operator !=(Agash.StreamTransport.Media.D3D12Sync left, Agash.StreamTransport.Media.D3D12Sync right) -> bool
+static Agash.StreamTransport.Media.D3D12Sync.operator ==(Agash.StreamTransport.Media.D3D12Sync left, Agash.StreamTransport.Media.D3D12Sync right) -> bool
+static Agash.StreamTransport.Media.DmaBufIdentity.Of(int fd) -> (ulong Device, ulong Inode)
+static Agash.StreamTransport.Media.DmaBufImage.operator !=(Agash.StreamTransport.Media.DmaBufImage left, Agash.StreamTransport.Media.DmaBufImage right) -> bool
+static Agash.StreamTransport.Media.DmaBufImage.operator ==(Agash.StreamTransport.Media.DmaBufImage left, Agash.StreamTransport.Media.DmaBufImage right) -> bool
+static Agash.StreamTransport.Media.DmaBufPlane.operator !=(Agash.StreamTransport.Media.DmaBufPlane left, Agash.StreamTransport.Media.DmaBufPlane right) -> bool
+static Agash.StreamTransport.Media.DmaBufPlane.operator ==(Agash.StreamTransport.Media.DmaBufPlane left, Agash.StreamTransport.Media.DmaBufPlane right) -> bool
+static Agash.StreamTransport.Media.DrmSyncTimeline.operator !=(Agash.StreamTransport.Media.DrmSyncTimeline left, Agash.StreamTransport.Media.DrmSyncTimeline right) -> bool
+static Agash.StreamTransport.Media.DrmSyncTimeline.operator ==(Agash.StreamTransport.Media.DrmSyncTimeline left, Agash.StreamTransport.Media.DrmSyncTimeline right) -> bool
+static Agash.StreamTransport.Media.EncodeRequest.operator !=(Agash.StreamTransport.Media.EncodeRequest left, Agash.StreamTransport.Media.EncodeRequest right) -> bool
+static Agash.StreamTransport.Media.EncodeRequest.operator ==(Agash.StreamTransport.Media.EncodeRequest left, Agash.StreamTransport.Media.EncodeRequest right) -> bool
+static Agash.StreamTransport.Media.EncodedFrameBuffer.operator !=(Agash.StreamTransport.Media.EncodedFrameBuffer left, Agash.StreamTransport.Media.EncodedFrameBuffer right) -> bool
+static Agash.StreamTransport.Media.EncodedFrameBuffer.operator ==(Agash.StreamTransport.Media.EncodedFrameBuffer left, Agash.StreamTransport.Media.EncodedFrameBuffer right) -> bool
+static Agash.StreamTransport.Media.GpuIdentity.FromAdapterLuid(ulong luid) -> Agash.StreamTransport.Media.GpuIdentity
+static Agash.StreamTransport.Media.GpuIdentity.FromDrmDevice(ulong deviceNumber) -> Agash.StreamTransport.Media.GpuIdentity
+static Agash.StreamTransport.Media.GpuIdentity.FromMetalRegistryId(ulong registryId) -> Agash.StreamTransport.Media.GpuIdentity
+static Agash.StreamTransport.Media.GpuIdentity.operator !=(Agash.StreamTransport.Media.GpuIdentity left, Agash.StreamTransport.Media.GpuIdentity right) -> bool
+static Agash.StreamTransport.Media.GpuIdentity.operator ==(Agash.StreamTransport.Media.GpuIdentity left, Agash.StreamTransport.Media.GpuIdentity right) -> bool
+static Agash.StreamTransport.Media.H264ProfileLevelId.Default.get -> Agash.StreamTransport.Media.H264ProfileLevelId
+static Agash.StreamTransport.Media.H264ProfileLevelId.TryParse(string? text, out Agash.StreamTransport.Media.H264ProfileLevelId value) -> bool
+static Agash.StreamTransport.Media.H264ProfileLevelId.TryRead(System.Collections.Generic.IReadOnlyDictionary<string!, string!>! parameters, out Agash.StreamTransport.Media.H264ProfileLevelId value) -> bool
+static Agash.StreamTransport.Media.H264ProfileLevelId.operator !=(Agash.StreamTransport.Media.H264ProfileLevelId left, Agash.StreamTransport.Media.H264ProfileLevelId right) -> bool
+static Agash.StreamTransport.Media.H264ProfileLevelId.operator ==(Agash.StreamTransport.Media.H264ProfileLevelId left, Agash.StreamTransport.Media.H264ProfileLevelId right) -> bool
+static Agash.StreamTransport.Media.IOSurfaceImage.operator !=(Agash.StreamTransport.Media.IOSurfaceImage left, Agash.StreamTransport.Media.IOSurfaceImage right) -> bool
+static Agash.StreamTransport.Media.IOSurfaceImage.operator ==(Agash.StreamTransport.Media.IOSurfaceImage left, Agash.StreamTransport.Media.IOSurfaceImage right) -> bool
+static Agash.StreamTransport.Media.MediaClock.System.get -> Agash.StreamTransport.Media.MediaClock!
+static Agash.StreamTransport.Media.MediaTime.FromTimeSpan(System.TimeSpan duration) -> Agash.StreamTransport.Media.MediaTime
+static Agash.StreamTransport.Media.MediaTime.FromTimestamp(long timestamp, long frequency) -> Agash.StreamTransport.Media.MediaTime
+static Agash.StreamTransport.Media.MediaTime.Zero.get -> Agash.StreamTransport.Media.MediaTime
+static Agash.StreamTransport.Media.MediaTime.operator !=(Agash.StreamTransport.Media.MediaTime left, Agash.StreamTransport.Media.MediaTime right) -> bool
+static Agash.StreamTransport.Media.MediaTime.operator +(Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> Agash.StreamTransport.Media.MediaTime
+static Agash.StreamTransport.Media.MediaTime.operator -(Agash.StreamTransport.Media.MediaTime later, Agash.StreamTransport.Media.MediaTime earlier) -> System.TimeSpan
+static Agash.StreamTransport.Media.MediaTime.operator -(Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> Agash.StreamTransport.Media.MediaTime
+static Agash.StreamTransport.Media.MediaTime.operator <(Agash.StreamTransport.Media.MediaTime left, Agash.StreamTransport.Media.MediaTime right) -> bool
+static Agash.StreamTransport.Media.MediaTime.operator <=(Agash.StreamTransport.Media.MediaTime left, Agash.StreamTransport.Media.MediaTime right) -> bool
+static Agash.StreamTransport.Media.MediaTime.operator ==(Agash.StreamTransport.Media.MediaTime left, Agash.StreamTransport.Media.MediaTime right) -> bool
+static Agash.StreamTransport.Media.MediaTime.operator >(Agash.StreamTransport.Media.MediaTime left, Agash.StreamTransport.Media.MediaTime right) -> bool
+static Agash.StreamTransport.Media.MediaTime.operator >=(Agash.StreamTransport.Media.MediaTime left, Agash.StreamTransport.Media.MediaTime right) -> bool
+static Agash.StreamTransport.Media.MediaTimestamp.Captured(Agash.StreamTransport.Media.MediaTime time) -> Agash.StreamTransport.Media.MediaTimestamp
+static Agash.StreamTransport.Media.MediaTimestamp.Observed(Agash.StreamTransport.Media.MediaTime time) -> Agash.StreamTransport.Media.MediaTimestamp
+static Agash.StreamTransport.Media.MediaTimestamp.operator !=(Agash.StreamTransport.Media.MediaTimestamp left, Agash.StreamTransport.Media.MediaTimestamp right) -> bool
+static Agash.StreamTransport.Media.MediaTimestamp.operator ==(Agash.StreamTransport.Media.MediaTimestamp left, Agash.StreamTransport.Media.MediaTimestamp right) -> bool
+static Agash.StreamTransport.Media.NtpTime.From(System.DateTimeOffset time) -> Agash.StreamTransport.Media.NtpTime
+static Agash.StreamTransport.Media.NtpTime.FromNanoseconds(long nanoseconds) -> Agash.StreamTransport.Media.NtpTime
+static Agash.StreamTransport.Media.NtpTime.operator !=(Agash.StreamTransport.Media.NtpTime left, Agash.StreamTransport.Media.NtpTime right) -> bool
+static Agash.StreamTransport.Media.NtpTime.operator +(Agash.StreamTransport.Media.NtpTime time, System.TimeSpan duration) -> Agash.StreamTransport.Media.NtpTime
+static Agash.StreamTransport.Media.NtpTime.operator ==(Agash.StreamTransport.Media.NtpTime left, Agash.StreamTransport.Media.NtpTime right) -> bool
+static Agash.StreamTransport.Media.PlaneLayout.IsChroma(Agash.StreamTransport.Media.PixelFormat format, int plane) -> bool
+static Agash.StreamTransport.Media.PlaneLayout.Packed(Agash.StreamTransport.Media.PixelFormat format, Agash.StreamTransport.Media.VideoSize size) -> Agash.StreamTransport.Media.PlaneLayout
+static Agash.StreamTransport.Media.PlaneLayout.PackedSize(Agash.StreamTransport.Media.PixelFormat format, Agash.StreamTransport.Media.VideoSize size) -> int
+static Agash.StreamTransport.Media.PlaneLayout.PlaneCount(Agash.StreamTransport.Media.PixelFormat format) -> int
+static Agash.StreamTransport.Media.PlaneLayout.PlaneRows(Agash.StreamTransport.Media.PixelFormat format, int plane, int height) -> int
+static Agash.StreamTransport.Media.PlaneLayout.operator !=(Agash.StreamTransport.Media.PlaneLayout left, Agash.StreamTransport.Media.PlaneLayout right) -> bool
+static Agash.StreamTransport.Media.PlaneLayout.operator ==(Agash.StreamTransport.Media.PlaneLayout left, Agash.StreamTransport.Media.PlaneLayout right) -> bool
+static Agash.StreamTransport.Media.RateTarget.operator !=(Agash.StreamTransport.Media.RateTarget left, Agash.StreamTransport.Media.RateTarget right) -> bool
+static Agash.StreamTransport.Media.RateTarget.operator ==(Agash.StreamTransport.Media.RateTarget left, Agash.StreamTransport.Media.RateTarget right) -> bool
+static Agash.StreamTransport.Media.VideoCodecFormat.operator !=(Agash.StreamTransport.Media.VideoCodecFormat? left, Agash.StreamTransport.Media.VideoCodecFormat? right) -> bool
+static Agash.StreamTransport.Media.VideoCodecFormat.operator ==(Agash.StreamTransport.Media.VideoCodecFormat? left, Agash.StreamTransport.Media.VideoCodecFormat? right) -> bool
+static Agash.StreamTransport.Media.VideoCodecId.AV1.get -> Agash.StreamTransport.Media.VideoCodecId
+static Agash.StreamTransport.Media.VideoCodecId.BuiltIn.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecId>
+static Agash.StreamTransport.Media.VideoCodecId.H264.get -> Agash.StreamTransport.Media.VideoCodecId
+static Agash.StreamTransport.Media.VideoCodecId.H265.get -> Agash.StreamTransport.Media.VideoCodecId
+static Agash.StreamTransport.Media.VideoCodecId.operator !=(Agash.StreamTransport.Media.VideoCodecId left, Agash.StreamTransport.Media.VideoCodecId right) -> bool
+static Agash.StreamTransport.Media.VideoCodecId.operator ==(Agash.StreamTransport.Media.VideoCodecId left, Agash.StreamTransport.Media.VideoCodecId right) -> bool
+static Agash.StreamTransport.Media.VideoColor.Bt709.get -> Agash.StreamTransport.Media.VideoColor
+static Agash.StreamTransport.Media.VideoColor.Srgb.get -> Agash.StreamTransport.Media.VideoColor
+static Agash.StreamTransport.Media.VideoColor.operator !=(Agash.StreamTransport.Media.VideoColor left, Agash.StreamTransport.Media.VideoColor right) -> bool
+static Agash.StreamTransport.Media.VideoColor.operator ==(Agash.StreamTransport.Media.VideoColor left, Agash.StreamTransport.Media.VideoColor right) -> bool
+static Agash.StreamTransport.Media.VideoConstraints.Cpu(params System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.PixelFormat> formats) -> Agash.StreamTransport.Media.VideoConstraints!
+static Agash.StreamTransport.Media.VideoConstraints.operator !=(Agash.StreamTransport.Media.VideoConstraints? left, Agash.StreamTransport.Media.VideoConstraints? right) -> bool
+static Agash.StreamTransport.Media.VideoConstraints.operator ==(Agash.StreamTransport.Media.VideoConstraints? left, Agash.StreamTransport.Media.VideoConstraints? right) -> bool
+static Agash.StreamTransport.Media.VideoDecoderInfo.operator !=(Agash.StreamTransport.Media.VideoDecoderInfo? left, Agash.StreamTransport.Media.VideoDecoderInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoDecoderInfo.operator ==(Agash.StreamTransport.Media.VideoDecoderInfo? left, Agash.StreamTransport.Media.VideoDecoderInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoEncoderConfiguration.operator !=(Agash.StreamTransport.Media.VideoEncoderConfiguration? left, Agash.StreamTransport.Media.VideoEncoderConfiguration? right) -> bool
+static Agash.StreamTransport.Media.VideoEncoderConfiguration.operator ==(Agash.StreamTransport.Media.VideoEncoderConfiguration? left, Agash.StreamTransport.Media.VideoEncoderConfiguration? right) -> bool
+static Agash.StreamTransport.Media.VideoEncoderInfo.operator !=(Agash.StreamTransport.Media.VideoEncoderInfo? left, Agash.StreamTransport.Media.VideoEncoderInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoEncoderInfo.operator ==(Agash.StreamTransport.Media.VideoEncoderInfo? left, Agash.StreamTransport.Media.VideoEncoderInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoFormat.operator !=(Agash.StreamTransport.Media.VideoFormat left, Agash.StreamTransport.Media.VideoFormat right) -> bool
+static Agash.StreamTransport.Media.VideoFormat.operator ==(Agash.StreamTransport.Media.VideoFormat left, Agash.StreamTransport.Media.VideoFormat right) -> bool
+static Agash.StreamTransport.Media.VideoFrame.FromPlanes(Agash.StreamTransport.Media.VideoFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp, System.ReadOnlySpan<byte> plane0, int stride0, System.ReadOnlySpan<byte> plane1 = default(System.ReadOnlySpan<byte>), int stride1 = 0, System.ReadOnlySpan<byte> plane2 = default(System.ReadOnlySpan<byte>), int stride2 = 0, System.ReadOnlySpan<byte> plane3 = default(System.ReadOnlySpan<byte>), int stride3 = 0, Agash.StreamTransport.Media.VideoColor color = default(Agash.StreamTransport.Media.VideoColor), Agash.StreamTransport.Media.VideoOrientation orientation = default(Agash.StreamTransport.Media.VideoOrientation), System.TimeSpan duration = default(System.TimeSpan), Agash.StreamTransport.Media.IVideoFrameRetainer? retainer = null) -> Agash.StreamTransport.Media.VideoFrame
+static Agash.StreamTransport.Media.VideoInputInfo.operator !=(Agash.StreamTransport.Media.VideoInputInfo? left, Agash.StreamTransport.Media.VideoInputInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoInputInfo.operator ==(Agash.StreamTransport.Media.VideoInputInfo? left, Agash.StreamTransport.Media.VideoInputInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoInputMode.operator !=(Agash.StreamTransport.Media.VideoInputMode left, Agash.StreamTransport.Media.VideoInputMode right) -> bool
+static Agash.StreamTransport.Media.VideoInputMode.operator ==(Agash.StreamTransport.Media.VideoInputMode left, Agash.StreamTransport.Media.VideoInputMode right) -> bool
+static Agash.StreamTransport.Media.VideoInputRequest.operator !=(Agash.StreamTransport.Media.VideoInputRequest? left, Agash.StreamTransport.Media.VideoInputRequest? right) -> bool
+static Agash.StreamTransport.Media.VideoInputRequest.operator ==(Agash.StreamTransport.Media.VideoInputRequest? left, Agash.StreamTransport.Media.VideoInputRequest? right) -> bool
+static Agash.StreamTransport.Media.VideoOrientation.operator !=(Agash.StreamTransport.Media.VideoOrientation left, Agash.StreamTransport.Media.VideoOrientation right) -> bool
+static Agash.StreamTransport.Media.VideoOrientation.operator ==(Agash.StreamTransport.Media.VideoOrientation left, Agash.StreamTransport.Media.VideoOrientation right) -> bool
+static Agash.StreamTransport.Media.VideoPlane.operator !=(Agash.StreamTransport.Media.VideoPlane left, Agash.StreamTransport.Media.VideoPlane right) -> bool
+static Agash.StreamTransport.Media.VideoPlane.operator ==(Agash.StreamTransport.Media.VideoPlane left, Agash.StreamTransport.Media.VideoPlane right) -> bool
+static Agash.StreamTransport.Media.VideoProcessing.operator !=(Agash.StreamTransport.Media.VideoProcessing? left, Agash.StreamTransport.Media.VideoProcessing? right) -> bool
+static Agash.StreamTransport.Media.VideoProcessing.operator ==(Agash.StreamTransport.Media.VideoProcessing? left, Agash.StreamTransport.Media.VideoProcessing? right) -> bool
+static Agash.StreamTransport.Media.VideoProcessorInfo.operator !=(Agash.StreamTransport.Media.VideoProcessorInfo? left, Agash.StreamTransport.Media.VideoProcessorInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoProcessorInfo.operator ==(Agash.StreamTransport.Media.VideoProcessorInfo? left, Agash.StreamTransport.Media.VideoProcessorInfo? right) -> bool
+static Agash.StreamTransport.Media.VideoRect.Of(Agash.StreamTransport.Media.VideoSize size) -> Agash.StreamTransport.Media.VideoRect
+static Agash.StreamTransport.Media.VideoRect.operator !=(Agash.StreamTransport.Media.VideoRect left, Agash.StreamTransport.Media.VideoRect right) -> bool
+static Agash.StreamTransport.Media.VideoRect.operator ==(Agash.StreamTransport.Media.VideoRect left, Agash.StreamTransport.Media.VideoRect right) -> bool
+static Agash.StreamTransport.Media.VideoSize.operator !=(Agash.StreamTransport.Media.VideoSize left, Agash.StreamTransport.Media.VideoSize right) -> bool
+static Agash.StreamTransport.Media.VideoSize.operator ==(Agash.StreamTransport.Media.VideoSize left, Agash.StreamTransport.Media.VideoSize right) -> bool
+static Agash.StreamTransport.Media.VideoStorage.implicit operator Agash.StreamTransport.Media.VideoStorage(Agash.StreamTransport.Media.CpuImage image) -> Agash.StreamTransport.Media.VideoStorage
+static Agash.StreamTransport.Media.VideoStorage.implicit operator Agash.StreamTransport.Media.VideoStorage(Agash.StreamTransport.Media.D3D11Image image) -> Agash.StreamTransport.Media.VideoStorage
+static Agash.StreamTransport.Media.VideoStorage.implicit operator Agash.StreamTransport.Media.VideoStorage(Agash.StreamTransport.Media.D3D12Image image) -> Agash.StreamTransport.Media.VideoStorage
+static Agash.StreamTransport.Media.VideoStorage.implicit operator Agash.StreamTransport.Media.VideoStorage(Agash.StreamTransport.Media.DmaBufImage image) -> Agash.StreamTransport.Media.VideoStorage
+static Agash.StreamTransport.Media.VideoStorage.implicit operator Agash.StreamTransport.Media.VideoStorage(Agash.StreamTransport.Media.IOSurfaceImage image) -> Agash.StreamTransport.Media.VideoStorage
+static Agash.StreamTransport.Media.VideoStorage.operator !=(Agash.StreamTransport.Media.VideoStorage left, Agash.StreamTransport.Media.VideoStorage right) -> bool
+static Agash.StreamTransport.Media.VideoStorage.operator ==(Agash.StreamTransport.Media.VideoStorage left, Agash.StreamTransport.Media.VideoStorage right) -> bool
+static Agash.StreamTransport.Media.VideoStreamDescription.operator !=(Agash.StreamTransport.Media.VideoStreamDescription left, Agash.StreamTransport.Media.VideoStreamDescription right) -> bool
+static Agash.StreamTransport.Media.VideoStreamDescription.operator ==(Agash.StreamTransport.Media.VideoStreamDescription left, Agash.StreamTransport.Media.VideoStreamDescription right) -> bool
+static Agash.StreamTransport.Media.VideoTarget.operator !=(Agash.StreamTransport.Media.VideoTarget left, Agash.StreamTransport.Media.VideoTarget right) -> bool
+static Agash.StreamTransport.Media.VideoTarget.operator ==(Agash.StreamTransport.Media.VideoTarget left, Agash.StreamTransport.Media.VideoTarget right) -> bool
+virtual Agash.StreamTransport.Media.VideoFrameLease.GetPlane(int index) -> System.ReadOnlySpan<byte>
+virtual Agash.StreamTransport.Media.VideoFrameLease.KeepAgain.get -> Agash.StreamTransport.Media.IVideoFrameRetainer?
+virtual Agash.StreamTransport.Media.VideoTargetRenderer<TState>.Invoke(in Agash.StreamTransport.Media.VideoTarget target, scoped in TState state) -> bool
+~override Agash.StreamTransport.Media.AudioFormat.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.AudioFormat.ToString() -> string
+~override Agash.StreamTransport.Media.AudioLevel.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.AudioLevel.ToString() -> string
+~override Agash.StreamTransport.Media.ClockRate.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.ClockRate.ToString() -> string
+~override Agash.StreamTransport.Media.CpuImage.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.CpuImage.ToString() -> string
+~override Agash.StreamTransport.Media.D3D11Image.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.D3D11Image.ToString() -> string
+~override Agash.StreamTransport.Media.D3D11Sync.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.D3D11Sync.ToString() -> string
+~override Agash.StreamTransport.Media.D3D12Image.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.D3D12Image.ToString() -> string
+~override Agash.StreamTransport.Media.D3D12Sync.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.D3D12Sync.ToString() -> string
+~override Agash.StreamTransport.Media.DmaBufPlane.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.DmaBufPlane.ToString() -> string
+~override Agash.StreamTransport.Media.DrmSyncTimeline.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.DrmSyncTimeline.ToString() -> string
+~override Agash.StreamTransport.Media.EncodeRequest.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.EncodeRequest.ToString() -> string
+~override Agash.StreamTransport.Media.GpuIdentity.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.GpuIdentity.ToString() -> string
+~override Agash.StreamTransport.Media.H264ProfileLevelId.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.IOSurfaceImage.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.IOSurfaceImage.ToString() -> string
+~override Agash.StreamTransport.Media.MediaTime.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.MediaTime.ToString() -> string
+~override Agash.StreamTransport.Media.MediaTimestamp.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.MediaTimestamp.ToString() -> string
+~override Agash.StreamTransport.Media.NtpTime.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.NtpTime.ToString() -> string
+~override Agash.StreamTransport.Media.RateTarget.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.RateTarget.ToString() -> string
+~override Agash.StreamTransport.Media.VideoColor.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoColor.ToString() -> string
+~override Agash.StreamTransport.Media.VideoFormat.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoFormat.ToString() -> string
+~override Agash.StreamTransport.Media.VideoInputMode.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoOrientation.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoOrientation.ToString() -> string
+~override Agash.StreamTransport.Media.VideoPlane.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoPlane.ToString() -> string
+~override Agash.StreamTransport.Media.VideoRect.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoRect.ToString() -> string
+~override Agash.StreamTransport.Media.VideoSize.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoSize.ToString() -> string
+~override Agash.StreamTransport.Media.VideoStreamDescription.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoStreamDescription.ToString() -> string
+~override Agash.StreamTransport.Media.VideoTarget.Equals(object obj) -> bool
+~override Agash.StreamTransport.Media.VideoTarget.ToString() -> string

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <RootNamespace>Agash.StreamTransport.Codecs.Opus</RootNamespace>
+    <PackageId>Agash.StreamTransport.Codecs.Opus</PackageId>
+    <Description>Opus audio encoder and decoder for Agash.StreamTransport on Concentus, a managed Opus implementation: 20 ms packets with capture timestamps, in-band FEC, live bitrate changes and packet loss concealment, behind the Media audio contracts. No native dependency.</Description>
+    <PackageTags>audio;codec;opus;webrtc;streaming;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Agash.StreamTransport.Media\Agash.StreamTransport.Media.csproj" />
+    <PackageReference Include="Concentus" />
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+    <InternalsVisibleTo Include="Agash.StreamTransport.Codecs.Opus.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>

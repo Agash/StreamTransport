@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -84,7 +85,7 @@ public readonly record struct PeerInfo(PeerId PeerId, PeerRole Role);
 /// <param name="Username">TURN username, or null for STUN.</param>
 /// <param name="Credential">TURN credential, or null for STUN.</param>
 public sealed record IceServer(
-    IReadOnlyList<string> Urls,
+    ImmutableArray<string> Urls,
     string? Username = null,
     string? Credential = null
 );
@@ -98,8 +99,8 @@ public sealed record IceServer(
 /// <param name="IceServers">The ICE servers this peer should configure.</param>
 public sealed record RoomState(
     RoomCode Code,
-    IReadOnlyList<PeerInfo> Peers,
-    IReadOnlyList<IceServer> IceServers
+    ImmutableArray<PeerInfo> Peers,
+    ImmutableArray<IceServer> IceServers
 );
 
 /// <summary>
@@ -109,7 +110,7 @@ public sealed record RoomState(
 public interface IIceServerProvider
 {
     /// <summary>Build the ICE-server list for a peer that is joining a room.</summary>
-    IReadOnlyList<IceServer> GetIceServersForPeer();
+    ImmutableArray<IceServer> GetIceServersForPeer();
 }
 
 /// <summary>

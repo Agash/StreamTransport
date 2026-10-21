@@ -1,0 +1,568 @@
+using System.Collections.Immutable;
+using Agash.StreamTransport.MacOS.Metal;
+using Agash.StreamTransport.Media;
+using AVFoundation;
+using CoreFoundation;
+using CoreMedia;
+using CoreVideo;
+using Foundation;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using ObjCRuntime;
+
+namespace Agash.StreamTransport.MacOS.AVFoundation;
+
+/// <summary>
+/// Cameras through AVFoundation: built-in and external cameras, USB capture cards, Continuity Camera and
+/// virtual cameras (camera extensions). Each frame is the camera's own IOSurface-backed buffer, lent to a
+/// consumer on the GPU as an IOSurface and to others as its mapped memory; timestamps are the capture
+/// times AVFoundation reports on the host clock, which is the media clock on macOS.
+/// </summary>
+/// <param name="loggerFactory">Where inputs log.</param>
+public sealed partial class AVFoundationVideoInputProvider(ILoggerFactory? loggerFactory = null)
+    : IVideoInputProvider
+{
+    private readonly ILoggerFactory _loggers = loggerFactory ?? NullLoggerFactory.Instance;
+
+    /// <inheritdoc/>
+    public string Name => "avfoundation";
+
+    /// <inheritdoc/>
+    public int Rank => 100;
+
+    /// <inheritdoc/>
+    public ValueTask<ImmutableArray<VideoInputInfo>> GetInputsAsync(
+        CancellationToken cancellationToken
+    )
+    {
+        using var discovery = AVCaptureDeviceDiscoverySession.Create(
+            [
+                AVCaptureDeviceType.BuiltInWideAngleCamera,
+                AVCaptureDeviceType.External,
+                AVCaptureDeviceType.ContinuityCamera,
+            ],
+            AVMediaTypes.Video,
+            AVCaptureDevicePosition.Unspecified
+        );
+        return ValueTask.FromResult<ImmutableArray<VideoInputInfo>>([
+            .. discovery
+                .Devices.Select(d => new VideoInputInfo(
+                    Name,
+                    d.UniqueID,
+                    d.LocalizedName,
+                    MediaInputKind.Camera,
+                    AVFoundationFormats.Modes(d)
+                )
+                {
+                    DeviceKey = d.UniqueID,
+                })
+                .Where(static i => !i.Modes.IsEmpty),
+        ]);
+    }
+
+    /// <inheritdoc/>
+    /// <exception cref="UnauthorizedAccessException">The user has not let this application use cameras.</exception>
+    public async ValueTask<IVideoInput> OpenAsync(
+        VideoInputInfo input,
+        VideoInputRequest request,
+        CancellationToken cancellationToken
+    )
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Without consent a capture session runs and delivers nothing; asking first makes the refusal
+        // an error the caller sees. The first time, macOS asks the user.
+        AVAuthorizationStatus status = AVCaptureDevice.GetAuthorizationStatus(
+            AVAuthorizationMediaType.Video
+        );
+        if (status == AVAuthorizationStatus.NotDetermined)
+        {
+            status = await AVCaptureDevice
+                .RequestAccessForMediaTypeAsync(AVAuthorizationMediaType.Video)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ? AVAuthorizationStatus.Authorized
+                : AVAuthorizationStatus.Denied;
+        }
+
+        if (status != AVAuthorizationStatus.Authorized)
+        {
+            throw new UnauthorizedAccessException(
+                $"macOS has not let this application use cameras ({status}); allow it under Privacy & Security, Camera."
+            );
+        }
+
+        VideoInputMode mode =
+            request.Choose(input.Modes)
+            ?? throw new NotSupportedException($"{input.Name} has no mode this provider delivers.");
+        AVCaptureDevice device =
+            AVCaptureDevice.DeviceWithUniqueID(input.Id)
+            ?? throw new InvalidOperationException($"{input.Name} is gone.");
+        return new AVFoundationVideoInput(input, mode, device, _loggers);
+    }
+}
+
+// The camera formats the media model has, by Core Video pixel format.
+internal static class AVFoundationFormats
+{
+    public static PixelFormat? ToMedia(CVPixelFormatType format) =>
+        format switch
+        {
+            CVPixelFormatType.CV420YpCbCr8BiPlanarVideoRange
+            or CVPixelFormatType.CV420YpCbCr8BiPlanarFullRange => PixelFormat.Nv12,
+            CVPixelFormatType.CV422YpCbCr8_yuvs => PixelFormat.Yuy2,
+            CVPixelFormatType.CV422YpCbCr8 => PixelFormat.Uyvy,
+            CVPixelFormatType.CV32BGRA => PixelFormat.Bgra,
+            _ => null,
+        };
+
+    public static ImmutableArray<VideoInputMode> Modes(AVCaptureDevice device)
+    {
+        ImmutableArray<VideoInputMode>.Builder modes =
+            ImmutableArray.CreateBuilder<VideoInputMode>();
+        foreach (AVCaptureDeviceFormat format in device.Formats)
+        {
+            if (
+                format.FormatDescription is not CMVideoFormatDescription description
+                || ToMedia((CVPixelFormatType)description.MediaSubType) is not { } pixels
+            )
+            {
+                continue;
+            }
+
+            CMVideoDimensions size = description.Dimensions;
+            foreach (AVFrameRateRange range in format.VideoSupportedFrameRateRanges)
+            {
+                VideoInputMode mode = new(
+                    pixels,
+                    new VideoSize(size.Width, size.Height),
+                    Math.Round(range.MaxFrameRate, 3)
+                );
+                if (!modes.Contains(mode))
+                {
+                    modes.Add(mode);
+                }
+            }
+        }
+
+        return modes.ToImmutable();
+    }
+}
+
+// An open camera: a capture session whose video output calls back on a queue of its own.
+internal sealed partial class AVFoundationVideoInput : IVideoInput
+{
+    private readonly ILogger _logger;
+    private readonly Lock _gate = new();
+    private readonly AVCaptureSession _session = new();
+    private readonly AVCaptureVideoDataOutput _output = new();
+    private readonly DispatchQueue _queue;
+    private readonly Delegate _delegate;
+    private ImmutableArray<(
+        IVideoFrameConsumer Consumer,
+        VideoConstraints Constraints
+    )> _consumers = [];
+    private bool _disposed;
+
+    public AVFoundationVideoInput(
+        VideoInputInfo info,
+        VideoInputMode mode,
+        AVCaptureDevice device,
+        ILoggerFactory loggers
+    )
+    {
+        Info = info;
+        Mode = mode;
+        _logger = loggers.CreateLogger<AVFoundationVideoInput>();
+        _queue = new DispatchQueue($"StreamTransport camera {info.Name}");
+        _delegate = new Delegate(this);
+
+        AVCaptureDeviceFormat format =
+            device.Formats.FirstOrDefault(f =>
+                f.FormatDescription is CMVideoFormatDescription d
+                && AVFoundationFormats.ToMedia((CVPixelFormatType)d.MediaSubType)
+                    == mode.PixelFormat
+                && d.Dimensions.Width == mode.Size.Width
+                && d.Dimensions.Height == mode.Size.Height
+                && f.VideoSupportedFrameRateRanges.Any(r =>
+                    Math.Abs(r.MaxFrameRate - mode.FrameRate) < 0.01
+                    || (r.MinFrameRate <= mode.FrameRate && r.MaxFrameRate >= mode.FrameRate)
+                )
+            ) ?? throw new NotSupportedException($"{info.Name} no longer offers {mode}.");
+        var pixels = (CVPixelFormatType)
+            ((CMVideoFormatDescription)format.FormatDescription!).MediaSubType;
+
+        AVCaptureDeviceInput input =
+            AVCaptureDeviceInput.FromDevice(device, out NSError? error)
+            ?? throw new InvalidOperationException(
+                $"{info.Name} could not be opened: {error?.LocalizedDescription}"
+            );
+        _session.BeginConfiguration();
+        if (!_session.CanAddInput(input))
+        {
+            throw new InvalidOperationException($"{info.Name} cannot be captured now.");
+        }
+
+        _session.AddInput(input);
+        _output.AlwaysDiscardsLateVideoFrames = true;
+        _output.WeakVideoSettings = new CVPixelBufferAttributes
+        {
+            PixelFormatType = pixels,
+        }.Dictionary;
+        _output.SetSampleBufferDelegate(_delegate, _queue);
+        _session.AddOutput(_output);
+        if (device.LockForConfiguration(out error))
+        {
+            try
+            {
+                device.ActiveFormat = format;
+                if (FrameDuration(format, mode.FrameRate) is { } frame)
+                {
+                    device.ActiveVideoMinFrameDuration = frame;
+                    device.ActiveVideoMaxFrameDuration = frame;
+                }
+            }
+            catch (ObjCRuntime.ObjCException exception)
+            {
+                // A rate the format refuses leaves the device at its own.
+                LogRateKept(exception, info.Name, mode.FrameRate);
+            }
+            finally
+            {
+                device.UnlockForConfiguration();
+            }
+        }
+
+        _session.CommitConfiguration();
+        LogOpened(info.Name, mode);
+    }
+
+    public VideoInputInfo Info { get; }
+
+    public VideoInputMode? Mode { get; }
+
+    // The frame duration for a rate, exactly as the format states it: a range's own duration at its ends
+    // (a rate rounded through seconds can fall just outside a 60-60 range), else one rate's worth.
+    private static CMTime? FrameDuration(AVCaptureDeviceFormat format, double rate)
+    {
+        foreach (AVFrameRateRange range in format.VideoSupportedFrameRateRanges)
+        {
+            if (Math.Abs(range.MaxFrameRate - rate) < 0.01)
+            {
+                return range.MinFrameDuration;
+            }
+
+            if (Math.Abs(range.MinFrameRate - rate) < 0.01)
+            {
+                return range.MaxFrameDuration;
+            }
+
+            if (range.MinFrameRate < rate && rate < range.MaxFrameRate)
+            {
+                return new CMTime(1000, (int)Math.Round(rate * 1000));
+            }
+        }
+
+        return null;
+    }
+
+    public IDisposable Connect(IVideoFrameConsumer consumer, VideoConstraints constraints)
+    {
+        ArgumentNullException.ThrowIfNull(consumer);
+        ArgumentNullException.ThrowIfNull(constraints);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _consumers = _consumers.Add((consumer, constraints));
+            if (!_session.Running)
+            {
+                _session.StartRunning();
+            }
+        }
+
+        return new Connection(this, consumer);
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _consumers = [];
+        }
+
+        _session.StopRunning();
+        _output.SetSampleBufferDelegate(null, null);
+        _session.Dispose();
+        _output.Dispose();
+        _delegate.Dispose();
+    }
+
+    private void Disconnect(IVideoFrameConsumer consumer)
+    {
+        lock (_gate)
+        {
+            _consumers = _consumers.RemoveAll(c => ReferenceEquals(c.Consumer, consumer));
+            if (_consumers.IsEmpty && _session.Running)
+            {
+                _session.StopRunning();
+            }
+        }
+    }
+
+    // Runs on the capture queue; the buffer is the camera's while the call lasts.
+    private readonly PixelBufferRetainer _retainer = new();
+
+    private void Deliver(CMSampleBuffer sample)
+    {
+        using var buffer = sample.GetImageBuffer() as CVPixelBuffer;
+        if (buffer is null || Mode is not { } mode)
+        {
+            return;
+        }
+
+        MediaTimestamp timestamp = Timestamp(sample.PresentationTimeStamp);
+        VideoFormat format = new(mode.PixelFormat, (int)buffer.Width, (int)buffer.Height);
+        _retainer.Delivering = buffer;
+        VideoColor color = Color(buffer, mode.PixelFormat);
+        nint surface = buffer.GetIOSurface()?.Handle ?? 0;
+        bool locked = false;
+        try
+        {
+            foreach ((IVideoFrameConsumer consumer, VideoConstraints constraints) in _consumers)
+            {
+                try
+                {
+                    if (
+                        surface != 0
+                        && constraints.Storages.Contains(VideoStorageKind.IOSurface)
+                        && constraints.Device is { } device
+                    )
+                    {
+                        VideoFrame shared = new(
+                            new VideoStorage(new IOSurfaceImage(surface, device)),
+                            format,
+                            timestamp,
+                            color: color,
+                            retainer: _retainer
+                        );
+                        consumer.OnFrame(in shared);
+                        continue;
+                    }
+
+                    if (!locked)
+                    {
+                        _ = buffer.Lock(CVPixelBufferLock.ReadOnly);
+                        locked = true;
+                    }
+
+                    VideoFrame mapped = Mapped(buffer, format, timestamp, color, _retainer);
+                    consumer.OnFrame(in mapped);
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    // One consumer's failure does not stop the others or the capture.
+                    LogConsumerFailed(exception);
+                }
+            }
+        }
+        finally
+        {
+            _retainer.Delivering = null;
+            if (locked)
+            {
+                _ = buffer.Unlock(CVPixelBufferLock.ReadOnly);
+            }
+        }
+    }
+
+    private static unsafe VideoFrame Mapped(
+        CVPixelBuffer buffer,
+        VideoFormat format,
+        MediaTimestamp timestamp,
+        VideoColor color,
+        IVideoFrameRetainer retainer
+    )
+    {
+        int height = format.CodedSize.Height;
+        if (format.PixelFormat == PixelFormat.Nv12)
+        {
+            int lumaStride = (int)buffer.GetBytesPerRowOfPlane(0);
+            int chromaStride = (int)buffer.GetBytesPerRowOfPlane(1);
+            return VideoFrame.FromPlanes(
+                format,
+                timestamp,
+                new ReadOnlySpan<byte>((void*)buffer.GetBaseAddress(0), lumaStride * height),
+                lumaStride,
+                new ReadOnlySpan<byte>(
+                    (void*)buffer.GetBaseAddress(1),
+                    chromaStride * ((height + 1) / 2)
+                ),
+                chromaStride,
+                color: color,
+                retainer: retainer
+            );
+        }
+
+        int stride = (int)buffer.BytesPerRow;
+        return VideoFrame.FromPlanes(
+            format,
+            timestamp,
+            new ReadOnlySpan<byte>((void*)buffer.BaseAddress, stride * height),
+            stride,
+            color: color,
+            retainer: retainer
+        );
+    }
+
+    // The host clock AVFoundation stamps with is the media clock on macOS.
+    private static MediaTimestamp Timestamp(CMTime time)
+    {
+        MediaTime now = MediaClock.System.Now;
+        if (time.IsInvalid)
+        {
+            return MediaTimestamp.Observed(now);
+        }
+
+        MediaTime captured = new((long)(time.Seconds * 1_000_000_000));
+        return (now - captured).Duration() < TimeSpan.FromSeconds(2)
+            ? MediaTimestamp.Captured(captured)
+            : MediaTimestamp.Observed(now);
+    }
+
+    private static VideoColor Color(CVPixelBuffer buffer, PixelFormat format)
+    {
+        if (format is PixelFormat.Bgra or PixelFormat.Rgba)
+        {
+            return VideoColor.Srgb;
+        }
+
+        bool full = buffer.PixelFormatType == CVPixelFormatType.CV420YpCbCr8BiPlanarFullRange;
+        return VideoColor.Bt709 with { Range = full ? ColorRange.Full : ColorRange.Limited };
+    }
+
+    [LoggerMessage(2430, LogLevel.Information, "Opened {Camera} in {Mode}.")]
+    private partial void LogOpened(string camera, VideoInputMode mode);
+
+    [LoggerMessage(2432, LogLevel.Warning, "{Camera} keeps its own frame rate instead of {Rate}.")]
+    private partial void LogRateKept(Exception exception, string camera, double rate);
+
+    [LoggerMessage(2431, LogLevel.Warning, "A consumer failed to take a camera frame.")]
+    private partial void LogConsumerFailed(Exception exception);
+
+    private sealed class Delegate(AVFoundationVideoInput input)
+        : AVCaptureVideoDataOutputSampleBufferDelegate
+    {
+        public override void DidOutputSampleBuffer(
+            AVCaptureOutput captureOutput,
+            CMSampleBuffer sampleBuffer,
+            AVCaptureConnection connection
+        )
+        {
+            try
+            {
+                input.Deliver(sampleBuffer);
+            }
+            finally
+            {
+                sampleBuffer.Dispose();
+            }
+        }
+    }
+
+    private sealed class Connection(AVFoundationVideoInput input, IVideoFrameConsumer consumer)
+        : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                input.Disconnect(consumer);
+            }
+        }
+    }
+
+    // Keeps a camera frame by holding its pixel buffer, as VideoToolbox holds what it encodes: the
+    // capture pool does not reuse a buffer while it is held, so the frame stays the camera's memory and
+    // is read in place.
+    private sealed class PixelBufferRetainer : IVideoFrameRetainer
+    {
+        // The buffer being delivered; set and read on the capture queue.
+        public CVPixelBuffer? Delivering { get; set; }
+
+        public VideoFrameLease Retain(in VideoFrame frame)
+        {
+            CVPixelBuffer delivering =
+                Delivering
+                ?? throw new InvalidOperationException(
+                    "A camera frame can be kept only during the call that delivered it."
+                );
+            CVPixelBuffer held =
+                Runtime.GetINativeObject<CVPixelBuffer>(delivering.Handle, owns: false)
+                ?? throw new InvalidOperationException("The pixel buffer could not be held.");
+            return new PixelBufferLease(in frame, held);
+        }
+    }
+
+    // A held pixel buffer; a CPU frame's buffer stays locked for reading while it is held.
+    private sealed class PixelBufferLease : VideoFrameLease
+    {
+        private readonly CVPixelBuffer _buffer;
+        private readonly bool _mapped;
+
+        public PixelBufferLease(in VideoFrame frame, CVPixelBuffer buffer)
+            : base(
+                frame.Storage,
+                frame.Format,
+                frame.Timestamp,
+                frame.Color,
+                frame.Orientation,
+                frame.Duration
+            )
+        {
+            _buffer = buffer;
+            _mapped = frame.Storage.Kind == VideoStorageKind.Cpu;
+            if (_mapped)
+            {
+                _ = buffer.Lock(CVPixelBufferLock.ReadOnly);
+            }
+        }
+
+        protected override unsafe ReadOnlySpan<byte> GetPlane(int index)
+        {
+            if (!_mapped)
+            {
+                return base.GetPlane(index);
+            }
+
+            int height = Format.CodedSize.Height;
+            return _buffer.IsPlanar
+                ? new ReadOnlySpan<byte>(
+                    (void*)_buffer.GetBaseAddress(index),
+                    (int)_buffer.GetBytesPerRowOfPlane(index) * (int)_buffer.GetHeightOfPlane(index)
+                )
+                : new ReadOnlySpan<byte>(
+                    (void*)_buffer.BaseAddress,
+                    (int)_buffer.BytesPerRow * height
+                );
+        }
+
+        protected override void Release()
+        {
+            if (_mapped)
+            {
+                _ = _buffer.Unlock(CVPixelBufferLock.ReadOnly);
+            }
+
+            _buffer.Dispose();
+        }
+    }
+}

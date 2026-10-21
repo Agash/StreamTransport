@@ -15,5 +15,6 @@
     <PackageReference Include="Microsoft.Testing.Platform.MSBuild" />
 
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+    <PackageReference Include="Microsoft.Testing.Extensions.HangDump" />
   </ItemGroup>
 </Project>

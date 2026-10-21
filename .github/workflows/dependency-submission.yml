@@ -23,6 +23,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - uses: ./.github/actions/sister-libraries
+
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v6
         with:

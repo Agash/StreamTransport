@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AssemblyName>Agash.StreamTransport.Adaptation</AssemblyName>
+    <RootNamespace>Agash.StreamTransport.Adaptation</RootNamespace>
+    <PackageId>Agash.StreamTransport.Adaptation</PackageId>
+    <Description>Transport-independent media adaptation for Agash.StreamTransport: pacing by traffic class and the aggregate send budget that media, retransmission and FEC share.</Description>
+    <PackageTags>pacing;congestion-control;media;transport;dotnet</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <IsPackable>true</IsPackable>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\WakeSignal.cs" Link="Threading\WakeSignal.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agash.StreamTransport.Adaptation.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+</Project>
