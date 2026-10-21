@@ -236,21 +236,6 @@ try
     {
         // Both switches take effect asynchronously; nothing is set until OBS reports them current.
         // An earlier run that stopped part way may have left either behind; it is reused.
-        if (collections.SceneCollections.Contains(Collection))
-        {
-            await obs.Config.SetCurrentSceneCollectionAsync(
-                new() { SceneCollectionName = Collection }
-            );
-        }
-        else
-        {
-            await obs.Config.CreateSceneCollectionAsync(new() { SceneCollectionName = Collection });
-        }
-
-        await UntilAsync(async () =>
-            (await obs.Config.GetSceneCollectionListAsync())!.CurrentSceneCollectionName
-            == Collection
-        );
         if (profiles.Profiles.Contains(Profile))
         {
             await obs.Config.SetCurrentProfileAsync(new() { ProfileName = Profile });
@@ -271,32 +256,53 @@ try
         {
             throw new InvalidOperationException($"OBS records into {directory}, not {work}.");
         }
-        foreach (string input in new[] { "Signal", "Sound" })
+
+        // The sources come from the collection's file, which OBS loads on its main thread when it
+        // switches to the collection. Created through obs-websocket they would be made on its request
+        // thread, where Qt runs a GLib context nothing iterates: the PipeWire camera's portal request
+        // is answered there and never seen, and OBS ignores cameras until it restarts. OBS saves the
+        // current collection when it switches away, so the file is written while another is current.
+        if (!collections.SceneCollections.Contains(Collection))
         {
-            if ((await obs.Inputs.GetInputListAsync(new()))!.Inputs.Any(i => i.InputName == input))
-            {
-                await obs.Inputs.RemoveInputAsync(new() { InputName = input });
-            }
+            await obs.Config.CreateSceneCollectionAsync(new() { SceneCollectionName = Collection });
+            await UntilAsync(async () =>
+                (await obs.Config.GetSceneCollectionListAsync())!.CurrentSceneCollectionName
+                == Collection
+            );
         }
 
-        if (!(await obs.Scenes.GetSceneListAsync(new()))!.Scenes.Any(sc => sc.SceneName == Scene))
+        if (
+            (await obs.Config.GetSceneCollectionListAsync())!.CurrentSceneCollectionName
+            == Collection
+        )
         {
-            await obs.Scenes.CreateSceneAsync(new(Scene));
+            string away =
+                previousCollection != Collection
+                    ? previousCollection
+                    : collections.SceneCollections.FirstOrDefault(c => c != Collection)
+                        ?? throw new InvalidOperationException(
+                            $"OBS has no scene collection besides {Collection} to switch away to."
+                        );
+            await obs.Config.SetCurrentSceneCollectionAsync(new() { SceneCollectionName = away });
+            await UntilAsync(async () =>
+                (await obs.Config.GetSceneCollectionListAsync())!.CurrentSceneCollectionName == away
+            );
         }
+
+        WriteCollection();
+        await obs.Config.SetCurrentSceneCollectionAsync(new() { SceneCollectionName = Collection });
+        await UntilAsync(async () =>
+            (await obs.Config.GetSceneCollectionListAsync())!.CurrentSceneCollectionName
+            == Collection
+        );
         await obs.Scenes.SetCurrentProgramSceneAsync(new() { SceneName = Scene });
         long signalItem = (
-            await obs.Inputs.CreateInputAsync(
-                new(
-                    "Signal",
-                    videoKind,
-                    sceneName: Scene,
-                    inputSettings: videoSettings,
-                    sceneItemEnabled: true
-                )
-            )
+            await obs.SceneItems.GetSceneItemIdAsync(new(Scene, "Signal"))
         )!.SceneItemId;
 
         // Fill the canvas, so the picture's centre, where the flash is, is the recording's centre.
+        // Syphon surfaces are top row first and OBS draws them bottom row first, so on macOS the
+        // source is flipped upright, as a user does with Transform, Flip Vertical.
         var canvas = (await obs.Config.GetVideoSettingsAsync())!;
         await obs.SceneItems.SetSceneItemTransformAsync(
             new(
@@ -306,21 +312,14 @@ try
                     PositionX = 0,
                     PositionY = 0,
                     Alignment = 5,
+                    ScaleX = 1,
+                    ScaleY = OperatingSystem.IsMacOS() ? -1 : 1,
                     BoundsType = "OBS_BOUNDS_STRETCH",
                     BoundsAlignment = 0,
                     BoundsWidth = canvas.BaseWidth,
                     BoundsHeight = canvas.BaseHeight,
                 },
                 sceneName: Scene
-            )
-        );
-        await obs.Inputs.CreateInputAsync(
-            new(
-                "Sound",
-                audioKind,
-                sceneName: Scene,
-                inputSettings: audioSettings,
-                sceneItemEnabled: true
             )
         );
         await BindToLiveServerAsync(obs);
@@ -564,6 +563,43 @@ async Task BindToLiveServerAsync(ObsWebSocketClient obs)
         return;
     }
 
+    if (videoKind == "pipewire-camera-source")
+    {
+        // OBS's PipeWire camera lists the nodes the camera portal's remote shows it.
+        string[] devices = [];
+        try
+        {
+            await UntilAsync(
+                async () =>
+                {
+                    var items = (
+                        await obs.Inputs.GetInputPropertiesListPropertyItemsAsync(
+                            new() { InputName = "Signal", PropertyName = "device_id" }
+                        )
+                    )!;
+                    devices =
+                    [
+                        .. (items.PropertyItems ?? []).Select(i =>
+                            i.ItemValue?.GetString() ?? string.Empty
+                        ),
+                    ];
+                    return devices.Contains(SenderName);
+                },
+                TimeSpan.FromMilliseconds(500)
+            );
+        }
+        catch (TimeoutException)
+        {
+            throw new InvalidOperationException(
+                $"OBS's PipeWire camera lists [{string.Join(", ", devices)}], not {SenderName}. An OBS "
+                    + "that ever made a camera source through obs-websocket lost the portal's answer "
+                    + "and needs a restart."
+            );
+        }
+
+        return;
+    }
+
     if (videoKind != "syphon-input")
     {
         return;
@@ -614,29 +650,51 @@ async Task BindToLiveServerAsync(ObsWebSocketClient obs)
     );
 }
 
+// The collection the check records: its scene, holding the picture and the sound.
+void WriteCollection()
+{
+    object Source(string id, string name, JsonElement settings) =>
+        new
+        {
+            id,
+            name,
+            settings,
+        };
+    object Item(string name, int id) =>
+        new
+        {
+            name,
+            id,
+            visible = true,
+        };
+    var collection = new
+    {
+        name = Collection,
+        current_scene = Scene,
+        current_program_scene = Scene,
+        scene_order = new[] { new { name = Scene } },
+        sources = new[]
+        {
+            Source(
+                "scene",
+                Scene,
+                Json(new { id_counter = 2, items = new[] { Item("Signal", 1), Item("Sound", 2) } })
+            ),
+            Source(videoKind, "Signal", videoSettings),
+            Source(audioKind, "Sound", audioSettings),
+        },
+    };
+    File.WriteAllText(
+        Path.Combine(ObsConfigRoot(), "basic", "scenes", Collection + ".json"),
+        JsonSerializer.Serialize(collection)
+    );
+}
+
 void DeleteCollection()
 {
-    string root =
-        OperatingSystem.IsWindows()
-            ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "obs-studio"
-            )
-        : OperatingSystem.IsMacOS()
-            ? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Library",
-                "Application Support",
-                "obs-studio"
-            )
-        : Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".config",
-            "obs-studio"
-        );
     foreach (
         string file in Directory.EnumerateFiles(
-            Path.Combine(root, "basic", "scenes"),
+            Path.Combine(ObsConfigRoot(), "basic", "scenes"),
             Collection + ".json*"
         )
     )
@@ -644,6 +702,25 @@ void DeleteCollection()
         File.Delete(file);
     }
 }
+
+static string ObsConfigRoot() =>
+    OperatingSystem.IsWindows()
+        ? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "obs-studio"
+        )
+    : OperatingSystem.IsMacOS()
+        ? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Library",
+            "Application Support",
+            "obs-studio"
+        )
+    : Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".config",
+        "obs-studio"
+    );
 
 string? ObsPassword()
 {
