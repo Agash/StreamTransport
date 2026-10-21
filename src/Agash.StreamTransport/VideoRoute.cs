@@ -35,12 +35,14 @@ public static class VideoRouteExtensions
     {
         private readonly Lock _gate = new();
         private VideoStreamDescription? _described;
+        private VideoConstraints? _planned;
         private IVideoProcessor? _processor;
         private bool _disposed;
 
         public void OnFrame(in VideoFrame frame)
         {
-            if (sink.Constraints.Accepts(frame.Storage, frame.Format.PixelFormat))
+            VideoConstraints constraints = sink.Constraints;
+            if (constraints.Accepts(frame.Storage, frame.Format.PixelFormat))
             {
                 sink.OnFrame(in frame);
                 return;
@@ -59,12 +61,12 @@ public static class VideoRouteExtensions
                     new VideoSize(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height),
                     frame.Storage.Device
                 );
-                if (description != _described)
+                if (description != _described || !ReferenceEquals(constraints, _planned))
                 {
                     _processor?.Dispose();
                     _processor = registry.TryCreateVideoProcessor(
                         description,
-                        new VideoProcessing(sink.Constraints),
+                        new VideoProcessing(constraints),
                         out IVideoProcessor? processor
                     )
                         ? processor
@@ -72,6 +74,7 @@ public static class VideoRouteExtensions
                             $"No registered processor turns {description} into what the sink takes."
                         );
                     _described = description;
+                    _planned = constraints;
                 }
 
                 _processor!.Process(in frame, sink);

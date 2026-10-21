@@ -378,13 +378,19 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     // frame rate sent, and the one being shown.
     private int HeldFrames => (int)Math.Ceiling(_playout.MaxDelay.TotalSeconds * MaxFrameRate) + 1;
 
-    private bool NeedsProcessing(VideoStreamDescription description) =>
+    private bool NeedsProcessing(
+        VideoStreamDescription description,
+        VideoConstraints constraints
+    ) =>
         _setup.Alpha == AlphaLayout.PackSideBySide
-        || !_sink.Constraints.Storages.Contains(description.Storage)
-        || !_sink.Constraints.PixelFormats.Contains(description.PixelFormat)
-        || (_sink.Constraints.Device is { } device && description.Device != device);
+        || !constraints.Storages.Contains(description.Storage)
+        || !constraints.PixelFormats.Contains(description.PixelFormat)
+        || (constraints.Device is { } device && description.Device != device);
 
-    private IVideoProcessor CreateProcessor(VideoStreamDescription description)
+    private IVideoProcessor CreateProcessor(
+        VideoStreamDescription description,
+        VideoConstraints constraints
+    )
     {
         AlphaLayout alpha =
             _setup.Alpha == AlphaLayout.PackSideBySide
@@ -392,7 +398,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                 : AlphaLayout.None;
         return _registry.TryCreateVideoProcessor(
             description,
-            new VideoProcessing(_sink.Constraints, Alpha: alpha),
+            new VideoProcessing(constraints, Alpha: alpha),
             out IVideoProcessor? processor
         )
             ? processor
@@ -500,6 +506,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         private readonly Lock _gate = new();
         private IVideoProcessor? _processor;
         private VideoStreamDescription? _described;
+        private VideoConstraints? _planned;
         private bool _disposed;
 
         public void OnFrame(in VideoFrame frame)
@@ -517,13 +524,15 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                     new VideoSize(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height),
                     frame.Storage.Device
                 );
-                if (description != _described)
+                VideoConstraints constraints = stream._sink.Constraints;
+                if (description != _described || !ReferenceEquals(constraints, _planned))
                 {
                     _processor?.Dispose();
-                    _processor = stream.NeedsProcessing(description)
-                        ? stream.CreateProcessor(description)
+                    _processor = stream.NeedsProcessing(description, constraints)
+                        ? stream.CreateProcessor(description, constraints)
                         : null;
                     _described = description;
+                    _planned = constraints;
                 }
 
                 if (_processor is not { } processor)

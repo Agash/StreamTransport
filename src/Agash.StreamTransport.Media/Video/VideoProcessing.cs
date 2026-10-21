@@ -125,6 +125,12 @@ public interface IVideoSink : IVideoFrameConsumer
     TimeSpan? OutputLatency => null;
 
     /// <summary>The storages, formats and GPU it accepts.</summary>
+    /// <remarks>
+    /// May change while frames flow, as when a consumer of the sink settles on one of several formats
+    /// it offered. Whoever feeds the sink reads it for each frame and plans its conversion again when
+    /// a different instance comes back, so a sink returns the same instance until what it accepts
+    /// changes.
+    /// </remarks>
     VideoConstraints Constraints { get; }
 
     /// <summary>
