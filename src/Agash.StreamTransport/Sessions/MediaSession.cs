@@ -129,6 +129,7 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
             _videoReceive?.FramesDecoded ?? 0,
             _videoReceive?.FramesFailed ?? 0,
             _videoReceive?.FramesSkipped ?? 0,
+            _playout.VideoFramesLate,
             _audioReceive?.Concealed ?? 0,
             _audioReceive?.Recovered ?? 0,
             _playout.CurrentDelay,

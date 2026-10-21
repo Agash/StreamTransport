@@ -141,6 +141,7 @@ public sealed class PlayoutSchedulerTests
     [TestMethod]
     public async Task Scheduler_ReleasesInCaptureOrderWhenDue()
     {
+        // Audio, which plays every due entry, so the order shows whatever arrives together.
         FakeTimeProvider time = new();
         Played played = new(time);
         await using PlayoutScheduler scheduler = new(
@@ -150,13 +151,13 @@ public sealed class PlayoutSchedulerTests
         var start = NtpTime.From(time.GetUtcNow());
 
         scheduler.Schedule(
-            PlayoutStream.Video,
+            PlayoutStream.Audio,
             start + TimeSpan.FromMilliseconds(20),
             played.Entry(2)
         );
-        scheduler.Schedule(PlayoutStream.Video, start, played.Entry(0));
+        scheduler.Schedule(PlayoutStream.Audio, start, played.Entry(0));
         scheduler.Schedule(
-            PlayoutStream.Video,
+            PlayoutStream.Audio,
             start + TimeSpan.FromMilliseconds(10),
             played.Entry(1)
         );
@@ -164,6 +165,84 @@ public sealed class PlayoutSchedulerTests
         time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
         await played.WaitForAsync(3);
         CollectionAssert.AreEqual(new[] { 0, 1, 2 }, played.Ids);
+    }
+
+    [TestMethod]
+    public async Task Scheduler_VideoFallenBehind_ShowsOnlyTheLatestDuePicture()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        ConcurrentQueue<int> late = [];
+        Entry first = new(0, late);
+        Entry second = new(1, late);
+        scheduler.Schedule(PlayoutStream.Video, start, first);
+        scheduler.Schedule(PlayoutStream.Video, start + TimeSpan.FromMilliseconds(10), second);
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(20),
+            played.Entry(2)
+        );
+
+        // All three come due at once: the first two are already late for the third.
+        time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
+        await played.WaitForAsync(1);
+
+        CollectionAssert.AreEqual(new[] { 2 }, played.Ids);
+        Assert.IsEmpty(late, "the late pictures were not shown");
+        Assert.IsTrue(first.Disposed && second.Disposed, "the late pictures were released");
+        Assert.AreEqual(2, scheduler.VideoFramesDropped);
+    }
+
+    [TestMethod]
+    public async Task Scheduler_AudioFallenBehind_PlaysEverySlot()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        for (int i = 0; i < 3; i++)
+        {
+            scheduler.Schedule(
+                PlayoutStream.Audio,
+                start + TimeSpan.FromMilliseconds(10 * i),
+                played.Entry(i)
+            );
+        }
+
+        time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
+        await played.WaitForAsync(3);
+
+        CollectionAssert.AreEqual(new[] { 0, 1, 2 }, played.Ids, "a gap in sound is heard");
+    }
+
+    [TestMethod]
+    public async Task Scheduler_SlowVideoSink_DoesNotHoldBackAudio()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        using Blocking video = new();
+        scheduler.Schedule(PlayoutStream.Video, start, video);
+        scheduler.Schedule(PlayoutStream.Audio, start, played.Entry(0));
+
+        time.Advance(Fixed);
+        await video.Entered.WaitAsync(TimeSpan.FromSeconds(10));
+        await played.WaitForAsync(1);
+
+        CollectionAssert.AreEqual(new[] { 0 }, played.Ids, "audio played while video was stuck");
+        video.Release();
     }
 
     [TestMethod]
@@ -314,6 +393,27 @@ public sealed class PlayoutSchedulerTests
 
             public void Dispose() { }
         }
+    }
+
+    // A video sink that does not return until released.
+    private sealed class Blocking : IPlayoutEntry
+    {
+        private readonly TaskCompletionSource _entered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private readonly ManualResetEventSlim _release = new();
+
+        public Task Entered => _entered.Task;
+
+        public void Play()
+        {
+            _entered.TrySetResult();
+            _release.Wait(TimeSpan.FromSeconds(10));
+        }
+
+        public void Release() => _release.Set();
+
+        public void Dispose() => _release.Set();
     }
 
     private sealed class Entry(int id, ConcurrentQueue<int> played) : IPlayoutEntry

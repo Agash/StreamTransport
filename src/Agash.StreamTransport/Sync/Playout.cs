@@ -60,6 +60,9 @@ internal sealed class Playout : IAsyncDisposable
     /// <summary>The measured lip sync, smoothed: positive when audio lags video; null until measured.</summary>
     public TimeSpan? AvSyncOffset => _sync.Offset;
 
+    /// <summary>Pictures that went unshown because playout fell behind and a later one was due.</summary>
+    public int VideoFramesLate => _scheduler?.VideoFramesDropped ?? 0;
+
     /// <summary>The playout buffer depth, or zero when frames play on arrival.</summary>
     public TimeSpan CurrentDelay => _scheduler?.CurrentDelay ?? TimeSpan.Zero;
 
