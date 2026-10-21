@@ -145,7 +145,10 @@ public sealed partial class PeerConnection
     // offerer's identifier, with the direction mirrored (RFC 8285 section 7). An extension offered both in
     // the clear and encrypted (RFC 6904 section 4) is answered encrypted: every RFC 6904 endpoint can read
     // that form, and it keeps the value from the path where Cryptex is not used.
-    private ImmutableArray<SdpExtension> AnsweredExtensions(SdpMediaDescription offer)
+    private ImmutableArray<SdpExtension> AnsweredExtensions(
+        SdpMediaDescription offer,
+        RtpExtensionIdSet bundleConflicts
+    )
     {
         ImmutableArray<SdpExtension> ours = PlainExtensions(offer.Kind);
         HashSet<string> encryptedOffered = [];
@@ -167,7 +170,7 @@ public sealed partial class PeerConnection
         );
         foreach (SdpExtension mapping in offer.Extensions)
         {
-            if (conflicting.Contains(mapping.Id))
+            if (conflicting.Contains(mapping.Id) || bundleConflicts.Contains(mapping.Id))
             {
                 LogConflictingExtension(_logger, mapping.Id, mapping.Uri);
                 continue;

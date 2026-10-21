@@ -280,6 +280,17 @@ public sealed partial class PeerConnection : IAsyncDisposable
             ImmutableArray.CreateBuilder<NegotiatedMediaInfo>(offer.Media.Length);
         HashSet<SdpMediaKind> answeredKinds = [];
         bool bundled = offer.BundleGroup is { Length: > 0 };
+
+        // One identifier names one extension across the whole BUNDLE group (RFC 9143 section 12), as it
+        // does within a section (RFC 8285 section 6): one naming two is ambiguous on the shared transport,
+        // so the answer leaves it out of every section, as it does a duplicate within one.
+        RtpExtensionIdSet bundleConflicts = bundled
+            ? RtpExtensionMap.Conflicting(
+                offer
+                    .Media.Where(m => !m.Rejected && offer.BundleGroup!.Value.Contains(m.Mid))
+                    .SelectMany(static m => m.Extensions)
+            )
+            : default;
         foreach (SdpMediaDescription remote in offer.Media)
         {
             uint ssrc = LocalSsrcFor(remote.Mid, remote.Kind);
@@ -407,7 +418,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
                     CongestionControlFeedback = remote.CongestionControlFeedback,
                     TransportWideFeedback = AnswersTransportFeedback(remote),
                     Ecn = AnswerEcn(remote.Ecn),
-                    Extensions = AnsweredExtensions(remote),
+                    Extensions = AnsweredExtensions(remote, bundleConflicts),
                     Protocol = remote.Protocol,
                     RtcpMux = true,
                     RtcpMuxOnly = false,
