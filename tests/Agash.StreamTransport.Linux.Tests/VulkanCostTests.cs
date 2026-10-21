@@ -137,7 +137,11 @@ public sealed class VulkanCostTests
         }
     }
 
-    private (double Ms, long Bytes) Measure(PooledDmaBuf input, IVideoFrameConsumer consumer)
+    private (double Ms, long Bytes) Measure(
+        PooledDmaBuf input,
+        IVideoFrameConsumer consumer,
+        int frames = Frames
+    )
     {
         VideoStreamDescription description = new(
             VideoStorageKind.DmaBuf,
@@ -170,15 +174,91 @@ public sealed class VulkanCostTests
 
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         long started = Stopwatch.GetTimestamp();
-        for (int i = 0; i < Frames; i++)
+        for (int i = 0; i < frames; i++)
         {
             processor.Process(in frame, consumer);
         }
 
         // Disposing waits for the last submission, so the time covers the GPU work, not its queueing.
         processor.Dispose();
-        double ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds / Frames;
+        double ms = Stopwatch.GetElapsedTime(started).TotalMilliseconds / frames;
         return (ms, GC.GetAllocatedBytesForCurrentThread() - allocated);
+    }
+
+    // What allocates on a path: the runtime's allocation samples (about one per 100 KB) by type, over
+    // enough frames for a few hundred bytes a frame to show.
+    [TestMethod]
+    public void Nv12ToRgba_ReadBack_AllocatingTypes()
+    {
+        PooledDmaBuf input = Nv12();
+        try
+        {
+            using ReadBack read = new(new byte[Width * Height * 4]);
+            using AllocationSampler sampler = new();
+            _ = Measure(input, read, frames: 20_000);
+            foreach ((string type, int samples) in sampler.Top(12))
+            {
+                TestContext.WriteLine($"allocates {type}: {samples} samples");
+            }
+        }
+        finally
+        {
+            input.Release();
+        }
+    }
+
+    private sealed class AllocationSampler : System.Diagnostics.Tracing.EventListener
+    {
+        private readonly Dictionary<string, int> _types = [];
+        private readonly Lock _gate = new();
+
+        protected override void OnEventSourceCreated(System.Diagnostics.Tracing.EventSource source)
+        {
+            if (source.Name == "Microsoft-Windows-DotNETRuntime")
+            {
+                EnableEvents(
+                    source,
+                    System.Diagnostics.Tracing.EventLevel.Verbose,
+                    (System.Diagnostics.Tracing.EventKeywords)0x1
+                );
+            }
+        }
+
+        protected override void OnEventWritten(
+            System.Diagnostics.Tracing.EventWrittenEventArgs data
+        )
+        {
+            if (
+                data.EventName?.StartsWith("GCAllocationTick", StringComparison.Ordinal) != true
+                || data.PayloadNames is null
+            )
+            {
+                return;
+            }
+
+            int at = data.PayloadNames.IndexOf("TypeName");
+            if (at >= 0 && data.Payload?[at] is string type)
+            {
+                lock (_gate)
+                {
+                    _types[type] = _types.GetValueOrDefault(type) + 1;
+                }
+            }
+        }
+
+        public IEnumerable<(string Type, int Samples)> Top(int count)
+        {
+            lock (_gate)
+            {
+                return
+                [
+                    .. _types
+                        .OrderByDescending(t => t.Value)
+                        .Take(count)
+                        .Select(t => (t.Key, t.Value)),
+                ];
+            }
+        }
     }
 
     private void Report(string what, double ms, long bytes) =>
