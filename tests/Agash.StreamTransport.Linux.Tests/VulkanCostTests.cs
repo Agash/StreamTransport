@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.Linux.Vulkan;
 using Agash.StreamTransport.Media;
 
@@ -51,6 +52,31 @@ public sealed class VulkanCostTests
         finally
         {
             input.Release();
+        }
+    }
+
+    [TestMethod]
+    public unsafe void Nv12ToRgba_ReadBackIntoPageAlignedMemory()
+    {
+        // Mapped memory, as a PipeWire memfd buffer is: the GPU copies into it where it imports host
+        // memory, with no staging and no CPU copy.
+        const int size = Width * Height * 4;
+        void* memory = NativeMemory.AlignedAlloc(size, 4096);
+        PooledDmaBuf input = Nv12();
+        try
+        {
+            TestContext.WriteLine(
+                $"host memory import: {(TestDmaBufs.Engine.HostImportAlignment is { } a ? $"aligned to {a}" : "not available")}"
+            );
+            using ReadBack read = new((nint)memory, size);
+            (double ms, long bytes) = Measure(input, read);
+            Report("NV12 to RGBA, read back into page-aligned memory", ms, bytes);
+            Assert.AreEqual(0, bytes / Frames, "a read-back allocates nothing per frame");
+        }
+        finally
+        {
+            input.Release();
+            NativeMemory.AlignedFree(memory);
         }
     }
 
@@ -181,14 +207,27 @@ public sealed class VulkanCostTests
         public void OnFrame(in VideoFrame frame) { }
     }
 
-    // Reads each converted frame back into memory, as a sink does for a consumer reading memory.
-    private sealed class ReadBack(byte[] destination) : IVideoFrameConsumer, IDisposable
+    // Reads each converted frame back into memory, as a sink does for a consumer reading memory: an array,
+    // or native memory at an address.
+    private sealed unsafe class ReadBack : IVideoFrameConsumer, IDisposable
     {
         private readonly VulkanTransfer.Readback _readback = new();
+        private readonly byte[]? _array;
+        private readonly nint _address;
+        private readonly int _length;
+
+        public ReadBack(byte[] destination) => _array = destination;
+
+        public ReadBack(nint address, int length)
+        {
+            _address = address;
+            _length = length;
+        }
 
         public void OnFrame(in VideoFrame frame)
         {
             _ = frame.Storage.TryGetValue(out DmaBufImage image);
+            Span<byte> destination = _array ?? new Span<byte>((void*)_address, _length);
             VulkanTransfer.Read(
                 TestDmaBufs.Engine,
                 _readback,
