@@ -86,10 +86,21 @@ public sealed class VideoOutput(
     public string Name { get; } = name;
 
     /// <inheritdoc/>
+    public TimeSpan? OutputLatency => sink.OutputLatency;
+
+    /// <inheritdoc/>
     public VideoConstraints Constraints => sink.Constraints;
 
     /// <inheritdoc/>
     public void OnFrame(in VideoFrame frame) => sink.OnFrame(in frame);
+
+    /// <inheritdoc/>
+    public VideoRenderResult Render<TState>(
+        VideoFormat format,
+        scoped in TState state,
+        VideoTargetRenderer<TState> render
+    )
+        where TState : allows ref struct => sink.Render(format, in state, render);
 
     /// <inheritdoc/>
     public void Dispose()
@@ -120,6 +131,9 @@ public sealed class AudioOutput(
 
     /// <inheritdoc/>
     public string Name { get; } = name;
+
+    /// <inheritdoc/>
+    public TimeSpan? OutputLatency => sink.OutputLatency;
 
     /// <inheritdoc/>
     public AudioConstraints Constraints => sink.Constraints;

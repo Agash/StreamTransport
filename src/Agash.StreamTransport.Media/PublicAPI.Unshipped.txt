@@ -136,6 +136,7 @@ Agash.StreamTransport.Media.AudioOutput.Constraints.get -> Agash.StreamTransport
 Agash.StreamTransport.Media.AudioOutput.Dispose() -> void
 Agash.StreamTransport.Media.AudioOutput.Name.get -> string!
 Agash.StreamTransport.Media.AudioOutput.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
+Agash.StreamTransport.Media.AudioOutput.OutputLatency.get -> System.TimeSpan?
 Agash.StreamTransport.Media.AudioOutput.Provider.get -> string!
 Agash.StreamTransport.Media.ChromaSiting
 Agash.StreamTransport.Media.ChromaSiting.Center = 2 -> Agash.StreamTransport.Media.ChromaSiting
@@ -721,7 +722,9 @@ Agash.StreamTransport.Media.VideoOutput.Constraints.get -> Agash.StreamTransport
 Agash.StreamTransport.Media.VideoOutput.Dispose() -> void
 Agash.StreamTransport.Media.VideoOutput.Name.get -> string!
 Agash.StreamTransport.Media.VideoOutput.OnFrame(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.Media.VideoOutput.OutputLatency.get -> System.TimeSpan?
 Agash.StreamTransport.Media.VideoOutput.Provider.get -> string!
+Agash.StreamTransport.Media.VideoOutput.Render<TState>(Agash.StreamTransport.Media.VideoFormat format, scoped in TState state, Agash.StreamTransport.Media.VideoTargetRenderer<TState>! render) -> Agash.StreamTransport.Media.VideoRenderResult
 Agash.StreamTransport.Media.VideoOutput.VideoOutput(Agash.StreamTransport.Media.IVideoSink! sink, string! provider, string! name, System.IDisposable? owner = null) -> void
 Agash.StreamTransport.Media.VideoPlane
 Agash.StreamTransport.Media.VideoPlane.Deconstruct(out int Offset, out int Stride) -> void
