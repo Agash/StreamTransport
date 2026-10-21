@@ -92,12 +92,16 @@ public sealed class TestSignalAnalyzer
     /// <summary>A video output that measures, then hands frames to <paramref name="inner"/>.</summary>
     /// <remarks>
     /// In front of an output it takes what the output takes. Pictures in memory in NV12 or I420 are
-    /// measured; GPU frames, and frames a processor draws straight into the output's surface, reach the
-    /// output untouched and are not.
+    /// measured as they pass. GPU frames are read back into memory to be measured when a
+    /// <paramref name="registry"/> is given, which then also hands frames to the output rather than
+    /// letting a processor draw into the output's surface (one GPU copy, while measuring); without one
+    /// they pass unmeasured. Disposing the output releases the read-back.
     /// </remarks>
     /// <param name="inner">The real output, or null to only measure.</param>
+    /// <param name="registry">Where the read-back's processor comes from; null measures memory frames only.</param>
     /// <returns>The measuring output.</returns>
-    public IVideoSink WrapVideo(IVideoSink? inner = null) => new VideoTap(this, inner);
+    public IVideoSink WrapVideo(IVideoSink? inner = null, MediaCodecRegistry? registry = null) =>
+        new VideoTap(this, inner, registry);
 
     /// <summary>An audio output that measures, then hands frames to <paramref name="inner"/>.</summary>
     /// <param name="inner">The real output, or null to only measure.</param>
@@ -312,25 +316,83 @@ public sealed class TestSignalAnalyzer
     private static readonly AudioConstraints AnalyzedAudio = new([48_000], [SampleFormat.F32], 2);
 
     // Constraints are read through, as the output may change them.
-    private sealed class VideoTap(TestSignalAnalyzer analyzer, IVideoSink? inner) : IVideoSink
+    // Constraints are read through, as the output may change them.
+    private sealed class VideoTap(
+        TestSignalAnalyzer analyzer,
+        IVideoSink? inner,
+        MediaCodecRegistry? registry
+    ) : IVideoSink, IVideoFrameConsumer, IDisposable
     {
+        private IVideoProcessor? _reader;
+        private VideoStreamDescription? _readFor;
+        private bool _readFailed;
+
         public VideoConstraints Constraints => inner?.Constraints ?? AnalyzedVideo;
 
         public TimeSpan? OutputLatency => inner?.OutputLatency;
 
         public void OnFrame(in VideoFrame frame)
         {
-            analyzer.OnVideo(in frame);
+            if (frame.Storage.Kind == VideoStorageKind.Cpu || registry is null)
+            {
+                analyzer.OnVideo(in frame);
+            }
+            else
+            {
+                ReadBack(in frame);
+            }
+
             inner?.OnFrame(in frame);
         }
 
+        // Frames go through OnFrame while GPU frames are measured, so a processor does not draw them
+        // past the tap.
         public VideoRenderResult Render<TState>(
             VideoFormat format,
             scoped in TState state,
             VideoTargetRenderer<TState> render
         )
             where TState : allows ref struct =>
-            inner?.Render(format, in state, render) ?? VideoRenderResult.Unavailable;
+            registry is null && inner is not null
+                ? inner.Render(format, in state, render)
+                : VideoRenderResult.Unavailable;
+
+        // The analyzer takes the read-back, as it takes a frame in memory.
+        void IVideoFrameConsumer.OnFrame(in VideoFrame frame) => analyzer.OnVideo(in frame);
+
+        private void ReadBack(in VideoFrame frame)
+        {
+            VideoStreamDescription description = new(
+                frame.Storage.Kind,
+                frame.Format.PixelFormat,
+                new VideoSize(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height),
+                frame.Storage.Device
+            );
+            if (description != _readFor)
+            {
+                _reader?.Dispose();
+                _reader = null;
+                _readFor = description;
+                _readFailed = !registry!.TryCreateVideoProcessor(
+                    description,
+                    new VideoProcessing(AnalyzedVideo),
+                    out _reader
+                );
+            }
+
+            // A GPU no processor reads back from is not measured; the output still shows it.
+            if (!_readFailed)
+            {
+                _reader!.Process(in frame, this);
+            }
+        }
+
+        // The output is its owner's to dispose.
+        public void Dispose()
+        {
+            _reader?.Dispose();
+            _reader = null;
+        }
     }
 
     private sealed class AudioTap(TestSignalAnalyzer analyzer, IAudioSink? inner) : IAudioSink

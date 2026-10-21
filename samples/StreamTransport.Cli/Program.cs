@@ -157,7 +157,12 @@ static async Task<int> RunAsync(CommandLine command)
     }
 
     IMediaSessionFactory sessions = provider.GetRequiredService<IMediaSessionFactory>();
-    using Endpoints endpoints = await Endpoints.CreateAsync(command, devices, stop.Token);
+    using Endpoints endpoints = await Endpoints.CreateAsync(
+        command,
+        devices,
+        provider.GetRequiredService<MediaCodecRegistry>(),
+        stop.Token
+    );
     PeerRole role = command.Publish ? PeerRole.Publisher : PeerRole.Subscriber;
     await using RoomClient room = await RoomClient.ConnectAsync(
         command.Relay,

@@ -224,7 +224,7 @@ Agash.StreamTransport.TestSignal.TestSignalAnalyzer.ObserveVideo(System.ReadOnly
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Reset() -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.TestSignalAnalyzer(System.TimeProvider? timeProvider = null) -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapAudio(Agash.StreamTransport.Media.IAudioSink? inner = null) -> Agash.StreamTransport.Media.IAudioSink!
-Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapVideo(Agash.StreamTransport.Media.IVideoSink? inner = null) -> Agash.StreamTransport.Media.IVideoSink!
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapVideo(Agash.StreamTransport.Media.IVideoSink? inner = null, Agash.StreamTransport.MediaCodecRegistry? registry = null) -> Agash.StreamTransport.Media.IVideoSink!
 Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider
 Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>
 Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.Name.get -> string!

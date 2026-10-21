@@ -23,6 +23,7 @@ internal sealed class Endpoints : IDisposable
     public static async Task<Endpoints> CreateAsync(
         CommandLine command,
         MediaDevices devices,
+        MediaCodecRegistry registry,
         CancellationToken cancellationToken
     )
     {
@@ -68,7 +69,8 @@ internal sealed class Endpoints : IDisposable
                 // to it, GPU frames reach it untouched. Without an output the analyzer takes the video.
                 if (analyzer is not null)
                 {
-                    videoSink = analyzer.WrapVideo(videoSink);
+                    videoSink = analyzer.WrapVideo(videoSink, registry);
+                    _ = endpoints.Own((IDisposable)videoSink);
                 }
 
                 IAudioSink? audioSink = command.Audio is null
