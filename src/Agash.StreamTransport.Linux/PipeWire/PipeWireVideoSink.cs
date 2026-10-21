@@ -52,6 +52,7 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
     private readonly ILogger _logger;
     private readonly Lock _gate = new();
     private readonly Dictionary<int, VulkanImage[]> _shared = [];
+    private readonly VulkanTransfer.Readback _readback = new();
     private PipeWireVideoOutput? _output;
 
     // The node's size, and the format of the frames it was last handed.
@@ -237,14 +238,33 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
 
         using (written)
         {
-            if (written.Pixels.IsEmpty)
+            // The buffer holds the format negotiated when it was taken; a consumer settling on another
+            // between the check above and here leaves this frame unwritten.
+            VideoSize size = Size(format);
+            if (
+                written.Pixels.IsEmpty
+                || PipeWireMapping.ToMedia(written.Format) != pixels
+                || written.Width != size.Width
+                || written.Height != size.Height
+            )
             {
                 return;
             }
 
             if (gpu)
             {
-                ReadBack(engine!, in frame, format, written.Pixels, written.Stride);
+                // Frames are handed over one at a time, so the read-back staging has one reader.
+                _ = frame.Storage.TryGetValue(out DmaBufImage image);
+                VulkanTransfer.Read(
+                    engine!,
+                    _readback,
+                    in image,
+                    pixels,
+                    size.Width,
+                    size.Height,
+                    written.Pixels,
+                    written.Stride
+                );
             }
             else
             {
@@ -360,6 +380,8 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
         {
             DropShared();
         }
+
+        _readback.Dispose();
     }
 
     // The node's colour is its first format's. Frames in another format it offers are the session's
@@ -596,42 +618,6 @@ public sealed partial class PipeWireVideoSink : IVideoSink, IDisposable
             {
                 source
                     .Slice(((y + row) * sourceStride) + x, rowBytes)
-                    .CopyTo(pixels[(offset + (row * planeStride))..]);
-            }
-
-            offset += rows * planeStride;
-        }
-    }
-
-    // A GPU frame read back for a consumer reading memory, into the daemon's buffer as Write lays it.
-    private static void ReadBack(
-        VulkanEngine engine,
-        in VideoFrame frame,
-        VideoFormat format,
-        Span<byte> pixels,
-        int stride
-    )
-    {
-        _ = frame.Storage.TryGetValue(out DmaBufImage image);
-        VideoSize size = Size(format);
-        byte[][] planes = VulkanTransfer.Read(
-            engine,
-            in image,
-            format.PixelFormat,
-            size.Width,
-            size.Height
-        );
-        var packed = PlaneLayout.Packed(format.PixelFormat, size);
-        int offset = 0;
-        for (int plane = 0; plane < planes.Length; plane++)
-        {
-            int planeStride = stride * packed[plane].Stride / packed[0].Stride;
-            int rowBytes = packed[plane].Stride;
-            int rows = PlaneLayout.PlaneRows(format.PixelFormat, plane, size.Height);
-            for (int row = 0; row < rows; row++)
-            {
-                planes[plane]
-                    .AsSpan(row * rowBytes, rowBytes)
                     .CopyTo(pixels[(offset + (row * planeStride))..]);
             }
 
