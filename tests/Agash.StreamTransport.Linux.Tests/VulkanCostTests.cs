@@ -188,14 +188,16 @@ public sealed class VulkanCostTests
     // What allocates on a path: the runtime's allocation samples (about one per 100 KB) by type, over
     // enough frames for a few hundred bytes a frame to show.
     [TestMethod]
-    public void Nv12ToRgba_ReadBack_AllocatingTypes()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Nv12ToRgba_AllocatingTypes(bool readBack)
     {
         PooledDmaBuf input = Nv12();
         try
         {
             using ReadBack read = new(new byte[Width * Height * 4]);
             using AllocationSampler sampler = new();
-            _ = Measure(input, read, frames: 20_000);
+            _ = Measure(input, readBack ? read : new Discard(), frames: 20_000);
             foreach ((string type, int samples) in sampler.Top(12))
             {
                 TestContext.WriteLine($"allocates {type}: {samples} samples");

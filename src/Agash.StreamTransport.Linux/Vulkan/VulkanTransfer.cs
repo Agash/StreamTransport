@@ -220,7 +220,7 @@ internal static unsafe class VulkanTransfer
         fixed (byte* target = destination)
         {
             if (
-                HostImport.TryCreate(engine, target, destination.Length, out HostImport? direct)
+                HostImport.TryCreate(engine, target, destination.Length, out HostImport direct)
                 && stride % layout[0].Texel == 0
                 && chromaStride % layout[1].Texel == 0
             )
@@ -263,8 +263,6 @@ internal static unsafe class VulkanTransfer
 
                 return;
             }
-
-            direct?.Dispose();
         }
 
         Staging staging = readback.Reserve(engine, packed);
@@ -396,7 +394,7 @@ internal static unsafe class VulkanTransfer
     // Memory of the caller's imported as a buffer the GPU copies into (VK_EXT_external_memory_host), for
     // the length of one copy; none where the GPU does not import host memory or the memory is not
     // aligned as it needs.
-    private sealed class HostImport : IDisposable
+    private readonly struct HostImport : IDisposable
     {
         private readonly VulkanEngine _engine;
         private readonly VkDeviceMemory _memory;
@@ -414,10 +412,10 @@ internal static unsafe class VulkanTransfer
             VulkanEngine engine,
             byte* pointer,
             int length,
-            [NotNullWhen(true)] out HostImport? import
+            out HostImport import
         )
         {
-            import = null;
+            import = default;
             if (
                 engine.HostImportAlignment is not { } alignment
                 || (ulong)pointer % alignment != 0
