@@ -387,6 +387,17 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         || !constraints.PixelFormats.Contains(description.PixelFormat)
         || (constraints.Device is { } device && description.Device != device);
 
+    private bool TakesColourAlone(in VideoFrame frame, VideoConstraints constraints) =>
+        _setup.Alpha == AlphaLayout.PackSideBySide
+        && frame.Storage.Kind == VideoStorageKind.Cpu
+        && frame.Format.PixelFormat is PixelFormat.Nv12 or PixelFormat.I420
+        && frame.Format.VisibleRect.Width % 4 == 0
+        && constraints.Storages.Contains(VideoStorageKind.Cpu)
+        && constraints.PixelFormats.Contains(frame.Format.PixelFormat)
+        && !constraints.PixelFormats.Any(static f =>
+            f is PixelFormat.Bgra or PixelFormat.Rgba or PixelFormat.Yuva420
+        );
+
     private IVideoProcessor CreateProcessor(
         VideoStreamDescription description,
         VideoConstraints constraints
@@ -518,13 +529,23 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                     return;
                 }
 
+                VideoConstraints constraints = stream._sink.Constraints;
+
+                // A side-by-side frame for a sink that takes no alpha: its colour is the left half, in
+                // the decoder's own format, so the sink gets that half as it is, with nothing unpacked
+                // or converted for an alpha it would drop.
+                if (stream.TakesColourAlone(in frame, constraints))
+                {
+                    stream._sink.OnFrame(frame.LeftOf(frame.Format.VisibleRect.Width / 2));
+                    return;
+                }
+
                 VideoStreamDescription description = new(
                     frame.Storage.Kind,
                     frame.Format.PixelFormat,
                     new VideoSize(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height),
                     frame.Storage.Device
                 );
-                VideoConstraints constraints = stream._sink.Constraints;
                 if (description != _described || !ReferenceEquals(constraints, _planned))
                 {
                     _processor?.Dispose();

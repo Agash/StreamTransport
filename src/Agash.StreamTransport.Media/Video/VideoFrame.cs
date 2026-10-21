@@ -213,6 +213,66 @@ public readonly ref struct VideoFrame
     /// <summary>How long the frame is shown; zero when unknown.</summary>
     public TimeSpan Duration { get; }
 
+    /// <summary>
+    /// The left part of a 4:2:0 frame in memory, as a frame of its own over the same pixels: no copy and
+    /// no conversion, as each row's left part is a prefix of the row at the same stride. The colour of a
+    /// side-by-side frame whose alpha is not wanted. Retaining it copies, as its pixels are the source's.
+    /// </summary>
+    /// <param name="width">The width kept, even.</param>
+    /// <returns>The frame.</returns>
+    /// <exception cref="InvalidOperationException">The frame is not NV12 or I420 in memory.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The width is odd, not positive or wider than the frame.</exception>
+    public VideoFrame LeftOf(int width)
+    {
+        if (
+            !Storage.TryGetValue(out CpuImage image)
+            || Format.PixelFormat is not (PixelFormat.Nv12 or PixelFormat.I420)
+        )
+        {
+            throw new InvalidOperationException(
+                $"Only an NV12 or I420 frame in memory narrows in place; this one is {Format.PixelFormat} {Storage.Kind}."
+            );
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(width, Format.CodedSize.Width);
+        if (width % 2 != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                width,
+                "4:2:0 chroma needs an even width."
+            );
+        }
+
+        VideoRect visible = Format.VisibleRect;
+        VideoFormat narrowed = new(
+            Format.PixelFormat,
+            Format.CodedSize with
+            {
+                Width = width,
+            },
+            visible with
+            {
+                Width = Math.Max(0, Math.Min(visible.Width, width - visible.X)),
+            }
+        );
+        PlaneLayout planes = image.Planes;
+        return FromPlanes(
+            narrowed,
+            Timestamp,
+            _plane0,
+            planes[0].Stride,
+            _plane1,
+            planes.Count > 1 ? planes[1].Stride : 0,
+            _plane2,
+            planes.Count > 2 ? planes[2].Stride : 0,
+            color: Color,
+            orientation: Orientation,
+            duration: Duration
+        );
+    }
+
     /// <summary>The planes of a CPU frame; zero for a GPU frame.</summary>
     public int PlaneCount => Storage.TryGetValue(out CpuImage image) ? image.Planes.Count : 0;
 

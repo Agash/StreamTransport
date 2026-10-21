@@ -644,6 +644,7 @@ Agash.StreamTransport.Media.VideoFrame.Color.get -> Agash.StreamTransport.Media.
 Agash.StreamTransport.Media.VideoFrame.Duration.get -> System.TimeSpan
 Agash.StreamTransport.Media.VideoFrame.Format.get -> Agash.StreamTransport.Media.VideoFormat
 Agash.StreamTransport.Media.VideoFrame.GetPlane(int index) -> System.ReadOnlySpan<byte>
+Agash.StreamTransport.Media.VideoFrame.LeftOf(int width) -> Agash.StreamTransport.Media.VideoFrame
 Agash.StreamTransport.Media.VideoFrame.Orientation.get -> Agash.StreamTransport.Media.VideoOrientation
 Agash.StreamTransport.Media.VideoFrame.PlaneCount.get -> int
 Agash.StreamTransport.Media.VideoFrame.Retain() -> Agash.StreamTransport.Media.VideoFrameLease!
