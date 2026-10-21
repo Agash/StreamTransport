@@ -66,7 +66,9 @@ string room = $"avcheck{Environment.ProcessId}";
     : (
         "pipewire:" + SenderName,
         "pipewire-camera-source",
-        Json(new { device_id = SenderName }),
+        // The format as the camera's dropdown stores it: OBS asks the node for exactly this one, and for
+        // a format of 0 (none) when it is unset, which no node offers. RGBA is SPA_VIDEO_FORMAT_RGBA.
+        Json(new { device_id = SenderName, format = """{"encoded":false,"video_format":11}""" }),
         "pulse_output_capture",
         Json(new { device_id = "default" })
     );
@@ -326,6 +328,21 @@ try
         );
         await BindToLiveServerAsync(obs);
         await Task.Delay(TimeSpan.FromSeconds(2));
+
+        // What OBS shows of the source, kept beside the clip, to look at when a check goes wrong.
+        string shown = (
+            await obs.Sources.GetSourceScreenshotAsync(
+                new()
+                {
+                    SourceName = "Signal",
+                    ImageFormat = "png",
+                    ImageWidth = 640,
+                }
+            )
+        )!.ImageData;
+        string picture = Path.Combine(Path.GetTempPath(), "streamtransport-obs-signal.png");
+        File.WriteAllBytes(picture, Convert.FromBase64String(shown[(shown.IndexOf(',') + 1)..]));
+        Console.WriteLine($"OBS shows the source as {picture}");
 
         await obs.Record.StartRecordAsync();
         await Task.Delay(TimeSpan.FromSeconds(seconds));
