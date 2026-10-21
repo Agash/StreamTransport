@@ -430,18 +430,44 @@ async Task<Process?> EnsureObsAsync()
         return null;
     }
 
+    // One already starting is waited for: a second instance would stop at OBS's already-running
+    // warning, or crash and leave the unclean-shutdown prompt behind for the next launch.
+    if (
+        Process.GetProcessesByName(OperatingSystem.IsWindows() ? "obs64" : "obs").Length > 0
+        || (OperatingSystem.IsMacOS() && Process.GetProcessesByName("OBS").Length > 0)
+    )
+    {
+        await UntilAsync(ListeningAsync, TimeSpan.FromSeconds(1));
+        return null;
+    }
+
+    // OBS asks whether to start in safe mode when it finds a crash sentinel (obs-studio/.sentinel)
+    // from a run that did not exit cleanly, and no flag skips the question; with nobody there to
+    // answer, the sentinels are cleared first. The missing-files dialog is turned off by its flag.
+    string sentinels = Path.Combine(ObsConfigRoot(), ".sentinel");
+    if (Directory.Exists(sentinels))
+    {
+        foreach (string sentinel in Directory.EnumerateFiles(sentinels))
+        {
+            File.Delete(sentinel);
+        }
+    }
+
     ProcessStartInfo start =
         OperatingSystem.IsWindows()
             ? new(
                 @"C:\Program Files\obs-studio\bin\64bit\obs64.exe",
-                ["--disable-shutdown-check", "--disable-updater"]
+                ["--disable-updater", "--disable-missing-files-check"]
             )
             {
                 WorkingDirectory = @"C:\Program Files\obs-studio\bin\64bit",
             }
         : OperatingSystem.IsMacOS()
-            ? new("open", ["-a", "OBS", "--args", "--disable-shutdown-check", "--disable-updater"])
-        : new("obs", ["--disable-shutdown-check"]);
+            ? new(
+                "open",
+                ["-a", "OBS", "--args", "--disable-updater", "--disable-missing-files-check"]
+            )
+        : new("obs", ["--disable-missing-files-check"]);
     // Through the shell, as a user's launch is: a child of this console gets no visible window, and an
     // OBS without one never finishes switching collections.
     start.UseShellExecute = true;
@@ -582,10 +608,12 @@ async Task BindToLiveServerAsync(ObsWebSocketClient obs)
                     devices =
                     [
                         .. (items.PropertyItems ?? []).Select(i =>
-                            i.ItemValue?.GetString() ?? string.Empty
+                            $"{i.ItemName} ({i.ItemValue?.GetString()})"
                         ),
                     ];
-                    return devices.Contains(SenderName);
+                    return (items.PropertyItems ?? []).Any(i =>
+                        i.ItemValue?.GetString() == SenderName
+                    );
                 },
                 TimeSpan.FromMilliseconds(500)
             );
