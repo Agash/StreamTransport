@@ -593,37 +593,30 @@ async Task BindToLiveServerAsync(ObsWebSocketClient obs)
 
     if (videoKind == "pipewire-camera-source")
     {
-        // OBS's PipeWire camera lists the nodes the camera portal's remote shows it.
-        string[] devices = [];
+        // The camera is up once its source has a size, which it takes from the first frame. Its device
+        // list is not asked for: OBS labels each PipeWire node by node.description, and obs-websocket
+        // aborts OBS turning the missing label of a node without one (PipeWire's own drivers) into a
+        // string.
+        long item = (
+            await obs.SceneItems.GetSceneItemIdAsync(
+                new() { SceneName = Scene, SourceName = "Signal" }
+            )
+        )!.SceneItemId;
         try
         {
             await UntilAsync(
                 async () =>
-                {
-                    var items = (
-                        await obs.Inputs.GetInputPropertiesListPropertyItemsAsync(
-                            new() { InputName = "Signal", PropertyName = "device_id" }
-                        )
-                    )!;
-                    devices =
-                    [
-                        .. (items.PropertyItems ?? []).Select(i =>
-                            $"{i.ItemName} ({i.ItemValue?.GetString()})"
-                        ),
-                    ];
-                    return (items.PropertyItems ?? []).Any(i =>
-                        i.ItemValue?.GetString() == SenderName
-                    );
-                },
+                    (await obs.SceneItems.GetSceneItemTransformAsync(new(item, sceneName: Scene)))!
+                        .SceneItemTransform
+                        .SourceWidth > 0,
                 TimeSpan.FromMilliseconds(500)
             );
         }
         catch (TimeoutException)
         {
             throw new InvalidOperationException(
-                $"OBS's PipeWire camera lists [{string.Join(", ", devices)}], not {SenderName}. An OBS "
-                    + "that ever made a camera source through obs-websocket lost the portal's answer "
-                    + "and needs a restart."
+                $"OBS's PipeWire camera shows no picture from {SenderName}. An OBS that ever made a "
+                    + "camera source through obs-websocket lost the portal's answer and needs a restart."
             );
         }
 
