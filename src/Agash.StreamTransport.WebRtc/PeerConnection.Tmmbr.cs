@@ -8,7 +8,7 @@ namespace Agash.StreamTransport.WebRtc;
 
 /// <summary>
 /// Temporary maximum bit rate requests (RFC 5104 section 4.2), which WebRTC endpoints support (RFC 8834
-/// section 5.1.4) where <c>ccm tmmbr</c> was agreed: a request from the peer about one of this side's
+/// section 5.1.6) where <c>ccm tmmbr</c> was agreed: a request from the peer about one of this side's
 /// streams caps what this side sends, beside the description's limits, and is confirmed with a TMMBN; this
 /// side can ask the peer to cap one of its streams the same way, which a receiver uses to change what it
 /// takes while the session runs.

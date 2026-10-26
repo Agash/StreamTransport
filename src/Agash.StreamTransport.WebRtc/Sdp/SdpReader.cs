@@ -209,19 +209,35 @@ public static class SdpReader
         ImmutableArray<SdpExtension> sharedExtensions = sessionExtensions.DrainToImmutable();
         ImmutableArray<SdpMediaDescription>.Builder result =
             ImmutableArray.CreateBuilder<SdpMediaDescription>(media.Count);
-        foreach (MediaBuilder m in media)
+
+        // RFC 9143 section 7.1.3: in an answer or a subsequent offer the BUNDLE attributes (IDENTICAL and
+        // TRANSPORT: ICE, DTLS, rtcp-mux) appear only in the tagged section and apply to every section
+        // bundled with it, so a bundled section without its own takes the tagged section's.
+        MediaBuilder? tagged = TaggedSection(media, bundleGroup);
+        for (int index = 0; index < media.Count; index++)
         {
+            MediaBuilder m = media[index];
+            MediaBuilder? bundle =
+                tagged is not null
+                && !ReferenceEquals(m, tagged)
+                && bundleGroup!.Value.Contains(m.Mid ?? "")
+                    ? tagged
+                    : null;
             ImmutableArray<DtlsFingerprint> fingerprints =
-                m.Fingerprints.Count > 0 ? m.Fingerprints.DrainToImmutable() : sharedFingerprints;
+                m.Fingerprints.Count > 0 ? m.Fingerprints.ToImmutable()
+                : bundle is { Fingerprints.Count: > 0 } ? bundle.Fingerprints.ToImmutable()
+                : sharedFingerprints;
+            SdpSetup? setup =
+                m.SetupSeen ? m.Setup
+                : bundle is { SetupSeen: true } ? bundle.Setup
+                : sessionSetup;
+            bool rejected = m.PortZero && !m.BundleOnly;
 
             // JSEP: no usable fingerprint is a negotiation failure. RFC 8842 section 5.1: DTLS never uses
             // holdconn, and a setup value outside RFC 4145's is not SDP this reader can act on. RFC 8842
-            // section 4: a tls-id outside its syntax is malformed.
-            if (
-                fingerprints.Length == 0
-                || (m.SetupSeen ? m.Setup : sessionSetup) is not { } setup
-                || m.InvalidTlsId
-            )
+            // section 4: a tls-id outside its syntax is malformed. A rejected section negotiates nothing,
+            // so it needs neither.
+            if (!rejected && (fingerprints.Length == 0 || setup is null) || m.InvalidTlsId)
             {
                 return false;
             }
@@ -233,20 +249,20 @@ public static class SdpReader
                     Mid = m.Mid ?? result.Count.ToString(CultureInfo.InvariantCulture),
                     Direction = m.Direction,
                     // RFC 9143 section 6: port 0 with bundle-only is a bundled section, not a rejected one.
-                    Rejected = m.PortZero && !m.BundleOnly,
+                    Rejected = rejected,
                     BundleOnly = m.BundleOnly,
                     Protocol = m.Protocol,
                     Formats = m.Formats,
-                    RtcpMuxOnly = m.RtcpMuxOnly,
+                    RtcpMuxOnly = m.RtcpMuxOnly || bundle?.RtcpMuxOnly == true,
                     Cryptex = m.Cryptex || sessionCryptex,
                     Codecs = m.BuildCodecs(),
-                    IceUfrag = m.IceUfrag ?? sessionUfrag,
-                    IcePwd = m.IcePwd ?? sessionPwd,
+                    IceUfrag = m.IceUfrag ?? bundle?.IceUfrag ?? sessionUfrag,
+                    IcePwd = m.IcePwd ?? bundle?.IcePwd ?? sessionPwd,
                     Fingerprints = fingerprints,
-                    TlsId = m.TlsId,
-                    Setup = setup,
-                    RtcpMux = m.RtcpMux,
-                    RtcpReducedSize = m.RtcpReducedSize,
+                    TlsId = m.TlsId ?? bundle?.TlsId,
+                    Setup = setup ?? SdpSetup.ActPass,
+                    RtcpMux = m.RtcpMux || bundle?.RtcpMux == true,
+                    RtcpReducedSize = m.RtcpReducedSize || bundle?.RtcpReducedSize == true,
                     CongestionControlFeedback = m.CongestionControlFeedback,
                     TransportWideFeedback = m.TransportWideFeedback,
                     Ecn = m.Ecn,
@@ -263,7 +279,7 @@ public static class SdpReader
                     Cname = m.Cname,
                     Candidates = [.. sessionCandidates, .. m.Candidates],
                     IgnoredCandidates = [.. sessionIgnored, .. m.IgnoredCandidates],
-                    IceOptions = m.IceOptions ?? sessionIceOptions,
+                    IceOptions = m.IceOptions ?? bundle?.IceOptions ?? sessionIceOptions,
                     EndOfCandidates = m.EndOfCandidates,
                     Bandwidth = m.Bandwidth,
                 }
@@ -280,6 +296,32 @@ public static class SdpReader
             Bandwidth = sessionBandwidth,
         };
         return true;
+    }
+
+    // The section a BUNDLE group's attributes come from: the first of its list with a port, so neither
+    // rejected nor bundle-only (RFC 9143 sections 7.2.1 and 7.3.1).
+    private static MediaBuilder? TaggedSection(
+        List<MediaBuilder> media,
+        ImmutableArray<string>? group
+    )
+    {
+        if (group is not { } mids)
+        {
+            return null;
+        }
+
+        foreach (string mid in mids)
+        {
+            foreach (MediaBuilder m in media)
+            {
+                if (m.Mid == mid && !m.PortZero)
+                {
+                    return m;
+                }
+            }
+        }
+
+        return null;
     }
 
     // One "b=<type>:<value>" line (RFC 8866 section 5.8) into the bandwidth it belongs to, in bits per

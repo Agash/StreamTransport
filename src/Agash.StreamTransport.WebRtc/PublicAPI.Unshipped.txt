@@ -686,6 +686,7 @@ Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionId.get -> long
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionId.init -> void
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionVersion.get -> long
 Agash.StreamTransport.WebRtc.Sdp.SdpDescription.SessionVersion.init -> void
+Agash.StreamTransport.WebRtc.Sdp.SdpDescription.TransportSection.get -> Agash.StreamTransport.WebRtc.Sdp.SdpMediaDescription!
 Agash.StreamTransport.WebRtc.Sdp.SdpDirection
 Agash.StreamTransport.WebRtc.Sdp.SdpDirection.Inactive = 3 -> Agash.StreamTransport.WebRtc.Sdp.SdpDirection
 Agash.StreamTransport.WebRtc.Sdp.SdpDirection.RecvOnly = 2 -> Agash.StreamTransport.WebRtc.Sdp.SdpDirection

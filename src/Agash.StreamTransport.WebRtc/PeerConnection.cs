@@ -268,8 +268,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
         // RFC 5763 section 5 and RFC 8842 section 5.3: the answer's role follows the offer's. JSEP offers
         // actpass and this side takes the client; an offer that is active or passive leaves the other.
         // Once an association stands, an actpass offer keeps the roles it has.
-        SdpMediaDescription offered0 =
-            offer.Media.FirstOrDefault(static m => !m.Rejected) ?? offer.Media[0];
+        SdpMediaDescription offered0 = offer.TransportSection;
         _dtlsRole = AnswerRole(offered0.Setup);
         SdpSetup answerSetup = _dtlsRole == DtlsRole.Client ? SdpSetup.Active : SdpSetup.Passive;
         _association ??= new DtlsAssociation(offered0.TlsId, [.. offered0.Fingerprints], _dtlsRole);
@@ -309,6 +308,8 @@ public sealed partial class PeerConnection : IAsyncDisposable
                 : !remote.RtcpMux ? "offered without rtcp-mux"
                 : answeredKinds.Contains(remote.Kind) ? "a second section of its kind"
                 : !bundled && answeredKinds.Count > 0 ? "not bundled, and only one transport runs"
+                : bundled && !offer.BundleGroup!.Value.Contains(remote.Mid)
+                    ? "outside the offered BUNDLE group, and only one transport runs"
                 : null;
             if (refusal is not null)
             {
@@ -455,18 +456,29 @@ public sealed partial class PeerConnection : IAsyncDisposable
             StartIce(offer.IceLite ? IceRole.Controlling : IceRole.Controlled);
         }
 
-        // RFC 9143 section 7.3: a BUNDLE group only when the offer had one, of the sections accepted.
-        return Describe(
-            sections,
-            bundled
-                ?
-                [
-                    .. offer.BundleGroup!.Value.Where(mid =>
-                        sections.Any(m => m.Mid == mid && !m.Rejected)
-                    ),
-                ]
-                : null
+        // RFC 9143 section 7.3: a BUNDLE group only when the offer had one, of the sections accepted, the
+        // answerer-tagged one first (section 7.3.1): the first of the offer's list accepted that is not
+        // bundle-only in the offer, whose tag the answer's BUNDLE-tag then is.
+        return Describe(sections, bundled ? AnswerGroup(offer, sections) : null);
+    }
+
+    private static ImmutableArray<string> AnswerGroup(
+        SdpDescription offer,
+        ImmutableArray<SdpMediaDescription> answered
+    )
+    {
+        ImmutableArray<string> accepted =
+        [
+            .. offer.BundleGroup!.Value.Where(mid =>
+                answered.Any(m => m.Mid == mid && !m.Rejected)
+            ),
+        ];
+        string? tagged = accepted.FirstOrDefault(mid =>
+            offer.Media.Any(m => m.Mid == mid && !m.BundleOnly)
         );
+        return tagged is null || accepted[0] == tagged
+            ? accepted
+            : [tagged, .. accepted.Where(mid => mid != tagged)];
     }
 
     // A section refused as offered: port 0, its protocol and formats, nothing negotiated.
@@ -553,16 +565,21 @@ public sealed partial class PeerConnection : IAsyncDisposable
             candidates = [.. _localCandidates];
         }
 
+        // A section bundled into the tagged one carries no candidates (RFC 9429 sections 5.2.1 and
+        // 5.3.1): they are the tagged section's, for the one transport.
+        string tagged = description.TransportSection.Mid;
         return description with
         {
             Media =
             [
                 .. description.Media.Select(m =>
-                    m with
-                    {
-                        Candidates = candidates,
-                        EndOfCandidates = true,
-                    }
+                    description.BundleGroup is { } group && group.Contains(m.Mid) && m.Mid != tagged
+                        ? m
+                        : m with
+                        {
+                            Candidates = candidates,
+                            EndOfCandidates = true,
+                        }
                 ),
             ],
         };
@@ -620,10 +637,9 @@ public sealed partial class PeerConnection : IAsyncDisposable
     public void SetRemoteDescription(SdpDescription description, SdpType type)
     {
         ArgumentNullException.ThrowIfNull(description);
-        // With BUNDLE the offerer-tagged section, the first that is not rejected, carries the transport
-        // (RFC 9143 section 7.3).
-        SdpMediaDescription first =
-            description.Media.FirstOrDefault(static m => !m.Rejected) ?? description.Media[0];
+        // With BUNDLE the tagged section carries the transport (RFC 9143 section 7.1.3), whichever m= line
+        // it is.
+        SdpMediaDescription first = description.TransportSection;
 
         // An offer whose ICE ufrag differs from the established one is an ICE restart (RFC 8829): rotate our
         // own credentials and restart the agent so the answer carries fresh creds + re-gathered candidates.
@@ -1203,8 +1219,7 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
         if (_remoteDescription is { } remote)
         {
-            SdpMediaDescription first =
-                remote.Media.FirstOrDefault(static m => !m.Rejected) ?? remote.Media[0];
+            SdpMediaDescription first = remote.TransportSection;
             agent.SetRemoteCredentials(new IceCredentials(first.IceUfrag, first.IcePwd));
             agent.SetRemoteOptions(first.IceOptions);
         }

@@ -130,6 +130,129 @@ public sealed class SdpAnswerTests
         );
     }
 
+    [TestMethod]
+    public async Task Answer_SectionOutsideTheOfferedGroup_IsRefused()
+    {
+        await using PeerConnection answerer = Answerer();
+        answerer.SetRemoteDescription(
+            Parse(
+                BrowserOffer()
+                    .Replace("a=group:BUNDLE 0 1 2", "a=group:BUNDLE 0 2", StringComparison.Ordinal)
+            ),
+            SdpType.Offer
+        );
+
+        SdpDescription answer = answerer.CreateAnswer();
+
+        Assert.IsFalse(answer.Media[0].Rejected);
+        Assert.IsTrue(
+            answer.Media[1].Rejected,
+            "video is outside the group, so it would need a transport of its own (RFC 9143 section 7.3)"
+        );
+        CollectionAssert.AreEqual(new[] { "0" }, answer.BundleGroup!.Value.ToArray());
+    }
+
+    [TestMethod]
+    [DataRow("1 0 2", new[] { "1", "0" })]
+    [DataRow("2 1 0", new[] { "1", "0" })]
+    public async Task Answer_GroupStartsWithTheTaggedSection(string offered, string[] answered)
+    {
+        await using PeerConnection answerer = Answerer();
+        answerer.SetRemoteDescription(
+            Parse(
+                BrowserOffer()
+                    .Replace(
+                        "a=group:BUNDLE 0 1 2",
+                        "a=group:BUNDLE " + offered,
+                        StringComparison.Ordinal
+                    )
+            ),
+            SdpType.Offer
+        );
+
+        SdpDescription answer = answerer.CreateAnswer();
+
+        // RFC 9143 section 7.3.1: the first tag whose section is accepted is the offerer-tagged one, and
+        // the answer's BUNDLE-tag, its first, names the matching answerer-tagged section.
+        CollectionAssert.AreEqual(answered, answer.BundleGroup!.Value.ToArray());
+    }
+
+    [TestMethod]
+    public async Task Offer_TransportOnlyInTheTaggedSection_IsRead()
+    {
+        // A subsequent offer as RFC 9143 section 7.1.3 writes one: the BUNDLE attributes appear only in the
+        // tagged section, here the video section the group names first, not the first m= line.
+        string audioTransport = string.Join(
+            "\r\n",
+            "a=ice-ufrag:abcd",
+            "a=ice-pwd:0123456789abcdef0123456789",
+            $"a=fingerprint:{Certificate.Fingerprint}",
+            "a=setup:actpass",
+            "a=mid:0"
+        );
+        string offer = BrowserOffer()
+            .Replace("a=group:BUNDLE 0 1 2", "a=group:BUNDLE 1 0", StringComparison.Ordinal)
+            .Replace(audioTransport, "a=mid:0", StringComparison.Ordinal)
+            .Replace(
+                "a=setup:actpass\r\na=mid:1",
+                "a=setup:active\r\na=mid:1",
+                StringComparison.Ordinal
+            );
+        SdpDescription parsed = Parse(offer);
+        Assert.AreEqual(
+            "abcd",
+            parsed.Media[0].IceUfrag,
+            "the audio section takes the tagged section's transport"
+        );
+        Assert.IsTrue(parsed.Media[0].RtcpMux, "rtcp-mux is a BUNDLE attribute too");
+        Assert.AreEqual("1", parsed.TransportSection.Mid);
+
+        await using PeerConnection answerer = Answerer();
+        answerer.SetRemoteDescription(parsed, SdpType.Offer);
+        string answer = SdpWriter.Write(answerer.CreateAnswer());
+
+        StringAssert.Contains(
+            answer,
+            "a=setup:passive\r\n",
+            "the role follows the tagged section's"
+        );
+    }
+
+    [TestMethod]
+    public void TransportSection_PassesOverABundleOnlySection()
+    {
+        SdpDescription parsed = Parse(
+            BrowserOffer()
+                .Replace("a=group:BUNDLE 0 1 2", "a=group:BUNDLE 1 0 2", StringComparison.Ordinal)
+                .Replace(
+                    "m=video 9 UDP/TLS/RTP/SAVPF 96",
+                    "m=video 0 UDP/TLS/RTP/SAVPF 96\r\na=bundle-only",
+                    StringComparison.Ordinal
+                )
+        );
+
+        Assert.IsTrue(parsed.Media[1].BundleOnly);
+        Assert.AreEqual(
+            "0",
+            parsed.TransportSection.Mid,
+            "a bundle-only section is never the tagged one (RFC 9143 section 7.2.1)"
+        );
+    }
+
+    [TestMethod]
+    public async Task LocalCandidates_GoOnlyIntoTheTaggedSection()
+    {
+        await using PeerConnection answerer = Answerer();
+        answerer.SetRemoteDescription(Parse(BrowserOffer()), SdpType.Offer);
+
+        SdpDescription answer = answerer.WithLocalCandidates(answerer.CreateAnswer());
+
+        // RFC 9429 sections 5.2.1 and 5.3.1: a bundled section other than the tagged one has no candidates.
+        Assert.IsTrue(answer.Media[0].EndOfCandidates, "the tagged section");
+        Assert.IsFalse(answer.Media[1].EndOfCandidates, "bundled into the tagged section");
+        Assert.IsEmpty(answer.Media[1].Candidates);
+    }
+
     private static PeerConnection Answerer() =>
         new(
             new PeerConnectionOptions

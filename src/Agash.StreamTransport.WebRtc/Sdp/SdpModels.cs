@@ -294,6 +294,42 @@ public sealed record SdpDescription
     /// </summary>
     public ImmutableArray<string>? BundleGroup { get; init; }
 
+    /// <summary>
+    /// The section whose transport the session runs on: with a BUNDLE group, the tagged section, the
+    /// first in the group's list that is neither rejected nor bundle-only (RFC 9143 sections 7.2.1 and
+    /// 7.3.1), which may be any of the <c>m=</c> lines; without one, the first section not rejected. Its
+    /// ICE, DTLS and RTCP attributes apply to every section bundled with it (section 7.1.3).
+    /// </summary>
+    public SdpMediaDescription TransportSection
+    {
+        get
+        {
+            if (BundleGroup is { } group)
+            {
+                foreach (string mid in group)
+                {
+                    foreach (SdpMediaDescription section in Media)
+                    {
+                        if (section.Mid == mid && !section.Rejected && !section.BundleOnly)
+                        {
+                            return section;
+                        }
+                    }
+                }
+            }
+
+            foreach (SdpMediaDescription section in Media)
+            {
+                if (!section.Rejected)
+                {
+                    return section;
+                }
+            }
+
+            return Media[0];
+        }
+    }
+
     /// <summary>Whether the peer runs ICE-lite (<c>a=ice-lite</c>), answering checks without making its own.</summary>
     public bool IceLite { get; init; }
 
