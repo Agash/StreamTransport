@@ -81,7 +81,8 @@ static async Task<int> RunAsync(CommandLine command)
 
     ServiceCollection services = new();
     services.AddSingleton(loggers);
-    AddMedia(services);
+    void AddCommandMedia(IServiceCollection media) => AddMedia(media, command.MaxBitrate);
+    AddCommandMedia(services);
 
     // Ctrl+C, and SIGTERM from a service manager or kill, end the command cleanly, so servers it
     // published (a Syphon server, a Spout sender) retire and receivers can find the next one.
@@ -98,7 +99,7 @@ static async Task<int> RunAsync(CommandLine command)
 #if !MACOS
     if (command.Serve)
     {
-        return await Serve.RunAsync(command, AddMedia, loggers, stop.Token);
+        return await Serve.RunAsync(command, AddCommandMedia, loggers, stop.Token);
     }
 #endif
 
@@ -213,9 +214,19 @@ static async Task<int> RunAsync(CommandLine command)
 }
 
 // The media every command uses: sessions, codecs and the platform's inputs and outputs.
-static void AddMedia(IServiceCollection services)
+static void AddMedia(IServiceCollection services, long? maxBitrate)
 {
-    services.AddStreamTransport().AddStreamTransportWebRtc().AddFFmpegCodecs().AddOpusCodecs();
+    services
+        .AddStreamTransport()
+        .AddStreamTransportWebRtc(configureCongestionControl: scream =>
+        {
+            if (maxBitrate is { } most)
+            {
+                scream.MaxBitrateBps = most;
+            }
+        })
+        .AddFFmpegCodecs()
+        .AddOpusCodecs();
     if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
     {
         services.AddWindowsMedia();

@@ -40,6 +40,9 @@ internal sealed record CommandLine(
 {
     public bool Insecure { get; init; }
 
+    /// <summary>The most the congestion controller may send, in bits per second; its default when null.</summary>
+    public long? MaxBitrate { get; init; }
+
     public const string Usage = """
         streamtransport list
         streamtransport serve --urls <url> [--video <input>] [--audio <input>] [--measure]
@@ -63,6 +66,8 @@ internal sealed record CommandLine(
           --size <WxH>       the capture size asked of a camera
           --fps <rate>       the capture rate asked of a camera
           --pixel-format <f> the pixel format asked of the input, such as nv12 or bgra
+          --max-fps <n|none> the highest frame rate sent (60 by default; none sends the source's)
+          --max-bitrate <k>  the most the congestion controller sends, in kbit/s (10000 by default)
                              (the test signal's bgra carries alpha)
           --measure          subscribe to a test signal and report A/V offset and latency;
                              with --video the output still shows it (GPU frames unmeasured)
@@ -112,8 +117,10 @@ internal sealed record CommandLine(
                 RepositoryFFmpeg(),
                 new VideoInputRequest
                 {
-                    Size = new VideoSize(1280, 720),
-                    FrameRate = 30,
+                    Size = SizeOption(feedNamed) ?? new VideoSize(1280, 720),
+                    FrameRate = Value(feedNamed, "fps") is { } feedFps
+                        ? double.Parse(feedFps, CultureInfo.InvariantCulture)
+                        : 30,
                     PixelFormat = PixelFormatOption(feedNamed),
                 },
                 false,
@@ -200,16 +207,21 @@ internal sealed record CommandLine(
             },
         };
 
-        session = session with { Transport = transport };
+        session = session with
+        {
+            Transport = transport,
+            // "none" lifts the cap, so the source's own rate is what is sent.
+            MaxFrameRate = Choice(named, "max-fps") switch
+            {
+                null => session.MaxFrameRate,
+                "none" => null,
+                string rate => double.Parse(rate, CultureInfo.InvariantCulture),
+            },
+        };
 
         VideoInputRequest capture = new()
         {
-            Size = Value(named, "size") is { } size
-                ? new VideoSize(
-                    int.Parse(size.Split('x')[0], CultureInfo.InvariantCulture),
-                    int.Parse(size.Split('x')[1], CultureInfo.InvariantCulture)
-                )
-                : null,
+            Size = SizeOption(named),
             FrameRate = Value(named, "fps") is { } fps
                 ? double.Parse(fps, CultureInfo.InvariantCulture)
                 : null,
@@ -230,6 +242,9 @@ internal sealed record CommandLine(
         )
         {
             Insecure = named.ContainsKey("insecure"),
+            MaxBitrate = Value(named, "max-bitrate") is { } kbps
+                ? long.Parse(kbps, CultureInfo.InvariantCulture) * 1000
+                : null,
         };
     }
 
@@ -284,6 +299,14 @@ internal sealed record CommandLine(
 
         return named;
     }
+
+    private static VideoSize? SizeOption(Dictionary<string, string?> named) =>
+        Value(named, "size") is { } size
+            ? new VideoSize(
+                int.Parse(size.Split('x')[0], CultureInfo.InvariantCulture),
+                int.Parse(size.Split('x')[1], CultureInfo.InvariantCulture)
+            )
+            : null;
 
     private static PixelFormat? PixelFormatOption(Dictionary<string, string?> named) =>
         Value(named, "pixel-format") is { } format

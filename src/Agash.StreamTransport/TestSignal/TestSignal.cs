@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
 
 namespace Agash.StreamTransport.TestSignal;
@@ -145,32 +146,30 @@ public sealed class TestSignalGenerator
         ArgumentOutOfRangeException.ThrowIfLessThan(stride, w * 4);
         Span<byte> luma = scratch[..(w * h)];
         Draw(luma, scratch[(w * h)..], size, time, duration);
+        ReadOnlySpan<uint> bgra = s_bgra;
         for (int y = 0; y < h; y++)
         {
             ReadOnlySpan<byte> source = luma.Slice(y * w, w);
-            Span<byte> row = pixels.Slice(y * stride, w * 4);
-            for (int x = 0; x < w; x++)
+            Span<uint> row = MemoryMarshal.Cast<byte, uint>(pixels.Slice(y * stride, w * 4));
+            for (int x = 0; x < source.Length; x++)
             {
-                byte value = source[x];
-                byte grey = s_fullRange[value];
-                int at = x * 4;
-                row[at] = grey;
-                row[at + 1] = grey;
-                row[at + 2] = grey;
-                row[at + 3] = value == Background ? (byte)0 : (byte)255;
+                row[x] = bgra[source[x]];
             }
         }
     }
 
-    // Video-range luma as full-range grey, for drawing BGRA from the NV12 picture.
-    private static readonly byte[] s_fullRange = BuildFullRange();
+    // Each video-range luma level as a whole BGRA pixel: full-range grey in B, G and R, and opaque
+    // except the background's level, so a row is one lookup and one store per pixel.
+    private static readonly uint[] s_bgra = BuildBgra();
 
-    private static byte[] BuildFullRange()
+    private static uint[] BuildBgra()
     {
-        byte[] table = new byte[256];
+        uint[] table = new uint[256];
         for (int i = 0; i < table.Length; i++)
         {
-            table[i] = (byte)Math.Clamp((int)Math.Round((i - 16) * 255.0 / 219), 0, 255);
+            uint grey = (uint)Math.Clamp((int)Math.Round((i - 16) * 255.0 / 219), 0, 255);
+            uint alpha = i == Background ? 0u : 255u;
+            table[i] = grey | (grey << 8) | (grey << 16) | (alpha << 24);
         }
 
         return table;
@@ -322,7 +321,18 @@ public sealed class TestSignalVideoInputProvider(TestSignalGenerator generator)
     )
     {
         ArgumentNullException.ThrowIfNull(request);
+        // A generated picture has no native modes: the listed ones are what it offers by default, and a
+        // size or rate asked for exactly is made as asked (an even size, as 4:2:0 needs).
         VideoInputMode mode = request.Choose(Modes) ?? Modes[3];
+        if (request.Size is { Width: > 0, Height: > 0 } size)
+        {
+            mode = mode with { Size = new VideoSize(size.Width & ~1, size.Height & ~1) };
+        }
+
+        if (request.FrameRate is > 0 and var rate)
+        {
+            mode = mode with { FrameRate = rate };
+        }
         return ValueTask.FromResult<IVideoInput>(new TestSignalVideoInput(generator, input, mode));
     }
 }
