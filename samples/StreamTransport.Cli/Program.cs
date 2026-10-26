@@ -161,6 +161,7 @@ static async Task<int> RunAsync(CommandLine command)
         command,
         devices,
         provider.GetRequiredService<MediaCodecRegistry>(),
+        loggers,
         stop.Token
     );
     PeerRole role = command.Publish ? PeerRole.Publisher : PeerRole.Subscriber;

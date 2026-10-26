@@ -224,7 +224,7 @@ Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Measure() -> Agash.StreamTra
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.ObserveAudio(System.ReadOnlySpan<float> samples, int channels, int sampleRate, Agash.StreamTransport.Media.MediaTime at) -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.ObserveVideo(System.ReadOnlySpan<byte> luma, int stride, Agash.StreamTransport.Media.VideoSize size, Agash.StreamTransport.Media.MediaTime at, System.DateTimeOffset? received) -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.Reset() -> void
-Agash.StreamTransport.TestSignal.TestSignalAnalyzer.TestSignalAnalyzer(System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.TestSignal.TestSignalAnalyzer.TestSignalAnalyzer(System.TimeProvider? timeProvider = null, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.TestSignal.TestSignalAnalyzer!>? logger = null) -> void
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapAudio(Agash.StreamTransport.Media.IAudioSink? inner = null) -> Agash.StreamTransport.Media.IAudioSink!
 Agash.StreamTransport.TestSignal.TestSignalAnalyzer.WrapVideo(Agash.StreamTransport.Media.IVideoSink? inner = null, Agash.StreamTransport.MediaCodecRegistry? registry = null) -> Agash.StreamTransport.Media.IVideoSink!
 Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider
@@ -236,6 +236,7 @@ Agash.StreamTransport.TestSignal.TestSignalAudioInputProvider.TestSignalAudioInp
 Agash.StreamTransport.TestSignal.TestSignalGenerator
 Agash.StreamTransport.TestSignal.TestSignalGenerator.Clock.get -> Agash.StreamTransport.Media.MediaClock!
 Agash.StreamTransport.TestSignal.TestSignalGenerator.Draw(System.Span<byte> luma, System.Span<byte> chroma, Agash.StreamTransport.Media.VideoSize size, Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> void
+Agash.StreamTransport.TestSignal.TestSignalGenerator.DrawBgra(System.Span<byte> pixels, int stride, System.Span<byte> scratch, Agash.StreamTransport.Media.VideoSize size, Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> void
 Agash.StreamTransport.TestSignal.TestSignalGenerator.IsFlash(Agash.StreamTransport.Media.MediaTime time, System.TimeSpan duration) -> bool
 Agash.StreamTransport.TestSignal.TestSignalGenerator.Origin.get -> Agash.StreamTransport.Media.MediaTime
 Agash.StreamTransport.TestSignal.TestSignalGenerator.TestSignalGenerator(System.TimeProvider? timeProvider = null) -> void

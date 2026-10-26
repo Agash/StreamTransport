@@ -2,6 +2,8 @@ using System.Buffers;
 using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Agash.StreamTransport.TestSignal;
 
@@ -47,7 +49,7 @@ public readonly record struct TestSignalMeasurement(
 /// times are when the session releases media to the outputs, so a device's own output buffering is not
 /// part of the offset.
 /// </remarks>
-public sealed class TestSignalAnalyzer
+public sealed partial class TestSignalAnalyzer
 {
     /// <summary>
     /// The largest latency a barcode is believed for; one further from the receiver's clock is counted as
@@ -65,13 +67,19 @@ public sealed class TestSignalAnalyzer
     private bool _clicking;
     private long _silentSamples = long.MaxValue;
     private int _unreadable;
+    private readonly ILogger _logger;
 
     /// <summary>An analyzer on a clock.</summary>
     /// <param name="timeProvider">The clock; the system's when null.</param>
-    public TestSignalAnalyzer(TimeProvider? timeProvider = null)
+    /// <param name="logger">Where frames it cannot measure are reported.</param>
+    public TestSignalAnalyzer(
+        TimeProvider? timeProvider = null,
+        ILogger<TestSignalAnalyzer>? logger = null
+    )
     {
         _time = timeProvider ?? TimeProvider.System;
         _clock = new MediaClock(_time);
+        _logger = logger ?? NullLogger<TestSignalAnalyzer>.Instance;
     }
 
     /// <summary>
@@ -321,8 +329,11 @@ public sealed class TestSignalAnalyzer
         TestSignalAnalyzer analyzer,
         IVideoSink? inner,
         MediaCodecRegistry? registry
-    ) : IVideoSink, IVideoFrameConsumer, IDisposable
+    ) : IVideoSink, IDisposable
     {
+        // Read-backs come back to their own consumer: the tap's OnFrame is the output's, and an explicit
+        // IVideoFrameConsumer.OnFrame on the tap would take the frames meant for the output as well.
+        private readonly ReadBackConsumer _readBack = new(analyzer);
         private IVideoProcessor? _reader;
         private VideoStreamDescription? _readFor;
         private bool _readFailed;
@@ -333,11 +344,15 @@ public sealed class TestSignalAnalyzer
 
         public void OnFrame(in VideoFrame frame)
         {
-            if (frame.Storage.Kind == VideoStorageKind.Cpu || registry is null)
+            // The analyzer reads luma in memory; anything else, a GPU texture or RGB, is read back as that.
+            if (
+                frame.Storage.Kind == VideoStorageKind.Cpu
+                && frame.Format.PixelFormat is PixelFormat.Nv12 or PixelFormat.I420
+            )
             {
                 analyzer.OnVideo(in frame);
             }
-            else
+            else if (registry is not null)
             {
                 ReadBack(in frame);
             }
@@ -357,9 +372,6 @@ public sealed class TestSignalAnalyzer
                 ? inner.Render(format, in state, render)
                 : VideoRenderResult.Unavailable;
 
-        // The analyzer takes the read-back, as it takes a frame in memory.
-        void IVideoFrameConsumer.OnFrame(in VideoFrame frame) => analyzer.OnVideo(in frame);
-
         private void ReadBack(in VideoFrame frame)
         {
             VideoStreamDescription description = new(
@@ -378,12 +390,16 @@ public sealed class TestSignalAnalyzer
                     new VideoProcessing(AnalyzedVideo),
                     out _reader
                 );
+                if (_readFailed)
+                {
+                    LogNotReadBack(analyzer._logger, description.PixelFormat, description.Storage);
+                }
             }
 
             // A GPU no processor reads back from is not measured; the output still shows it.
             if (!_readFailed)
             {
-                _reader!.Process(in frame, this);
+                _reader!.Process(in frame, _readBack);
             }
         }
 
@@ -393,6 +409,23 @@ public sealed class TestSignalAnalyzer
             _reader?.Dispose();
             _reader = null;
         }
+    }
+
+    [LoggerMessage(
+        2950,
+        LogLevel.Warning,
+        "No processor reads {Format} {Storage} frames back into memory, so the test signal in them is not measured; the output still shows them."
+    )]
+    private static partial void LogNotReadBack(
+        ILogger logger,
+        PixelFormat format,
+        VideoStorageKind storage
+    );
+
+    // The analyzer takes the read-back, as it takes a frame in memory.
+    private sealed class ReadBackConsumer(TestSignalAnalyzer analyzer) : IVideoFrameConsumer
+    {
+        public void OnFrame(in VideoFrame frame) => analyzer.OnVideo(in frame);
     }
 
     private sealed class AudioTap(TestSignalAnalyzer analyzer, IAudioSink? inner) : IAudioSink

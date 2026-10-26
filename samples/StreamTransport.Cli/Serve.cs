@@ -40,7 +40,9 @@ internal static class Serve
         using IAudioInput? audio = command.Audio is { } a
             ? await devices.OpenAudioInputAsync(a, stop)
             : null;
-        TestSignalAnalyzer? analyzer = command.Measure ? new TestSignalAnalyzer() : null;
+        TestSignalAnalyzer? analyzer = command.Measure
+            ? new TestSignalAnalyzer(logger: loggers.CreateLogger<TestSignalAnalyzer>())
+            : null;
 
         app.MapGet("/", () => Results.Content(Page, "text/html"));
         app.MapWhep(

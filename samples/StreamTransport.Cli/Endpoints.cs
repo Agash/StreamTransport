@@ -1,6 +1,7 @@
 using Agash.StreamTransport;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.TestSignal;
+using Microsoft.Extensions.Logging;
 
 namespace StreamTransport.Cli;
 
@@ -24,6 +25,7 @@ internal sealed class Endpoints : IDisposable
         CommandLine command,
         MediaDevices devices,
         MediaCodecRegistry registry,
+        ILoggerFactory loggers,
         CancellationToken cancellationToken
     )
     {
@@ -50,7 +52,9 @@ internal sealed class Endpoints : IDisposable
             }
             else
             {
-                TestSignalAnalyzer? analyzer = command.Measure ? new TestSignalAnalyzer() : null;
+                TestSignalAnalyzer? analyzer = command.Measure
+                    ? new TestSignalAnalyzer(logger: loggers.CreateLogger<TestSignalAnalyzer>())
+                    : null;
                 endpoints.Analyzer = analyzer;
                 IVideoSink? videoSink = null;
                 if (command.Video is { } video)
