@@ -2,16 +2,19 @@
 // one chroma sample and the 2x2 luma block it covers. Chroma is left-sited, as H.264, H.265 and AV1
 // assume when nothing says otherwise: each sample sits on its block's left column and between its
 // two rows, so it is a [1 2 1] filter across the column and its neighbours, averaged over the two
-// rows. With Pack set, the output is twice the colour width: the left half is the colour, the right
-// half the source alpha as grey (a, a, a), which the same matrix turns into luma with neutral
-// chroma. That is the side-by-side alpha layout every StreamTransport platform writes and reads.
+// rows. With Pack 1 the output is twice the colour width: the left half is the colour, the right half
+// the source alpha as grey (a, a, a), which the same matrix turns into luma with neutral chroma. With
+// Pack 2 the output is twice the colour height, the colour on top and the alpha below. Those are the
+// side-by-side and stacked alpha layouts every StreamTransport platform writes and reads.
 
 cbuffer Parameters : register(b0)
 {
     uint OutWidth;      // luma width written
     uint OutHeight;     // luma height written
     uint ColourWidth;   // width of the colour picture in the output
-    uint Pack;          // 1: the right half carries alpha
+    uint ColourHeight;  // height of the colour picture in the output
+    uint Pack;          // 1: the right half carries alpha; 2: the bottom half
+    uint3 Padding;
     float4 RowY;        // Y' = dot(rgb, RowY.xyz) + RowY.w
     float4 RowCb;
     float4 RowCr;
@@ -24,9 +27,9 @@ RWTexture2D<float2> Chroma : register(u1);
 
 float3 Colour(uint2 p)
 {
-    bool alpha = Pack != 0 && p.x >= ColourWidth;
-    uint x = alpha ? p.x - ColourWidth : p.x;
-    float2 uv = (float2(x, p.y) + 0.5) / float2(ColourWidth, OutHeight);
+    bool alpha = (Pack == 1 && p.x >= ColourWidth) || (Pack == 2 && p.y >= ColourHeight);
+    uint2 at = alpha ? (Pack == 1 ? uint2(p.x - ColourWidth, p.y) : uint2(p.x, p.y - ColourHeight)) : p;
+    float2 uv = (float2(at) + 0.5) / float2(ColourWidth, ColourHeight);
     float4 s = Source.SampleLevel(Linear, float3(uv, 0), 0);
     return alpha ? s.aaa : s.rgb;
 }
@@ -55,7 +58,8 @@ void Main(uint3 id : SV_DispatchThreadID)
     Luma[diagonal] = dot(s11, RowY.xyz) + RowY.w;
 
     // The left neighbour stays inside the half it belongs to: the colour's first column, or the alpha's.
-    uint start = Pack != 0 && l.x >= ColourWidth ? ColourWidth : 0;
+    // Stacked halves split rows, and an even colour height keeps each 2x2 block in one of them.
+    uint start = Pack == 1 && l.x >= ColourWidth ? ColourWidth : 0;
     uint left = max(l.x, start + 1) - 1;
     float3 sl0 = Colour(uint2(left, l.y));
     float3 sl1 = Colour(uint2(left, below.y));

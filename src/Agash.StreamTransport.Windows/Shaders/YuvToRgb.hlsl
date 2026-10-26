@@ -1,11 +1,12 @@
-// 4:2:0 Y'CbCr planes to RGB. With Unpack set, the input is a side-by-side frame twice the output
-// width: colour from the left half, and alpha from the right half's luma, normalised like the colour's.
+// 4:2:0 Y'CbCr planes to RGB. With Unpack 1 the input is a side-by-side frame twice the output width:
+// colour from the left half, and alpha from the right half's luma, normalised like the colour's. With
+// Unpack 2 it is a stacked frame twice the output height, the alpha in the bottom half.
 
 cbuffer Parameters : register(b0)
 {
     uint OutWidth;
     uint OutHeight;
-    uint Unpack;        // 1: alpha comes from the right half's luma
+    uint Unpack;        // 1: alpha comes from the right half's luma; 2: from the bottom half's
     uint Padding;
     float4 LumaScale;   // x: offset subtracted from Y', y: scale after it, z: neutral chroma
     float4 RowR;        // R = dot(float3(Y, Cb, Cr), RowR.xyz) + RowR.w, on normalised Y, Cb, Cr
@@ -53,7 +54,8 @@ void Main(uint3 id : SV_DispatchThreadID)
     float alpha = 1;
     if (Unpack != 0)
     {
-        alpha = saturate((Luma.Load(int4(p.x + OutWidth, p.y, 0, 0)) - LumaScale.x) * LumaScale.y);
+        int2 at = Unpack == 1 ? int2(p.x + OutWidth, p.y) : int2(p.x, p.y + OutHeight);
+        alpha = saturate((Luma.Load(int4(at, 0, 0)) - LumaScale.x) * LumaScale.y);
     }
 
     Output[p] = float4(rgb, alpha);

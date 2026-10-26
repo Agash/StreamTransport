@@ -118,19 +118,26 @@ public sealed class VulkanProcessorTests
     }
 
     [TestMethod]
-    public void PackThenUnpack_ReturnsAColourRampAndAlpha()
+    [DataRow(AlphaLayout.PackSideBySide)]
+    [DataRow(AlphaLayout.PackStacked)]
+    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout)
     {
         byte[] pixels = Ramp();
         using VideoFrameLease packed = Run(
             Bgra(pixels),
             Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide),
-            out _
+            new VideoProcessing(Nv12Output(), Alpha: layout),
+            out VideoProcessorInfo packing
         );
+        VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
+        Assert.AreEqual(packedSize, packing.Output.Size);
 
         using IVideoProcessor unpack = Factory.Create(
-            Description(PixelFormat.Nv12, Width * 2),
-            new VideoProcessing(BgraOutput(), Alpha: AlphaLayout.UnpackSideBySide)
+            Description(PixelFormat.Nv12, Width * 2) with
+            {
+                Size = packedSize,
+            },
+            new VideoProcessing(BgraOutput(), Alpha: layout.Unpacking())
         );
         Keeper keeper = new();
         unpack.Process(packed.Frame, keeper);

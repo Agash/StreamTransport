@@ -1,9 +1,12 @@
 #nullable enable
 Agash.StreamTransport.Media.AlphaLayout
-Agash.StreamTransport.Media.AlphaLayout.Layer = 3 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.Layer = 5 -> Agash.StreamTransport.Media.AlphaLayout
 Agash.StreamTransport.Media.AlphaLayout.None = 0 -> Agash.StreamTransport.Media.AlphaLayout
 Agash.StreamTransport.Media.AlphaLayout.PackSideBySide = 1 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.PackStacked = 3 -> Agash.StreamTransport.Media.AlphaLayout
 Agash.StreamTransport.Media.AlphaLayout.UnpackSideBySide = 2 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayout.UnpackStacked = 4 -> Agash.StreamTransport.Media.AlphaLayout
+Agash.StreamTransport.Media.AlphaLayouts
 Agash.StreamTransport.Media.AudioCodecFormat
 Agash.StreamTransport.Media.AudioCodecFormat.<Clone>$() -> Agash.StreamTransport.Media.AudioCodecFormat!
 Agash.StreamTransport.Media.AudioCodecFormat.AudioCodecFormat(Agash.StreamTransport.Media.AudioCodecId Codec, System.Collections.Immutable.ImmutableSortedDictionary<string!, string!>! Parameters) -> void
@@ -650,6 +653,7 @@ Agash.StreamTransport.Media.VideoFrame.PlaneCount.get -> int
 Agash.StreamTransport.Media.VideoFrame.Retain() -> Agash.StreamTransport.Media.VideoFrameLease!
 Agash.StreamTransport.Media.VideoFrame.Storage.get -> Agash.StreamTransport.Media.VideoStorage
 Agash.StreamTransport.Media.VideoFrame.Timestamp.get -> Agash.StreamTransport.Media.MediaTimestamp
+Agash.StreamTransport.Media.VideoFrame.TopOf(int height) -> Agash.StreamTransport.Media.VideoFrame
 Agash.StreamTransport.Media.VideoFrame.VideoFrame() -> void
 Agash.StreamTransport.Media.VideoFrame.VideoFrame(Agash.StreamTransport.Media.VideoStorage storage, Agash.StreamTransport.Media.VideoFormat format, Agash.StreamTransport.Media.MediaTimestamp timestamp, System.ReadOnlySpan<byte> cpuData = default(System.ReadOnlySpan<byte>), Agash.StreamTransport.Media.VideoColor color = default(Agash.StreamTransport.Media.VideoColor), Agash.StreamTransport.Media.VideoOrientation orientation = default(Agash.StreamTransport.Media.VideoOrientation), System.TimeSpan duration = default(System.TimeSpan), Agash.StreamTransport.Media.IVideoFrameRetainer? retainer = null) -> void
 Agash.StreamTransport.Media.VideoFrame.WithOrientation(Agash.StreamTransport.Media.VideoOrientation orientation) -> Agash.StreamTransport.Media.VideoFrame
@@ -933,6 +937,10 @@ override Agash.StreamTransport.Media.VideoStorage.Equals(object? obj) -> bool
 override Agash.StreamTransport.Media.VideoStorage.GetHashCode() -> int
 override Agash.StreamTransport.Media.VideoStreamDescription.GetHashCode() -> int
 override Agash.StreamTransport.Media.VideoTarget.GetHashCode() -> int
+static Agash.StreamTransport.Media.AlphaLayouts.ColourSize(this Agash.StreamTransport.Media.AlphaLayout layout, Agash.StreamTransport.Media.VideoSize packed) -> Agash.StreamTransport.Media.VideoSize
+static Agash.StreamTransport.Media.AlphaLayouts.IsPacked(this Agash.StreamTransport.Media.AlphaLayout layout) -> bool
+static Agash.StreamTransport.Media.AlphaLayouts.PackedSize(this Agash.StreamTransport.Media.AlphaLayout layout, Agash.StreamTransport.Media.VideoSize colour) -> Agash.StreamTransport.Media.VideoSize
+static Agash.StreamTransport.Media.AlphaLayouts.Unpacking(this Agash.StreamTransport.Media.AlphaLayout layout) -> Agash.StreamTransport.Media.AlphaLayout
 static Agash.StreamTransport.Media.AudioCodecFormat.operator !=(Agash.StreamTransport.Media.AudioCodecFormat? left, Agash.StreamTransport.Media.AudioCodecFormat? right) -> bool
 static Agash.StreamTransport.Media.AudioCodecFormat.operator ==(Agash.StreamTransport.Media.AudioCodecFormat? left, Agash.StreamTransport.Media.AudioCodecFormat? right) -> bool
 static Agash.StreamTransport.Media.AudioCodecId.BuiltIn.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioCodecId>

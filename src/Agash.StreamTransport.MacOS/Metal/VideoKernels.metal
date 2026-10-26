@@ -5,15 +5,20 @@ using namespace metal;
 // one chroma sample and the 2x2 luma block it covers. Chroma is left-sited, as H.264, H.265 and AV1
 // assume when nothing says otherwise: each sample sits on its block's left column and between its
 // two rows, so it is a [1 2 1] filter across the column and its neighbours, averaged over the two
-// rows. With pack set, the output is twice the colour width: the left half is the colour, the right
-// half the source alpha as grey (a, a, a), which the same matrix turns into luma with neutral
-// chroma. That is the side-by-side alpha layout every StreamTransport platform writes and reads.
+// rows. With pack 1 the output is twice the colour width: the left half is the colour, the right half
+// the source alpha as grey (a, a, a), which the same matrix turns into luma with neutral chroma. With
+// pack 2 the output is twice the colour height, the colour on top and the alpha below. Those are the
+// side-by-side and stacked alpha layouts every StreamTransport platform writes and reads.
 struct RgbToYuvParameters
 {
     uint outWidth;     // luma width written
     uint outHeight;    // luma height written
     uint colourWidth;  // width of the colour picture in the output
-    uint pack;         // 1: the right half carries alpha
+    uint colourHeight; // height of the colour picture in the output
+    uint pack;         // 1: the right half carries alpha; 2: the bottom half
+    uint padding0;
+    uint padding1;
+    uint padding2;
     float4 rowY;       // Y' = dot(rgb, rowY.xyz) + rowY.w
     float4 rowCb;
     float4 rowCr;
@@ -22,9 +27,11 @@ struct RgbToYuvParameters
 static float3 colour_at(texture2d<float, access::sample> source, sampler linear,
                         constant RgbToYuvParameters& p, uint2 at)
 {
-    bool alpha = p.pack != 0 && at.x >= p.colourWidth;
-    uint x = alpha ? at.x - p.colourWidth : at.x;
-    float2 uv = (float2(x, at.y) + 0.5) / float2(p.colourWidth, p.outHeight);
+    bool alpha = (p.pack == 1 && at.x >= p.colourWidth) || (p.pack == 2 && at.y >= p.colourHeight);
+    uint2 inHalf = alpha
+        ? (p.pack == 1 ? uint2(at.x - p.colourWidth, at.y) : uint2(at.x, at.y - p.colourHeight))
+        : at;
+    float2 uv = (float2(inHalf) + 0.5) / float2(p.colourWidth, p.colourHeight);
     float4 s = source.sample(linear, uv, level(0));
     return alpha ? s.aaa : s.rgb;
 }
@@ -56,7 +63,8 @@ kernel void rgb_to_yuv(texture2d<float, access::sample> source [[texture(0)]],
     luma.write(float4(dot(s11, p.rowY.xyz) + p.rowY.w), diagonal);
 
     // The left neighbour stays inside the half it belongs to: the colour's first column, or the alpha's.
-    uint start = p.pack != 0 && l.x >= p.colourWidth ? p.colourWidth : 0;
+    // Stacked halves split rows, and an even colour height keeps each 2x2 block in one of them.
+    uint start = p.pack == 1 && l.x >= p.colourWidth ? p.colourWidth : 0;
     uint left = max(l.x, start + 1) - 1;
     float3 sl0 = colour_at(source, linear, p, uint2(left, l.y));
     float3 sl1 = colour_at(source, linear, p, uint2(left, below.y));
@@ -65,8 +73,9 @@ kernel void rgb_to_yuv(texture2d<float, access::sample> source [[texture(0)]],
                         dot(average, p.rowCr.xyz) + p.rowCr.w, 0, 0), id);
 }
 
-// 4:2:0 Y'CbCr planes to RGB. With unpack set, the input is a side-by-side frame twice the output
-// width: colour from the left half, and alpha from the right half's luma, normalised like the colour's.
+// 4:2:0 Y'CbCr planes to RGB. With unpack 1 the input is a side-by-side frame twice the output width:
+// colour from the left half, and alpha from the right half's luma, normalised like the colour's. With
+// unpack 2 it is a stacked frame twice the output height, the alpha in the bottom half.
 // Chroma is left-sited (H.264, H.265 and AV1's default): a sample sits on every other column, between two
 // rows. So an even column takes it as it is and an odd one the mean of its two neighbours, and each row
 // weighs the chroma row it falls in 3:1 against the next nearest.
@@ -74,7 +83,7 @@ struct YuvToRgbParameters
 {
     uint outWidth;
     uint outHeight;
-    uint unpack;       // 1: alpha comes from the right half's luma
+    uint unpack;       // 1: alpha comes from the right half's luma; 2: from the bottom half's
     uint padding;
     float4 lumaScale;  // x: offset subtracted from Y', y: scale after it, z: neutral chroma
     float4 rowR;       // R = dot(float3(Y, Cb, Cr), rowR.xyz) + rowR.w, on normalised Y, Cb, Cr
@@ -115,7 +124,8 @@ kernel void yuv_to_rgb(texture2d<float, access::read> luma [[texture(0)]],
     float alpha = 1;
     if (p.unpack != 0)
     {
-        alpha = saturate((luma.read(uint2(id.x + p.outWidth, id.y)).r - p.lumaScale.x) * p.lumaScale.y);
+        uint2 at = p.unpack == 1 ? uint2(id.x + p.outWidth, id.y) : uint2(id.x, id.y + p.outHeight);
+        alpha = saturate((luma.read(at).r - p.lumaScale.x) * p.lumaScale.y);
     }
 
     output.write(float4(rgb, alpha), id);

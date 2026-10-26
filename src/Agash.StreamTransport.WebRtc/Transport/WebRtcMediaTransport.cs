@@ -503,10 +503,10 @@ internal sealed partial class WebRtcMediaTransport : IMediaTransport
                 ImmutableArray<AlphaLayout> theirs = FormatParameters.AlphaLayouts(
                     remote.FormatParameters
                 );
-                AlphaLayout alpha =
-                    _role == MediaSessionRole.Answerer
-                        ? FormatParameters.ChooseAlpha(theirs, ours)
-                        : FormatParameters.ChooseAlpha(ours, theirs);
+                // The sender orders the ways, whether it offered or answered.
+                AlphaLayout alpha = videoOffer.Sends
+                    ? FormatParameters.ChooseAlpha(ours, theirs)
+                    : FormatParameters.ChooseAlpha(theirs, ours);
                 video = new NegotiatedVideo(
                     new VideoCodecFormat(codec, SendParameters(codec, remote.FormatParameters)),
                     new VideoCodecFormat(codec, CodecParameters(remote.FormatParameters)),

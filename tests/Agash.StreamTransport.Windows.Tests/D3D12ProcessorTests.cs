@@ -177,7 +177,9 @@ public sealed class D3D12ProcessorTests
     }
 
     [TestMethod]
-    public void PackThenUnpack_ReturnsAColourRampAndAlpha()
+    [DataRow(AlphaLayout.PackSideBySide)]
+    [DataRow(AlphaLayout.PackStacked)]
+    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout)
     {
         using var gpu = TestGpu.Open();
         byte[] pixels = Ramp();
@@ -185,9 +187,11 @@ public sealed class D3D12ProcessorTests
             gpu,
             PixelFormat.Bgra,
             pixels,
-            new VideoProcessing(Nv12Output(gpu), Alpha: AlphaLayout.PackSideBySide),
-            out _
+            new VideoProcessing(Nv12Output(gpu), Alpha: layout),
+            out VideoProcessorInfo packing
         );
+        VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
+        Assert.AreEqual(packedSize, packing.Output.Size);
 
         Kept unpacked = Run(
             gpu,
@@ -195,12 +199,12 @@ public sealed class D3D12ProcessorTests
             new VideoStreamDescription(
                 VideoStorageKind.D3D12,
                 PixelFormat.Nv12,
-                new VideoSize(Width * 2, Height),
+                packedSize,
                 gpu.Adapter
             ),
             new VideoProcessing(
                 new VideoConstraints([VideoStorageKind.D3D12], [PixelFormat.Bgra], gpu.Adapter),
-                Alpha: AlphaLayout.UnpackSideBySide
+                Alpha: layout.Unpacking()
             ),
             out VideoProcessorInfo info
         );

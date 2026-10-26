@@ -337,6 +337,14 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
                             (_endpoints.VideoSource is null || _services.Codecs.CanEncode(c))
                             && (_endpoints.VideoSink is null || _services.Codecs.CanDecode(c))
                         )
+                        // A sender's alpha picture too big to pack for a codec (4K in H.264, whose
+                        // encoders stop at 4096 columns and rows) puts that codec behind the ones it
+                        // fits, in the profile's order otherwise.
+                        .OrderBy(c => PacksInto(c) ? 0 : 1)
+                        // A packed alpha frame is twice a picture's size, which a software encoder
+                        // rarely keeps up with: among the codecs it fits, those with a hardware encoder
+                        // come first.
+                        .ThenBy(c => SendsPackedAlpha && !HardwareEncodes(c) ? 1 : 0)
                         .Select(c => new VideoCodecOffer(new VideoCodecFormat(c), AlphaWays(c))),
                 ],
                 _endpoints.VideoSource is not null,
@@ -505,29 +513,101 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
 
     // The ways this side can carry alpha for a codec, most preferred first. A sender lists them when its
     // options ask for alpha: the codec's alpha layer first when that is preferred and an encoder codes it,
-    // and side by side, which every codec carries. A receiver lists what it can take: the layer when a
-    // decoder decodes it, and side by side.
+    // then the packings. A receiver lists what it can take: the layer when a decoder decodes it, and both
+    // packings.
     private ImmutableArray<AlphaLayout> AlphaWays(VideoCodecId codec)
     {
-        if (_endpoints.VideoSource is not null)
+        if (_endpoints.VideoSource is { } source)
         {
+            ImmutableArray<AlphaLayout> packings = Packings(codec, source, _options.Alpha);
             return _options.Alpha switch
             {
                 AlphaLayout.Layer when _services.Codecs.CanEncodeAlphaLayer(codec) =>
                 [
                     AlphaLayout.Layer,
-                    AlphaLayout.PackSideBySide,
+                    .. packings,
                 ],
-                AlphaLayout.Layer or AlphaLayout.PackSideBySide => [AlphaLayout.PackSideBySide],
+                AlphaLayout.Layer or AlphaLayout.PackSideBySide or AlphaLayout.PackStacked =>
+                    packings,
                 _ => [],
             };
         }
 
         return _endpoints.VideoSink is null ? []
             : _services.Codecs.CanDecodeAlphaLayer(codec)
-                ? [AlphaLayout.Layer, AlphaLayout.PackSideBySide]
-            : [AlphaLayout.PackSideBySide];
+                ? [AlphaLayout.Layer, AlphaLayout.PackSideBySide, AlphaLayout.PackStacked]
+            : [AlphaLayout.PackSideBySide, AlphaLayout.PackStacked];
     }
+
+    // The packings a sender offers, most preferred first. A packing the options name comes first unless
+    // the picture is known not to fit the encoder that way and fits the other. Otherwise the one the
+    // picture fits: a landscape picture fits stacked whenever it fits side by side (its doubled height is
+    // less than its doubled width), and also where it does not (1440p in H.264: 2560x2880 fits 4096,
+    // 5120x1440 does not), so stacked comes first unless the picture is known to be portrait, or only side
+    // by side fits.
+    private ImmutableArray<AlphaLayout> Packings(
+        VideoCodecId codec,
+        IVideoSource source,
+        AlphaLayout asked
+    )
+    {
+        (VideoSize? known, VideoSize? limit) = Limits(codec, source);
+        bool FitsOnly(AlphaLayout way, AlphaLayout other) =>
+            known is { } picture
+            && limit is { } most
+            && Fits(way.PackedSize(picture), most)
+            && !Fits(other.PackedSize(picture), most);
+
+        bool sideBySideFirst = asked switch
+        {
+            AlphaLayout.PackSideBySide => !FitsOnly(
+                AlphaLayout.PackStacked,
+                AlphaLayout.PackSideBySide
+            ),
+            AlphaLayout.PackStacked => FitsOnly(
+                AlphaLayout.PackSideBySide,
+                AlphaLayout.PackStacked
+            ),
+            _ => known is { } picture && picture.Height > picture.Width
+                || FitsOnly(AlphaLayout.PackSideBySide, AlphaLayout.PackStacked),
+        };
+        return sideBySideFirst
+            ? [AlphaLayout.PackSideBySide, AlphaLayout.PackStacked]
+            : [AlphaLayout.PackStacked, AlphaLayout.PackSideBySide];
+    }
+
+    private bool SendsPackedAlpha =>
+        _endpoints.VideoSource is not null
+        && _options.Alpha
+            is AlphaLayout.Layer
+                or AlphaLayout.PackSideBySide
+                or AlphaLayout.PackStacked;
+
+    private bool HardwareEncodes(VideoCodecId codec) =>
+        _services.Codecs.QueryVideoEncoder(new VideoCodecFormat(codec), device: null)
+            is { IsHardwareAccelerated: true };
+
+    // Whether this side's alpha picture packs one way or the other into a codec's encoder; true when it
+    // sends no packed alpha, or when the picture's size or the encoder's limits are unknown.
+    private bool PacksInto(VideoCodecId codec) =>
+        _endpoints.VideoSource is not { } source
+        || _options.Alpha
+            is not (AlphaLayout.Layer or AlphaLayout.PackSideBySide or AlphaLayout.PackStacked)
+        || Limits(codec, source) is not ({ } picture, { } most)
+        || Fits(AlphaLayout.PackSideBySide.PackedSize(picture), most)
+        || Fits(AlphaLayout.PackStacked.PackedSize(picture), most);
+
+    // The source's picture size and the codec's best encoder's largest picture, where both are known.
+    private (VideoSize? Picture, VideoSize? Most) Limits(VideoCodecId codec, IVideoSource source) =>
+        (
+            source is IVideoInput { Mode: { } mode } ? mode.Size : null,
+            _services
+                .Codecs.QueryVideoEncoder(new VideoCodecFormat(codec), device: null)
+                ?.MaximumSize
+        );
+
+    private static bool Fits(VideoSize size, VideoSize most) =>
+        most.Width <= 0 || (size.Width <= most.Width && size.Height <= most.Height);
 
     private void OnStateChanged(TransportState state)
     {

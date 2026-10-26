@@ -30,6 +30,8 @@ public sealed class FFmpegVideoProcessorFactory : IVideoProcessorFactory
                     AlphaLayout.None
                     or AlphaLayout.PackSideBySide
                     or AlphaLayout.UnpackSideBySide
+                    or AlphaLayout.PackStacked
+                    or AlphaLayout.UnpackStacked
                 )
             || !processing.Output.Storages.Contains(VideoStorageKind.Cpu)
             || !FF.Scaler.IsSupportedInput(Formats.ToFFmpeg(input.PixelFormat))
@@ -38,10 +40,11 @@ public sealed class FFmpegVideoProcessorFactory : IVideoProcessorFactory
             return null;
         }
 
-        if (processing.Alpha == AlphaLayout.PackSideBySide)
+        if (processing.Alpha.IsPacked())
         {
             // Colour in, with or without alpha (an opaque source packs a fully opaque half, so the
-            // negotiated layout holds whatever the source), an opaque 4:2:0 frame twice as wide out.
+            // negotiated layout holds whatever the source), an opaque 4:2:0 frame twice as wide or tall
+            // out.
             VideoSize colour = processing.Size ?? input.Size;
             PixelFormat? packed = processing.Output.PixelFormats.FirstOrDefault(static f =>
                 f is PixelFormat.Nv12 or PixelFormat.I420
@@ -50,20 +53,22 @@ public sealed class FFmpegVideoProcessorFactory : IVideoProcessorFactory
                 packed is PixelFormat.Nv12 or PixelFormat.I420
                 && colour.Width % 2 == 0
                 && colour.Height % 2 == 0
-                ? Info(packed.Value, colour with { Width = colour.Width * 2 })
+                ? Info(packed.Value, processing.Alpha.PackedSize(colour))
                 : null;
         }
 
-        if (processing.Alpha == AlphaLayout.UnpackSideBySide)
+        if (processing.Alpha is AlphaLayout.UnpackSideBySide or AlphaLayout.UnpackStacked)
         {
-            // An opaque side-by-side frame in, the colour with its alpha out, half as wide.
+            // An opaque packed frame in, the colour with its alpha out, half as wide or tall; each half
+            // an even size, so no 4:2:0 block spans them.
             PixelFormat? unpacked = processing.Output.PixelFormats.FirstOrDefault(HasAlpha);
-            VideoSize colour = input.Size with { Width = input.Size.Width / 2 };
+            VideoSize colour = processing.Alpha.ColourSize(input.Size);
             return
                 input.PixelFormat is PixelFormat.Nv12 or PixelFormat.I420
                 && unpacked is { } format
                 && HasAlpha(format)
-                && input.Size.Width % 4 == 0
+                && colour.Width % 2 == 0
+                && colour.Height % 2 == 0
                 && (processing.Size is null || processing.Size == colour)
                 ? Info(format, colour)
                 : null;
@@ -140,11 +145,11 @@ internal sealed class FFmpegVideoProcessor(
             VideoColor target = color ?? frame.Color.ConvertedTo(output.PixelFormat);
             switch (alpha)
             {
-                case AlphaLayout.PackSideBySide:
-                    Pack(output, target);
+                case AlphaLayout.PackSideBySide or AlphaLayout.PackStacked:
+                    Pack(output, target, stacked: alpha == AlphaLayout.PackStacked);
                     break;
-                case AlphaLayout.UnpackSideBySide:
-                    Unpack(output, target);
+                case AlphaLayout.UnpackSideBySide or AlphaLayout.UnpackStacked:
+                    Unpack(output, target, stacked: alpha == AlphaLayout.UnpackStacked);
                     break;
                 default:
                     // The scaler releases the previous result's buffer (a retained one keeps its
@@ -201,19 +206,25 @@ internal sealed class FFmpegVideoProcessor(
         }
     }
 
-    // Colour on the left, alpha as video-range luma on the right with neutral chroma: the colour and
-    // alpha come out of one conversion to 4:2:0 with alpha, then are laid side by side.
-    private void Pack(VideoStreamDescription output, VideoColor target)
+    // Colour on the left (or on top), alpha as video-range luma on the right (or below) with neutral
+    // chroma: the colour and alpha come out of one conversion to 4:2:0 with alpha, then are laid out.
+    private void Pack(VideoStreamDescription output, VideoColor target, bool stacked)
     {
-        int width = output.Size.Width / 2;
-        int height = output.Size.Height;
+        AlphaLayout layout = stacked ? AlphaLayout.PackStacked : AlphaLayout.PackSideBySide;
+        VideoSize colour = layout.ColourSize(output.Size);
+        int width = colour.Width;
+        int height = colour.Height;
         _work.Width = width;
         _work.Height = height;
         _work.PixelFormat = Formats.Yuva420P;
         SetColor(_work, target);
         _scaler.Scale(_source, _work);
 
-        _output.AllocateVideo(output.Size.Width, height, Formats.ToFFmpeg(output.PixelFormat));
+        _output.AllocateVideo(
+            output.Size.Width,
+            output.Size.Height,
+            Formats.ToFFmpeg(output.PixelFormat)
+        );
         SetColor(_output, target);
         FF.ReadOnlyImagePlane y = _work.GetPlane(0);
         FF.ReadOnlyImagePlane u = _work.GetPlane(1);
@@ -237,25 +248,32 @@ internal sealed class FFmpegVideoProcessor(
         {
             Span<byte> line = luma.GetRow(row);
             y.GetRow(row)[..width].CopyTo(line);
+
+            // The alpha's row: beside the colour's, or as far below it as the colour is tall.
+            Span<byte> alphaLine = stacked
+                ? luma.GetRow(height + row)[..width]
+                : line[width..(2 * width)];
             if (opaque)
             {
                 // A source without alpha is opaque throughout.
-                line[width..(2 * width)].Fill(solid);
+                alphaLine.Fill(solid);
                 continue;
             }
 
             ReadOnlySpan<byte> alphaRow = a.GetRow(row);
             for (int x = 0; x < width; x++)
             {
-                line[width + x] = ToLuma(packedRgb ? alphaRow[(4 * x) + 3] : alphaRow[x], full);
+                alphaLine[x] = ToLuma(packedRgb ? alphaRow[(4 * x) + 3] : alphaRow[x], full);
             }
         }
 
+        // The alpha's chroma is neutral: the right half of each chroma row, or the rows below the colour's.
         int chromaWidth = width / 2;
+        int chromaHeight = height / 2;
         if (output.PixelFormat == PixelFormat.Nv12)
         {
             FF.ImagePlane chroma = _output.GetWritablePlane(1);
-            for (int row = 0; row < height / 2; row++)
+            for (int row = 0; row < chromaHeight; row++)
             {
                 Span<byte> line = chroma.GetRow(row);
                 ReadOnlySpan<byte> uRow = u.GetRow(row);
@@ -266,7 +284,10 @@ internal sealed class FFmpegVideoProcessor(
                     line[(2 * x) + 1] = vRow[x];
                 }
 
-                line[(2 * chromaWidth)..(4 * chromaWidth)].Fill(Neutral);
+                Span<byte> neutral = stacked
+                    ? chroma.GetRow(chromaHeight + row)[..(2 * chromaWidth)]
+                    : line[(2 * chromaWidth)..(4 * chromaWidth)];
+                neutral.Fill(Neutral);
             }
         }
         else
@@ -275,25 +296,28 @@ internal sealed class FFmpegVideoProcessor(
             {
                 FF.ReadOnlyImagePlane from = plane == 1 ? u : v;
                 FF.ImagePlane to = _output.GetWritablePlane(plane);
-                for (int row = 0; row < height / 2; row++)
+                for (int row = 0; row < chromaHeight; row++)
                 {
                     Span<byte> line = to.GetRow(row);
                     from.GetRow(row)[..chromaWidth].CopyTo(line);
-                    line[chromaWidth..(2 * chromaWidth)].Fill(Neutral);
+                    Span<byte> neutral = stacked
+                        ? to.GetRow(chromaHeight + row)[..chromaWidth]
+                        : line[chromaWidth..(2 * chromaWidth)];
+                    neutral.Fill(Neutral);
                 }
             }
         }
     }
 
-    // The left half's colour converted on its own, with alpha read back from the right half's luma.
-    // Converting the whole packed frame would filter the colour's last chroma column with the alpha half's
-    // neutral chroma.
-    private void Unpack(VideoStreamDescription output, VideoColor target)
+    // The colour half converted on its own, with alpha read back from the other half's luma. Converting
+    // the whole packed frame would filter the colour's edge chroma with the alpha half's neutral chroma.
+    private void Unpack(VideoStreamDescription output, VideoColor target, bool stacked)
     {
         int width = output.Size.Width;
         int height = output.Size.Height;
         _colourHalf.Reference(_source);
         _colourHalf.Width = width;
+        _colourHalf.Height = height;
         _work.Width = width;
         _work.Height = height;
         _work.PixelFormat = Formats.ToFFmpeg(output.PixelFormat);
@@ -323,10 +347,10 @@ internal sealed class FFmpegVideoProcessor(
             for (int row = 0; row < height; row++)
             {
                 Span<byte> line = alphaPlane.GetRow(row);
-                ReadOnlySpan<byte> packed = packedLuma.GetRow(row);
+                ReadOnlySpan<byte> packed = AlphaRow(packedLuma, row, width, height, stacked);
                 for (int x = 0; x < width; x++)
                 {
-                    line[x] = FromLuma(packed[width + x], full);
+                    line[x] = FromLuma(packed[x], full);
                 }
             }
 
@@ -339,13 +363,22 @@ internal sealed class FFmpegVideoProcessor(
         {
             Span<byte> line = pixels.GetRow(row);
             rgb.GetRow(row)[..(width * 4)].CopyTo(line);
-            ReadOnlySpan<byte> packed = packedLuma.GetRow(row);
+            ReadOnlySpan<byte> packed = AlphaRow(packedLuma, row, width, height, stacked);
             for (int x = 0; x < width; x++)
             {
-                line[(4 * x) + 3] = FromLuma(packed[width + x], full);
+                line[(4 * x) + 3] = FromLuma(packed[x], full);
             }
         }
     }
+
+    // The packed luma that carries a colour row's alpha: beside it, or as far below it as the colour is tall.
+    private static ReadOnlySpan<byte> AlphaRow(
+        FF.ReadOnlyImagePlane packed,
+        int row,
+        int width,
+        int height,
+        bool stacked
+    ) => stacked ? packed.GetRow(height + row)[..width] : packed.GetRow(row)[width..(2 * width)];
 
     private const byte Neutral = 128;
 

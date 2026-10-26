@@ -18,6 +18,17 @@ public enum AlphaLayout
     UnpackSideBySide,
 
     /// <summary>
+    /// Colour and alpha stacked in one opaque frame twice as tall: colour on top, alpha as luma below
+    /// with neutral chroma, as in <see cref="PackSideBySide"/>. For a picture whose doubled width an
+    /// encoder cannot take (H.264's 4096 columns on every hardware encoder) while its doubled height
+    /// fits: 1440p alpha in H.264 is 2560x2880.
+    /// </summary>
+    PackStacked,
+
+    /// <summary>The reverse of <see cref="PackStacked"/>: an opaque stacked frame back to one with alpha.</summary>
+    UnpackStacked,
+
+    /// <summary>
     /// Alpha as the codec's own auxiliary picture layer, in the same access unit and RTP stream as the
     /// colour, which stays the base layer a decoder that ignores the layer shows opaque. H.265 has it
     /// (AUX_ALPHA with the alpha channel information SEI, RFC 7798 carries both layers); VVC (AUX_ALPHA,
@@ -194,3 +205,54 @@ public readonly record struct VideoTarget(VideoStorage Storage, VideoFormat Form
 /// <returns>Whether it drew the frame; false leaves the surface unpublished.</returns>
 public delegate bool VideoTargetRenderer<TState>(in VideoTarget target, scoped in TState state)
     where TState : allows ref struct;
+
+/// <summary>Where a packed frame keeps its colour and alpha.</summary>
+public static class AlphaLayouts
+{
+    /// <summary>Whether a layout packs colour and alpha into one opaque frame.</summary>
+    /// <param name="layout">The layout.</param>
+    /// <returns>True for the side-by-side and stacked packings.</returns>
+    public static bool IsPacked(this AlphaLayout layout) =>
+        layout is AlphaLayout.PackSideBySide or AlphaLayout.PackStacked;
+
+    /// <summary>The unpacking that reverses a packing.</summary>
+    /// <param name="layout">The packing.</param>
+    /// <returns>Its reverse; <see cref="AlphaLayout.None"/> for a layout that is not a packing.</returns>
+    public static AlphaLayout Unpacking(this AlphaLayout layout) =>
+        layout switch
+        {
+            AlphaLayout.PackSideBySide => AlphaLayout.UnpackSideBySide,
+            AlphaLayout.PackStacked => AlphaLayout.UnpackStacked,
+            _ => AlphaLayout.None,
+        };
+
+    /// <summary>The size a packing makes of a colour picture.</summary>
+    /// <param name="layout">The packing.</param>
+    /// <param name="colour">The colour picture's size.</param>
+    /// <returns>Twice as wide side by side, twice as tall stacked; the colour size otherwise.</returns>
+    public static VideoSize PackedSize(this AlphaLayout layout, VideoSize colour) =>
+        layout switch
+        {
+            AlphaLayout.PackSideBySide => colour with { Width = colour.Width * 2 },
+            AlphaLayout.PackStacked => colour with { Height = colour.Height * 2 },
+            _ => colour,
+        };
+
+    /// <summary>The colour picture's size in a packed frame.</summary>
+    /// <param name="layout">The unpacking.</param>
+    /// <param name="packed">The packed frame's size.</param>
+    /// <returns>Half as wide side by side, half as tall stacked; the frame's size otherwise.</returns>
+    public static VideoSize ColourSize(this AlphaLayout layout, VideoSize packed) =>
+        layout switch
+        {
+            AlphaLayout.UnpackSideBySide or AlphaLayout.PackSideBySide => packed with
+            {
+                Width = packed.Width / 2,
+            },
+            AlphaLayout.UnpackStacked or AlphaLayout.PackStacked => packed with
+            {
+                Height = packed.Height / 2,
+            },
+            _ => packed,
+        };
+}

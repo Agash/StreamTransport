@@ -19,7 +19,11 @@ layout(push_constant) uniform Parameters
     uint outWidth;     // luma width written
     uint outHeight;    // luma height written
     uint colourWidth;  // width of the colour picture in the output
-    uint pack;         // 1: the right half carries alpha
+    uint colourHeight; // height of the colour picture in the output
+    uint pack;         // 1: the right half carries alpha; 2: the bottom half
+    uint padding0;
+    uint padding1;
+    uint padding2;
     vec4 rowY;         // Y' = dot(rgb, rowY.xyz) + rowY.w
     vec4 rowCb;
     vec4 rowCr;
@@ -27,9 +31,11 @@ layout(push_constant) uniform Parameters
 
 vec3 colourAt(uvec2 at)
 {
-    bool alpha = p.pack != 0 && at.x >= p.colourWidth;
-    uint x = alpha ? at.x - p.colourWidth : at.x;
-    vec2 uv = (vec2(x, at.y) + 0.5) / vec2(p.colourWidth, p.outHeight);
+    bool alpha = (p.pack == 1u && at.x >= p.colourWidth) || (p.pack == 2u && at.y >= p.colourHeight);
+    uvec2 inHalf = alpha
+        ? (p.pack == 1u ? uvec2(at.x - p.colourWidth, at.y) : uvec2(at.x, at.y - p.colourHeight))
+        : at;
+    vec2 uv = (vec2(inHalf) + 0.5) / vec2(p.colourWidth, p.colourHeight);
     vec4 s = textureLod(source, uv, 0.0);
     return alpha ? s.aaa : s.rgb;
 }
@@ -57,7 +63,8 @@ void main()
     imageStore(luma, ivec2(diagonal), vec4(dot(s11, p.rowY.xyz) + p.rowY.w));
 
     // The left neighbour stays inside the half it belongs to: the colour's first column, or the alpha's.
-    uint start = p.pack != 0 && l.x >= p.colourWidth ? p.colourWidth : 0;
+    // Stacked halves split rows, and an even colour height keeps each 2x2 block in one of them.
+    uint start = p.pack == 1u && l.x >= p.colourWidth ? p.colourWidth : 0;
     uint left = max(l.x, start + 1) - 1;
     vec3 sl0 = colourAt(uvec2(left, l.y));
     vec3 sl1 = colourAt(uvec2(left, below.y));

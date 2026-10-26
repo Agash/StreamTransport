@@ -224,6 +224,41 @@ public readonly ref struct VideoFrame
     /// <exception cref="ArgumentOutOfRangeException">The width is odd, not positive or wider than the frame.</exception>
     public VideoFrame LeftOf(int width)
     {
+        CheckKept(width, Format.CodedSize.Width, nameof(width));
+        return Narrowed(width, Format.CodedSize.Height);
+    }
+
+    /// <summary>
+    /// The top part of a 4:2:0 frame in memory, as a frame of its own over the same pixels: no copy and
+    /// no conversion, as its rows are the frame's first rows at the same strides. The colour of a stacked
+    /// frame whose alpha is not wanted. Retaining it copies, as its pixels are the source's.
+    /// </summary>
+    /// <param name="height">The height kept, even.</param>
+    /// <returns>The frame.</returns>
+    /// <exception cref="InvalidOperationException">The frame is not NV12 or I420 in memory.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The height is odd, not positive or taller than the frame.</exception>
+    public VideoFrame TopOf(int height)
+    {
+        CheckKept(height, Format.CodedSize.Height, nameof(height));
+        return Narrowed(Format.CodedSize.Width, height);
+    }
+
+    // A kept width or height of 4:2:0: even, so no chroma sample spans the cut, and within the frame.
+    private static void CheckKept(int kept, int whole, string name)
+    {
+        if (kept <= 0 || kept > whole || kept % 2 != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                name,
+                kept,
+                $"4:2:0 chroma needs an even {name} from 2 to {whole}."
+            );
+        }
+    }
+
+    // The frame's own planes and strides, its coded size cut to the width and height kept.
+    private VideoFrame Narrowed(int width, int height)
+    {
         if (
             !Storage.TryGetValue(out CpuImage image)
             || Format.PixelFormat is not (PixelFormat.Nv12 or PixelFormat.I420)
@@ -234,27 +269,14 @@ public readonly ref struct VideoFrame
             );
         }
 
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(width, Format.CodedSize.Width);
-        if (width % 2 != 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(width),
-                width,
-                "4:2:0 chroma needs an even width."
-            );
-        }
-
         VideoRect visible = Format.VisibleRect;
         VideoFormat narrowed = new(
             Format.PixelFormat,
-            Format.CodedSize with
-            {
-                Width = width,
-            },
+            new VideoSize(width, height),
             visible with
             {
                 Width = Math.Max(0, Math.Min(visible.Width, width - visible.X)),
+                Height = Math.Max(0, Math.Min(visible.Height, height - visible.Y)),
             }
         );
         PlaneLayout planes = image.Planes;

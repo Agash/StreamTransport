@@ -1,6 +1,7 @@
 #version 450
-// 4:2:0 Y'CbCr planes to RGB. With unpack set, the input is a side-by-side frame twice the output
-// width: colour from the left half, and alpha from the right half's luma, normalised like the colour's.
+// 4:2:0 Y'CbCr planes to RGB. With unpack 1 the input is a side-by-side frame twice the output width:
+// colour from the left half, and alpha from the right half's luma, normalised like the colour's. With
+// unpack 2 it is a stacked frame twice the output height, the alpha in the bottom half.
 
 // Chroma is left-sited (H.264, H.265 and AV1's default): a sample sits on every other column, between two
 // rows. So an even column takes it as it is and an odd one the mean of its two neighbours, and each row
@@ -16,7 +17,7 @@ layout(push_constant) uniform Parameters
 {
     uint outWidth;
     uint outHeight;
-    uint unpack;       // 1: alpha comes from the right half's luma
+    uint unpack;       // 1: alpha comes from the right half's luma; 2: from the bottom half's
     uint swapRedBlue;  // 1: the output's memory is BGRA, written through an RGBA view
     vec4 lumaScale;    // x: offset subtracted from Y', y: scale after it, z: neutral chroma
     vec4 rowR;         // R = dot(vec3(Y, Cb, Cr), rowR.xyz) + rowR.w, on normalised Y, Cb, Cr
@@ -54,7 +55,8 @@ void main()
     float alpha = 1.0;
     if (p.unpack != 0)
     {
-        float a = imageLoad(luma, ivec2(id.x + p.outWidth, id.y)).r;
+        ivec2 at = p.unpack == 1u ? ivec2(id.x + p.outWidth, id.y) : ivec2(id.x, id.y + p.outHeight);
+        float a = imageLoad(luma, at).r;
         alpha = clamp((a - p.lumaScale.x) * p.lumaScale.y, 0.0, 1.0);
     }
 

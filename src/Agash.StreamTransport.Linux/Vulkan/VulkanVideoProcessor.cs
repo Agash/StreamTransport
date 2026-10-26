@@ -54,7 +54,7 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
         if (input.PixelFormat is PixelFormat.Bgra or PixelFormat.Rgba)
         {
             if (
-                processing.Alpha == AlphaLayout.UnpackSideBySide
+                processing.Alpha is AlphaLayout.UnpackSideBySide or AlphaLayout.UnpackStacked
                 || !output.PixelFormats.Contains(PixelFormat.Nv12)
             )
             {
@@ -62,13 +62,7 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
             }
 
             VideoSize colour = processing.Size ?? input.Size;
-            VideoSize size =
-                processing.Alpha == AlphaLayout.PackSideBySide
-                    ? colour with
-                    {
-                        Width = colour.Width * 2,
-                    }
-                    : colour;
+            VideoSize size = processing.Alpha.PackedSize(colour);
             // The colour itself must be even: 4:2:0 chroma averages 2x2 blocks, and an odd colour width
             // would put a block across the colour and alpha halves of a packed frame.
             return colour.Width % 2 == 0 && colour.Height % 2 == 0
@@ -78,17 +72,8 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
 
         if (input.PixelFormat == PixelFormat.Nv12)
         {
-            VideoSize colour =
-                processing.Alpha == AlphaLayout.UnpackSideBySide
-                    ? input.Size with
-                    {
-                        Width = input.Size.Width / 2,
-                    }
-                    : input.Size;
-            if (
-                processing.Alpha == AlphaLayout.PackSideBySide
-                || (processing.Size is { } s && s != colour)
-            )
+            VideoSize colour = processing.Alpha.ColourSize(input.Size);
+            if (processing.Alpha.IsPacked() || (processing.Size is { } s && s != colour))
             {
                 return null;
             }
@@ -403,13 +388,19 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         VulkanImage source = sourceLease.Image;
         (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(_outputColour);
         VideoSize size = Info.Output.Size;
-        bool pack = _processing.Alpha == AlphaLayout.PackSideBySide;
+        VideoSize colourSize = _processing.Alpha.ColourSize(size);
         RgbToYuvParameters parameters = new()
         {
             OutWidth = (uint)size.Width,
             OutHeight = (uint)size.Height,
-            ColourWidth = (uint)(pack ? size.Width / 2 : size.Width),
-            Pack = pack ? 1u : 0u,
+            ColourWidth = (uint)colourSize.Width,
+            ColourHeight = (uint)colourSize.Height,
+            Pack = _processing.Alpha switch
+            {
+                AlphaLayout.PackSideBySide => 1u,
+                AlphaLayout.PackStacked => 2u,
+                _ => 0u,
+            },
             RowY = y,
             RowCb = cb,
             RowCr = cr,
@@ -518,7 +509,12 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         {
             OutWidth = (uint)size.Width,
             OutHeight = (uint)size.Height,
-            Unpack = _processing.Alpha == AlphaLayout.UnpackSideBySide ? 1u : 0u,
+            Unpack = _processing.Alpha switch
+            {
+                AlphaLayout.UnpackSideBySide => 1u,
+                AlphaLayout.UnpackStacked => 2u,
+                _ => 0u,
+            },
             SwapRedBlue = Info.Output.PixelFormat == PixelFormat.Bgra ? 1u : 0u,
             LumaScale = new Vector4(offset, scale, ColorConversion.ChromaCentre, 0),
             RowR = r,
@@ -607,7 +603,11 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
         public uint OutWidth;
         public uint OutHeight;
         public uint ColourWidth;
+        public uint ColourHeight;
         public uint Pack;
+        public uint Padding0;
+        public uint Padding1;
+        public uint Padding2;
         public Vector4 RowY;
         public Vector4 RowCb;
         public Vector4 RowCr;

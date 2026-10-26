@@ -8,14 +8,18 @@ internal static class FormatParameters
 {
     /// <summary>
     /// The ways of carrying alpha a side supports for a codec, most preferred first, comma-separated: what
-    /// a sender can produce, or what a receiver can take. The answer's first way the offer also lists is
-    /// the one used. Peers that do not know the parameter ignore it, as RFC 8866 has them do with unknown
-    /// parameters, and get opaque video.
+    /// a sender can produce, or what a receiver can take. The sender's first way the receiver also lists is
+    /// the one used, since only the sender knows its picture's size and its encoder's limits. Peers that do
+    /// not know the parameter ignore it, as RFC 8866 has them do with unknown parameters, and get opaque
+    /// video.
     /// </summary>
     public const string AlphaName = "x-alpha";
 
     /// <summary>Alpha side by side with the colour in a frame twice as wide.</summary>
     public const string SideBySide = "side-by-side";
+
+    /// <summary>Alpha below the colour in a frame twice as tall.</summary>
+    public const string Stacked = "stacked";
 
     /// <summary>Alpha as the codec's own alpha layer (H.265's auxiliary alpha layer).</summary>
     public const string Layer = "layer";
@@ -36,6 +40,8 @@ internal static class FormatParameters
                             ? AlphaLayout.Layer
                         : string.Equals(way, SideBySide, StringComparison.OrdinalIgnoreCase)
                             ? AlphaLayout.PackSideBySide
+                        : string.Equals(way, Stacked, StringComparison.OrdinalIgnoreCase)
+                            ? AlphaLayout.PackStacked
                         : AlphaLayout.None
                     )
                     .Where(static layout => layout != AlphaLayout.None),
@@ -46,16 +52,26 @@ internal static class FormatParameters
     /// <param name="layouts">The ways, most preferred first.</param>
     /// <returns>The comma-separated value.</returns>
     public static string AlphaValue(IEnumerable<AlphaLayout> layouts) =>
-        string.Join(',', layouts.Select(static l => l == AlphaLayout.Layer ? Layer : SideBySide));
+        string.Join(
+            ',',
+            layouts.Select(static l =>
+                l switch
+                {
+                    AlphaLayout.Layer => Layer,
+                    AlphaLayout.PackStacked => Stacked,
+                    _ => SideBySide,
+                }
+            )
+        );
 
-    /// <summary>The way alpha travels: the answer's first way the offer also lists; none without one.</summary>
-    /// <param name="offer">The offer's ways.</param>
-    /// <param name="answer">The answer's ways.</param>
+    /// <summary>The way alpha travels: the sender's first way the receiver also lists; none without one.</summary>
+    /// <param name="sender">The ways of the side that sends the video.</param>
+    /// <param name="receiver">The ways of the side that receives it.</param>
     /// <returns>The way, or <see cref="AlphaLayout.None"/>.</returns>
     public static AlphaLayout ChooseAlpha(
-        ImmutableArray<AlphaLayout> offer,
-        ImmutableArray<AlphaLayout> answer
-    ) => answer.FirstOrDefault(offer.Contains);
+        ImmutableArray<AlphaLayout> sender,
+        ImmutableArray<AlphaLayout> receiver
+    ) => sender.FirstOrDefault(receiver.Contains);
 
     /// <summary>The parameters of an <c>a=fmtp</c> value, by name.</summary>
     /// <param name="value">The value, or null.</param>

@@ -382,16 +382,20 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         VideoStreamDescription description,
         VideoConstraints constraints
     ) =>
-        _setup.Alpha == AlphaLayout.PackSideBySide
+        _setup.Alpha.IsPacked()
         || !constraints.Storages.Contains(description.Storage)
         || !constraints.PixelFormats.Contains(description.PixelFormat)
         || (constraints.Device is { } device && description.Device != device);
 
     private bool TakesColourAlone(in VideoFrame frame, VideoConstraints constraints) =>
-        _setup.Alpha == AlphaLayout.PackSideBySide
+        _setup.Alpha.IsPacked()
         && frame.Storage.Kind == VideoStorageKind.Cpu
         && frame.Format.PixelFormat is PixelFormat.Nv12 or PixelFormat.I420
-        && frame.Format.VisibleRect.Width % 4 == 0
+        && (
+            _setup.Alpha == AlphaLayout.PackStacked
+                ? frame.Format.VisibleRect.Height % 4 == 0
+                : frame.Format.VisibleRect.Width % 4 == 0
+        )
         && constraints.Storages.Contains(VideoStorageKind.Cpu)
         && constraints.PixelFormats.Contains(frame.Format.PixelFormat)
         && !constraints.PixelFormats.Any(static f =>
@@ -403,10 +407,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         VideoConstraints constraints
     )
     {
-        AlphaLayout alpha =
-            _setup.Alpha == AlphaLayout.PackSideBySide
-                ? AlphaLayout.UnpackSideBySide
-                : AlphaLayout.None;
+        AlphaLayout alpha = _setup.Alpha.Unpacking();
         return _registry.TryCreateVideoProcessor(
             description,
             new VideoProcessing(constraints, Alpha: alpha),
@@ -441,33 +442,32 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         VideoConstraints sink = _sink.Constraints with { HeldFrames = HeldFrames };
         ImmutableArray<PixelFormat> any = [.. Enum.GetValues<PixelFormat>()];
 
-        // A side-by-side frame is unpacked from the decoder's own 4:2:0: converted to the sink's RGB first,
-        // its alpha half would be colour.
-        VideoConstraints[] outputs =
-            _setup.Alpha == AlphaLayout.PackSideBySide
-                ?
-                [
-                    sink with
-                    {
-                        PixelFormats = [PixelFormat.Nv12, PixelFormat.I420],
-                    },
-                    VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420) with
-                    {
-                        HeldFrames = HeldFrames,
-                    },
-                ]
-                :
-                [
-                    sink,
-                    sink with
-                    {
-                        PixelFormats = any,
-                    },
-                    VideoConstraints.Cpu(any) with
-                    {
-                        HeldFrames = HeldFrames,
-                    },
-                ];
+        // A packed frame is unpacked from the decoder's own 4:2:0: converted to the sink's RGB first, its
+        // alpha half would be colour.
+        VideoConstraints[] outputs = _setup.Alpha.IsPacked()
+            ?
+            [
+                sink with
+                {
+                    PixelFormats = [PixelFormat.Nv12, PixelFormat.I420],
+                },
+                VideoConstraints.Cpu(PixelFormat.Nv12, PixelFormat.I420) with
+                {
+                    HeldFrames = HeldFrames,
+                },
+            ]
+            :
+            [
+                sink,
+                sink with
+                {
+                    PixelFormats = any,
+                },
+                VideoConstraints.Cpu(any) with
+                {
+                    HeldFrames = HeldFrames,
+                },
+            ];
         foreach (VideoConstraints output in outputs)
         {
             if (_registry.TryCreateVideoDecoder(_setup.Format, output, out IVideoDecoder? decoder))
@@ -536,7 +536,11 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                 // or converted for an alpha it would drop.
                 if (stream.TakesColourAlone(in frame, constraints))
                 {
-                    stream._sink.OnFrame(frame.LeftOf(frame.Format.VisibleRect.Width / 2));
+                    stream._sink.OnFrame(
+                        stream._setup.Alpha == AlphaLayout.PackStacked
+                            ? frame.TopOf(frame.Format.VisibleRect.Height / 2)
+                            : frame.LeftOf(frame.Format.VisibleRect.Width / 2)
+                    );
                     return;
                 }
 

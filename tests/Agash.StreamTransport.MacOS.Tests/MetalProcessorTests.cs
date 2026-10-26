@@ -122,20 +122,27 @@ public sealed class MetalProcessorTests
     }
 
     [TestMethod]
-    public async Task PackThenUnpack_ReturnsAColourRampAndAlpha()
+    [DataRow(AlphaLayout.PackSideBySide)]
+    [DataRow(AlphaLayout.PackStacked)]
+    public async Task PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout)
     {
         byte[] pixels = Ramp();
         using Processed run = await Start(
                 Bgra(pixels),
                 Description(PixelFormat.Bgra, Width),
-                new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide)
+                new VideoProcessing(Nv12Output(), Alpha: layout)
             )
             .FinishAsync();
         VideoFrameLease packed = run.Output;
+        VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
+        Assert.AreEqual(packedSize, packed.Frame.Format.CodedSize);
 
         using IVideoProcessor unpack = Factory.Create(
-            Description(PixelFormat.Nv12, Width * 2),
-            new VideoProcessing(BgraOutput(), Alpha: AlphaLayout.UnpackSideBySide)
+            Description(PixelFormat.Nv12, Width * 2) with
+            {
+                Size = packedSize,
+            },
+            new VideoProcessing(BgraOutput(), Alpha: layout.Unpacking())
         );
         Keeper keeper = new();
         unpack.Process(packed.Frame, keeper);

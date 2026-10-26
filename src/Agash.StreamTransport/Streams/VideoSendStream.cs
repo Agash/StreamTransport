@@ -363,7 +363,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             : encoder.Input;
 
     private bool NeedsProcessing(VideoStreamDescription description) =>
-        _setup.Alpha == AlphaLayout.PackSideBySide
+        _setup.Alpha.IsPacked()
         || !_encoderInput.Storages.Contains(description.Storage)
         || !_encoderInput.PixelFormats.Contains(description.PixelFormat);
 
@@ -372,9 +372,7 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             description,
             new VideoProcessing(
                 _encoderInput,
-                Alpha: _setup.Alpha == AlphaLayout.PackSideBySide
-                    ? AlphaLayout.PackSideBySide
-                    : AlphaLayout.None
+                Alpha: _setup.Alpha.IsPacked() ? _setup.Alpha : AlphaLayout.None
             ),
             out IVideoProcessor? processor
         )

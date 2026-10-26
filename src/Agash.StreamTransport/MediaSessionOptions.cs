@@ -82,8 +82,10 @@ public sealed record MediaSessionOptions
 
     /// <summary>
     /// How a sender's transparency travels: <see cref="AlphaLayout.Layer"/> prefers the codec's own alpha
-    /// layer where both peers code it (H.265 from VideoToolbox, decoded by FFmpeg) and falls back to side
-    /// by side; <see cref="AlphaLayout.PackSideBySide"/> always packs. The receiver says what it takes.
+    /// layer where both peers code it (H.265 from VideoToolbox, decoded by FFmpeg) and otherwise packs the
+    /// way the picture fits the encoder; <see cref="AlphaLayout.PackSideBySide"/> and
+    /// <see cref="AlphaLayout.PackStacked"/> pack that way, and the other only where the picture does not
+    /// fit it. The receiver says what it takes.
     /// </summary>
     public AlphaLayout Alpha { get; init; } = AlphaLayout.None;
 

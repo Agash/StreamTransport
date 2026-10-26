@@ -90,25 +90,26 @@ public sealed class AlphaPackingTests
     }
 
     [TestMethod]
-    [DataRow(PixelFormat.Bgra)]
-    [DataRow(PixelFormat.Yuva420)]
-    public void PackThenUnpack_ReturnsColourAndAlpha(PixelFormat unpacked)
+    [DataRow(PixelFormat.Bgra, AlphaLayout.PackSideBySide)]
+    [DataRow(PixelFormat.Yuva420, AlphaLayout.PackSideBySide)]
+    [DataRow(PixelFormat.Bgra, AlphaLayout.PackStacked)]
+    [DataRow(PixelFormat.Yuva420, AlphaLayout.PackStacked)]
+    public void PackThenUnpack_ReturnsColourAndAlpha(PixelFormat unpacked, AlphaLayout layout)
     {
         byte[] pixels = Picture();
         using IVideoProcessor pack = Factory.Create(
             Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(
-                VideoConstraints.Cpu(PixelFormat.Nv12),
-                Alpha: AlphaLayout.PackSideBySide
-            )
+            new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12), Alpha: layout)
         );
+        VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
+        Assert.AreEqual(packedSize, pack.Info.Output.Size);
         Kept packed = new();
         pack.Process(Bgra(pixels), packed);
         using VideoFrameLease packedLease = packed.Lease!;
 
         using IVideoProcessor unpack = Factory.Create(
-            Description(PixelFormat.Nv12, Width * 2),
-            new VideoProcessing(VideoConstraints.Cpu(unpacked), Alpha: AlphaLayout.UnpackSideBySide)
+            new VideoStreamDescription(VideoStorageKind.Cpu, PixelFormat.Nv12, packedSize),
+            new VideoProcessing(VideoConstraints.Cpu(unpacked), Alpha: layout.Unpacking())
         );
         Kept back = new();
         unpack.Process(packedLease.Frame, back);

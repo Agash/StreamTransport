@@ -26,7 +26,17 @@ public sealed class AlphaSessionTests
 
     [TestMethod]
     [Timeout(60_000)]
-    public async Task LayerPreferred_UsesTheLayerWhereAnEncoderCodesIt_ElseSideBySide()
+    public async Task Stacked_CarriesTheAlpha()
+    {
+        (AlphaLayout negotiated, AlphaSink sink) = await RunAsync("H264", AlphaLayout.PackStacked);
+
+        Assert.AreEqual(AlphaLayout.PackStacked, negotiated);
+        sink.AssertRamp();
+    }
+
+    [TestMethod]
+    [Timeout(60_000)]
+    public async Task LayerPreferred_UsesTheLayerWhereAnEncoderCodesIt_ElseStacked()
     {
         await using ServiceProvider services = MediaServices.Create();
         bool layered = services
@@ -35,7 +45,8 @@ public sealed class AlphaSessionTests
 
         (AlphaLayout negotiated, AlphaSink sink) = await RunAsync("H265", AlphaLayout.Layer);
 
-        Assert.AreEqual(layered ? AlphaLayout.Layer : AlphaLayout.PackSideBySide, negotiated);
+        // The source is landscape, so the packing it fits first is stacked.
+        Assert.AreEqual(layered ? AlphaLayout.Layer : AlphaLayout.PackStacked, negotiated);
         sink.AssertRamp();
     }
 
