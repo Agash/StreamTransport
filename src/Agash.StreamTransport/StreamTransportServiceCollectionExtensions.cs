@@ -26,6 +26,10 @@ public static class StreamTransportServiceCollectionExtensions
     public static IServiceCollection AddStreamTransport(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        // The registry, devices and sessions log through ILogger<T>, which logging registers; it keeps a
+        // logger factory the host registered already, as AddHttpClient does.
+        services.AddLogging();
         services.TryAddSingleton<MediaCodecRegistry>();
         services.TryAddSingleton<MediaDevices>();
         services.TryAddSingleton<TestSignalGenerator>();
