@@ -33,16 +33,23 @@ public enum MediaInputKind
 /// <summary>One way a video input can deliver frames: a pixel format, a size and a frame rate.</summary>
 /// <param name="PixelFormat">The pixel format it sends.</param>
 /// <param name="Size">The frame size.</param>
-/// <param name="FrameRate">Frames per second.</param>
+/// <param name="FrameRate">
+/// Frames per second; null when the producer paces its frames and states no rate, as an application's
+/// shared texture does.
+/// </param>
 public readonly record struct VideoInputMode(
     PixelFormat PixelFormat,
     VideoSize Size,
-    double FrameRate
+    double? FrameRate
 )
 {
     /// <inheritdoc/>
     public override string ToString() =>
-        FormattableString.Invariant($"{Size.Width}x{Size.Height} {PixelFormat} @ {FrameRate:0.##}");
+        FrameRate is { } rate
+            ? FormattableString.Invariant($"{Size.Width}x{Size.Height} {PixelFormat} @ {rate:0.##}")
+            : FormattableString.Invariant(
+                $"{Size.Width}x{Size.Height} {PixelFormat}, producer paced"
+            );
 }
 
 /// <summary>A video input a provider found.</summary>
@@ -132,9 +139,12 @@ public sealed record VideoInputRequest
             return bySize;
         }
 
+        // A mode of unknown rate sorts behind every stated one.
+        double rateA = a.FrameRate ?? double.NaN;
+        double rateB = b.FrameRate ?? double.NaN;
         int byRate = FrameRate is { } rate
-            ? Math.Abs(a.FrameRate - rate).CompareTo(Math.Abs(b.FrameRate - rate))
-            : b.FrameRate.CompareTo(a.FrameRate);
+            ? Distance(rateA, rate).CompareTo(Distance(rateB, rate))
+            : (double.IsNaN(rateB) ? -1 : rateB).CompareTo(double.IsNaN(rateA) ? -1 : rateA);
         if (byRate != 0)
         {
             return byRate;
@@ -144,6 +154,9 @@ public sealed record VideoInputRequest
             ? (b.PixelFormat == format).CompareTo(a.PixelFormat == format)
             : Cost(a.PixelFormat).CompareTo(Cost(b.PixelFormat));
     }
+
+    private static double Distance(double rate, double wanted) =>
+        double.IsNaN(rate) ? double.PositiveInfinity : Math.Abs(rate - wanted);
 
     private static int Cost(PixelFormat format) =>
         format switch

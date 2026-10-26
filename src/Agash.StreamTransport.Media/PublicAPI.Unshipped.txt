@@ -693,16 +693,16 @@ Agash.StreamTransport.Media.VideoInputInfo.Provider.get -> string!
 Agash.StreamTransport.Media.VideoInputInfo.Provider.init -> void
 Agash.StreamTransport.Media.VideoInputInfo.VideoInputInfo(string! Provider, string! Id, string! Name, Agash.StreamTransport.Media.MediaInputKind Kind, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputMode> Modes) -> void
 Agash.StreamTransport.Media.VideoInputMode
-Agash.StreamTransport.Media.VideoInputMode.Deconstruct(out Agash.StreamTransport.Media.PixelFormat PixelFormat, out Agash.StreamTransport.Media.VideoSize Size, out double FrameRate) -> void
+Agash.StreamTransport.Media.VideoInputMode.Deconstruct(out Agash.StreamTransport.Media.PixelFormat PixelFormat, out Agash.StreamTransport.Media.VideoSize Size, out double? FrameRate) -> void
 Agash.StreamTransport.Media.VideoInputMode.Equals(Agash.StreamTransport.Media.VideoInputMode other) -> bool
-Agash.StreamTransport.Media.VideoInputMode.FrameRate.get -> double
+Agash.StreamTransport.Media.VideoInputMode.FrameRate.get -> double?
 Agash.StreamTransport.Media.VideoInputMode.FrameRate.init -> void
 Agash.StreamTransport.Media.VideoInputMode.PixelFormat.get -> Agash.StreamTransport.Media.PixelFormat
 Agash.StreamTransport.Media.VideoInputMode.PixelFormat.init -> void
 Agash.StreamTransport.Media.VideoInputMode.Size.get -> Agash.StreamTransport.Media.VideoSize
 Agash.StreamTransport.Media.VideoInputMode.Size.init -> void
 Agash.StreamTransport.Media.VideoInputMode.VideoInputMode() -> void
-Agash.StreamTransport.Media.VideoInputMode.VideoInputMode(Agash.StreamTransport.Media.PixelFormat PixelFormat, Agash.StreamTransport.Media.VideoSize Size, double FrameRate) -> void
+Agash.StreamTransport.Media.VideoInputMode.VideoInputMode(Agash.StreamTransport.Media.PixelFormat PixelFormat, Agash.StreamTransport.Media.VideoSize Size, double? FrameRate) -> void
 Agash.StreamTransport.Media.VideoInputRequest
 Agash.StreamTransport.Media.VideoInputRequest.<Clone>$() -> Agash.StreamTransport.Media.VideoInputRequest!
 Agash.StreamTransport.Media.VideoInputRequest.Choose(System.Collections.Generic.IEnumerable<Agash.StreamTransport.Media.VideoInputMode>! modes) -> Agash.StreamTransport.Media.VideoInputMode?

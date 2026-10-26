@@ -185,9 +185,12 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
                     == mode.PixelFormat
                 && d.Dimensions.Width == mode.Size.Width
                 && d.Dimensions.Height == mode.Size.Height
-                && f.VideoSupportedFrameRateRanges.Any(r =>
-                    Math.Abs(r.MaxFrameRate - mode.FrameRate) < 0.01
-                    || (r.MinFrameRate <= mode.FrameRate && r.MaxFrameRate >= mode.FrameRate)
+                && (
+                    mode.FrameRate is not { } wanted
+                    || f.VideoSupportedFrameRateRanges.Any(r =>
+                        Math.Abs(r.MaxFrameRate - wanted) < 0.01
+                        || (r.MinFrameRate <= wanted && r.MaxFrameRate >= wanted)
+                    )
                 )
             ) ?? throw new NotSupportedException($"{info.Name} no longer offers {mode}.");
         var pixels = (CVPixelFormatType)
@@ -217,7 +220,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
             try
             {
                 device.ActiveFormat = format;
-                if (FrameDuration(format, mode.FrameRate) is { } frame)
+                if (mode.FrameRate is { } rate && FrameDuration(format, rate) is { } frame)
                 {
                     device.ActiveVideoMinFrameDuration = frame;
                     device.ActiveVideoMaxFrameDuration = frame;
@@ -451,7 +454,7 @@ internal sealed partial class AVFoundationVideoInput : IVideoInput
     private partial void LogOpened(string camera, VideoInputMode mode);
 
     [LoggerMessage(2432, LogLevel.Warning, "{Camera} keeps its own frame rate instead of {Rate}.")]
-    private partial void LogRateKept(Exception exception, string camera, double rate);
+    private partial void LogRateKept(Exception exception, string camera, double? rate);
 
     [LoggerMessage(2431, LogLevel.Warning, "A consumer failed to take a camera frame.")]
     private partial void LogConsumerFailed(Exception exception);

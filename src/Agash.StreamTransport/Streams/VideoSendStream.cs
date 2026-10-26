@@ -91,9 +91,12 @@ internal sealed partial class VideoSendStream : IVideoFrameConsumer, IAsyncDispo
             StreamTransportMetrics.Codec(setup.Format.Codec)
         );
         _bitsPerSecond = setup.StartBitsPerSecond;
+        // Rate control plans for this until a second of frames is measured. A source that states no rate is
+        // planned at the most it may send: a high guess spends less on each frame than the target allows
+        // for a moment, a low one overshoots the path.
         _rate = new FrameRateMeter(
             Math.Min(
-                (source as IVideoInput)?.Mode?.FrameRate ?? 30,
+                (source as IVideoInput)?.Mode?.FrameRate ?? options.MaxFrameRate ?? 60,
                 options.MaxFrameRate ?? double.MaxValue
             )
         );

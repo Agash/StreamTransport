@@ -126,7 +126,9 @@ internal sealed partial class FFmpegVideoInput : IVideoInput, IVideoFrameRetaine
         Mode = new VideoInputMode(
             PixelFormat.Nv12,
             new VideoSize(_stream.Width, _stream.Height),
-            rate.Denominator == 0 ? 30 : Math.Round((double)rate.Numerator / rate.Denominator, 3)
+            rate.Numerator > 0 && rate.Denominator > 0
+                ? Math.Round((double)rate.Numerator / rate.Denominator, 3)
+                : null
         );
         LogOpened(info.Name, _stream.CodecId.ToString(), Mode.Value);
     }

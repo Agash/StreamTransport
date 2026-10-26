@@ -90,7 +90,10 @@ internal sealed unsafe partial class V4l2VideoInput : IVideoInput, IVideoFrameRe
                 mode.PixelFormat,
                 (int)height
             );
-            SetRate(mode.FrameRate);
+            if (mode.FrameRate is { } rate)
+            {
+                SetRate(rate);
+            }
             _slots = Allocate(_planeBuffers.Max() + 1, out bool exported);
             _canShare =
                 exported

@@ -30,7 +30,7 @@ public sealed class SpoutVideoInputProvider(ILoggerFactory? loggerFactory = null
                     s.Name,
                     s.Name,
                     MediaInputKind.Application,
-                    []
+                    Modes(s)
                 )),
         ]);
 
@@ -48,10 +48,26 @@ public sealed class SpoutVideoInputProvider(ILoggerFactory? loggerFactory = null
                     new SpoutVideoSourceOptions { SenderName = input.Id },
                     loggerFactory
                 ),
-                input
+                input,
+                input.Modes.IsDefaultOrEmpty ? null : input.Modes[0]
             )
         );
     }
+
+    // A sender's texture as it stands, so a session knows the picture's size before the first frame (an
+    // alpha packing is chosen by it). Spout states no frame rate (a sender counts frames, and the Spout SDK's
+    // own rate is measured from that count), so the rate is the producer's, measured from its frames.
+    private static ImmutableArray<VideoInputMode> Modes(SpoutSenderInfo sender) =>
+        sender.Width > 0 && sender.Height > 0
+            ?
+            [
+                new VideoInputMode(
+                    sender.Format == SpoutFormat.Rgba8Unorm ? PixelFormat.Rgba : PixelFormat.Bgra,
+                    new VideoSize(sender.Width, sender.Height),
+                    FrameRate: null
+                ),
+            ]
+            : [];
 }
 
 /// <summary>Received video published as a Spout sender.</summary>

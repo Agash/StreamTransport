@@ -404,7 +404,7 @@ internal sealed class TestSignalVideoInput : IVideoInput
     {
         VideoInputMode mode = Mode!.Value;
         VideoSize size = mode.Size;
-        var period = TimeSpan.FromSeconds(1 / mode.FrameRate);
+        var period = TimeSpan.FromSeconds(1 / (mode.FrameRate ?? 30));
         bool bgra = mode.PixelFormat == PixelFormat.Bgra;
         byte[] picture = new byte[size.Width * size.Height * 3 / 2];
         byte[] packed = bgra ? new byte[size.Width * size.Height * 4] : [];
