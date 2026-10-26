@@ -20,6 +20,9 @@ public sealed class TestSignalGenerator
     /// <summary>The bits of wall time in the barcode: milliseconds since the Unix epoch, modulo 2^40.</summary>
     public const int BarcodeBits = 40;
 
+    // The background's luma: the one level nothing drawn over it uses, so BGRA can make it transparent.
+    private const byte Background = 48;
+
     /// <summary>The click's frequency.</summary>
     public const double ClickHertz = 1000;
 
@@ -95,7 +98,7 @@ public sealed class TestSignalGenerator
     {
         int w = size.Width;
         int h = size.Height;
-        luma[..(w * h)].Fill(48);
+        luma[..(w * h)].Fill(Background);
         chroma[..(w * (h / 2))].Fill(128);
 
         // A bar sweeping across once a second shows motion.
@@ -115,6 +118,62 @@ public sealed class TestSignalGenerator
         }
 
         WriteBarcode(luma, size, (ulong)WallTime(time).ToUnixTimeMilliseconds());
+    }
+
+    /// <summary>
+    /// Draws one BGRA picture with alpha, as an avatar source sends one: the NV12 picture's luma as grey,
+    /// with the background transparent and the bar, flash and barcode opaque. The grey under the
+    /// transparent background stays, so the picture reads the same with or without its alpha.
+    /// </summary>
+    /// <param name="pixels">The picture, <paramref name="stride"/> bytes per row.</param>
+    /// <param name="stride">The row length in bytes, at least four per pixel.</param>
+    /// <param name="scratch">An NV12 picture's worth of memory to draw into first.</param>
+    /// <param name="size">The picture size.</param>
+    /// <param name="time">The frame's capture time.</param>
+    /// <param name="duration">How long it shows.</param>
+    public void DrawBgra(
+        Span<byte> pixels,
+        int stride,
+        Span<byte> scratch,
+        VideoSize size,
+        MediaTime time,
+        TimeSpan duration
+    )
+    {
+        int w = size.Width;
+        int h = size.Height;
+        ArgumentOutOfRangeException.ThrowIfLessThan(stride, w * 4);
+        Span<byte> luma = scratch[..(w * h)];
+        Draw(luma, scratch[(w * h)..], size, time, duration);
+        for (int y = 0; y < h; y++)
+        {
+            ReadOnlySpan<byte> source = luma.Slice(y * w, w);
+            Span<byte> row = pixels.Slice(y * stride, w * 4);
+            for (int x = 0; x < w; x++)
+            {
+                byte value = source[x];
+                byte grey = s_fullRange[value];
+                int at = x * 4;
+                row[at] = grey;
+                row[at + 1] = grey;
+                row[at + 2] = grey;
+                row[at + 3] = value == Background ? (byte)0 : (byte)255;
+            }
+        }
+    }
+
+    // Video-range luma as full-range grey, for drawing BGRA from the NV12 picture.
+    private static readonly byte[] s_fullRange = BuildFullRange();
+
+    private static byte[] BuildFullRange()
+    {
+        byte[] table = new byte[256];
+        for (int i = 0; i < table.Length; i++)
+        {
+            table[i] = (byte)Math.Clamp((int)Math.Round((i - 16) * 255.0 / 219), 0, 255);
+        }
+
+        return table;
     }
 
     /// <summary>Fills interleaved float samples: silence, and the click at each whole second.</summary>
@@ -232,6 +291,13 @@ public sealed class TestSignalVideoInputProvider(TestSignalGenerator generator)
         new(PixelFormat.Nv12, new VideoSize(1280, 720), 60),
         new(PixelFormat.Nv12, new VideoSize(1280, 720), 30),
         new(PixelFormat.Nv12, new VideoSize(640, 360), 30),
+        // BGRA with alpha, as an avatar source sends: NV12 is cheaper to encode, so it is chosen unless
+        // a request asks for BGRA.
+        new(PixelFormat.Bgra, new VideoSize(1920, 1080), 60),
+        new(PixelFormat.Bgra, new VideoSize(1920, 1080), 30),
+        new(PixelFormat.Bgra, new VideoSize(1280, 720), 60),
+        new(PixelFormat.Bgra, new VideoSize(1280, 720), 30),
+        new(PixelFormat.Bgra, new VideoSize(640, 360), 30),
     ];
 
     /// <inheritdoc/>
@@ -329,7 +395,9 @@ internal sealed class TestSignalVideoInput : IVideoInput
         VideoInputMode mode = Mode!.Value;
         VideoSize size = mode.Size;
         var period = TimeSpan.FromSeconds(1 / mode.FrameRate);
+        bool bgra = mode.PixelFormat == PixelFormat.Bgra;
         byte[] picture = new byte[size.Width * size.Height * 3 / 2];
+        byte[] packed = bgra ? new byte[size.Width * size.Height * 4] : [];
         using PeriodicTimer timer = new(period, _generator.TimeProvider);
         try
         {
@@ -340,6 +408,25 @@ internal sealed class TestSignalVideoInput : IVideoInput
                 // instead leaves up to a period after its own capture time, and a late tick would send
                 // the frames it missed in a burst.
                 MediaTime time = _generator.Clock.Now;
+                if (bgra)
+                {
+                    _generator.DrawBgra(packed, size.Width * 4, picture, size, time, period);
+                    var bgraFrame = VideoFrame.FromPlanes(
+                        new VideoFormat(PixelFormat.Bgra, size.Width, size.Height),
+                        MediaTimestamp.Captured(time),
+                        packed,
+                        size.Width * 4,
+                        color: VideoColor.Bt709,
+                        duration: period
+                    );
+                    foreach (IVideoFrameConsumer consumer in _consumers)
+                    {
+                        consumer.OnFrame(in bgraFrame);
+                    }
+
+                    continue;
+                }
+
                 Span<byte> luma = picture.AsSpan(0, size.Width * size.Height);
                 _generator.Draw(luma, picture.AsSpan(luma.Length), size, time, period);
                 var frame = VideoFrame.FromPlanes(

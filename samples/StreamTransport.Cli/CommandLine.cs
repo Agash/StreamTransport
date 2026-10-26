@@ -47,7 +47,8 @@ internal sealed record CommandLine(
                                                 output (or measured), a browser test page at /
         streamtransport analyze <file>          the A/V offset of the test signal in a recording, such as
                                                 OBS's, at the recording's presentation times
-        streamtransport feed <input> <output>   video from an input straight to an output, such as
+        streamtransport feed <input> <output> [--pixel-format <f>]
+                                                video from an input straight to an output, such as
                                                 feed test v4l2:/dev/video42 for a webcam showing the test signal
         streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
 
@@ -61,6 +62,8 @@ internal sealed record CommandLine(
                              none
           --size <WxH>       the capture size asked of a camera
           --fps <rate>       the capture rate asked of a camera
+          --pixel-format <f> the pixel format asked of the input, such as nv12 or bgra
+                             (the test signal's bgra carries alpha)
           --measure          subscribe to a test signal and report A/V offset and latency;
                              with --video the output still shows it (GPU frames unmeasured)
           --profile <name>   interactive | screen | irl | avatar
@@ -94,8 +97,9 @@ internal sealed record CommandLine(
             );
         }
 
-        if (args is ["feed", string input, string output])
+        if (args is ["feed", string input, string output, .. string[] feedOptions])
         {
+            Dictionary<string, string?> feedNamed = Named(feedOptions);
             return new CommandLine(
                 false,
                 true,
@@ -106,7 +110,12 @@ internal sealed record CommandLine(
                 MediaSessionOptions.For(MediaProfile.InteractiveP2P),
                 false,
                 RepositoryFFmpeg(),
-                new VideoInputRequest { Size = new VideoSize(1280, 720), FrameRate = 30 },
+                new VideoInputRequest
+                {
+                    Size = new VideoSize(1280, 720),
+                    FrameRate = 30,
+                    PixelFormat = PixelFormatOption(feedNamed),
+                },
                 false,
                 output
             );
@@ -132,21 +141,7 @@ internal sealed record CommandLine(
             throw new FormatException("Say list, serve, publish or subscribe first.");
         }
 
-        Dictionary<string, string?> named = new(StringComparer.Ordinal);
-        for (int i = 1; i < args.Length; i++)
-        {
-            string key = args[i];
-            if (!key.StartsWith("--", StringComparison.Ordinal))
-            {
-                throw new FormatException($"Unexpected '{key}'.");
-            }
-
-            bool flag = key is "--verbose" or "--measure" or "--insecure";
-            named[key[2..]] =
-                flag ? null
-                : i + 1 < args.Length ? args[++i]
-                : throw new FormatException($"{key} needs a value.");
-        }
+        Dictionary<string, string?> named = Named(args.AsSpan(1));
 
         MediaProfile profile = Choice(named, "profile") switch
         {
@@ -218,6 +213,7 @@ internal sealed record CommandLine(
             FrameRate = Value(named, "fps") is { } fps
                 ? double.Parse(fps, CultureInfo.InvariantCulture)
                 : null,
+            PixelFormat = PixelFormatOption(named),
         };
         return new CommandLine(
             false,
@@ -266,6 +262,36 @@ internal sealed record CommandLine(
         OperatingSystem.IsWindows() ? "spout"
         : OperatingSystem.IsMacOS() ? "syphon"
         : "pipewire";
+
+    // Options as --name value pairs, with the few flags that take none.
+    private static Dictionary<string, string?> Named(ReadOnlySpan<string> options)
+    {
+        Dictionary<string, string?> named = new(StringComparer.Ordinal);
+        for (int i = 0; i < options.Length; i++)
+        {
+            string key = options[i];
+            if (!key.StartsWith("--", StringComparison.Ordinal))
+            {
+                throw new FormatException($"Unexpected '{key}'.");
+            }
+
+            bool flag = key is "--verbose" or "--measure" or "--insecure";
+            named[key[2..]] =
+                flag ? null
+                : i + 1 < options.Length ? options[++i]
+                : throw new FormatException($"{key} needs a value.");
+        }
+
+        return named;
+    }
+
+    private static PixelFormat? PixelFormatOption(Dictionary<string, string?> named) =>
+        Value(named, "pixel-format") is { } format
+            ? Enum.TryParse(format, ignoreCase: true, out PixelFormat parsed)
+            && Enum.IsDefined(parsed)
+                ? parsed
+                : throw new FormatException($"No pixel format '{format}'.")
+            : null;
 
     private static string? Value(Dictionary<string, string?> named, string key) =>
         named.TryGetValue(key, out string? value) ? value : null;

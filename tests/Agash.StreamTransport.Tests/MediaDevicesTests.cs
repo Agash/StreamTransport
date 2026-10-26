@@ -264,6 +264,41 @@ public sealed class TestSignalTests
     }
 
     [TestMethod]
+    public void DrawBgra_BackgroundIsTransparentAndTheBarcodeOpaque()
+    {
+        var generator = new TestSignalGenerator();
+        VideoSize size = new(640, 360);
+        byte[] scratch = new byte[size.Width * size.Height * 3 / 2];
+        byte[] pixels = new byte[size.Width * size.Height * 4];
+
+        generator.DrawBgra(
+            pixels,
+            size.Width * 4,
+            scratch,
+            size,
+            generator.Origin + TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(33)
+        );
+
+        // The barcode's first row is opaque; the middle of the picture, away from the bar, is not.
+        Assert.AreEqual(255, pixels[3]);
+        int background = ((size.Height / 2) * size.Width * 4) + (2 * 4);
+        Assert.AreEqual(0, pixels[background + 3]);
+        Assert.AreEqual(pixels[background], pixels[background + 1], "grey keeps B, G and R equal");
+
+        // The NV12 drawing it came from still carries the wall time.
+        Assert.IsTrue(
+            TestSignalGenerator.TryReadBarcode(
+                scratch,
+                size.Width,
+                size,
+                DateTimeOffset.UtcNow,
+                out _
+            )
+        );
+    }
+
+    [TestMethod]
     public void Barcode_IsNotReadFromAnotherPicture()
     {
         VideoSize size = new(640, 360);
