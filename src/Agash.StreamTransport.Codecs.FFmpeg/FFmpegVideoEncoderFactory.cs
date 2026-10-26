@@ -341,12 +341,21 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                     || TryExercise(codec, id, adapter, working[0], baselineOptions)
                 );
         bool reconfigurable = codec.SupportsRateControlChanges;
-        LogProbeSucceeded(_logger, codec.Name, adapter?.Name ?? "default", reconfigurable, forced);
+        VideoSize largest = MaximumSize(codec, id, adapter, working[0]);
+        LogProbeSucceeded(
+            _logger,
+            codec.Name,
+            adapter?.Name ?? "default",
+            reconfigurable,
+            forced,
+            largest.Width,
+            largest.Height
+        );
         return new Probe(
             surfacesOnly
                 ? working.DrainToImmutable()
                 : [.. candidates.SkipWhile(f => !working.Contains(f))],
-            MaximumSize(adapter),
+            largest,
             reconfigurable,
             forced,
             constrainedBaseline
@@ -386,21 +395,23 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         VideoCodecId id,
         FF.GpuAdapter? adapter,
         PixelFormat format,
-        ImmutableDictionary<string, string>? profileOptions = null
+        ImmutableDictionary<string, string>? profileOptions = null,
+        VideoSize? frameSize = null,
+        int frames = 3
     )
     {
-        const int size = 256;
-        VideoSize frameSize = new(size, size);
-        byte[] pixels = new byte[PlaneLayout.PackedSize(format, frameSize)];
+        VideoSize size = frameSize ?? new VideoSize(256, 256);
+        int area = size.Width * size.Height;
+        byte[] pixels = new byte[PlaneLayout.PackedSize(format, size)];
         if (format is PixelFormat.Nv12 or PixelFormat.I420)
         {
-            pixels.AsSpan(0, size * size).Fill(16);
-            pixels.AsSpan(size * size).Fill(128);
+            pixels.AsSpan(0, area).Fill(16);
+            pixels.AsSpan(area).Fill(128);
         }
 
         VideoEncoderConfiguration configuration = new(
             new VideoCodecFormat(id),
-            frameSize,
+            size,
             new RateTarget(1_000_000, 30)
         );
         VideoEncoderInfo provisional = new(
@@ -409,7 +420,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             VideoConstraints.Cpu(format),
             2,
             2,
-            frameSize,
+            size,
             ReconfigurableRate: false
         );
         using FFmpegVideoEncoder encoder = new(
@@ -423,11 +434,11 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
         );
         KeyframeRecorder consumer = new();
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < frames; i++)
         {
             VideoFrame frame = new(
-                new CpuImage(PlaneLayout.Packed(format, frameSize)),
-                new VideoFormat(format, size, size),
+                new CpuImage(PlaneLayout.Packed(format, size)),
+                new VideoFormat(format, size.Width, size.Height),
                 MediaTimestamp.Observed(new MediaTime(i * 33_333_333L)),
                 pixels
             );
@@ -503,7 +514,71 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             || device.CanD3D12Encode(codec);
     }
 
-    private VideoSize MaximumSize(FF.GpuAdapter? adapter)
+    // The largest picture the encoder takes: what its device's frames allow, narrowed to what the encoder
+    // opens at. Hardware encoders stop short of their textures' limits (every H.264 encoder here at 4096
+    // columns, against 16384-texel textures), and a packed alpha frame doubles one side, so each side is
+    // tried on a thin picture, which keeps the probe cheap.
+    private VideoSize MaximumSize(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format
+    )
+    {
+        VideoSize device = DeviceMaximumSize(adapter);
+        return new VideoSize(
+            Largest(device.Width, side => new VideoSize(side, Thin)),
+            Largest(device.Height, side => new VideoSize(Thin, side))
+        );
+
+        int Largest(int limit, Func<int, VideoSize> picture)
+        {
+            foreach (int side in s_sides)
+            {
+                if (side <= limit && Opens(codec, id, adapter, format, picture(side)))
+                {
+                    return side;
+                }
+            }
+
+            return Math.Min(limit, s_sides[^1]);
+        }
+    }
+
+    // The sides tried, largest first: the 8K and 4K limits encoders have, and 2048, which every one takes.
+    private static readonly int[] s_sides = [8192, 4096, 2048];
+
+    // The other side of a size probe: thin, so a probe at 8192 costs little, and above every encoder's
+    // minimum.
+    private const int Thin = 256;
+
+    private bool Opens(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format,
+        VideoSize size
+    )
+    {
+        try
+        {
+            _ = Exercise(codec, id, adapter, format, frameSize: size, frames: 1);
+            return true;
+        }
+        catch (Exception ex)
+            when (ex
+                    is FF.FFmpegException
+                        or NotSupportedException
+                        or InvalidOperationException
+                        or ArgumentException
+            )
+        {
+            // Deliberately not logged: a size the encoder refuses is what this probe looks for.
+            return false;
+        }
+    }
+
+    private VideoSize DeviceMaximumSize(FF.GpuAdapter? adapter)
     {
         const int fallback = 8192;
         if (_spec.DeviceType is not { } type)
@@ -573,14 +648,16 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
     [LoggerMessage(
         EventId = 1010,
         Level = LogLevel.Debug,
-        Message = "{Encoder} works on {Adapter} (rate changes while running: {Reconfigurable}, forced keyframes: {ForcesKeyframes})"
+        Message = "{Encoder} works on {Adapter} (rate changes while running: {Reconfigurable}, forced keyframes: {ForcesKeyframes}, largest picture {Width}x{Height})"
     )]
     private static partial void LogProbeSucceeded(
         ILogger logger,
         string encoder,
         string adapter,
         bool reconfigurable,
-        bool forcesKeyframes
+        bool forcesKeyframes,
+        int width,
+        int height
     );
 
     [LoggerMessage(
