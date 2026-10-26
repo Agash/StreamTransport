@@ -61,14 +61,16 @@ jobs:
           ls -l native/ffmpeg/${{ matrix.rid }}/
 
       # The macOS package targets net11.0-macos, which needs the macos workload.
-      # The manifests come from .github/workloads.json, taken from the 11.0.100-rc.2 workload set.
-      # A plain install resolves the whole set, whose Android manifest (37.2.0-rc.2.84) is missing
-      # from nuget.org. The packs require Xcode 27.0, the xcode-27 image's default.
+      # The macOS packs require Xcode 27.0 exactly, and the image's default Xcode moves with image
+      # updates, so the job selects it by path.
+      - name: Select Xcode 27.0
+        if: runner.os == 'macOS'
+        run: echo "DEVELOPER_DIR=/Applications/Xcode_27.0.app/Contents/Developer" >> "$GITHUB_ENV"
       - name: Install macos workload (macOS)
         if: runner.os == 'macOS'
         run: |
           xcodebuild -version
-          dotnet workload install macos --from-rollback-file .github/workloads.json
+          dotnet workload install macos
 
       - name: Restore
         run: dotnet restore StreamTransport.slnx
