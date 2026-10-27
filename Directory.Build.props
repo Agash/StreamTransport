@@ -38,6 +38,11 @@
     <UseLocalFFmpegInterop
       Condition="'$(UseLocalFFmpegInterop)' == '' and Exists('$(FFmpegInteropProject)')"
       >true</UseLocalFFmpegInterop>
+    <OpusInteropProject Condition="'$(OpusInteropProject)' == ''"
+      >$(MSBuildThisFileDirectory)../../../Opus.Interop/src/Opus.Interop/Opus.Interop.csproj</OpusInteropProject>
+    <UseLocalOpusInterop
+      Condition="'$(UseLocalOpusInterop)' == '' and Exists('$(OpusInteropProject)')"
+      >true</UseLocalOpusInterop>
     <Spout2NetProject Condition="'$(Spout2NetProject)' == ''"
       >$(MSBuildThisFileDirectory)../Spout2.NET/src/Spout2.NET/Spout2.NET.csproj</Spout2NetProject>
     <UseLocalSpout2Net Condition="'$(UseLocalSpout2Net)' == '' and Exists('$(Spout2NetProject)')"

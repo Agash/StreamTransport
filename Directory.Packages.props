@@ -19,6 +19,7 @@
     <PackageVersion Include="System.IO.Hashing" Version="11.0.0-rc.3.26522.148" />
     <PackageVersion Include="Dtls.Core" Version="0.1.0-alpha.1" />
     <PackageVersion Include="FFmpeg.Interop" Version="0.1.0-alpha.1" />
+    <PackageVersion Include="Opus.Interop" Version="0.1.0-alpha.1" />
     <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.367" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.5" />
     <PackageVersion Include="MinVer" Version="8.0.0" />
@@ -32,7 +33,6 @@
   </ItemGroup>
   <ItemGroup>
     <!-- Managed Opus. -->
-    <PackageVersion Include="Concentus" Version="2.2.2" />
     <!-- Platform GPU capture and sharing, for the platform packages. -->
     <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha.3" />
     <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.7" />

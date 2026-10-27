@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
-using Concentus;
+using Opus.Interop;
 
 namespace Agash.StreamTransport.Codecs.Opus;
 
@@ -14,9 +14,9 @@ public sealed class OpusAudioDecoder : IAudioDecoder, IAudioLossRecovery
     private const int Channels = 2;
 
     // Opus' longest packet is 120 ms.
-    private const int MaxSamples = SampleRate * 120 / 1000;
+    private const int MaxSamples = OpusPacket.MaxSamplesPerChannel;
 
-    private readonly IOpusDecoder _decoder = OpusCodecFactory.CreateDecoder(SampleRate, Channels);
+    private readonly OpusDecoder _decoder = new(SampleRate, Channels);
     private readonly float[] _pcm = new float[MaxSamples * Channels];
     private readonly Lock _gate = new();
     private bool _disposed;
@@ -39,7 +39,7 @@ public sealed class OpusAudioDecoder : IAudioDecoder, IAudioLossRecovery
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            int samples = _decoder.Decode(frame.Data, _pcm, MaxSamples, decode_fec: false);
+            int samples = _decoder.Decode(frame.Data, _pcm);
             Deliver(samples, frame.Timestamp, consumer);
         }
     }
@@ -56,7 +56,7 @@ public sealed class OpusAudioDecoder : IAudioDecoder, IAudioLossRecovery
             int step = SampleRate / 400;
             int wanted = (int)
                 Math.Clamp(new ClockRate(SampleRate).ToTicks(duration), step, MaxSamples);
-            int samples = _decoder.Decode([], _pcm, wanted / step * step, decode_fec: false);
+            int samples = _decoder.Decode([], _pcm.AsSpan(0, wanted / step * step * Channels));
             Deliver(samples, timestamp, consumer);
         }
     }
@@ -79,7 +79,10 @@ public sealed class OpusAudioDecoder : IAudioDecoder, IAudioLossRecovery
                     SampleRate / 400,
                     MaxSamples
                 );
-            int samples = _decoder.Decode(next.Data, _pcm, wanted, decode_fec: true);
+            int samples = _decoder.DecodeForwardErrorCorrection(
+                next.Data,
+                _pcm.AsSpan(0, wanted * Channels)
+            );
             Deliver(samples, lostTimestamp, consumer);
         }
     }
@@ -92,7 +95,7 @@ public sealed class OpusAudioDecoder : IAudioDecoder, IAudioLossRecovery
             if (!_disposed)
             {
                 _disposed = true;
-                (_decoder as IDisposable)?.Dispose();
+                _decoder.Dispose();
             }
         }
     }

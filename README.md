@@ -134,7 +134,7 @@ with the role and the outcome.
 | `Agash.StreamTransport.Adaptation` | Transport-independent adaptation: the congestion-controller contract and the SCReAM controller, delivery tracking with a reordering window, pacing by traffic class, and the media-rate allocator that leaves room for retransmission and FEC. |
 | `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, input, output, source and sink contracts. |
 | `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, FFmpeg capture devices, with natives. |
-| `Agash.StreamTransport.Codecs.Opus` | Opus on Concentus. |
+| `Agash.StreamTransport.Codecs.Opus` | Opus on libopus (Opus.Interop). |
 | `Agash.StreamTransport.Windows` | Direct3D 12 processors, Media Foundation cameras, Spout, WASAPI. |
 | `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, AVFoundation cameras, Syphon, Core Audio. |
 | `Agash.StreamTransport.Linux` | Vulkan processors on DMA-BUFs, V4L2 cameras and v4l2loopback output, PipeWire video and audio. |

@@ -12,7 +12,7 @@ public sealed class OpusAudioEncoderFactory(OpusOptions? options = null) : IAudi
         new([48_000, 24_000, 16_000, 12_000, 8_000], [SampleFormat.F32, SampleFormat.S16], 2);
 
     // After Constraints, which it reads during type initialisation.
-    private static readonly AudioEncoderInfo Info = new("Concentus Opus", Constraints);
+    private static readonly AudioEncoderInfo Info = new("libopus", Constraints);
 
     /// <inheritdoc/>
     public int Rank => 100;
@@ -37,7 +37,7 @@ public sealed class OpusAudioEncoderFactory(OpusOptions? options = null) : IAudi
 public sealed class OpusAudioDecoderFactory : IAudioDecoderFactory
 {
     private static readonly AudioDecoderInfo Info = new(
-        "Concentus Opus",
+        "libopus",
         new AudioFormat(SampleFormat.F32, 48_000, 2)
     );
 

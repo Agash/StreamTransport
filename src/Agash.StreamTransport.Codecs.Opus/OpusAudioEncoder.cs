@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
-using Concentus;
-using Concentus.Enums;
+using Opus.Interop;
 
 namespace Agash.StreamTransport.Codecs.Opus;
 
@@ -21,9 +20,12 @@ public sealed class OpusAudioEncoder : IAudioEncoder
     // Opus' largest packet is 1275 bytes per frame; 4000 covers any frame duration.
     private const int MaxPacketBytes = 4000;
 
-    private readonly IOpusEncoder _encoder;
+    private readonly OpusEncoder _encoder;
     private readonly int _frameSamples;
-    private readonly float[] _pending;
+
+    // A frame's PCM as it arrives, in the input's own sample format: libopus encodes 16-bit and float
+    // samples alike, so nothing is converted.
+    private readonly byte[] _pending;
     private readonly byte[] _packet = new byte[MaxPacketBytes];
     private readonly TimeSpan _frameDuration;
     private readonly Lock _gate = new();
@@ -76,17 +78,20 @@ public sealed class OpusAudioEncoder : IAudioEncoder
         Input = input;
         _frameDuration = duration;
         _frameSamples = (int)(input.SampleRate * duration.TotalSeconds);
-        _pending = new float[_frameSamples * input.Channels];
-        _encoder = OpusCodecFactory.CreateEncoder(
+        _pending = new byte[_frameSamples * input.BytesPerFrame];
+        _encoder = new OpusEncoder(
             input.SampleRate,
             input.Channels,
-            speech ? OpusApplication.OPUS_APPLICATION_VOIP : OpusApplication.OPUS_APPLICATION_AUDIO
-        );
-        _encoder.Bitrate = Math.Clamp(configuration.BitsPerSecond, 6_000, 510_000);
-        _encoder.Complexity = Math.Clamp(options.Complexity, 0, 10);
-        _encoder.UseInbandFEC = configuration.ExpectedLossPercent > 0;
-        _encoder.PacketLossPercent = Math.Clamp(configuration.ExpectedLossPercent, 0, 100);
-        _encoder.SignalType = speech ? OpusSignal.OPUS_SIGNAL_VOICE : OpusSignal.OPUS_SIGNAL_MUSIC;
+            speech ? OpusApplication.Voip : OpusApplication.Audio
+        )
+        {
+            Bitrate = Math.Clamp(configuration.BitsPerSecond, 6_000, 510_000),
+            Complexity = Math.Clamp(options.Complexity, 0, 10),
+            InbandFec =
+                configuration.ExpectedLossPercent > 0 ? OpusInbandFec.On : OpusInbandFec.Off,
+            PacketLossPercentage = Math.Clamp(configuration.ExpectedLossPercent, 0, 100),
+            Signal = speech ? OpusSignal.Voice : OpusSignal.Music,
+        };
     }
 
     /// <inheritdoc/>
@@ -123,29 +128,17 @@ public sealed class OpusAudioEncoder : IAudioEncoder
                 }
 
                 int count = Math.Min(total - taken, _frameSamples - _pendingSamples);
-                Span<float> into = _pending.AsSpan(_pendingSamples * channels, count * channels);
-                ReadOnlySpan<byte> from = frame.Samples.Slice(
-                    taken * Input.BytesPerFrame,
-                    count * Input.BytesPerFrame
-                );
-                if (Input.SampleFormat == SampleFormat.F32)
-                {
-                    MemoryMarshal.Cast<byte, float>(from).CopyTo(into);
-                }
-                else
-                {
-                    ReadOnlySpan<short> shorts = MemoryMarshal.Cast<byte, short>(from);
-                    for (int i = 0; i < shorts.Length; i++)
-                    {
-                        into[i] = shorts[i] / 32768f;
-                    }
-                }
-
+                frame
+                    .Samples.Slice(taken * Input.BytesPerFrame, count * Input.BytesPerFrame)
+                    .CopyTo(_pending.AsSpan(_pendingSamples * Input.BytesPerFrame));
                 _pendingSamples += count;
                 taken += count;
                 if (_pendingSamples == _frameSamples)
                 {
-                    int length = _encoder.Encode(_pending, _frameSamples, _packet, _packet.Length);
+                    int length =
+                        Input.SampleFormat == SampleFormat.F32
+                            ? _encoder.Encode(MemoryMarshal.Cast<byte, float>(_pending), _packet)
+                            : _encoder.Encode(MemoryMarshal.Cast<byte, short>(_pending), _packet);
                     consumer.OnEncoded(
                         new EncodedAudioFrame(
                             _packet.AsSpan(0, length),
@@ -179,7 +172,7 @@ public sealed class OpusAudioEncoder : IAudioEncoder
             if (!_disposed)
             {
                 _disposed = true;
-                (_encoder as IDisposable)?.Dispose();
+                _encoder.Dispose();
             }
         }
     }
