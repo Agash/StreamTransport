@@ -1469,6 +1469,20 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
     }
 
+    // A compound's feedback entries, kept per thread: the ICE agent may receive on several sockets at
+    // once, and a list for each compound would be allocated for every RTCP packet.
+    [ThreadStatic]
+    private static List<ushort>? t_lost;
+
+    [ThreadStatic]
+    private static List<(uint, byte)>? t_fir;
+
+    [ThreadStatic]
+    private static List<TmmbEntry>? t_tmmb;
+
+    // IsOwnSource as a delegate, made once.
+    private Func<uint, bool>? _isOwnSource;
+
     private void ReceiveRtcp(Memory<byte> data)
     {
         if (_srtp is not { } srtp)
@@ -1484,22 +1498,25 @@ public sealed partial class PeerConnection : IAsyncDisposable
         }
 
         ReadOnlySpan<byte> rtcp = span[..length];
-        if (RtcpTimeoutFeedback.Resets(rtcp, IsOwnSource))
+        if (RtcpTimeoutFeedback.Resets(rtcp, _isOwnSource ??= IsOwnSource))
         {
             BreakerOnFeedback();
         }
 
         // Every feedback element of the compound, which may carry several for different SSRCs (RFC 8108).
-        List<ushort>? lost = null;
-        List<(uint, byte)>? fir = null;
-        List<TmmbEntry>? tmmb = null;
+        List<ushort> lost = t_lost ??= [];
+        List<(uint, byte)> fir = t_fir ??= [];
+        List<TmmbEntry> tmmb = t_tmmb ??= [];
+        lost.Clear();
+        fir.Clear();
+        tmmb.Clear();
         foreach (RtcpElement element in RtcpCompound.Enumerate(rtcp))
         {
             if (RtcpFeedback.TryReadPli(element, out uint pliSsrc))
             {
                 KeyframeRequested?.Invoke(pliSsrc);
             }
-            else if (RtcpFeedback.TryReadNack(element, out uint nackSsrc, lost ??= []))
+            else if (RtcpFeedback.TryReadNack(element, out uint nackSsrc, lost))
             {
                 if (lost.Count > 0)
                 {
@@ -1508,12 +1525,12 @@ public sealed partial class PeerConnection : IAsyncDisposable
 
                 lost.Clear();
             }
-            else if (RtcpFeedback.TryReadFir(element, out uint requester, fir ??= []))
+            else if (RtcpFeedback.TryReadFir(element, out uint requester, fir))
             {
                 OnFullIntraRequests(requester, fir);
                 fir.Clear();
             }
-            else if (RtcpFeedback.TryReadTmmbr(element, out uint limiter, tmmb ??= []))
+            else if (RtcpFeedback.TryReadTmmbr(element, out uint limiter, tmmb))
             {
                 OnTmmbr(limiter, tmmb);
                 tmmb.Clear();
