@@ -1,8 +1,9 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading.Channels;
+using System.Runtime.CompilerServices;
 using Agash.StreamTransport.Adaptation;
+using Agash.StreamTransport.Threading;
 
 namespace Agash.StreamTransport.WebRtc.Ice;
 
@@ -30,7 +31,16 @@ internal sealed class EcnUdpSocket : IIceSocket
     private readonly Socket _socket;
     private readonly bool _ipv6;
     private readonly Thread _recvThread;
-    private readonly Channel<Received> _channel;
+    private const int Queued = 64;
+
+    // The datagrams the receive thread has read and the reader has not, oldest first. When the reader
+    // falls behind, the oldest is dropped: the receive thread never blocks, and a stale datagram is
+    // expendable. Guarded by itself; the reader waits on _arrived, which allocates nothing per wait.
+    private readonly Received[] _queue = new Received[Queued];
+    private readonly WakeSignal _arrived = new();
+    private int _head;
+    private int _count;
+    private bool _completed;
     private readonly WindowsQosFlows? _qos = OperatingSystem.IsWindows() ? new() : null;
     private volatile bool _stopping;
 
@@ -42,15 +52,6 @@ internal sealed class EcnUdpSocket : IIceSocket
         _socket.Blocking = true; // the receive thread blocks in native recvmsg/WSARecvMsg.
 
         EcnInterop.EnableEcnReceive(_socket, _ipv6);
-
-        _channel = Channel.CreateBounded<Received>(
-            new BoundedChannelOptions(64)
-            {
-                SingleReader = true,
-                SingleWriter = true,
-                FullMode = BoundedChannelFullMode.DropOldest, // never block the receive thread; stale datagrams are expendable.
-            }
-        );
 
         _recvThread = new Thread(ReceiveLoop)
         {
@@ -98,25 +99,95 @@ internal sealed class EcnUdpSocket : IIceSocket
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask<IceReceiveResult> ReceiveAsync(
+    public ValueTask<IceReceiveResult> ReceiveAsync(
+        Memory<byte> buffer,
+        CancellationToken cancellationToken
+    ) =>
+        TryTake(buffer.Span, out IceReceiveResult result)
+            ? new ValueTask<IceReceiveResult>(result)
+            : WaitAndReceiveAsync(buffer, cancellationToken);
+
+    // Pooled, so a reader that waits for each datagram does not allocate a state machine every time.
+    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+    private async ValueTask<IceReceiveResult> WaitAndReceiveAsync(
         Memory<byte> buffer,
         CancellationToken cancellationToken
     )
     {
-        Received item;
-        try
+        while (true)
         {
-            item = await _channel.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            _ = await _arrived.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (TryTake(buffer.Span, out IceReceiveResult result))
+            {
+                return result;
+            }
         }
-        catch (ChannelClosedException)
+    }
+
+    private bool TryTake(Span<byte> buffer, out IceReceiveResult result)
+    {
+        Received item;
+        lock (_queue)
         {
-            throw new ObjectDisposedException(nameof(EcnUdpSocket));
+            if (_count == 0)
+            {
+                result = default;
+                return _completed ? throw new ObjectDisposedException(nameof(EcnUdpSocket)) : false;
+            }
+
+            item = _queue[_head];
+            _queue[_head] = default;
+            _head = (_head + 1) % Queued;
+            _count--;
         }
 
         int len = Math.Min(item.Length, buffer.Length);
-        item.Buffer.AsSpan(0, len).CopyTo(buffer.Span);
+        item.Buffer.AsSpan(0, len).CopyTo(buffer);
         ArrayPool<byte>.Shared.Return(item.Buffer);
-        return new IceReceiveResult(len, item.RemoteEndPoint, item.TrafficClass);
+        result = new IceReceiveResult(len, item.RemoteEndPoint, item.TrafficClass);
+        return true;
+    }
+
+    private void Enqueue(Received item)
+    {
+        byte[]? dropped = null;
+        lock (_queue)
+        {
+            if (_completed)
+            {
+                dropped = item.Buffer;
+            }
+            else
+            {
+                if (_count == Queued)
+                {
+                    dropped = _queue[_head].Buffer;
+                    _head = (_head + 1) % Queued;
+                    _count--;
+                }
+
+                _queue[(_head + _count) % Queued] = item;
+                _count++;
+            }
+        }
+
+        if (dropped is not null)
+        {
+            ArrayPool<byte>.Shared.Return(dropped);
+        }
+
+        _arrived.Signal();
+    }
+
+    // No more datagrams come; the reader takes what is queued, then sees the socket closed.
+    private void Complete()
+    {
+        lock (_queue)
+        {
+            _completed = true;
+        }
+
+        _arrived.Signal();
     }
 
     private void ReceiveLoop()
@@ -164,10 +235,10 @@ internal sealed class EcnUdpSocket : IIceSocket
             }
 
             consecutiveErrors = 0;
-            _channel.Writer.TryWrite(new Received(rented, len, remote, trafficClass));
+            Enqueue(new Received(rented, len, remote, trafficClass));
         }
 
-        _channel.Writer.TryComplete();
+        Complete();
     }
 
     public void Dispose()
@@ -178,13 +249,18 @@ internal sealed class EcnUdpSocket : IIceSocket
         {
             _qos?.Dispose();
         }
-        _channel.Writer.TryComplete();
-
-        // Drain any queued datagrams back to the pool.
-        while (_channel.Reader.TryRead(out Received item))
+        // Queued datagrams go back to the pool; a reader sees the socket closed.
+        lock (_queue)
         {
-            ArrayPool<byte>.Shared.Return(item.Buffer);
+            _completed = true;
+            for (; _count > 0; _count--, _head = (_head + 1) % Queued)
+            {
+                ArrayPool<byte>.Shared.Return(_queue[_head].Buffer);
+                _queue[_head] = default;
+            }
         }
+
+        _arrived.Signal();
     }
 
     private readonly record struct Received(
