@@ -92,7 +92,13 @@ internal static class Bench
     {
         (VideoCodecId codec, List<(byte[] Data, bool Keyframe)> units) = Read(file);
         VideoCodecFormat format = new(codec);
-        IVideoDecoderFactory[] decoders = [.. services.GetServices<IVideoDecoderFactory>()];
+        // The decoder a pipeline would pick: the best ranked that gives the encoder's storage.
+        IVideoDecoderFactory[] decoders =
+        [
+            .. services
+                .GetServices<IVideoDecoderFactory>()
+                .OrderByDescending(static factory => factory.Rank),
+        ];
         foreach (IVideoEncoderFactory encoders in services.GetServices<IVideoEncoderFactory>())
         {
             if (encoders.QueryCapabilities(format, null) is not { } encoderInfo)
