@@ -939,21 +939,28 @@ public sealed partial class IceAgent : IAsyncDisposable
     // Raises what the machine reported and publishes its selection, outside the lock.
     private void Report()
     {
-        List<IceEvent> events = [];
+        // Most reports carry no events and leave the selection as it was; neither allocates then.
+        List<IceEvent>? events = null;
         bool pathChanged;
         bool restartCompleted = false;
         lock (_gate)
         {
             while (_machine.TryPollEvent(out IceEvent iceEvent))
             {
-                events.Add(iceEvent);
+                (events ??= []).Add(iceEvent);
             }
 
             Selection? previous = _selection;
             Selection? next =
                 _machine.Selected is { } pair
                 && _sockets.TryGetValue(pair.Local, out LocalSocket? chosen)
-                    ? new Selection(chosen, pair.Remote, pair.LocalKind, pair.RemoteKind)
+                    ? Selection.Reuse(
+                        previous,
+                        chosen,
+                        pair.Remote,
+                        pair.LocalKind,
+                        pair.RemoteKind
+                    )
                     : null;
 
             // Until a restart selects a pair, the previous generation's carries on; once one is selected
@@ -988,7 +995,8 @@ public sealed partial class IceAgent : IAsyncDisposable
                 ref _standby,
                 _machine.Standby(Now) is { } standby
                 && _sockets.TryGetValue(standby.Local, out LocalSocket? other)
-                    ? new Selection(
+                    ? Selection.Reuse(
+                        _standby,
                         other,
                         standby.Remote,
                         IceCandidateKind.Host,
@@ -1020,6 +1028,11 @@ public sealed partial class IceAgent : IAsyncDisposable
             {
                 LogEventHandlerFailed(exception);
             }
+        }
+
+        if (events is null)
+        {
+            return;
         }
 
         foreach (IceEvent iceEvent in events)
@@ -1221,5 +1234,22 @@ public sealed partial class IceAgent : IAsyncDisposable
         IPEndPoint Remote,
         IceCandidateKind LocalKind,
         IceCandidateKind RemoteKind
-    );
+    )
+    {
+        // The selection there is, when it is this one.
+        public static Selection Reuse(
+            Selection? current,
+            LocalSocket socket,
+            IPEndPoint remote,
+            IceCandidateKind localKind,
+            IceCandidateKind remoteKind
+        ) =>
+            current is not null
+            && ReferenceEquals(current.Socket, socket)
+            && current.Remote.Equals(remote)
+            && current.LocalKind == localKind
+            && current.RemoteKind == remoteKind
+                ? current
+                : new Selection(socket, remote, localKind, remoteKind);
+    }
 }
