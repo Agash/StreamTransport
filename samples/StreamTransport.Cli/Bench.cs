@@ -16,8 +16,12 @@ internal static class Bench
         streamtransport bench decode <file>     every decoder on a recording (.h264, .h265, .obu, or any
                                                 container FFmpeg reads), such as one made with --record
         streamtransport bench encode [--codec h264|h265|av1] [--size WxH] [--fps n] [--frames n]
+                                     [--input <file>]
                                                 every encoder on NV12 from memory, steady and with the rate
-                                                changing every second as congestion control moves it
+                                                changing every second as congestion control moves it; the
+                                                pictures are generated, or raw NV12 frames of --size read
+                                                from --input (as ffmpeg -pix_fmt nv12 -f rawvideo writes),
+                                                to compare with other encoders on the same pictures
         """;
 
     private static readonly VideoStorageKind[] s_storages =
@@ -101,13 +105,30 @@ internal static class Bench
             ? int.Parse(frames, CultureInfo.InvariantCulture)
             : 600;
 
-        byte[][] pictures = Pictures(size, (int)fps);
+        byte[][] pictures = named.TryGetValue("input", out string? inputFile)
+            ? RawPictures(inputFile, size)
+            : Pictures(size, (int)fps);
         foreach (IVideoEncoderFactory factory in services.GetServices<IVideoEncoderFactory>())
         {
             if (factory.QueryCapabilities(new VideoCodecFormat(codec), null) is not { } info)
             {
                 continue;
             }
+
+            // NV12, or I420 converted before timing for an encoder that takes only that.
+            PixelFormat input = info.Input.PixelFormats.Contains(PixelFormat.Nv12)
+                ? PixelFormat.Nv12
+                : PixelFormat.I420;
+            if (!info.Input.PixelFormats.Contains(input))
+            {
+                Console.WriteLine(
+                    $"{info.ImplementationName, -48} takes no 8-bit 4:2:0 frames in memory"
+                );
+                continue;
+            }
+
+            byte[][] given =
+                input == PixelFormat.Nv12 ? pictures : [.. pictures.Select(p => ToI420(p, size))];
 
             foreach (bool changing in new[] { false, true })
             {
@@ -133,10 +154,10 @@ internal static class Bench
                         }
 
                         VideoFrame frame = new(
-                            new CpuImage(PlaneLayout.Packed(PixelFormat.Nv12, size)),
-                            new VideoFormat(PixelFormat.Nv12, size.Width, size.Height),
+                            new CpuImage(PlaneLayout.Packed(input, size)),
+                            new VideoFormat(input, size.Width, size.Height),
                             MediaTimestamp.Observed(new MediaTime((long)(i * 1e9 / fps))),
-                            pictures[i % pictures.Length]
+                            given[i % given.Length]
                         );
                         encoder.Encode(in frame, default, units);
                     }
@@ -219,6 +240,41 @@ internal static class Bench
         }
 
         return (codec, units);
+    }
+
+    // NV12's interleaved chroma split into I420's two planes.
+    private static byte[] ToI420(byte[] nv12, VideoSize size)
+    {
+        int area = size.Width * size.Height;
+        byte[] i420 = new byte[nv12.Length];
+        nv12.AsSpan(0, area).CopyTo(i420);
+        int quarter = area / 4;
+        for (int i = 0; i < quarter; i++)
+        {
+            i420[area + i] = nv12[area + (2 * i)];
+            i420[area + quarter + i] = nv12[area + (2 * i) + 1];
+        }
+
+        return i420;
+    }
+
+    // Raw NV12 frames back to back, as many as the file holds.
+    private static byte[][] RawPictures(string path, VideoSize size)
+    {
+        int frame = size.Width * size.Height * 3 / 2;
+        byte[] file = File.ReadAllBytes(path);
+        if (file.Length < frame)
+        {
+            throw new FormatException($"{path} holds no whole {size.Width}x{size.Height} frame.");
+        }
+
+        byte[][] pictures = new byte[file.Length / frame][];
+        for (int i = 0; i < pictures.Length; i++)
+        {
+            pictures[i] = file.AsSpan(i * frame, frame).ToArray();
+        }
+
+        return pictures;
     }
 
     // A second of pictures with moving detail, so the encoders have something to spend their rate on.
