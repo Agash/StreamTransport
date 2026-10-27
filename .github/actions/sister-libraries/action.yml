@@ -24,6 +24,6 @@ runs:
 
     # Opus.Interop builds libopus from its pinned source; the runners have CMake and a C compiler.
     - name: Build libopus for Opus.Interop
-      shell: pwsh
-      run: ./eng/build-native.ps1
+      shell: bash
+      run: cmake -P eng/build-native.cmake
       working-directory: ${{ runner.temp }}/deps/Opus.Interop
