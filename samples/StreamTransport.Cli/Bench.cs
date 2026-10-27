@@ -15,6 +15,9 @@ internal static class Bench
     public const string Usage = """
         streamtransport bench decode <file>     every decoder on a recording (.h264, .h265, .obu, or any
                                                 container FFmpeg reads), such as one made with --record
+        streamtransport bench transcode <file>  every encoder that takes GPU frames, fed by a decoder that
+                                                gives them on the same GPU: the zero-copy path a relay or a
+                                                receiver re-encoding for OBS takes
         streamtransport bench encode [--codec h264|h265|av1] [--size WxH] [--fps n] [--frames n]
                                      [--input <file>]
                                                 every encoder on NV12 from memory, steady and with the rate
@@ -38,6 +41,7 @@ internal static class Bench
         {
             ["decode", string file] => Decode(file, services),
             ["encode", .. string[] options] => Encode(options, services),
+            ["transcode", string file] => Transcode(file, services),
             _ => Fail(),
         };
 
@@ -82,6 +86,80 @@ internal static class Bench
         }
 
         return 0;
+    }
+
+    private static int Transcode(string file, IServiceProvider services)
+    {
+        (VideoCodecId codec, List<(byte[] Data, bool Keyframe)> units) = Read(file);
+        VideoCodecFormat format = new(codec);
+        IVideoDecoderFactory[] decoders = [.. services.GetServices<IVideoDecoderFactory>()];
+        foreach (IVideoEncoderFactory encoders in services.GetServices<IVideoEncoderFactory>())
+        {
+            if (encoders.QueryCapabilities(format, null) is not { } encoderInfo)
+            {
+                continue;
+            }
+
+            GpuIdentity? gpu = encoderInfo.Input.Device;
+            foreach (
+                VideoStorageKind storage in encoderInfo.Input.Storages.Where(static kind =>
+                    kind != VideoStorageKind.Cpu
+                )
+            )
+            {
+                VideoConstraints output = new([storage], [PixelFormat.Nv12], gpu);
+                if (
+                    decoders.FirstOrDefault(d => d.QueryCapabilities(format, output) is not null)
+                    is not { } decoderFactory
+                )
+                {
+                    continue;
+                }
+
+                VideoDecoderInfo decoderInfo = decoderFactory.QueryCapabilities(format, output)!;
+                using IVideoDecoder decoder = decoderFactory.Create(format, output);
+                using IVideoEncoder encoder = encoders.Create(
+                    new VideoEncoderConfiguration(
+                        format,
+                        new VideoSize(1920, 1080),
+                        new RateTarget(8_000_000, 60)
+                    ),
+                    gpu
+                );
+                Counter encoded = new();
+                Relay relay = new(encoder, encoded);
+                Measurement measurement = Measure(
+                    units.Count,
+                    i =>
+                        decoder.Decode(
+                            new EncodedVideoFrame(
+                                units[i].Data,
+                                codec,
+                                units[i].Keyframe,
+                                MediaTimestamp.Observed(new MediaTime(i * 16_666_667L))
+                            ),
+                            relay
+                        ),
+                    () =>
+                    {
+                        decoder.Flush(relay);
+                        encoder.Flush(encoded);
+                    }
+                );
+                Console.WriteLine(
+                    $"{decoderInfo.ImplementationName} -> {encoderInfo.ImplementationName} ({storage}) {measurement} {encoded.Count} out"
+                );
+            }
+        }
+
+        return 0;
+    }
+
+    // Decoded frames straight into the encoder, as a relay re-encodes them.
+    private sealed class Relay(IVideoEncoder encoder, IEncodedVideoConsumer units)
+        : IVideoFrameConsumer
+    {
+        public void OnFrame(in VideoFrame frame) => encoder.Encode(in frame, default, units);
     }
 
     private static int Encode(string[] options, IServiceProvider services)
