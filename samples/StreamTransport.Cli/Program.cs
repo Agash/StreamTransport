@@ -23,6 +23,24 @@ if (args is ["analyze", string recording])
     return Analyze.Run(recording, CommandLine.RepositoryFFmpeg());
 }
 
+if (args is ["bench", .. string[] benchArgs])
+{
+    if (CommandLine.RepositoryFFmpeg() is { } ffmpeg)
+    {
+        FFmpeg.Interop.FFmpegLibraries.SearchDirectory = ffmpeg;
+    }
+
+    ServiceCollection benchServices = new();
+    benchServices.AddSingleton<ILoggerFactory>(
+        LoggerFactory.Create(builder =>
+            builder.AddSimpleConsole().SetMinimumLevel(LogLevel.Warning)
+        )
+    );
+    AddMedia(benchServices, maxBitrate: null);
+    await using ServiceProvider bench = benchServices.BuildServiceProvider();
+    return Bench.Run(benchArgs, bench);
+}
+
 CommandLine command;
 try
 {
@@ -158,7 +176,7 @@ static async Task<int> RunAsync(CommandLine command)
     }
 
     IMediaSessionFactory sessions = provider.GetRequiredService<IMediaSessionFactory>();
-    using Endpoints endpoints = await Endpoints.CreateAsync(
+    await using Endpoints endpoints = await Endpoints.CreateAsync(
         command,
         devices,
         provider.GetRequiredService<MediaCodecRegistry>(),

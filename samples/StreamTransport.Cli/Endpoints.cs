@@ -8,11 +8,12 @@ namespace StreamTransport.Cli;
 /// <summary>
 /// The inputs or outputs a command line names, opened through <see cref="MediaDevices"/>: whatever the
 /// registered providers offer, the platform's own (Spout, Syphon, PipeWire, cameras, audio devices) and
-/// the test signal. Owns them.
+/// the test signal, and the recording of the encoded video. Owns them.
 /// </summary>
-internal sealed class Endpoints : IDisposable
+internal sealed class Endpoints : IAsyncDisposable
 {
     private readonly List<IDisposable> _owned = [];
+    private EncodedVideoRecorder? _recorder;
 
     private Endpoints() { }
 
@@ -32,6 +33,14 @@ internal sealed class Endpoints : IDisposable
         Endpoints endpoints = new();
         try
         {
+            if (command.Record is { } path)
+            {
+                endpoints._recorder = EncodedVideoRecorder.Create(
+                    path,
+                    loggers.CreateLogger<EncodedVideoRecorder>()
+                );
+            }
+
             if (command.Publish)
             {
                 endpoints.Media = new MediaEndpoints
@@ -48,6 +57,7 @@ internal sealed class Endpoints : IDisposable
                     AudioSource = command.Audio is { } audio
                         ? endpoints.Own(await devices.OpenAudioInputAsync(audio, cancellationToken))
                         : null,
+                    VideoSendTransform = endpoints._recorder,
                 };
             }
             else
@@ -86,6 +96,7 @@ internal sealed class Endpoints : IDisposable
                 {
                     VideoSink = videoSink,
                     AudioSink = analyzer is not null ? analyzer.WrapAudio(audioSink) : audioSink,
+                    VideoReceiveTransform = endpoints._recorder,
                 };
             }
 
@@ -93,16 +104,21 @@ internal sealed class Endpoints : IDisposable
         }
         catch
         {
-            endpoints.Dispose();
+            await endpoints.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         foreach (IDisposable owned in Enumerable.Reverse(_owned))
         {
             owned.Dispose();
+        }
+
+        if (_recorder is { } recorder)
+        {
+            await recorder.DisposeAsync().ConfigureAwait(false);
         }
     }
 

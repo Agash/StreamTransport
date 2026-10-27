@@ -43,6 +43,9 @@ internal sealed record CommandLine(
     /// <summary>The most the congestion controller may send, in bits per second; its default when null.</summary>
     public long? MaxBitrate { get; init; }
 
+    /// <summary>Where the encoded video sent or received is recorded, or null for nowhere.</summary>
+    public string? Record { get; init; }
+
     public const string Usage = """
         streamtransport list
         streamtransport serve --urls <url> [--video <input>] [--audio <input>] [--measure]
@@ -68,6 +71,8 @@ internal sealed record CommandLine(
           --pixel-format <f> the pixel format asked of the input, such as nv12 or bgra
           --max-fps <n|none> the highest frame rate sent (60 by default; none sends the source's)
           --max-bitrate <k>  the most the congestion controller sends, in kbit/s (10000 by default)
+          --record <file>    the encoded video sent or received, as the codec's elementary stream
+                             (.h264, .h265 or .obu), which ffprobe, ffplay and FFmpeg read
                              (the test signal's bgra carries alpha)
           --measure          subscribe to a test signal and report A/V offset and latency;
                              with --video the output still shows it (GPU frames unmeasured)
@@ -245,6 +250,7 @@ internal sealed record CommandLine(
             MaxBitrate = Value(named, "max-bitrate") is { } kbps
                 ? long.Parse(kbps, CultureInfo.InvariantCulture) * 1000
                 : null,
+            Record = Value(named, "record"),
         };
     }
 
