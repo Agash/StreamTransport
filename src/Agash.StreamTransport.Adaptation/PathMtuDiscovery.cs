@@ -413,7 +413,15 @@ public sealed class PathMtuDiscovery
 
             _acknowledgedSize = size;
             _largestAfterLoss = id;
-            _ = _suspicious.RemoveAll(smallest => smallest <= size);
+            // Removed in a loop: a lambda capturing size would be allocated on every call, as the
+            // capture is set up when the method is entered.
+            for (int i = _suspicious.Count - 1; i >= 0; i--)
+            {
+                if (_suspicious[i] <= size)
+                {
+                    _suspicious.RemoveAt(i);
+                }
+            }
         }
 
         public void OnNonProbeLost(long id, int size)

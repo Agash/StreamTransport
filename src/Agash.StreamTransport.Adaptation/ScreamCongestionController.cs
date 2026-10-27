@@ -73,7 +73,11 @@ public sealed partial class ScreamCongestionController : ICongestionController
     private readonly double _qdelayTargetHi;
     private readonly Queue<(long Id, int Size)> _inFlight = new();
     private readonly double[] _baseDelays = new double[BaseHistory];
-    private readonly Queue<double> _qdelayNorm = new();
+
+    // The normalised queue delays, oldest first from _qdelayNormNext once full.
+    private readonly double[] _qdelayNorm = new double[QdelayNormHistory];
+    private int _qdelayNormCount;
+    private int _qdelayNormNext;
 
     // Section 4.1.1.
     private long _maxBytesInFlight;
@@ -727,22 +731,37 @@ public sealed partial class ScreamCongestionController : ICongestionController
     // Section 4.5.4.
     private void AdjustQueueDelayTarget()
     {
-        _qdelayNorm.Enqueue(_qdelay / _qdelayTargetLo);
-        while (_qdelayNorm.Count > QdelayNormHistory)
-        {
-            _ = _qdelayNorm.Dequeue();
-        }
-
-        if (_qdelayNorm.Count < QdelayNormShortHistory)
+        _qdelayNorm[_qdelayNormNext] = _qdelay / _qdelayTargetLo;
+        _qdelayNormNext = (_qdelayNormNext + 1) % QdelayNormHistory;
+        _qdelayNormCount = Math.Min(_qdelayNormCount + 1, QdelayNormHistory);
+        if (_qdelayNormCount < QdelayNormShortHistory)
         {
             return;
         }
 
-        double mean = _qdelayNorm.Average();
-        double variance = _qdelayNorm.Sum(v => (v - mean) * (v - mean)) / _qdelayNorm.Count;
-        double recentAverage = _qdelayNorm
-            .Skip(_qdelayNorm.Count - QdelayNormShortHistory)
-            .Average();
+        // Until the history is full it fills from the start; the order matters only for the recent ones.
+        ReadOnlySpan<double> history = _qdelayNorm.AsSpan(0, _qdelayNormCount);
+        double mean = 0;
+        foreach (double value in history)
+        {
+            mean += value;
+        }
+
+        mean /= history.Length;
+        double variance = 0;
+        foreach (double value in history)
+        {
+            variance += (value - mean) * (value - mean);
+        }
+
+        variance /= history.Length;
+        double recentSum = 0;
+        for (int i = 1; i <= QdelayNormShortHistory; i++)
+        {
+            recentSum += _qdelayNorm[(_qdelayNormNext - i + QdelayNormHistory) % QdelayNormHistory];
+        }
+
+        double recentAverage = recentSum / QdelayNormShortHistory;
         double target = (recentAverage + Math.Sqrt(variance)) * _qdelayTargetLo;
         if (_lossEventRate > 0.002)
         {
@@ -847,7 +866,8 @@ public sealed partial class ScreamCongestionController : ICongestionController
         _qdelayTarget = _qdelayTargetLo;
         _qdelayMaxAvg = _qdelayTargetLo;
         _inFlight.Clear();
-        _qdelayNorm.Clear();
+        _qdelayNormCount = 0;
+        _qdelayNormNext = 0;
         Array.Fill(_baseDelays, double.PositiveInfinity);
         BytesInFlight = 0;
         ReferenceWindow = Math.Max(
