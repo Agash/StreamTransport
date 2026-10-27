@@ -27,11 +27,18 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
     private readonly FF.Packet _packet = new();
     private readonly FF.Frame _decoded = new();
     private readonly FF.Frame _downloaded = new();
+
+    // Pictures for downloads: a fresh one each frame would be megabytes of new pages faulted in on the
+    // first write.
+    private readonly FF.FramePool _downloads = new();
     private readonly FF.Frame _converted = new();
     private readonly FF.Frame _mapped = new();
     private readonly TimestampRing _timestamps = new();
     private FF.Scaler? _scaler;
     private FF.Frame? _current;
+    private nint _surfacePool;
+    private PixelFormat _surfaceFormat;
+    private VideoSize _surfaceSize;
     private long _lastPts = long.MinValue;
     private bool _disposed;
 
@@ -129,6 +136,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             _packet.Dispose();
             _decoded.Dispose();
             _downloaded.Dispose();
+            _downloads.Dispose();
             _converted.Dispose();
             _mapped.Dispose();
         }
@@ -275,9 +283,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         FF.Frame source = decoded;
         if (decoded.IsHardwareFrame)
         {
-            _downloaded.Reset();
-            decoded.TransferTo(_downloaded);
-            _downloaded.CopyPropertiesFrom(decoded);
+            decoded.DownloadTo(_downloaded, _downloads);
             source = _downloaded;
         }
 
@@ -307,13 +313,22 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             _ => throw new NotSupportedException($"{format} has no multi-planar DRM format."),
         };
 
-    private static VideoFormat SurfaceFormat(FF.Frame frame)
+    // The surfaces' format and size come from the frame's pool, which changes only when the decoder makes
+    // a new one; read through a wrapper only then, as the wrapper takes a reference and a handle.
+    private unsafe VideoFormat SurfaceFormat(FF.Frame frame)
     {
-        using var pool = FF.HardwareFramePool.Of(frame);
-        PixelFormat format = Formats.FromFFmpeg(pool.SoftwareFormat) ?? PixelFormat.Nv12;
+        nint pool = (nint)frame.NativePointer->hw_frames_ctx->data;
+        if (pool != _surfacePool)
+        {
+            using var frames = FF.HardwareFramePool.Of(frame);
+            _surfaceFormat = Formats.FromFFmpeg(frames.SoftwareFormat) ?? PixelFormat.Nv12;
+            _surfaceSize = new VideoSize(frames.Width, frames.Height);
+            _surfacePool = pool;
+        }
+
         return new VideoFormat(
-            format,
-            new VideoSize(pool.Width, pool.Height),
+            _surfaceFormat,
+            _surfaceSize,
             new VideoRect(0, 0, frame.Width, frame.Height)
         );
     }
