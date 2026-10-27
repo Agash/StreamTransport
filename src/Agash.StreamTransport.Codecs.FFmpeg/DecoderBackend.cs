@@ -75,9 +75,12 @@ internal static class DecoderCatalog
             LinuxRank: 0,
             MacRank: 0
         ),
-        // On Linux VA-API comes first: it exports its surfaces as DMA-BUFs as they are, where a Vulkan
-        // decoder's export takes back its readers' fences with a submission for every frame released
-        // (FFmpeg's vulkan_unmap_to_drm). On radeonsi and RADV that is 905 frames a second against 191.
+        // On Linux VA-API comes first, for FFmpeg's sake rather than Vulkan Video's. Both drive the same
+        // video engine, and Khronos's sample decoder reaches about VA-API's rate on RADV (850 against 905
+        // frames a second), but FFmpeg's Vulkan decoder waits on the CPU for each released picture's
+        // decode (ff_vk_decode_free_frame, from h264_frame_start), one frame after the other (357), and
+        // its DMA-BUF export takes its readers' fences back with a submission per frame (191). Vulkan stays
+        // the decoder where VA-API is missing, as on NVIDIA's own driver.
         new(
             DecoderBackend.Vulkan,
             FF.HardwareDeviceType.Vulkan,
