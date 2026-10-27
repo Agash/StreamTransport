@@ -45,7 +45,7 @@ public sealed class VideoSendStreamTests
             2,
             2,
             new VideoSize(4096, 4096),
-            true
+            RateChange.InPlace
         );
 
         public int Created { get; private set; }

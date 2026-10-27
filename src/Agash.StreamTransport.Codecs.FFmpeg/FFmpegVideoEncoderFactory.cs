@@ -249,7 +249,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             WidthAlignment: 2,
             HeightAlignment: 2,
             probe.MaximumSize,
-            probe.ReconfigurableRate,
+            probe.RateChange,
             EncodesAlphaLayer: EncoderSettings.AlphaLayerOptions(name) is not null
         );
         return new Resolved(codec, adapter, info, probe.ForcesKeyframes, profileOptions);
@@ -298,13 +298,19 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         );
         ImmutableArray<PixelFormat>.Builder working = ImmutableArray.CreateBuilder<PixelFormat>();
         bool? forcesKeyframes = null;
+        bool rateKeyframe = false;
         Exception? failure = null;
         foreach (PixelFormat format in candidates)
         {
             try
             {
-                bool forces = Exercise(codec, id, adapter, format);
-                forcesKeyframes ??= forces;
+                (bool forces, bool keyframeOnRate) = Exercise(codec, id, adapter, format);
+                if (forcesKeyframes is null)
+                {
+                    forcesKeyframes = forces;
+                    rateKeyframe = keyframeOnRate;
+                }
+
                 working.Add(format);
                 if (!surfacesOnly)
                 {
@@ -340,13 +346,18 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                     baselineOptions.IsEmpty
                     || TryExercise(codec, id, adapter, working[0], baselineOptions)
                 );
-        bool reconfigurable = codec.SupportsRateControlChanges;
+        // What a rate change costs is seen in the exercise: a wrapper that resets the encoder for it starts
+        // again with a keyframe.
+        RateChange rateChange =
+            !codec.SupportsRateControlChanges ? RateChange.Reopen
+            : rateKeyframe ? RateChange.Keyframe
+            : RateChange.InPlace;
         VideoSize largest = MaximumSize(codec, id, adapter, working[0]);
         LogProbeSucceeded(
             _logger,
             codec.Name,
             adapter?.Name ?? "default",
-            reconfigurable,
+            rateChange,
             forced,
             largest.Width,
             largest.Height
@@ -356,7 +367,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
                 ? working.DrainToImmutable()
                 : [.. candidates.SkipWhile(f => !working.Contains(f))],
             largest,
-            reconfigurable,
+            rateChange,
             forced,
             constrainedBaseline
         );
@@ -388,16 +399,17 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         }
     }
 
-    // Encodes three frames of one format; the third asks for a keyframe, to learn whether the encoder
-    // honours a forced picture type or has to be reopened for one.
-    private bool Exercise(
+    // Encodes five frames of one format: the third asks for a keyframe, to learn whether the encoder
+    // honours a forced picture type or has to be reopened for one, and the rate halves before the fourth,
+    // to learn whether a rate change it takes while running starts a keyframe. Returns both.
+    private (bool ForcesKeyframes, bool KeyframeOnRateChange) Exercise(
         FF.Codec codec,
         VideoCodecId id,
         FF.GpuAdapter? adapter,
         PixelFormat format,
         ImmutableDictionary<string, string>? profileOptions = null,
         VideoSize? frameSize = null,
-        int frames = 3
+        int frames = 5
     )
     {
         VideoSize size = frameSize ?? new VideoSize(256, 256);
@@ -421,7 +433,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
             2,
             2,
             size,
-            ReconfigurableRate: false
+            RateChange.InPlace
         );
         using FFmpegVideoEncoder encoder = new(
             _spec,
@@ -436,17 +448,25 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
         KeyframeRecorder consumer = new();
         for (int i = 0; i < frames; i++)
         {
+            if (i == 3 && codec.SupportsRateControlChanges)
+            {
+                encoder.Reconfigure(new RateTarget(500_000, 30));
+            }
+
             VideoFrame frame = new(
                 new CpuImage(PlaneLayout.Packed(format, size)),
                 new VideoFormat(format, size.Width, size.Height),
                 MediaTimestamp.Observed(new MediaTime(i * 33_333_333L)),
                 pixels
             );
-            encoder.Encode(in frame, new EncodeRequest(Keyframe: i != 1), consumer);
+            encoder.Encode(in frame, new EncodeRequest(Keyframe: i is 0 or 2), consumer);
         }
 
         encoder.Flush(consumer);
-        return consumer.Keyframes is [true, false, true];
+        return (
+            consumer.Keyframes is [true, false, true, ..],
+            consumer.Keyframes is [_, _, _, true, ..] or [_, _, _, _, true, ..]
+        );
     }
 
     // The Media formats the encoder takes: its own software formats, or for an encoder that takes
@@ -621,7 +641,7 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
     private sealed record Probe(
         ImmutableArray<PixelFormat> Formats,
         VideoSize MaximumSize,
-        bool ReconfigurableRate,
+        RateChange RateChange,
         bool ForcesKeyframes,
         bool ConstrainedBaseline
     );
@@ -644,13 +664,13 @@ public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
     [LoggerMessage(
         EventId = 1010,
         Level = LogLevel.Debug,
-        Message = "{Encoder} works on {Adapter} (rate changes while running: {Reconfigurable}, forced keyframes: {ForcesKeyframes}, largest picture {Width}x{Height})"
+        Message = "{Encoder} works on {Adapter} (a rate change: {RateChange}, forced keyframes: {ForcesKeyframes}, largest picture {Width}x{Height})"
     )]
     private static partial void LogProbeSucceeded(
         ILogger logger,
         string encoder,
         string adapter,
-        bool reconfigurable,
+        RateChange rateChange,
         bool forcesKeyframes,
         int width,
         int height

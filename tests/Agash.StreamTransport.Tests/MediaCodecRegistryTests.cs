@@ -182,7 +182,7 @@ public sealed class MediaCodecRegistryTests
             2,
             2,
             new VideoSize(4096, 4096),
-            reconfigurable
+            reconfigurable ? RateChange.InPlace : RateChange.Reopen
         );
 
         public int Attempts { get; private set; }

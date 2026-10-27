@@ -71,6 +71,22 @@ public sealed record VideoEncoderConfiguration(
     AlphaLayout Alpha = AlphaLayout.None
 );
 
+/// <summary>What a new rate costs an encoder that is running.</summary>
+public enum RateChange
+{
+    /// <summary>It is reopened: its start-up, and a keyframe.</summary>
+    Reopen,
+
+    /// <summary>
+    /// It takes the rate in place but starts again with a keyframe, as FFmpeg's NVENC wrapper resets the
+    /// encoder for every rate change.
+    /// </summary>
+    Keyframe,
+
+    /// <summary>It takes the rate in place and keeps coding the same stream.</summary>
+    InPlace,
+}
+
 /// <summary>What an encoder takes and can do, so a pipeline can feed it without converting.</summary>
 /// <param name="ImplementationName">Which implementation, for logs.</param>
 /// <param name="IsHardwareAccelerated">Whether it runs on a GPU or media engine.</param>
@@ -78,7 +94,7 @@ public sealed record VideoEncoderConfiguration(
 /// <param name="WidthAlignment">The multiple the width must be.</param>
 /// <param name="HeightAlignment">The multiple the height must be.</param>
 /// <param name="MaximumSize">The largest picture.</param>
-/// <param name="ReconfigurableRate">Whether <see cref="IVideoEncoder.Reconfigure"/> takes effect while encoding.</param>
+/// <param name="RateChange">What <see cref="IVideoEncoder.Reconfigure"/> costs while it encodes.</param>
 /// <param name="EncodesAlphaLayer">Whether it codes alpha as the codec's alpha layer when asked.</param>
 public sealed record VideoEncoderInfo(
     string ImplementationName,
@@ -87,7 +103,7 @@ public sealed record VideoEncoderInfo(
     int WidthAlignment,
     int HeightAlignment,
     VideoSize MaximumSize,
-    bool ReconfigurableRate,
+    RateChange RateChange,
     bool EncodesAlphaLayer = false
 );
 

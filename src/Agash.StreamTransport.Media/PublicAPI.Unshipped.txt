@@ -508,6 +508,10 @@ Agash.StreamTransport.Media.PlaneLayout.Equals(Agash.StreamTransport.Media.Plane
 Agash.StreamTransport.Media.PlaneLayout.PlaneLayout() -> void
 Agash.StreamTransport.Media.PlaneLayout.PlaneLayout(System.ReadOnlySpan<Agash.StreamTransport.Media.VideoPlane> planes) -> void
 Agash.StreamTransport.Media.PlaneLayout.this[int index].get -> Agash.StreamTransport.Media.VideoPlane
+Agash.StreamTransport.Media.RateChange
+Agash.StreamTransport.Media.RateChange.InPlace = 2 -> Agash.StreamTransport.Media.RateChange
+Agash.StreamTransport.Media.RateChange.Keyframe = 1 -> Agash.StreamTransport.Media.RateChange
+Agash.StreamTransport.Media.RateChange.Reopen = 0 -> Agash.StreamTransport.Media.RateChange
 Agash.StreamTransport.Media.RateTarget
 Agash.StreamTransport.Media.RateTarget.BitsPerSecond.get -> long
 Agash.StreamTransport.Media.RateTarget.BitsPerSecond.init -> void
@@ -611,7 +615,7 @@ Agash.StreamTransport.Media.VideoEncoderConfiguration.Tuning.init -> void
 Agash.StreamTransport.Media.VideoEncoderConfiguration.VideoEncoderConfiguration(Agash.StreamTransport.Media.VideoCodecFormat! Format, Agash.StreamTransport.Media.VideoSize Size, Agash.StreamTransport.Media.RateTarget Rate, System.TimeSpan KeyframeInterval = default(System.TimeSpan), Agash.StreamTransport.Media.EncodeTuning Tuning = Agash.StreamTransport.Media.EncodeTuning.Interactive, Agash.StreamTransport.Media.VideoColor Color = default(Agash.StreamTransport.Media.VideoColor), Agash.StreamTransport.Media.AlphaLayout Alpha = Agash.StreamTransport.Media.AlphaLayout.None) -> void
 Agash.StreamTransport.Media.VideoEncoderInfo
 Agash.StreamTransport.Media.VideoEncoderInfo.<Clone>$() -> Agash.StreamTransport.Media.VideoEncoderInfo!
-Agash.StreamTransport.Media.VideoEncoderInfo.Deconstruct(out string! ImplementationName, out bool IsHardwareAccelerated, out Agash.StreamTransport.Media.VideoConstraints! Input, out int WidthAlignment, out int HeightAlignment, out Agash.StreamTransport.Media.VideoSize MaximumSize, out bool ReconfigurableRate, out bool EncodesAlphaLayer) -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.Deconstruct(out string! ImplementationName, out bool IsHardwareAccelerated, out Agash.StreamTransport.Media.VideoConstraints! Input, out int WidthAlignment, out int HeightAlignment, out Agash.StreamTransport.Media.VideoSize MaximumSize, out Agash.StreamTransport.Media.RateChange RateChange, out bool EncodesAlphaLayer) -> void
 Agash.StreamTransport.Media.VideoEncoderInfo.EncodesAlphaLayer.get -> bool
 Agash.StreamTransport.Media.VideoEncoderInfo.EncodesAlphaLayer.init -> void
 Agash.StreamTransport.Media.VideoEncoderInfo.Equals(Agash.StreamTransport.Media.VideoEncoderInfo? other) -> bool
@@ -625,9 +629,9 @@ Agash.StreamTransport.Media.VideoEncoderInfo.IsHardwareAccelerated.get -> bool
 Agash.StreamTransport.Media.VideoEncoderInfo.IsHardwareAccelerated.init -> void
 Agash.StreamTransport.Media.VideoEncoderInfo.MaximumSize.get -> Agash.StreamTransport.Media.VideoSize
 Agash.StreamTransport.Media.VideoEncoderInfo.MaximumSize.init -> void
-Agash.StreamTransport.Media.VideoEncoderInfo.ReconfigurableRate.get -> bool
-Agash.StreamTransport.Media.VideoEncoderInfo.ReconfigurableRate.init -> void
-Agash.StreamTransport.Media.VideoEncoderInfo.VideoEncoderInfo(string! ImplementationName, bool IsHardwareAccelerated, Agash.StreamTransport.Media.VideoConstraints! Input, int WidthAlignment, int HeightAlignment, Agash.StreamTransport.Media.VideoSize MaximumSize, bool ReconfigurableRate, bool EncodesAlphaLayer = false) -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.RateChange.get -> Agash.StreamTransport.Media.RateChange
+Agash.StreamTransport.Media.VideoEncoderInfo.RateChange.init -> void
+Agash.StreamTransport.Media.VideoEncoderInfo.VideoEncoderInfo(string! ImplementationName, bool IsHardwareAccelerated, Agash.StreamTransport.Media.VideoConstraints! Input, int WidthAlignment, int HeightAlignment, Agash.StreamTransport.Media.VideoSize MaximumSize, Agash.StreamTransport.Media.RateChange RateChange, bool EncodesAlphaLayer = false) -> void
 Agash.StreamTransport.Media.VideoEncoderInfo.WidthAlignment.get -> int
 Agash.StreamTransport.Media.VideoEncoderInfo.WidthAlignment.init -> void
 Agash.StreamTransport.Media.VideoFormat

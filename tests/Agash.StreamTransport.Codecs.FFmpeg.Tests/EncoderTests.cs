@@ -136,7 +136,10 @@ public sealed class EncoderTests
         FFmpegVideoEncoderFactory factory = new(backend);
         VideoEncoderInfo info = Available(factory, codec);
         PixelFormat format = info.Input.PixelFormats[0];
-        if (info.ReconfigurableRate || format is not (PixelFormat.Nv12 or PixelFormat.I420))
+        if (
+            info.RateChange != RateChange.Reopen
+            || format is not (PixelFormat.Nv12 or PixelFormat.I420)
+        )
         {
             Assert.Inconclusive(
                 $"{info.ImplementationName} changes its rate in place or takes {format}."

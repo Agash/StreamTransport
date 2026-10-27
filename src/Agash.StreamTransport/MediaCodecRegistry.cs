@@ -191,7 +191,7 @@ public sealed partial class MediaCodecRegistry
             .OrderBy(static e =>
                 e.Info.Input.Storages.Any(static s => s != VideoStorageKind.Cpu) ? 0 : 1
             )
-            .ThenBy(static e => e.Info.ReconfigurableRate ? 0 : 1);
+            .ThenByDescending(static e => e.Info.RateChange);
 
     /// <summary>Makes the best decoder that opens for a format and what its consumer accepts.</summary>
     /// <param name="format">The codec format.</param>

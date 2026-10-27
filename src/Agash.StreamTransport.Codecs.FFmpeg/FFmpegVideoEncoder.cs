@@ -209,13 +209,21 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
                 Prepare(session, "frame_rate");
             }
-            else if (session.Encoder.SupportsRateControlChanges)
+            // A change that costs a keyframe waits, as a reopen does, until the target has moved well away.
+            else if (
+                session.Encoder.SupportsRateControlChanges
+                && (
+                    Info.RateChange == RateChange.InPlace
+                    || WorthReopening(session.BitsPerSecond, target.BitsPerSecond)
+                )
+            )
             {
                 session.Encoder.SetRateControl(
                     target.BitsPerSecond,
                     target.BitsPerSecond,
                     BufferSize(target, _configuration.Tuning)
                 );
+                session.Retargeted(target.BitsPerSecond);
                 LogRateChanged(_logger, Info.ImplementationName, target.BitsPerSecond);
             }
             else if (WorthReopening(session.BitsPerSecond, target.BitsPerSecond))
@@ -615,11 +623,14 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     {
         public FF.Encoder Encoder { get; private set; } = encoder;
 
-        // The rate the encoder was opened at, which it holds until it reopens.
+        // The rate the encoder holds: the one it was opened at, or last took in place.
         public long BitsPerSecond { get; private set; } = bitsPerSecond;
 
         // The colour the stream signals, kept across reopens.
         public VideoColor Color { get; } = color;
+
+        // The rate the running encoder took in place.
+        public void Retargeted(long bitsPerSecond) => BitsPerSecond = bitsPerSecond;
 
         // The next encoder on the same input, after the running one has been drained. The drained one is
         // closed on a worker: closing waits for its GPU work, and it holds its own references to the
