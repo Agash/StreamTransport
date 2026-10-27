@@ -20,8 +20,9 @@ public sealed partial class PeerConnection
     private readonly ICongestionController? _controller;
     private readonly Lock _ccGate = new();
 
-    // Every sent packet's number, by SSRC and RTP sequence number, for mapping feedback onto them.
-    private readonly Dictionary<long, long> _sentIds = [];
+    // Every sent packet's number, by SSRC and RTP sequence number, for mapping feedback onto them: one
+    // slot a sequence number per SSRC, so sending allocates nothing and nothing needs pruning.
+    private readonly Dictionary<uint, long[]> _sentIds = [];
     private readonly DeliveryTracker _delivery = new();
     private readonly List<PacketReport> _packetReports = [];
     private readonly List<PacketObservation> _observations = [];
@@ -157,7 +158,10 @@ public sealed partial class PeerConnection
             lock (_ccGate)
             {
                 _delivery.OnPathChanged();
-                _sentIds.Clear();
+                foreach (long[] sent in _sentIds.Values)
+                {
+                    Array.Clear(sent);
+                }
             }
 
             controller.OnPathChanged(roundTrip, Now);
@@ -200,6 +204,15 @@ public sealed partial class PeerConnection
 
     private static long Key(uint ssrc, ushort seq) => ((long)ssrc << 16) | seq;
 
+    // The packet a feedback report names. A sequence number recurs after 65536 packets of its SSRC, so
+    // a slot older than that many packets is a number from before the wrap.
+    private long? SentId(uint ssrc, ushort seq) =>
+        _sentIds.TryGetValue(ssrc, out long[]? sent)
+        && sent[seq] is var id and not 0
+        && id > _nextPacketId - 0x10000
+            ? id
+            : null;
+
     // Send side: number each packet on the wire, remember it for feedback, tell the controller, and decide
     // its ECN codepoint.
     private EcnCodepoint RecordSent(
@@ -215,24 +228,18 @@ public sealed partial class PeerConnection
         {
             long id = ++_nextPacketId;
             packet = new SentPacket(id, sizeBytes, Now, trafficClass);
-            _sentIds[Key(ssrc, seq)] = id;
+            ref long[]? sent = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                _sentIds,
+                ssrc,
+                out _
+            );
+            sent ??= new long[ushort.MaxValue + 1];
+            sent[seq] = id;
             if (transportSequence is { } transport)
             {
                 _sentByTransport[transport] = id;
             }
             _delivery.OnSent(packet);
-
-            // A sequence number recurs after 65536 packets of one SSRC; numbers that old are forgotten.
-            if ((id & 0xFFF) == 0)
-            {
-                foreach ((long key, long sent) in _sentIds)
-                {
-                    if (sent < id - 0x10000)
-                    {
-                        _ = _sentIds.Remove(key);
-                    }
-                }
-            }
         }
 
         if (_controller is not { } controller)
@@ -597,7 +604,7 @@ public sealed partial class PeerConnection
                 for (int i = 0; i < stream.Metrics.Length; i++)
                 {
                     ushort seq = (ushort)(stream.BeginSequence + i);
-                    if (!_sentIds.TryGetValue(Key(stream.Ssrc, seq), out long id))
+                    if (SentId(stream.Ssrc, seq) is not { } id)
                     {
                         continue;
                     }
