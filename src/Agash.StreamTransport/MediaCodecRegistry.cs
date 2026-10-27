@@ -178,8 +178,14 @@ public sealed partial class MediaCodecRegistry
         VideoCodecFormat format,
         GpuIdentity? device
     ) =>
+        // A factory's first answer opens encoders to find out (hundreds of milliseconds to seconds each,
+        // for each driver stack), so the factories are asked at once; each caches its answer.
         _videoEncoders
+            .AsParallel()
+            .AsOrdered()
+            .WithDegreeOfParallelism(Math.Max(1, _videoEncoders.Length))
             .Select(factory => (Factory: factory, Info: factory.QueryCapabilities(format, device)))
+            .ToArray()
             .Where(static e => e.Info is not null)
             .Select(static e => (e.Factory, Info: e.Info!))
             .OrderBy(static e =>
