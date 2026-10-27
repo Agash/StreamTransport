@@ -419,9 +419,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
 
     private FF.HardwareDevice CreateDevice() =>
         _spec.DeviceType is { } type
-            ? _adapter is { } adapter
-                ? FF.HardwareDevice.CreateForAdapter(type, adapter)
-                : FF.HardwareDevice.Create(type)
+            ? SharedDevices.Open(type, _adapter)
             : throw new InvalidOperationException($"{_spec.Backend} encoders run on no device.");
 
     private void Drain(Session session, IEncodedVideoConsumer consumer)
