@@ -57,6 +57,7 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
     // The most video the peer takes (RFC 8829 section 5.10), or no limit.
     private long _videoSendLimit = long.MaxValue;
     private VideoReceiveStream? _videoReceive;
+    private TransformedVideo? _transformed;
     private AudioReceiveStream? _audioReceive;
 
     public MediaSession(
@@ -438,7 +439,12 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
             Volatile.Write(
                 ref _videoReceive,
                 new VideoReceiveStream(
-                    new VideoReceiveSetup(video.Decode, video.Alpha, RequestKeyframe),
+                    new VideoReceiveSetup(
+                        video.Decode,
+                        video.Alpha,
+                        RequestKeyframe,
+                        _endpoints.VideoReceiveTransform
+                    ),
                     sink,
                     _services.Codecs,
                     _videoPlayout ?? _playout,
@@ -500,8 +506,31 @@ internal sealed partial class MediaSession : IMediaSession, IReceivedMediaConsum
         }
     }
 
-    private void SendVideo(in EncodedVideoFrame frame, FrameSendTiming? timing) =>
+    private void SendVideo(in EncodedVideoFrame frame, FrameSendTiming? timing)
+    {
+        if (_endpoints.VideoSendTransform is { } transform)
+        {
+            _transformed ??= new TransformedVideo(this);
+            _transformed.Timing = timing;
+            transform.Transform(in frame, _transformed);
+            return;
+        }
+
         _ = _transport.TrySendVideo(in frame, CaptureTime(frame.Timestamp), timing);
+    }
+
+    // What a send transform passes on goes to the packetizer, with the encoded frame's send timing.
+    private sealed class TransformedVideo(MediaSession session) : IEncodedVideoConsumer
+    {
+        public FrameSendTiming? Timing { get; set; }
+
+        public void OnEncoded(in EncodedVideoFrame frame) =>
+            _ = session._transport.TrySendVideo(
+                in frame,
+                session.CaptureTime(frame.Timestamp),
+                Timing
+            );
+    }
 
     private void SendAudio(in EncodedAudioFrame frame) =>
         _ = _transport.TrySendAudio(in frame, CaptureTime(frame.Timestamp));

@@ -53,10 +53,12 @@ public sealed partial class MediaPublisher : IAsyncDisposable
 
         _room = room;
         _sessions = sessions;
-        _sources = new MediaEndpoints
+        // Every session it serves sends; what receives is left out.
+        _sources = sources with
         {
-            VideoSource = sources.VideoSource,
-            AudioSource = sources.AudioSource,
+            VideoSink = null,
+            AudioSink = null,
+            VideoReceiveTransform = null,
         };
         _options = options.Transport.IceServers.IsEmpty
             ? options with

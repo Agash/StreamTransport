@@ -210,6 +210,24 @@ public interface IEncodedVideoConsumer
 }
 
 /// <summary>
+/// An encoded transform, after the W3C WebRTC Encoded Transform: it sees each encoded video frame between
+/// the encoder and the packetizer when sending, or between the depacketizer and the decoder when
+/// receiving, and passes on what continues: the frame as it is, a changed frame, or nothing. Recording,
+/// inspecting and end-to-end encryption are transforms.
+/// </summary>
+/// <remarks>
+/// It is called on the stream's own thread, one frame at a time, and the frame's data is borrowed for the
+/// call: a transform that keeps a frame copies it.
+/// </remarks>
+public interface IEncodedVideoTransform
+{
+    /// <summary>Transforms one frame.</summary>
+    /// <param name="frame">The frame.</param>
+    /// <param name="next">Where what continues goes: the packetizer, or the decoder.</param>
+    void Transform(in EncodedVideoFrame frame, IEncodedVideoConsumer next);
+}
+
+/// <summary>
 /// A video encoder. It takes the frames <see cref="VideoEncoderInfo.Input"/> allows as they are, and
 /// hands access units to the consumer, possibly later than the frame that produced them.
 /// </summary>

@@ -10,10 +10,12 @@ namespace Agash.StreamTransport.Streams;
 /// <param name="Format">The negotiated codec and its parameters.</param>
 /// <param name="Alpha">How the sender laid out transparency.</param>
 /// <param name="RequestKeyframe">Asks the sender for a keyframe; the transport combines requests.</param>
+/// <param name="Transform">What frames pass through before the decoder; null for none.</param>
 internal sealed record VideoReceiveSetup(
     VideoCodecFormat Format,
     AlphaLayout Alpha,
-    Action RequestKeyframe
+    Action RequestKeyframe,
+    IEncodedVideoTransform? Transform = null
 );
 
 /// <summary>Where a receive stream's timing frames go, and the clocks that place them.</summary>
@@ -65,6 +67,8 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     private readonly Task _worker;
     private readonly Presenter _presenter;
     private IVideoDecoder? _decoder;
+    private Transformed? _transformed;
+    private int _backlog;
     private int _framesDecoded;
     private int _framesFailed;
     private int _framesSkipped;
@@ -265,20 +269,24 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                 int waiting = Interlocked.Decrement(ref _waiting);
                 using (frame)
                 {
-                    if (_awaitingKeyframe && !keyframe)
+                    // A transform sees every frame the depacketizer completes, as the W3C WebRTC Encoded
+                    // Transform places it (section 2); what it passes on is then decoded or skipped.
+                    EncodedVideoFrame encoded = new(
+                        frame.Span,
+                        _setup.Format.Codec,
+                        keyframe,
+                        stamp
+                    );
+                    if (_setup.Transform is { } transform)
                     {
-                        Skip(stamp);
-                        continue;
+                        _backlog = waiting;
+                        _transformed ??= new Transformed(this);
+                        transform.Transform(in encoded, _transformed);
                     }
-
-                    _awaitingKeyframe = false;
-                    if (waiting >= MaxBacklog)
+                    else
                     {
-                        CatchUp(stamp, waiting);
-                        continue;
+                        Admit(in encoded, waiting);
                     }
-
-                    Decode(frame, keyframe, stamp);
                 }
             }
         }
@@ -319,17 +327,42 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
         _ = _stamps.TakeCapture(stamp);
     }
 
-    private void Decode(EncodedFrameBuffer frame, bool keyframe, MediaTimestamp stamp)
+    // Decodes a frame, or skips it: until the keyframe a lost frame needs, and with everything waiting
+    // once the decoder is too far behind.
+    private void Admit(in EncodedVideoFrame frame, int waiting)
     {
+        if (_awaitingKeyframe && !frame.Keyframe)
+        {
+            Skip(frame.Timestamp);
+            return;
+        }
+
+        _awaitingKeyframe = false;
+        if (waiting >= MaxBacklog)
+        {
+            CatchUp(frame.Timestamp, waiting);
+            return;
+        }
+
+        Decode(in frame);
+    }
+
+    // What a receive transform passes on is admitted as the frame it came from would have been.
+    private sealed class Transformed(VideoReceiveStream stream) : IEncodedVideoConsumer
+    {
+        public void OnEncoded(in EncodedVideoFrame frame) =>
+            stream.Admit(in frame, stream._backlog);
+    }
+
+    private void Decode(in EncodedVideoFrame frame)
+    {
+        MediaTimestamp stamp = frame.Timestamp;
         try
         {
             _decoder ??= CreateDecoder();
             MediaTime started = _clock.Now;
             NoteDecodeStart(stamp, started);
-            _decoder.Decode(
-                new EncodedVideoFrame(frame.Span, _setup.Format.Codec, keyframe, stamp),
-                this
-            );
+            _decoder.Decode(in frame, this);
             _metrics.VideoDecodeDuration.Record(
                 (_clock.Now - started).TotalSeconds,
                 StreamTransportMetrics.Codec(_setup.Format.Codec)

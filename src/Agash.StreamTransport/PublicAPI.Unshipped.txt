@@ -1,4 +1,10 @@
 #nullable enable
+Agash.StreamTransport.EncodedVideoRecorder
+Agash.StreamTransport.EncodedVideoRecorder.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.EncodedVideoRecorder.EncodedVideoRecorder(System.IO.Stream! output, bool ownsOutput = false, int capacity = 256, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.EncodedVideoRecorder!>? logger = null) -> void
+Agash.StreamTransport.EncodedVideoRecorder.FramesDropped.get -> long
+Agash.StreamTransport.EncodedVideoRecorder.FramesRecorded.get -> long
+Agash.StreamTransport.EncodedVideoRecorder.Transform(in Agash.StreamTransport.Media.EncodedVideoFrame frame, Agash.StreamTransport.Media.IEncodedVideoConsumer! next) -> void
 Agash.StreamTransport.Http.HttpMediaSession
 Agash.StreamTransport.Http.HttpMediaSession.DisposeAsync() -> System.Threading.Tasks.ValueTask
 Agash.StreamTransport.Http.HttpMediaSession.Resource.get -> System.Uri?
@@ -99,6 +105,10 @@ Agash.StreamTransport.MediaEndpoints.Equals(Agash.StreamTransport.MediaEndpoints
 Agash.StreamTransport.MediaEndpoints.HasAudio.get -> bool
 Agash.StreamTransport.MediaEndpoints.HasVideo.get -> bool
 Agash.StreamTransport.MediaEndpoints.MediaEndpoints() -> void
+Agash.StreamTransport.MediaEndpoints.VideoReceiveTransform.get -> Agash.StreamTransport.Media.IEncodedVideoTransform?
+Agash.StreamTransport.MediaEndpoints.VideoReceiveTransform.init -> void
+Agash.StreamTransport.MediaEndpoints.VideoSendTransform.get -> Agash.StreamTransport.Media.IEncodedVideoTransform?
+Agash.StreamTransport.MediaEndpoints.VideoSendTransform.init -> void
 Agash.StreamTransport.MediaEndpoints.VideoSink.get -> Agash.StreamTransport.Media.IVideoSink?
 Agash.StreamTransport.MediaEndpoints.VideoSink.init -> void
 Agash.StreamTransport.MediaEndpoints.VideoSource.get -> Agash.StreamTransport.Media.IVideoSource?
@@ -346,6 +356,7 @@ override Agash.StreamTransport.TestSignal.TestSignalMeasurement.ToString() -> st
 override Agash.StreamTransport.VideoFrameTimingReport.Equals(object? obj) -> bool
 override Agash.StreamTransport.VideoFrameTimingReport.GetHashCode() -> int
 override Agash.StreamTransport.VideoFrameTimingReport.ToString() -> string!
+static Agash.StreamTransport.EncodedVideoRecorder.Create(string! path, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.EncodedVideoRecorder!>? logger = null) -> Agash.StreamTransport.EncodedVideoRecorder!
 static Agash.StreamTransport.Http.HttpSignalingOptions.operator !=(Agash.StreamTransport.Http.HttpSignalingOptions? left, Agash.StreamTransport.Http.HttpSignalingOptions? right) -> bool
 static Agash.StreamTransport.Http.HttpSignalingOptions.operator ==(Agash.StreamTransport.Http.HttpSignalingOptions? left, Agash.StreamTransport.Http.HttpSignalingOptions? right) -> bool
 static Agash.StreamTransport.Http.IceServerLinks.Format(System.Collections.Generic.IEnumerable<Agash.StreamTransport.IceServer!>! servers) -> System.Collections.Generic.IEnumerable<string!>!

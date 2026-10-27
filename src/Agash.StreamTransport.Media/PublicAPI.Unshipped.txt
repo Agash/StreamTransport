@@ -388,6 +388,8 @@ Agash.StreamTransport.Media.IEncodedAudioConsumer
 Agash.StreamTransport.Media.IEncodedAudioConsumer.OnEncoded(in Agash.StreamTransport.Media.EncodedAudioFrame frame) -> void
 Agash.StreamTransport.Media.IEncodedVideoConsumer
 Agash.StreamTransport.Media.IEncodedVideoConsumer.OnEncoded(in Agash.StreamTransport.Media.EncodedVideoFrame frame) -> void
+Agash.StreamTransport.Media.IEncodedVideoTransform
+Agash.StreamTransport.Media.IEncodedVideoTransform.Transform(in Agash.StreamTransport.Media.EncodedVideoFrame frame, Agash.StreamTransport.Media.IEncodedVideoConsumer! next) -> void
 Agash.StreamTransport.Media.IOSurfaceImage
 Agash.StreamTransport.Media.IOSurfaceImage.Deconstruct(out nint Surface, out Agash.StreamTransport.Media.GpuIdentity Device, out nint SharedEvent, out ulong SignalValue) -> void
 Agash.StreamTransport.Media.IOSurfaceImage.Device.get -> Agash.StreamTransport.Media.GpuIdentity

@@ -21,6 +21,12 @@ public sealed record MediaEndpoints
     /// <summary>Where received audio goes.</summary>
     public IAudioSink? AudioSink { get; init; }
 
+    /// <summary>What sent video passes through between the encoder and the packetizer.</summary>
+    public IEncodedVideoTransform? VideoSendTransform { get; init; }
+
+    /// <summary>What received video passes through between the depacketizer and the decoder.</summary>
+    public IEncodedVideoTransform? VideoReceiveTransform { get; init; }
+
     /// <summary>Whether the endpoints send or receive video.</summary>
     public bool HasVideo => VideoSource is not null || VideoSink is not null;
 

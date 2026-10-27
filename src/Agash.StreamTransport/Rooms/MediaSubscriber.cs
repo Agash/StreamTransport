@@ -43,7 +43,13 @@ public sealed partial class MediaSubscriber : IAsyncDisposable
 
         _room = room;
         _sessions = sessions;
-        _sinks = new MediaEndpoints { VideoSink = sinks.VideoSink, AudioSink = sinks.AudioSink };
+        // Every session it joins receives; what sends is left out.
+        _sinks = sinks with
+        {
+            VideoSource = null,
+            AudioSource = null,
+            VideoSendTransform = null,
+        };
         _options = options.Transport.IceServers.IsEmpty
             ? options with
             {
