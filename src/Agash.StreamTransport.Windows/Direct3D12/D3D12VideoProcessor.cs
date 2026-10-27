@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
@@ -394,7 +395,7 @@ internal sealed unsafe class D3D12VideoProcessor(
             _delivering
             ?? throw new InvalidOperationException("Frames are retained only while delivered.");
         texture.Hold();
-        return new D3D12FrameLease(in frame, texture);
+        return D3D12FrameLease.Of(in frame, texture);
     }
 
     public void Dispose()
@@ -1031,12 +1032,18 @@ internal sealed unsafe class D3D12VideoProcessor(
     }
 }
 
-/// <summary>A processor's output frame kept by a consumer; the texture returns to its pool on release.</summary>
+/// <summary>
+/// A frame on a pooled texture, kept by a consumer; the texture returns to its pool on release, and the
+/// lease to a pool of its own, so keeping a frame allocates nothing once warm.
+/// </summary>
 internal sealed class D3D12FrameLease : VideoFrameLease, IVideoFrameRetainer
 {
-    private readonly PooledTexture _texture;
+    // Released leases, for the next frame kept; any lease holds any texture.
+    private static readonly ConcurrentBag<D3D12FrameLease> Spare = [];
 
-    public D3D12FrameLease(in VideoFrame frame, PooledTexture texture)
+    private PooledTexture _texture;
+
+    private D3D12FrameLease(in VideoFrame frame, PooledTexture texture)
         : base(
             frame.Storage,
             frame.Format,
@@ -1049,13 +1056,31 @@ internal sealed class D3D12FrameLease : VideoFrameLease, IVideoFrameRetainer
         _texture = texture;
     }
 
+    /// <summary>A lease on a frame of the texture, which the caller has already held for it.</summary>
+    public static D3D12FrameLease Of(in VideoFrame frame, PooledTexture texture)
+    {
+        if (!Spare.TryTake(out D3D12FrameLease? lease))
+        {
+            return new D3D12FrameLease(in frame, texture);
+        }
+
+        lease._texture = texture;
+        lease.Reuse(in frame);
+        return lease;
+    }
+
     protected override IVideoFrameRetainer KeepAgain => this;
 
     public VideoFrameLease Retain(in VideoFrame frame)
     {
         _texture.Hold();
-        return new D3D12FrameLease(in frame, _texture);
+        return Of(in frame, _texture);
     }
 
-    protected override void Release() => _texture.Release();
+    protected override void Release()
+    {
+        PooledTexture texture = _texture;
+        Spare.Add(this);
+        texture.Release();
+    }
 }

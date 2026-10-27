@@ -234,7 +234,7 @@ public sealed partial class SpoutVideoSource : IVideoSource, IDisposable
                 orientation: frame.Orientation,
                 duration: frame.Duration
             );
-            return new D3D12FrameLease(in kept, copy);
+            return D3D12FrameLease.Of(in kept, copy);
         }
 
         private async Task RunAsync()
