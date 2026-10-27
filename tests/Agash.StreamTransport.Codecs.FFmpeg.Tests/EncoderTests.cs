@@ -376,6 +376,7 @@ public sealed class EncoderTests
                 );
             }
 
+            decoder.Flush(lumas);
             Assert.HasCount(
                 3,
                 lumas.Values,

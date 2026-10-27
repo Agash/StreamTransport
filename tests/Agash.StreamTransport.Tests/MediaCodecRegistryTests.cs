@@ -229,6 +229,8 @@ public sealed class MediaCodecRegistryTests
 
         public void Decode(in EncodedVideoFrame frame, IVideoFrameConsumer consumer) { }
 
+        public void Flush(IVideoFrameConsumer consumer) { }
+
         public void Dispose() { }
     }
 

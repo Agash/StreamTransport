@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.ExceptionServices;
 using Agash.StreamTransport.Media;
 using Microsoft.Extensions.Logging;
 using static FFmpeg.Interop.D3D11VAExtensions;
@@ -42,6 +43,21 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
     private long _lastPts = long.MinValue;
     private bool _disposed;
 
+    // DMA-BUF frames are handed over by a worker. Mapping a surface waits for its decode (libva requires
+    // vaSyncSurface before a surface is read, and FFmpeg's map calls it), so mapped on the decoding
+    // thread each decode would wait for the one before; on the worker the next access unit is already
+    // decoding while the last one finishes. Two in flight is enough to overlap them, and the decoder's
+    // pool has a surface more for each.
+    private const int InFlight = 2;
+    private readonly Lock _deliveryGate = new();
+    private readonly SemaphoreSlim _free = new(InFlight, InFlight);
+    private readonly SemaphoreSlim _ready = new(0, InFlight + 1);
+    private readonly Pending[] _pending = new Pending[InFlight];
+    private int _pendingHead;
+    private int _pendingCount;
+    private Thread? _deliverer;
+    private Exception? _deliveryFault;
+
     public FFmpegVideoDecoder(
         FF.Codec codec,
         VideoCodecId id,
@@ -70,7 +86,8 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
                 LowDelay = true,
                 PacketTimeBase = TimeBase,
                 DrmModifiers = drmModifiers,
-                ExtraHardwareFrames = heldFrames,
+                ExtraHardwareFrames =
+                    heldFrames + (output == VideoStorageKind.DmaBuf ? InFlight : 0),
             }
         );
     }
@@ -91,6 +108,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            ThrowDeliveryFault();
             long pts = (long)(
                 (Int128)frame.Timestamp.Time.Nanoseconds * TimeBase.Denominator / 1_000_000_000
             );
@@ -108,6 +126,23 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             {
                 Deliver(decoded, consumer);
             }
+        }
+    }
+
+    public void Flush(IVideoFrameConsumer consumer)
+    {
+        ArgumentNullException.ThrowIfNull(consumer);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            // Every slot free is every frame handed over.
+            for (int i = 0; i < InFlight; i++)
+            {
+                _free.Wait();
+            }
+
+            _ = _free.Release(InFlight);
+            ThrowDeliveryFault();
         }
     }
 
@@ -130,6 +165,18 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             }
 
             _disposed = true;
+
+            // Frames already decoded are still handed over; the worker stops once none are left.
+            // A wake with nothing queued tells the worker to stop.
+            _ = _ready.Release();
+            _deliverer?.Join();
+            _free.Dispose();
+            _ready.Dispose();
+            foreach (Pending pending in _pending)
+            {
+                pending.Frame?.Dispose();
+            }
+
             _decoder.Dispose();
             _device?.Dispose();
             _scaler?.Dispose();
@@ -148,6 +195,14 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         // Decoded pictures are Y'CbCr; a stream tagged RGB (a sender that signalled its source's sRGB)
         // is read as BT.709, so conversions downstream still have a matrix to use.
         VideoColor color = Formats.FromFFmpeg(decoded).ConvertedTo(PixelFormat.Nv12);
+
+        // Handed over by the worker, which holds the frame being delivered itself.
+        if (_output == VideoStorageKind.DmaBuf && OperatingSystem.IsLinux())
+        {
+            Hand(decoded, timestamp, color, consumer);
+            return;
+        }
+
         try
         {
             switch (_output)
@@ -198,9 +253,6 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
                         )
                     );
                     break;
-                case VideoStorageKind.DmaBuf when OperatingSystem.IsLinux():
-                    DeliverDmaBuf(decoded, timestamp, color, consumer);
-                    break;
                 default:
                     DeliverCpu(decoded, timestamp, color, consumer);
                     break;
@@ -211,6 +263,109 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             _current = null;
         }
     }
+
+    // Queues a decoded surface for the worker, waiting while two are already on their way.
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private void Hand(
+        FF.Frame decoded,
+        MediaTimestamp timestamp,
+        VideoColor color,
+        IVideoFrameConsumer consumer
+    )
+    {
+        _free.Wait();
+        lock (_deliveryGate)
+        {
+            int slot = (_pendingHead + _pendingCount) % InFlight;
+            FF.Frame frame = _pending[slot].Frame ?? new FF.Frame();
+            frame.Reference(decoded);
+            _pending[slot] = new Pending(frame, timestamp, color, consumer);
+            _pendingCount++;
+        }
+
+        _deliverer ??= StartDeliverer();
+        _ = _ready.Release();
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private Thread StartDeliverer()
+    {
+        Thread thread = new(Deliver)
+        {
+            IsBackground = true,
+            Name = $"{Info.ImplementationName} frames",
+        };
+        thread.Start();
+        return thread;
+    }
+
+    // The worker: maps each surface in order, hands it over, and gives the slot back.
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private void Deliver()
+    {
+        while (true)
+        {
+            _ready.Wait();
+            Pending pending;
+            lock (_deliveryGate)
+            {
+                // Woken with nothing queued only to stop: what was queued before is handed over first.
+                if (_pendingCount == 0)
+                {
+                    return;
+                }
+
+                pending = _pending[_pendingHead];
+            }
+
+            try
+            {
+                DeliverDmaBuf(pending.Frame!, pending.Timestamp, pending.Color, pending.Consumer);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // The next Decode or Flush throws it, where a failed frame asks for a keyframe.
+                LogDeliveryFailed(exception);
+                _ = Interlocked.CompareExchange(ref _deliveryFault, exception, null);
+            }
+            finally
+            {
+                _current = null;
+                _mapped.Reset();
+                pending.Frame!.Reset();
+                lock (_deliveryGate)
+                {
+                    _pendingHead = (_pendingHead + 1) % InFlight;
+                    _pendingCount--;
+                }
+
+                _ = _free.Release();
+            }
+        }
+    }
+
+    private void ThrowDeliveryFault()
+    {
+        if (Interlocked.Exchange(ref _deliveryFault, null) is { } fault)
+        {
+            ExceptionDispatchInfo.Throw(fault);
+        }
+    }
+
+    [LoggerMessage(
+        EventId = 1022,
+        Level = LogLevel.Warning,
+        Message = "A decoded frame could not be handed over"
+    )]
+    private partial void LogDeliveryFailed(Exception exception);
+
+    // A decoded surface on its way to the worker, with what its delivery needs.
+    private readonly record struct Pending(
+        FF.Frame? Frame,
+        MediaTimestamp Timestamp,
+        VideoColor Color,
+        IVideoFrameConsumer Consumer
+    );
 
     // A surface mapped as DRM PRIME, so its DMA-BUFs can be shared.
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]

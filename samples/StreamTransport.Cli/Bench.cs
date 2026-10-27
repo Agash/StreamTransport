@@ -71,7 +71,8 @@ internal static class Bench
                             MediaTimestamp.Observed(new MediaTime(i * 16_666_667L))
                         ),
                         frames
-                    )
+                    ),
+                () => decoder.Flush(frames)
             );
             Console.WriteLine($"{info.ImplementationName, -48} {measurement} {frames.Count} out");
         }
@@ -151,7 +152,8 @@ internal static class Bench
     }
 
     // Runs the step once per frame, after a few unmeasured ones that open the codec.
-    private static Measurement Measure(int count, Action<int> step)
+    // finish runs inside the timed span, for work the steps leave in flight.
+    private static Measurement Measure(int count, Action<int> step, Action? finish = null)
     {
         const int warmup = 5;
         for (int i = 0; i < Math.Min(warmup, count); i++)
@@ -172,6 +174,7 @@ internal static class Bench
             times[i - warmup] = Stopwatch.GetElapsedTime(t).TotalMilliseconds;
         }
 
+        finish?.Invoke();
         double seconds = Stopwatch.GetElapsedTime(started).TotalSeconds;
         self.Refresh();
         return new Measurement(

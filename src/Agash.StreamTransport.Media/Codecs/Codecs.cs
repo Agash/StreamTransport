@@ -264,6 +264,12 @@ public sealed record VideoDecoderInfo(
 );
 
 /// <summary>A video decoder: access units in, frames out to the consumer.</summary>
+/// <remarks>
+/// Frames reach the consumer in decode order, each with its access unit's timestamp, but not necessarily
+/// before <see cref="Decode"/> returns or on its thread: a hardware decoder may hand a frame over once
+/// the hardware has finished it, while the next access unit is already decoding. <see cref="Flush"/>
+/// waits for them; disposing hands over or releases whatever is still on its way.
+/// </remarks>
 public interface IVideoDecoder : IDisposable
 {
     /// <summary>What the decoder produces.</summary>
@@ -273,6 +279,10 @@ public interface IVideoDecoder : IDisposable
     /// <param name="frame">The access unit.</param>
     /// <param name="consumer">Where decoded frames go.</param>
     void Decode(in EncodedVideoFrame frame, IVideoFrameConsumer consumer);
+
+    /// <summary>Hands over every frame decoded so far, waiting for those still on their way.</summary>
+    /// <param name="consumer">Where frames still inside the decoder go.</param>
+    void Flush(IVideoFrameConsumer consumer);
 }
 
 /// <summary>

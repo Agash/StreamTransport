@@ -405,6 +405,7 @@ Agash.StreamTransport.Media.IOSurfaceImage.Surface.get -> nint
 Agash.StreamTransport.Media.IOSurfaceImage.Surface.init -> void
 Agash.StreamTransport.Media.IVideoDecoder
 Agash.StreamTransport.Media.IVideoDecoder.Decode(in Agash.StreamTransport.Media.EncodedVideoFrame frame, Agash.StreamTransport.Media.IVideoFrameConsumer! consumer) -> void
+Agash.StreamTransport.Media.IVideoDecoder.Flush(Agash.StreamTransport.Media.IVideoFrameConsumer! consumer) -> void
 Agash.StreamTransport.Media.IVideoDecoder.Info.get -> Agash.StreamTransport.Media.VideoDecoderInfo!
 Agash.StreamTransport.Media.IVideoDecoderFactory
 Agash.StreamTransport.Media.IVideoDecoderFactory.Create(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.VideoConstraints! output) -> Agash.StreamTransport.Media.IVideoDecoder!

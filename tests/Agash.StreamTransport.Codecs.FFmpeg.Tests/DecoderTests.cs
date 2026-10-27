@@ -56,6 +56,7 @@ public sealed class DecoderTests
             );
         }
 
+        decoder.Flush(recorder);
         Assert.HasCount(FrameCount, recorder.Frames);
         for (int i = 0; i < FrameCount; i++)
         {
@@ -86,6 +87,7 @@ public sealed class DecoderTests
             );
         }
 
+        decoder.Flush(keeper);
         Assert.HasCount(FrameCount, keeper.Leases);
         for (int i = 0; i < FrameCount; i++)
         {
@@ -151,6 +153,8 @@ public sealed class DecoderTests
             decoder.Decode(new EncodedVideoFrame(data, codec, false, timestamp), relay);
         }
 
+        decoder.Flush(relay);
+
         encoder.Flush(collector);
         Assert.AreEqual(storage, relay.Storage);
         var decoded = Reference.Decode(codec, collector.Units.Select(static u => u.Data));
@@ -159,6 +163,52 @@ public sealed class DecoderTests
         {
             Assert.AreEqual(Pictures.MeanLuma(i), decoded[i].MeanLuma, 8.0, $"Frame {i}.");
         }
+    }
+
+    [TestMethod]
+    [DataRow(DecoderBackend.Vaapi)]
+    [DataRow(DecoderBackend.Vulkan)]
+    public void Dispose_WithFramesOnTheirWay_HandsThemOverInOrder(DecoderBackend backend)
+    {
+        // DMA-BUF frames are handed over by a worker once their decode has finished; disposing right
+        // after the last access unit still delivers every one, in decode order.
+        if (!Backends.Decodes(backend, VideoStorageKind.DmaBuf))
+        {
+            Assert.Inconclusive($"{backend} gives no DMA-BUF frames on this machine.");
+        }
+
+        List<(byte[] Data, MediaTimestamp Timestamp)> stream = Streams.Encode(
+            VideoCodecId.H264,
+            FrameCount
+        );
+        Stamps stamps = new();
+        using (
+            IVideoDecoder decoder = new FFmpegVideoDecoderFactory(backend).Create(
+                new VideoCodecFormat(VideoCodecId.H264),
+                new VideoConstraints([VideoStorageKind.DmaBuf], [PixelFormat.Nv12], null)
+            )
+        )
+        {
+            foreach ((byte[] data, MediaTimestamp timestamp) in stream)
+            {
+                decoder.Decode(
+                    new EncodedVideoFrame(data, VideoCodecId.H264, false, timestamp),
+                    stamps
+                );
+            }
+        }
+
+        CollectionAssert.AreEqual(
+            stream.Select(static unit => unit.Timestamp).ToArray(),
+            stamps.Values.ToArray()
+        );
+    }
+
+    private sealed class Stamps : IVideoFrameConsumer
+    {
+        public List<MediaTimestamp> Values { get; } = [];
+
+        public void OnFrame(in VideoFrame frame) => Values.Add(frame.Timestamp);
     }
 
     private sealed class LumaRecorder : IVideoFrameConsumer
