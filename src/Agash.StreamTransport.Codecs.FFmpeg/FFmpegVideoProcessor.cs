@@ -118,6 +118,7 @@ internal sealed class FFmpegVideoProcessor(
 {
     private readonly FF.Scaler _scaler = new();
     private readonly FF.Frame _source = new();
+    private readonly FF.FramePool _pictures = new();
     private readonly FF.Frame _output = new();
 
     // The intermediate picture of a side-by-side pack or unpack.
@@ -138,7 +139,7 @@ internal sealed class FFmpegVideoProcessor(
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            FFmpegFrames.CopyFrom(in frame, _source);
+            FFmpegFrames.CopyFrom(in frame, _source, _pictures);
             SetColor(_source, frame.Color);
 
             VideoStreamDescription output = Info.Output;
@@ -200,6 +201,7 @@ internal sealed class FFmpegVideoProcessor(
             _disposed = true;
             _scaler.Dispose();
             _source.Dispose();
+            _pictures.Dispose();
             _output.Dispose();
             _work.Dispose();
             _colourHalf.Dispose();

@@ -42,12 +42,18 @@ internal sealed class SystemMemoryInput(PixelFormat format, FF.HardwareDevice? d
 {
     public override FF.PixelFormat ContextFormat { get; } = Formats.ToFFmpeg(format);
 
+    private readonly FF.FramePool _pictures = new();
+
     public override FF.HardwareDevice? Device => device;
 
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination) =>
-        FFmpegFrames.CopyFrom(in frame, destination);
+        FFmpegFrames.CopyFrom(in frame, destination, _pictures);
 
-    public override void Dispose() => device?.Dispose();
+    public override void Dispose()
+    {
+        _pictures.Dispose();
+        device?.Dispose();
+    }
 }
 
 // System memory uploaded into the encoder's surfaces, for encoders that take only surfaces.
@@ -56,6 +62,7 @@ internal sealed class UploadInput : EncoderInput
     private readonly FF.HardwareDevice _device;
     private readonly FF.HardwareFramePool _pool;
     private readonly FF.Frame _staging = new();
+    private readonly FF.FramePool _pictures = new();
 
     // Takes ownership of the device.
     public UploadInput(FF.HardwareDevice device, PixelFormat format, VideoSize size)
@@ -76,13 +83,14 @@ internal sealed class UploadInput : EncoderInput
 
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
     {
-        FFmpegFrames.CopyFrom(in frame, _staging);
+        FFmpegFrames.CopyFrom(in frame, _staging, _pictures);
         _pool.Upload(_staging, destination);
     }
 
     public override void Dispose()
     {
         _staging.Dispose();
+        _pictures.Dispose();
         _pool.Dispose();
         _device.Dispose();
     }

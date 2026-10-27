@@ -44,7 +44,9 @@ internal static class FFmpegFrames
     }
 
     // Copies a CPU frame's planes into an FFmpeg frame allocated for them.
-    public static void CopyFrom(in VideoFrame frame, FF.Frame destination)
+    // The destination's picture comes from the pool: a new buffer for every frame would be megabytes of
+    // fresh pages faulted in on the first write, and one the encoder still holds stays its own.
+    public static void CopyFrom(in VideoFrame frame, FF.Frame destination, FF.FramePool pool)
     {
         if (!frame.Storage.TryGetValue(out CpuImage image))
         {
@@ -52,7 +54,8 @@ internal static class FFmpegFrames
         }
 
         VideoSize size = new(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
-        destination.AllocateVideo(
+        pool.Allocate(
+            destination,
             size.Width,
             size.Height,
             Formats.ToFFmpeg(frame.Format.PixelFormat)
