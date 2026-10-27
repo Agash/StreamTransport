@@ -37,6 +37,14 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     private long _lastPts = long.MinValue;
     private bool _disposed;
 
+    // A rate the encoder takes only when opened is applied by opening the next encoder alongside the
+    // running one, on a worker, and swapping it in at the next frame once it is ready: the running encoder
+    // keeps encoding meanwhile, so a rate change costs a keyframe and no stall.
+    private Prepared? _prepared;
+    private bool _preparing;
+    private string? _preparedAgain;
+    private readonly ManualResetEventSlim _prepareOpened = new(initialState: true);
+
     public FFmpegVideoEncoder(
         BackendSpec spec,
         FF.Codec codec,
@@ -99,20 +107,37 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             // encoder's first frame is always an IDR.
             bool keyframeByReopen =
                 !_forcesKeyframes && request.Keyframe && _session is { FramesSent: > 0 };
-            string reason = "start";
-            if (
-                _session is { } open
-                && (_reopen is not null || keyframeByReopen || open.Storage != frame.Storage.Kind)
-            )
+            if (_session is { } open)
             {
-                reason = _reopen ?? (keyframeByReopen ? "keyframe" : "storage");
-                Drain(open, consumer);
-                open.Dispose();
-                _session = null;
-                _keyframePending = true;
+                if (open.Storage != frame.Storage.Kind)
+                {
+                    // Another storage needs another input: everything is opened again.
+                    Drain(open, consumer);
+                    CloseSession(open);
+                    _session = Open(in frame, "storage");
+                }
+                else if (_prepared is { } prepared)
+                {
+                    _prepared = null;
+                    Drain(open, consumer);
+                    open.Replace(prepared.Encoder, prepared.BitsPerSecond);
+                    _keyframePending = true;
+                }
+                else if (_reopen is not null || keyframeByReopen)
+                {
+                    // A keyframe now, or a prepared encoder that failed to open: the input stays and
+                    // the encoder is opened here.
+                    string reason = _reopen ?? "keyframe";
+                    Drain(open, consumer);
+                    long started = _time.GetTimestamp();
+                    RateTarget rate = _configuration.Rate;
+                    open.Replace(CreateEncoder(open.Input, rate, open.Color), rate.BitsPerSecond);
+                    Opened(reason, open.Storage, rate, started);
+                    _keyframePending = true;
+                }
             }
 
-            Session session = _session ??= Open(in frame, reason);
+            Session session = _session ??= Open(in frame, "start");
             _reopen = null;
 
             long pts = ToPts(frame.Timestamp.Time);
@@ -181,8 +206,8 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 || target.FramesPerSecond > openedFrames * 1.2
             )
             {
-                _reopen = "frame_rate";
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
+                Prepare(session, "frame_rate");
             }
             else if (session.Encoder.SupportsRateControlChanges)
             {
@@ -195,8 +220,8 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             }
             else if (WorthReopening(session.BitsPerSecond, target.BitsPerSecond))
             {
-                _reopen = "rate";
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
+                Prepare(session, "rate");
             }
         }
     }
@@ -219,7 +244,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 // An encoder that has seen end of stream takes no more frames; the next frame opens a
                 // new one.
                 Drain(session, consumer);
-                session.Dispose();
+                CloseSession(session);
                 _session = null;
                 _keyframePending = true;
             }
@@ -236,9 +261,14 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             }
 
             _disposed = true;
-            _session?.Dispose();
+            if (_session is { } session)
+            {
+                CloseSession(session);
+            }
+
             _session = null;
             ReleaseRead(long.MaxValue);
+            _prepareOpened.Dispose();
         }
     }
 
@@ -303,79 +333,185 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 : frame.Color != default ? frame.Color
                 : VideoColor.Bt709
             ).ConvertedTo(PixelFormat.I420);
-            var encoder = FF.Encoder.Create(
-                _codec,
-                new FF.VideoEncoderOptions
-                {
-                    Width = size.Width,
-                    Height = size.Height,
-                    PixelFormat = input.ContextFormat,
-                    TimeBase = TimeBase,
-                    FrameRate = FrameRate(rate.FramesPerSecond),
-                    GopSize = EncoderSettings.GopSize(_configuration),
-                    MaxBFrames = 0,
-                    BitRate = rate.BitsPerSecond,
-                    MaxRate = rate.BitsPerSecond,
-                    BufferSize = BufferSize(rate, _configuration.Tuning),
-                    LowDelay =
-                        _configuration.Alpha != AlphaLayout.Layer
-                        || EncoderSettings.LowDelayWithAlphaLayer(_codec.Name),
-                    HardwareFrames = input.Pool,
-                    HardwareDevice = input.Pool is null ? input.Device : null,
-                    // The range describes the samples the encoder is handed: RGB is full range, and
-                    // the encoder converts it to the coded range itself (VideoToolbox has no BGRA in
-                    // any other range).
-                    ColorRange =
-                        Formats.FromFFmpeg(input.ContextFormat)
-                            is PixelFormat.Bgra
-                                or PixelFormat.Rgba
-                            ? Formats.ToFFmpeg(ColorRange.Full)
-                        : color.Range == ColorRange.Unspecified ? null
-                        : Formats.ToFFmpeg(color.Range),
-                    ColorPrimaries =
-                        color.Primaries == ColorPrimaries.Unspecified
-                            ? null
-                            : Formats.ToFFmpeg(color.Primaries),
-                    ColorTransfer =
-                        color.Transfer == TransferFunction.Unspecified
-                            ? null
-                            : Formats.ToFFmpeg(color.Transfer),
-                    ColorSpace =
-                        color.Matrix == ColorMatrix.Unspecified
-                            ? null
-                            : Formats.ToFFmpeg(color.Matrix),
-                    CodecOptions = _privateOptions,
-                }
-            );
-            LogOpened(
-                _logger,
-                Info.ImplementationName,
-                frame.Storage.Kind,
-                size.Width,
-                size.Height,
-                rate.BitsPerSecond,
-                EncoderSettings.Describe(_privateOptions)
-            );
-            if (_metrics is { } metrics)
-            {
-                metrics.EncoderOpens.Add(
-                    1,
-                    FFmpegCodecMetrics.Codec(_codec.Name),
-                    FFmpegCodecMetrics.Reason(reason)
-                );
-                metrics.EncoderOpenDuration.Record(
-                    _time.GetElapsedTime(started).TotalSeconds,
-                    FFmpegCodecMetrics.Codec(_codec.Name)
-                );
-            }
-
-            return new Session(encoder, input, frame.Storage.Kind, rate.BitsPerSecond);
+            FF.Encoder encoder = CreateEncoder(input, rate, color);
+            Opened(reason, frame.Storage.Kind, rate, started);
+            return new Session(encoder, input, frame.Storage.Kind, rate.BitsPerSecond, color);
         }
         catch
         {
             input.Dispose();
             throw;
         }
+    }
+
+    // A codec context on an input, at a rate. It holds no state of this instance's, so a worker opens one
+    // while another encodes.
+    private FF.Encoder CreateEncoder(EncoderInput input, RateTarget rate, VideoColor color)
+    {
+        VideoSize size = _configuration.Size;
+        return FF.Encoder.Create(
+            _codec,
+            new FF.VideoEncoderOptions
+            {
+                Width = size.Width,
+                Height = size.Height,
+                PixelFormat = input.ContextFormat,
+                TimeBase = TimeBase,
+                FrameRate = FrameRate(rate.FramesPerSecond),
+                GopSize = EncoderSettings.GopSize(_configuration),
+                MaxBFrames = 0,
+                BitRate = rate.BitsPerSecond,
+                MaxRate = rate.BitsPerSecond,
+                BufferSize = BufferSize(rate, _configuration.Tuning),
+                LowDelay =
+                    _configuration.Alpha != AlphaLayout.Layer
+                    || EncoderSettings.LowDelayWithAlphaLayer(_codec.Name),
+                HardwareFrames = input.Pool,
+                HardwareDevice = input.Pool is null ? input.Device : null,
+                // The range describes the samples the encoder is handed: RGB is full range, and
+                // the encoder converts it to the coded range itself (VideoToolbox has no BGRA in
+                // any other range).
+                ColorRange =
+                    Formats.FromFFmpeg(input.ContextFormat) is PixelFormat.Bgra or PixelFormat.Rgba
+                        ? Formats.ToFFmpeg(ColorRange.Full)
+                    : color.Range == ColorRange.Unspecified ? null
+                    : Formats.ToFFmpeg(color.Range),
+                ColorPrimaries =
+                    color.Primaries == ColorPrimaries.Unspecified
+                        ? null
+                        : Formats.ToFFmpeg(color.Primaries),
+                ColorTransfer =
+                    color.Transfer == TransferFunction.Unspecified
+                        ? null
+                        : Formats.ToFFmpeg(color.Transfer),
+                ColorSpace =
+                    color.Matrix == ColorMatrix.Unspecified ? null : Formats.ToFFmpeg(color.Matrix),
+                CodecOptions = _privateOptions,
+            }
+        );
+    }
+
+    private void Opened(string reason, VideoStorageKind storage, RateTarget rate, long started)
+    {
+        LogOpened(
+            _logger,
+            Info.ImplementationName,
+            storage,
+            _configuration.Size.Width,
+            _configuration.Size.Height,
+            rate.BitsPerSecond,
+            EncoderSettings.Describe(_privateOptions)
+        );
+        if (_metrics is { } metrics)
+        {
+            metrics.EncoderOpens.Add(
+                1,
+                FFmpegCodecMetrics.Codec(_codec.Name),
+                FFmpegCodecMetrics.Reason(reason)
+            );
+            metrics.EncoderOpenDuration.Record(
+                _time.GetElapsedTime(started).TotalSeconds,
+                FFmpegCodecMetrics.Codec(_codec.Name)
+            );
+        }
+    }
+
+    // Opens the next encoder at the configured rate on a worker. One preparation runs at a time; a target
+    // that moves meanwhile is prepared once that one is done, from the newest target.
+    private void Prepare(Session session, string reason)
+    {
+        if (_preparing)
+        {
+            _preparedAgain = reason;
+            return;
+        }
+
+        _preparing = true;
+        _prepareOpened.Reset();
+        EncoderInput input = session.Input;
+        VideoColor color = session.Color;
+        RateTarget rate = _configuration.Rate;
+        _ = ThreadPool.UnsafeQueueUserWorkItem(
+            _ =>
+            {
+                long started = _time.GetTimestamp();
+                FF.Encoder? encoder = null;
+                Exception? failure = null;
+                try
+                {
+                    encoder = CreateEncoder(input, rate, color);
+                }
+                catch (Exception ex)
+                    when (ex
+                            is FF.FFmpegException
+                                or NotSupportedException
+                                or InvalidOperationException
+                                or ArgumentException
+                    )
+                {
+                    failure = ex;
+                }
+                finally
+                {
+                    // Before the lock: a session closing under it waits for this, not for the lock.
+                    _prepareOpened.Set();
+                }
+
+                Finished(input, reason, rate, started, encoder, failure);
+            },
+            null
+        );
+    }
+
+    private void Finished(
+        EncoderInput input,
+        string reason,
+        RateTarget rate,
+        long started,
+        FF.Encoder? encoder,
+        Exception? failure
+    )
+    {
+        lock (_gate)
+        {
+            _preparing = false;
+            if (_disposed || _session is not { } session || session.Input != input)
+            {
+                encoder?.Dispose();
+                return;
+            }
+
+            if (encoder is null)
+            {
+                // Opened on the next frame instead, where a failure reaches the caller.
+                LogPrepareFailed(_logger, failure, Info.ImplementationName, rate.BitsPerSecond);
+                _reopen = reason;
+                return;
+            }
+
+            Opened(reason, session.Storage, rate, started);
+            _prepared?.Encoder.Dispose();
+            _prepared = new Prepared(encoder, rate.BitsPerSecond);
+            if (_preparedAgain is { } again)
+            {
+                _preparedAgain = null;
+                if (WorthReopening(rate.BitsPerSecond, _configuration.Rate.BitsPerSecond))
+                {
+                    Prepare(session, again);
+                }
+            }
+        }
+    }
+
+    // Closes a session once no worker is opening an encoder on its input.
+    private void CloseSession(Session session)
+    {
+        _prepareOpened.Wait();
+        _prepared?.Encoder.Dispose();
+        _prepared = null;
+        _preparedAgain = null;
+        _reopen = null;
+        session.Dispose();
     }
 
     // System memory goes straight in when the encoder takes it, uploaded into the device's surfaces
@@ -466,17 +602,39 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         (int)Math.Min(int.MaxValue, rate.BitsPerSecond * EncoderSettings.BufferSeconds(tuning));
 
     // The encoder and what feeds it, replaced together when the encoder reopens.
+    // An encoder opened alongside the running one, at the rate it holds.
+    private sealed record Prepared(FF.Encoder Encoder, long BitsPerSecond);
+
     private sealed class Session(
         FF.Encoder encoder,
         EncoderInput input,
         VideoStorageKind storage,
-        long bitsPerSecond
+        long bitsPerSecond,
+        VideoColor color
     ) : IDisposable
     {
-        public FF.Encoder Encoder { get; } = encoder;
+        public FF.Encoder Encoder { get; private set; } = encoder;
 
         // The rate the encoder was opened at, which it holds until it reopens.
-        public long BitsPerSecond { get; } = bitsPerSecond;
+        public long BitsPerSecond { get; private set; } = bitsPerSecond;
+
+        // The colour the stream signals, kept across reopens.
+        public VideoColor Color { get; } = color;
+
+        // The next encoder on the same input, after the running one has been drained. The drained one is
+        // closed on a worker: closing waits for its GPU work, and it holds its own references to the
+        // input's device and frames.
+        public void Replace(FF.Encoder encoder, long bitsPerSecond)
+        {
+            _ = ThreadPool.UnsafeQueueUserWorkItem(
+                static drained => drained.Dispose(),
+                Encoder,
+                false
+            );
+            Encoder = encoder;
+            BitsPerSecond = bitsPerSecond;
+            FramesSent = 0;
+        }
 
         public EncoderInput Input { get; } = input;
 
@@ -557,6 +715,18 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         Message = "{Encoder} cannot change rate while running; reopening at {BitsPerSecond} b/s on the next frame"
     )]
     private static partial void LogRateReopen(ILogger logger, string encoder, long bitsPerSecond);
+
+    [LoggerMessage(
+        EventId = 1004,
+        Level = LogLevel.Warning,
+        Message = "{Encoder} did not open at {BitsPerSecond} b/s alongside the running encoder; it reopens on the next frame"
+    )]
+    private static partial void LogPrepareFailed(
+        ILogger logger,
+        Exception? exception,
+        string encoder,
+        long bitsPerSecond
+    );
 
     [LoggerMessage(
         EventId = 1003,

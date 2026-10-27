@@ -124,6 +124,56 @@ public sealed class EncoderTests
         );
     }
 
+    // An encoder that takes a rate only when opened opens the next one alongside and swaps it in: no
+    // frame is lost on the way, and the stream decodes across the swaps.
+    [TestMethod]
+    [DynamicData(nameof(Cases))]
+    public void Reconfigure_ReopeningEncoder_LosesNoFrame(
+        EncoderBackend backend,
+        VideoCodecId codec
+    )
+    {
+        FFmpegVideoEncoderFactory factory = new(backend);
+        VideoEncoderInfo info = Available(factory, codec);
+        PixelFormat format = info.Input.PixelFormats[0];
+        if (info.ReconfigurableRate || format is not (PixelFormat.Nv12 or PixelFormat.I420))
+        {
+            Assert.Inconclusive(
+                $"{info.ImplementationName} changes its rate in place or takes {format}."
+            );
+        }
+
+        const int frames = 90;
+        using IVideoEncoder encoder = factory.Create(Configuration(codec, 2_000_000), device: null);
+        Collector collector = new();
+        for (int i = 0; i < frames; i++)
+        {
+            if (i is 30 or 60)
+            {
+                encoder.Reconfigure(new RateTarget(i == 30 ? 800_000 : 2_000_000, 30));
+            }
+
+            VideoFrame frame = Pictures.CpuFrame(format, Pictures.Make(format, i), i);
+            encoder.Encode(in frame, default, collector);
+        }
+
+        encoder.Flush(collector);
+        CollectionAssert.AreEqual(
+            Enumerable.Range(0, frames).Select(Pictures.Timestamp).ToList(),
+            collector.Units.Select(static u => u.Timestamp).ToList(),
+            $"{info.ImplementationName} lost or reordered frames across its reopens."
+        );
+        Assert.IsGreaterThan(
+            1,
+            collector.Units.Count(static u => u.Keyframe),
+            "a reopened encoder starts with a keyframe"
+        );
+        Assert.HasCount(
+            frames,
+            Reference.Decode(codec, collector.Units.Select(static u => u.Data))
+        );
+    }
+
     // Congestion control moves the rate every few frames, down and back up; every step must be taken
     // without an error from the encoder.
     [TestMethod]
