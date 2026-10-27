@@ -46,4 +46,22 @@
       Condition="'$(BuildMacOS)' == 'true'"
     />
   </ItemGroup>
+
+  <!-- A native library a project reference copies to the output reaches this project once directly and
+       once through each project between them. The usual copy keeps one; the app bundle takes them all,
+       and two install-name rewrites of one file at once fail. -->
+  <Target
+    Name="RemoveDuplicateBundledLibraries"
+    BeforeTargets="_ComputePublishLocation"
+    Condition="'$(BuildMacOS)' == 'true'"
+  >
+    <RemoveDuplicates Inputs="@(ResolvedFileToPublish)">
+      <Output TaskParameter="Filtered" ItemName="_DistinctFileToPublish" />
+    </RemoveDuplicates>
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" />
+      <ResolvedFileToPublish Include="@(_DistinctFileToPublish)" />
+      <_DistinctFileToPublish Remove="@(_DistinctFileToPublish)" />
+    </ItemGroup>
+  </Target>
 </Project>
