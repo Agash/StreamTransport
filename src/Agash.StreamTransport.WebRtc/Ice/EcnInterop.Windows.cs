@@ -103,6 +103,7 @@ internal static unsafe partial class EcnInterop
         nint handle,
         byte[] buffer,
         bool ipv6,
+        SenderCache senders,
         out byte trafficClass,
         out IPEndPoint? remote
     )
@@ -138,7 +139,7 @@ internal static unsafe partial class EcnInterop
             }
 
             trafficClass = ParseWindowsTrafficClass(control, (int)*(uint*)(pMessage + 32));
-            remote = ParseSockAddr(name, ipv6);
+            remote = senders.Resolve(name, ipv6);
             return (int)received;
         }
     }
@@ -184,10 +185,11 @@ internal static unsafe partial class EcnInterop
         byte ecn
     )
     {
-        SocketAddress address = destination.Serialize();
-        Span<byte> name = stackalloc byte[address.Size];
-        address.Buffer.Span[..address.Size].CopyTo(name);
+        // Written in place: the destination's own family, as Serialize would give it, without the
+        // SocketAddress it allocates for every datagram.
         bool ipv6 = destination.AddressFamily == AddressFamily.InterNetworkV6;
+        Span<byte> name = stackalloc byte[28];
+        name = name[..WriteSockAddr(name, destination, ipv6)];
         Span<byte> control = stackalloc byte[24];
         control.Clear();
         Span<byte> message = stackalloc byte[WsaMsgSize];

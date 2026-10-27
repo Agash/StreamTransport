@@ -167,16 +167,56 @@ internal static unsafe partial class EcnInterop
     /// source endpoint.
     /// Returns -1 (with <paramref name="remote"/> null) on error - e.g. the socket was closed during shutdown.
     /// </summary>
+    /// <param name="handle">The socket.</param>
+    /// <param name="buffer">Where the datagram goes.</param>
+    /// <param name="ipv6">Whether the socket is IPv6, which decides the source address's layout.</param>
+    /// <param name="senders">The last source seen on this socket, handed back while datagrams keep coming from it.</param>
+    /// <param name="trafficClass">The datagram's traffic class byte.</param>
+    /// <param name="remote">Where it came from.</param>
     public static int Receive(
         nint handle,
         byte[] buffer,
         bool ipv6,
+        SenderCache senders,
         out byte trafficClass,
         out IPEndPoint? remote
     ) =>
         IsWindows
-            ? WindowsReceive(handle, buffer, ipv6, out trafficClass, out remote)
-            : UnixReceive((int)handle, buffer, ipv6, out trafficClass, out remote);
+            ? WindowsReceive(handle, buffer, ipv6, senders, out trafficClass, out remote)
+            : UnixReceive((int)handle, buffer, ipv6, senders, out trafficClass, out remote);
+
+    /// <summary>
+    /// The source address a socket last received from, raw and parsed: nearly every datagram comes from
+    /// the peer the one before did, and parsing builds an address and an endpoint each time.
+    /// </summary>
+    internal sealed class SenderCache
+    {
+        private readonly byte[] _raw = new byte[28];
+        private int _length;
+        private IPEndPoint? _endpoint;
+
+        public IPEndPoint Resolve(ReadOnlySpan<byte> sockaddr, bool ipv6)
+        {
+            int length = ipv6 ? 28 : 16;
+            ReadOnlySpan<byte> raw = sockaddr[..length];
+
+            // Byte 0 is the length on macOS and the family's low byte elsewhere; either way it is the same
+            // for one socket, so the whole address is compared.
+            if (
+                _endpoint is { } last
+                && length == _length
+                && raw.SequenceEqual(_raw.AsSpan(0, length))
+            )
+            {
+                return last;
+            }
+
+            raw.CopyTo(_raw);
+            _length = length;
+            _endpoint = ParseSockAddr(raw, ipv6);
+            return _endpoint;
+        }
+    }
 
     // ---- Unix (Linux + macOS): recvmsg, sendmsg ----
 
@@ -268,7 +308,13 @@ internal static unsafe partial class EcnInterop
         sa.Clear();
         IPAddress address = ipv6Socket ? destination.Address.MapToIPv6() : destination.Address;
         int length = ipv6Socket ? 28 : 16;
-        int family = ipv6Socket ? (IsMacOS ? 30 : 10) : 2;
+        int family = ipv6Socket
+            ? (
+                IsMacOS ? 30
+                : IsWindows ? 23
+                : 10
+            )
+            : 2;
         if (IsMacOS)
         {
             sa[0] = (byte)length;
@@ -303,6 +349,7 @@ internal static unsafe partial class EcnInterop
         int fd,
         byte[] buffer,
         bool ipv6,
+        SenderCache senders,
         out byte trafficClass,
         out IPEndPoint? remote
     )
@@ -351,7 +398,7 @@ internal static unsafe partial class EcnInterop
 
             ulong controlLen = IsMacOS ? *(uint*)(pHdr + 40) : (ulong)*(nuint*)(pHdr + 40);
             trafficClass = ParseUnixTrafficClass(control, (int)controlLen, ipv6);
-            remote = ParseSockAddr(name, ipv6);
+            remote = senders.Resolve(name, ipv6);
             return (int)n;
         }
     }
@@ -422,7 +469,9 @@ internal static unsafe partial class EcnInterop
             return new IPEndPoint(v4, port);
         }
 
-        var v6 = new IPAddress(sa.Slice(8, 16));
+        // The scope id names the interface of a link-local address, which a reply needs.
+        uint scope = (uint)(sa[24] | (sa[25] << 8) | (sa[26] << 16) | (sa[27] << 24));
+        var v6 = new IPAddress(sa.Slice(8, 16), scope);
         return new IPEndPoint(v6, port);
     }
 

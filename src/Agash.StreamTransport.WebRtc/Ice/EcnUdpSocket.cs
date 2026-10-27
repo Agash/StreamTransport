@@ -122,6 +122,7 @@ internal sealed class EcnUdpSocket : IIceSocket
     private void ReceiveLoop()
     {
         nint handle = _socket.Handle;
+        EcnInterop.SenderCache senders = new();
         int consecutiveErrors = 0;
         while (!_stopping)
         {
@@ -131,7 +132,14 @@ internal sealed class EcnUdpSocket : IIceSocket
             IPEndPoint? remote;
             try
             {
-                len = EcnInterop.Receive(handle, rented, _ipv6, out trafficClass, out remote);
+                len = EcnInterop.Receive(
+                    handle,
+                    rented,
+                    _ipv6,
+                    senders,
+                    out trafficClass,
+                    out remote
+                );
             }
             catch
             {
