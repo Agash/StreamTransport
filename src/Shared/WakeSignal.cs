@@ -1,4 +1,4 @@
-using System.Threading.Channels;
+using System.Threading.Tasks.Sources;
 
 namespace Agash.StreamTransport.Threading;
 
@@ -7,18 +7,32 @@ namespace Agash.StreamTransport.Threading;
 /// the loop then drains whatever work is queued. The loop sleeps until signalled or until a deadline on
 /// its own clock; the deadline is absolute, so time that passes before the wait begins counts.
 /// </summary>
-internal sealed class WakeSignal
+/// <remarks>
+/// One loop waits at a time. A wait allocates nothing: the wake-up is its own reusable value task
+/// source, its deadline timer is created once and re-armed, and the cancellation registration is kept
+/// for as long as the loop waits with the same token. A deadline ends a wait with false, not with an
+/// exception.
+/// </remarks>
+internal sealed class WakeSignal : IValueTaskSource<bool>
 {
+    private const int Idle = 0;
+    private const int Pending = 1;
+    private const int Waiting = 2;
+
     private readonly TimeProvider? _time;
     private readonly Func<TimeSpan>? _now;
 
-    private readonly Channel<bool> _channel = Channel.CreateBounded<bool>(
-        new BoundedChannelOptions(1)
-        {
-            FullMode = BoundedChannelFullMode.DropWrite,
-            SingleReader = true,
-        }
-    );
+    // Continuations run on the pool, not on the thread that signals: a signal comes from the network or
+    // a capture thread, which must not run the loop.
+    private ManualResetValueTaskSourceCore<bool> _core = new()
+    {
+        RunContinuationsAsynchronously = true,
+    };
+    private ITimer? _timer;
+    private CancellationToken _registeredFor;
+    private CancellationTokenRegistration _registration;
+    private int _armedFor = -1;
+    private int _state;
 
     /// <summary>A wake-up for a loop that only waits for signals.</summary>
     public WakeSignal() { }
@@ -33,60 +47,150 @@ internal sealed class WakeSignal
     }
 
     /// <summary>Wakes the loop, or leaves the wake-up pending until it next waits.</summary>
-    public void Signal() => _ = _channel.Writer.TryWrite(true);
+    public void Signal()
+    {
+        while (true)
+        {
+            int state = Volatile.Read(ref _state);
+            if (state == Pending)
+            {
+                return;
+            }
+
+            if (state == Waiting)
+            {
+                if (Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting)
+                {
+                    _core.SetResult(true);
+                    return;
+                }
+            }
+            else if (Interlocked.CompareExchange(ref _state, Pending, Idle) == Idle)
+            {
+                return;
+            }
+        }
+    }
 
     /// <summary>Waits for a signal.</summary>
     /// <param name="cancellationToken">Stops the wait.</param>
-    /// <returns>A task that completes when signalled.</returns>
-    public async ValueTask WaitAsync(CancellationToken cancellationToken) =>
-        _ = await _channel.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+    /// <returns>A task that completes, with true, when signalled.</returns>
+    public ValueTask<bool> WaitAsync(CancellationToken cancellationToken) =>
+        Wait(deadline: null, Timeout.InfiniteTimeSpan, cancellationToken);
 
     /// <summary>Waits for a signal or for a deadline, whichever comes first.</summary>
     /// <param name="deadline">When to stop waiting, on the loop's clock.</param>
     /// <param name="cancellationToken">Stops the wait.</param>
     /// <returns>True when signalled, false when the deadline passed.</returns>
     /// <exception cref="InvalidOperationException">The signal was made without a clock.</exception>
-    public async ValueTask<bool> WaitUntilAsync(
-        TimeSpan deadline,
+    public ValueTask<bool> WaitUntilAsync(TimeSpan deadline, CancellationToken cancellationToken)
+    {
+        if (_time is null)
+        {
+            throw new InvalidOperationException("This wake-up has no clock for deadlines.");
+        }
+
+        TimeSpan remaining = deadline - _now!();
+        return remaining <= TimeSpan.Zero
+            ? new ValueTask<bool>(TakePending())
+            : Wait(deadline, remaining, cancellationToken);
+    }
+
+    bool IValueTaskSource<bool>.GetResult(short token) => _core.GetResult(token);
+
+    ValueTaskSourceStatus IValueTaskSource<bool>.GetStatus(short token) => _core.GetStatus(token);
+
+    void IValueTaskSource<bool>.OnCompleted(
+        Action<object?> continuation,
+        object? state,
+        short token,
+        ValueTaskSourceOnCompletedFlags flags
+    ) => _core.OnCompleted(continuation, state, token, flags);
+
+    // A pending signal is taken at once; otherwise the loop waits, with a deadline when one is given.
+    private ValueTask<bool> Wait(
+        TimeSpan? deadline,
+        TimeSpan remaining,
         CancellationToken cancellationToken
     )
     {
-        TimeProvider time =
-            _time
-            ?? throw new InvalidOperationException("This wake-up has no clock for deadlines.");
-        Func<TimeSpan> now = _now!;
-        if (_channel.Reader.TryRead(out _))
+        if (TakePending())
         {
-            return true;
+            return new ValueTask<bool>(true);
         }
 
-        TimeSpan remaining = deadline - now();
-        if (remaining <= TimeSpan.Zero)
+        cancellationToken.ThrowIfCancellationRequested();
+        _core.Reset();
+        if (cancellationToken.CanBeCanceled && cancellationToken != _registeredFor)
         {
-            return false;
+            _registration.Dispose();
+            _registeredFor = cancellationToken;
+            _registration = cancellationToken.UnsafeRegister(
+                static (state, token) => ((WakeSignal)state!).Cancel(token),
+                this
+            );
         }
 
-        using CancellationTokenSource elapsed = new(remaining, time);
-
-        // Time that passed while the timer was being armed is not in its due time; the clock says.
-        if (now() >= deadline)
+        if (Interlocked.CompareExchange(ref _state, Waiting, Idle) != Idle)
         {
-            return false;
+            // A signal came in between the check and the wait.
+            _state = Idle;
+            return new ValueTask<bool>(true);
         }
 
-        using var either = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken,
-            elapsed.Token
-        );
-        try
+        // A cancellation before the wait was set found no wait to end; the token says.
+        if (
+            cancellationToken.IsCancellationRequested
+            && Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting
+        )
         {
-            _ = await _channel.Reader.ReadAsync(either.Token).ConfigureAwait(false);
-            return true;
+            return ValueTask.FromCanceled<bool>(cancellationToken);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+
+        if (remaining != Timeout.InfiniteTimeSpan)
         {
-            // Deliberately not logged: the deadline passing is the normal way this wait ends.
-            return false;
+            _timer ??= _time!.CreateTimer(
+                static state => ((WakeSignal)state!).Expire(),
+                this,
+                Timeout.InfiniteTimeSpan,
+                Timeout.InfiniteTimeSpan
+            );
+            Volatile.Write(ref _armedFor, _core.Version);
+            _ = _timer.Change(remaining, Timeout.InfiniteTimeSpan);
+
+            // Time that passed while the timer was being armed is not in its due time; the clock says.
+            if (
+                _now!() >= deadline
+                && Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting
+            )
+            {
+                _ = _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                return new ValueTask<bool>(false);
+            }
+        }
+
+        return new ValueTask<bool>(this, _core.Version);
+    }
+
+    private bool TakePending() => Interlocked.CompareExchange(ref _state, Idle, Pending) == Pending;
+
+    // The timer armed for an earlier wait, which a signal ended, does not end a later one.
+    private void Expire()
+    {
+        if (
+            Volatile.Read(ref _armedFor) == _core.Version
+            && Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting
+        )
+        {
+            _core.SetResult(false);
+        }
+    }
+
+    private void Cancel(CancellationToken token)
+    {
+        if (Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting)
+        {
+            _core.SetException(new OperationCanceledException(token));
         }
     }
 }
