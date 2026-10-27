@@ -385,11 +385,23 @@ public sealed partial class TestSignalAnalyzer
                 _reader?.Dispose();
                 _reader = null;
                 _readFor = description;
-                _readFailed = !registry!.TryCreateVideoProcessor(
-                    description,
-                    new VideoProcessing(AnalyzedVideo),
-                    out _reader
-                );
+                // The barcode and the flash scale with the picture (a cell is a fortieth of the width),
+                // so a small copy is read back where a processor scales on the way: a few hundred
+                // kilobytes a second instead of the whole picture.
+                _readFailed =
+                    !(
+                        Reduced(description.Size) is { } reduced
+                        && registry!.TryCreateVideoProcessor(
+                            description,
+                            new VideoProcessing(AnalyzedVideo, reduced),
+                            out _reader
+                        )
+                    )
+                    && !registry!.TryCreateVideoProcessor(
+                        description,
+                        new VideoProcessing(AnalyzedVideo),
+                        out _reader
+                    );
                 if (_readFailed)
                 {
                     LogNotReadBack(analyzer._logger, description.PixelFormat, description.Storage);
@@ -401,6 +413,20 @@ public sealed partial class TestSignalAnalyzer
             {
                 _reader!.Process(in frame, _readBack);
             }
+        }
+
+        // The picture at the width that keeps eight pixels to a barcode cell; null when it is that small
+        // already.
+        private static VideoSize? Reduced(VideoSize size)
+        {
+            const int width = TestSignalGenerator.BarcodeBits * 8;
+            if (size.Width <= width)
+            {
+                return null;
+            }
+
+            int height = (int)Math.Round(size.Height * (double)width / size.Width / 2) * 2;
+            return new VideoSize(width, Math.Max(height, 2));
         }
 
         // The output is its owner's to dispose.
