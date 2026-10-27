@@ -267,8 +267,14 @@ internal sealed class D3D12Input : EncoderInput
 internal sealed class DmaBufInput : EncoderInput
 {
     private readonly FF.HardwareDevice _device;
+
+    // Surfaces kept for buffers: a decoder cycles its whole surface pool, references included.
+    private const int KeptSurfaces = 32;
+
     private readonly FF.HardwareFramePool _pool;
     private readonly VideoSize _size;
+    private readonly Dictionary<ImportKey, Surface> _surfaces = [];
+    private long _uses;
 
     // Takes ownership of the device.
     public DmaBufInput(FF.HardwareDevice device, PixelFormat format, VideoSize size)
@@ -289,22 +295,71 @@ internal sealed class DmaBufInput : EncoderInput
     public override FF.HardwareFramePool Pool => _pool;
 
     // VA-API takes buffers as they are, so a picture still being written is waited for in the kernel.
+    // Each buffer is mapped to a surface once and kept while its producer keeps sending it; the encoder
+    // takes its own reference to a surface it reads, so dropping one from here never frees it under it.
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
     {
         DmaBufImage image = DmaBufs.Picture(in frame);
         DmaBufs.WaitUntilWritten(in image);
-        using var imported = FF.Frame.FromDrmPrime(
-            DmaBufs.ToDrmPrime(image),
-            _size.Width,
-            _size.Height
-        );
-        imported.MapTo(_pool, destination, FF.HardwareMapAccess.Read);
+        var key = ImportKey.Of(in image);
+        if (!_surfaces.TryGetValue(key, out Surface? surface))
+        {
+            Evict();
+            surface = new Surface();
+            using var imported = FF.Frame.FromDrmPrime(
+                DmaBufs.ToDrmPrime(image),
+                _size.Width,
+                _size.Height
+            );
+            imported.MapTo(_pool, surface.Frame, FF.HardwareMapAccess.Read);
+            _surfaces.Add(key, surface);
+        }
+
+        surface.LastUse = ++_uses;
+        destination.Reference(surface.Frame);
     }
 
     public override void Dispose()
     {
+        foreach (Surface surface in _surfaces.Values)
+        {
+            surface.Frame.Dispose();
+        }
+
+        _surfaces.Clear();
         _pool.Dispose();
         _device.Dispose();
+    }
+
+    // Drops the least recently used surface once the producer has shown more buffers than a pool holds.
+    private void Evict()
+    {
+        if (_surfaces.Count < KeptSurfaces)
+        {
+            return;
+        }
+
+        KeyValuePair<ImportKey, Surface>? oldest = null;
+        foreach (KeyValuePair<ImportKey, Surface> entry in _surfaces)
+        {
+            if (oldest is null || entry.Value.LastUse < oldest.Value.Value.LastUse)
+            {
+                oldest = entry;
+            }
+        }
+
+        if (oldest is { } evicted)
+        {
+            _ = _surfaces.Remove(evicted.Key);
+            evicted.Value.Frame.Dispose();
+        }
+    }
+
+    private sealed class Surface
+    {
+        public FF.Frame Frame { get; } = new();
+
+        public long LastUse { get; set; }
     }
 }
 
@@ -317,8 +372,8 @@ internal sealed class DmaBufInput : EncoderInput
 [SupportedOSPlatform("linux")]
 internal sealed class VulkanDmaBufInput : EncoderInput
 {
-    // Imports kept for buffers not in use: a producer's pool is a handful of buffers.
-    private const int KeptImports = 16;
+    // Imports kept for buffers not in use: a decoder cycles its whole surface pool, references included.
+    private const int KeptImports = 32;
 
     private readonly FF.HardwareDevice _device;
     private readonly FF.HardwareFramePool _pool;
@@ -365,11 +420,11 @@ internal sealed class VulkanDmaBufInput : EncoderInput
     public override void Prepare(in VideoFrame frame, long pts, FF.Frame destination)
     {
         DmaBufImage image = DmaBufs.Picture(in frame);
-        FF.DrmPrimeImage picture = DmaBufs.ToDrmPrime(image);
-        if (picture.Objects.Length != 1)
+        var key = ImportKey.Of(in image);
+        if (!key.InOneBuffer)
         {
             throw new NotSupportedException(
-                $"A picture in {picture.Objects.Length} DMA-BUFs cannot be encoded: Vulkan reads a picture from one buffer."
+                "A picture in several DMA-BUFs cannot be encoded: Vulkan reads a picture from one buffer."
             );
         }
 
@@ -383,13 +438,18 @@ internal sealed class VulkanDmaBufInput : EncoderInput
             }
         }
 
-        // The modifier is part of the key, so a buffer is always imported by the same importer.
-        var key = ImportKey.Of(image, picture);
+        // The modifier is part of the key, so a buffer is always imported by the same importer. Its
+        // descriptor is made only for a buffer not seen before.
         if (!_imports.TryGetValue(key, out Import? import))
         {
             Evict();
             import = new Import(inPlace ? _importer : ReadImporter());
-            import.Importer.Import(picture, _size.Width, _size.Height, import.Frame);
+            import.Importer.Import(
+                DmaBufs.ToDrmPrime(image),
+                _size.Width,
+                _size.Height,
+                import.Frame
+            );
             _imports.Add(key, import);
         }
 
@@ -520,29 +580,54 @@ internal sealed class VulkanDmaBufInput : EncoderInput
 
         public long LastUse { get; set; }
     }
+}
 
-    // A buffer and the layout read from it: the same DMA-BUF described another way is another import.
-    private readonly record struct ImportKey(
-        (ulong Device, ulong Inode) Buffer,
-        ulong Modifier,
-        long Plane0,
-        long Pitch0,
-        long Plane1,
-        long Pitch1
-    )
+// A buffer and the layout read from it, keyed by the buffers' identities so a descriptor number reused for
+// another buffer is another key: the same DMA-BUF described another way is another import. Made from the
+// picture without allocating, so an import seen before is found without building its descriptor.
+[SupportedOSPlatform("linux")]
+internal readonly record struct ImportKey(
+    (ulong Device, ulong Inode) Buffer,
+    (ulong Device, ulong Inode) LastBuffer,
+    ulong Modifier,
+    long Plane0,
+    long Pitch0,
+    long Plane1,
+    long Pitch1,
+    long Plane2,
+    long Pitch2
+)
+{
+    // Every plane in the buffer the first is in.
+    public bool InOneBuffer => Buffer == LastBuffer;
+
+    public static ImportKey Of(in DmaBufImage image)
     {
-        public static ImportKey Of(DmaBufImage image, FF.DrmPrimeImage picture)
+        (ulong, ulong) buffer = DmaBufIdentity.Of(image[0].Fd);
+        (ulong, ulong) last = buffer;
+        for (int i = 1; i < image.PlaneCount; i++)
         {
-            ImmutableArray<FF.DrmPlane> planes = picture.Layers[0].Planes;
-            return new(
-                DmaBufIdentity.Of(picture.Objects[0].FileDescriptor),
-                image.Modifier,
-                planes[0].Offset,
-                planes[0].Pitch,
-                planes.Length > 1 ? planes[1].Offset : -1,
-                planes.Length > 1 ? planes[1].Pitch : -1
-            );
+            if (image[i].Fd != image[0].Fd)
+            {
+                (ulong, ulong) other = DmaBufIdentity.Of(image[i].Fd);
+                if (other != buffer)
+                {
+                    last = other;
+                }
+            }
         }
+
+        return new(
+            buffer,
+            last,
+            image.Modifier,
+            image[0].Offset,
+            image[0].Stride,
+            image.PlaneCount > 1 ? image[1].Offset : -1,
+            image.PlaneCount > 1 ? image[1].Stride : -1,
+            image.PlaneCount > 2 ? image[2].Offset : -1,
+            image.PlaneCount > 2 ? image[2].Stride : -1
+        );
     }
 }
 
