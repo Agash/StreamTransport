@@ -185,7 +185,7 @@ internal sealed class FFmpegVideoProcessor(
     // Called by a consumer inside OnFrame, on the processing thread that holds the lock.
     public VideoFrameLease Retain(in VideoFrame frame) =>
         _delivering
-            ? new FFmpegFrameLease(in frame, _output.Clone())
+            ? FFmpegFrameLease.Of(in frame, _output)
             : throw new InvalidOperationException("Frames are retained only while delivered.");
 
     public void Dispose()

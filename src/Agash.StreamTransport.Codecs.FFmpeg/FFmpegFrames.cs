@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Agash.StreamTransport.Media;
 using FF = FFmpeg.Interop;
 
@@ -88,13 +89,17 @@ internal static class FFmpegFrames
         };
 }
 
-// A frame kept by reference: the FFmpeg frame, and with it its buffers or surface, stays alive
-// until the lease is disposed.
+// A frame kept by reference: the lease's own FFmpeg frame refers to the buffers or surface, which stay
+// alive until the lease is disposed. The frame is emptied on release and the lease pooled, so keeping a
+// frame allocates nothing once warm, managed or native.
 internal sealed class FFmpegFrameLease : VideoFrameLease, IVideoFrameRetainer
 {
-    private readonly FF.Frame _frame;
+    // Released leases, for the next frame kept.
+    private static readonly ConcurrentBag<FFmpegFrameLease> Spare = [];
 
-    public FFmpegFrameLease(in VideoFrame frame, FF.Frame reference)
+    private readonly FF.Frame _frame = new();
+
+    private FFmpegFrameLease(in VideoFrame frame)
         : base(
             frame.Storage,
             frame.Format,
@@ -102,15 +107,27 @@ internal sealed class FFmpegFrameLease : VideoFrameLease, IVideoFrameRetainer
             frame.Color,
             frame.Orientation,
             frame.Duration
-        )
+        ) { }
+
+    // A lease on a frame, holding another reference to the source's buffers.
+    public static FFmpegFrameLease Of(in VideoFrame frame, FF.Frame source)
     {
-        _frame = reference;
+        if (Spare.TryTake(out FFmpegFrameLease? lease))
+        {
+            lease.Reuse(in frame);
+        }
+        else
+        {
+            lease = new FFmpegFrameLease(in frame);
+        }
+
+        lease._frame.Reference(source);
+        return lease;
     }
 
     protected override IVideoFrameRetainer KeepAgain => this;
 
-    public VideoFrameLease Retain(in VideoFrame frame) =>
-        new FFmpegFrameLease(in frame, _frame.Clone());
+    public VideoFrameLease Retain(in VideoFrame frame) => Of(in frame, _frame);
 
     protected override unsafe ReadOnlySpan<byte> GetPlane(int index)
     {
@@ -122,5 +139,9 @@ internal sealed class FFmpegFrameLease : VideoFrameLease, IVideoFrameRetainer
         );
     }
 
-    protected override void Release() => _frame.Dispose();
+    protected override void Release()
+    {
+        _frame.Reset();
+        Spare.Add(this);
+    }
 }

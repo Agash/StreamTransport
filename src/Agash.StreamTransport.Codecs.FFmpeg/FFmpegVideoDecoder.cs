@@ -110,7 +110,7 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
         FF.Frame current =
             _current
             ?? throw new InvalidOperationException("Frames are retained only while delivered.");
-        return new FFmpegFrameLease(in frame, current.Clone());
+        return FFmpegFrameLease.Of(in frame, current);
     }
 
     public void Dispose()
