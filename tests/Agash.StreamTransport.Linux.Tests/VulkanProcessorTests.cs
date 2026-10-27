@@ -118,17 +118,34 @@ public sealed class VulkanProcessorTests
     }
 
     [TestMethod]
-    [DataRow(AlphaLayout.PackSideBySide)]
-    [DataRow(AlphaLayout.PackStacked)]
-    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout)
+    [DataRow(AlphaLayout.PackSideBySide, false)]
+    [DataRow(AlphaLayout.PackStacked, false)]
+    [DataRow(AlphaLayout.PackSideBySide, true)]
+    [DataRow(AlphaLayout.PackStacked, true)]
+    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout, bool fromMemory)
     {
         byte[] pixels = Ramp();
-        using VideoFrameLease packed = Run(
-            Bgra(pixels),
-            Description(PixelFormat.Bgra, Width),
-            new VideoProcessing(Nv12Output(), Alpha: layout),
-            out VideoProcessorInfo packing
-        );
+        VideoProcessing pack = new(Nv12Output(), Alpha: layout);
+        using VideoFrameLease packed = fromMemory
+            ? Run(
+                new VideoFrame(
+                    new CpuImage(
+                        PlaneLayout.Packed(PixelFormat.Bgra, new VideoSize(Width, Height))
+                    ),
+                    new VideoFormat(PixelFormat.Bgra, Width, Height),
+                    MediaTimestamp.Captured(new MediaTime(42)),
+                    pixels,
+                    color: VideoColor.Srgb
+                ),
+                new VideoStreamDescription(
+                    VideoStorageKind.Cpu,
+                    PixelFormat.Bgra,
+                    new VideoSize(Width, Height)
+                ),
+                pack,
+                out VideoProcessorInfo packing
+            )
+            : Run(Bgra(pixels), Description(PixelFormat.Bgra, Width), pack, out packing);
         VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
         Assert.AreEqual(packedSize, packing.Output.Size);
 
@@ -256,14 +273,28 @@ public sealed class VulkanProcessorTests
         VideoStreamDescription bgra = Description(PixelFormat.Bgra, Width);
         VideoConstraints nv12 = new([VideoStorageKind.DmaBuf], [PixelFormat.Nv12]);
 
+        Assert.AreEqual(
+            VideoStorageKind.DmaBuf,
+            Factory
+                .QueryCapabilities(
+                    bgra with
+                    {
+                        Storage = VideoStorageKind.Cpu,
+                    },
+                    new VideoProcessing(nv12, Alpha: AlphaLayout.PackStacked)
+                )
+                ?.Output.Storage,
+            "RGB in memory is converted and packed on the GPU for a consumer there"
+        );
         Assert.IsNull(
             Factory.QueryCapabilities(
                 bgra with
                 {
                     Storage = VideoStorageKind.Cpu,
                 },
-                new VideoProcessing(nv12)
-            )
+                new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+            ),
+            "a consumer in memory is left to a processor in memory"
         );
         Assert.AreEqual(
             VideoStorageKind.Cpu,

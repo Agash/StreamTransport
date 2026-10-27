@@ -27,6 +27,33 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
         ArgumentNullException.ThrowIfNull(processing);
         VideoConstraints output = processing.Output;
 
+        // RGB in memory is uploaded and converted to NV12 on the GPU the output names, packing its alpha,
+        // for a consumer there (an application's frames in memory on the way to a hardware encoder). A
+        // consumer in memory is left to a processor in memory, since a round trip would wait for the GPU.
+        if (input.Storage == VideoStorageKind.Cpu)
+        {
+            VideoSize uploaded = processing.Size ?? input.Size;
+            return
+                input.PixelFormat is PixelFormat.Bgra or PixelFormat.Rgba
+                && output.Storages.Contains(VideoStorageKind.DmaBuf)
+                && output.PixelFormats.Contains(PixelFormat.Nv12)
+                && (
+                    output.DrmModifiers.IsDefaultOrEmpty
+                    || output.DrmModifiers.Contains(VulkanEngine.LinearModifier)
+                )
+                && processing.Alpha
+                    is not (AlphaLayout.UnpackSideBySide or AlphaLayout.UnpackStacked)
+                && uploaded.Width % 2 == 0
+                && uploaded.Height % 2 == 0
+                ? Info(
+                    PixelFormat.Nv12,
+                    processing.Alpha.PackedSize(uploaded),
+                    output.Device,
+                    VideoStorageKind.DmaBuf
+                )
+                : null;
+        }
+
         // The work runs on the input's GPU; the result stays there as a DMA-BUF, or is read back for a
         // consumer in memory (a software encoder fed by a GPU source).
         VideoStorageKind? result =
@@ -99,7 +126,13 @@ public sealed class VulkanVideoProcessorFactory : IVideoProcessorFactory
                 $"{Name} cannot turn {input} into what was asked.",
                 nameof(processing)
             );
-        return new VulkanVideoProcessor(info, processing, VulkanEngine.For(input.Device));
+        return new VulkanVideoProcessor(
+            info,
+            processing,
+            VulkanEngine.For(
+                input.Storage == VideoStorageKind.Cpu ? processing.Output.Device : input.Device
+            )
+        );
     }
 
     private static VideoProcessorInfo Info(
@@ -134,6 +167,15 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
     private ulong _submitted;
     private bool _disposed;
 
+    // Uploads of pictures in memory: staging buffers each rewritten once the batch that copied out of it
+    // has run, so the CPU waits only when the GPU is that many frames behind, and the picture they fill.
+    private readonly (VulkanTransfer.Staging? Buffer, ulong Done)[] _uploads = new (
+        VulkanTransfer.Staging?,
+        ulong
+    )[3];
+    private int _uploadSlot;
+    private DmaBufPool? _uploadPool;
+
     public VulkanVideoProcessor(
         VideoProcessorInfo info,
         VideoProcessing processing,
@@ -155,7 +197,8 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
     public void Process(in VideoFrame frame, IVideoFrameConsumer consumer)
     {
         ArgumentNullException.ThrowIfNull(consumer);
-        if (!frame.Storage.TryGetValue(out DmaBufImage image))
+        DmaBufImage image = default;
+        if (frame.Storage.Kind != VideoStorageKind.Cpu && !frame.Storage.TryGetValue(out image))
         {
             throw new ArgumentException("The frame is not a DMA-BUF.", nameof(frame));
         }
@@ -167,7 +210,10 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             ulong ready;
             try
             {
-                ready = Convert(in frame, image, output);
+                ready =
+                    frame.Storage.Kind == VideoStorageKind.Cpu
+                        ? Upload(in frame, output)
+                        : Convert(in frame, image, output);
             }
             catch
             {
@@ -251,6 +297,81 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             _submitted = batch.Submit();
             return _submitted;
         }
+    }
+
+    // Records the upload of a picture in memory and its conversion into a pooled picture, and runs them
+    // without waiting: the copy and the conversion are one batch, so the upload picture is rewritten only
+    // after this frame's conversion has read it.
+    private ulong Upload(in VideoFrame frame, PooledDmaBuf output)
+    {
+        VideoSize size = new(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
+        PixelFormat format = frame.Format.PixelFormat;
+        if (_uploadPool is not { } pool || pool.Format != format || pool.Size != size)
+        {
+            _engine.Wait(_submitted);
+            _uploadPool?.Dispose();
+            _uploadPool = pool = new DmaBufPool(_engine, format, size);
+        }
+
+        int rowBytes = size.Width * 4;
+        int bytes = rowBytes * size.Height;
+        ref (VulkanTransfer.Staging? Buffer, ulong Done) upload = ref _uploads[_uploadSlot];
+        _uploadSlot = (_uploadSlot + 1) % _uploads.Length;
+        _engine.Wait(upload.Done);
+        if (upload.Buffer is not { } staging || staging.Size < bytes)
+        {
+            upload.Buffer?.Dispose();
+            upload.Buffer = staging = new VulkanTransfer.Staging(_engine, bytes);
+        }
+
+        _ = frame.Storage.TryGetValue(out CpuImage memory);
+        int stride = memory.Planes[0].Stride;
+        ReadOnlySpan<byte> pixels = frame.GetPlane(0);
+        Span<byte> mapped = staging.Bytes;
+        if (stride == rowBytes)
+        {
+            pixels[..bytes].CopyTo(mapped);
+        }
+        else
+        {
+            for (int row = 0; row < size.Height; row++)
+            {
+                pixels.Slice(row * stride, rowBytes).CopyTo(mapped[(row * rowBytes)..]);
+            }
+        }
+
+        PooledDmaBuf picture = pool.Rent();
+        using VulkanEngine.Batch batch = _engine.Begin();
+        batch.Then(new Returned(picture));
+        VulkanImage source = picture.Planes[0];
+        VkBufferImageCopy region = VulkanTransfer.Region(source);
+        Recording.Acquire(_engine, batch.Commands, [source]);
+        _engine.Api.vkCmdCopyBufferToImage(
+            batch.Commands,
+            staging.Buffer,
+            source.Image,
+            VkImageLayout.General,
+            1,
+            &region
+        );
+        Recording.Written(_engine, batch.Commands, [source]);
+        ToYuv(
+            in batch,
+            source,
+            format == PixelFormat.Rgba ? VkFormat.R8G8B8A8Unorm : VkFormat.B8G8R8A8Unorm,
+            output,
+            acquired: true
+        );
+        Recording.Release(_engine, batch.Commands, [source]);
+        _submitted = batch.Submit();
+        upload.Done = _submitted;
+        return _submitted;
+    }
+
+    // Gives a pooled picture back once the batch that used it has run.
+    private sealed class Returned(PooledDmaBuf picture) : IDisposable
+    {
+        public void Dispose() => picture.Release();
     }
 
     // The result read back once the GPU finished, through staging kept between frames, handed on from
@@ -359,6 +480,12 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
                 _disposed = true;
                 _engine.Wait(_submitted);
                 _pool.Dispose();
+                _uploadPool?.Dispose();
+                foreach ((VulkanTransfer.Staging? Buffer, ulong _) upload in _uploads)
+                {
+                    upload.Buffer?.Dispose();
+                }
+
                 _readback.Dispose();
             }
         }
@@ -385,7 +512,18 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             VkImageUsageFlags.Sampled
         );
         batch.Then(sourceLease);
-        VulkanImage source = sourceLease.Image;
+        ToYuv(in batch, sourceLease.Image, sourceFormat, output, acquired: false);
+    }
+
+    // The conversion itself, from an image on this device; one already acquired is not acquired again.
+    private void ToYuv(
+        in VulkanEngine.Batch batch,
+        VulkanImage source,
+        VkFormat sourceFormat,
+        PooledDmaBuf output,
+        bool acquired
+    )
+    {
         (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(_outputColour);
         VideoSize size = Info.Output.Size;
         VideoSize colourSize = _processing.Alpha.ColourSize(size);
@@ -438,7 +576,15 @@ internal sealed unsafe class VulkanVideoProcessor : IVideoProcessor, IVideoFrame
             writes[2] = Recording.Storage(set, 2, &images[2]);
             _engine.Api.vkUpdateDescriptorSets(3, writes, 0, null);
 
-            Recording.Acquire(_engine, batch.Commands, [source, luma, chroma]);
+            if (acquired)
+            {
+                Recording.Acquire(_engine, batch.Commands, [luma, chroma]);
+            }
+            else
+            {
+                Recording.Acquire(_engine, batch.Commands, [source, luma, chroma]);
+            }
+
             Dispatch(
                 batch.Commands,
                 kernel,

@@ -52,6 +52,24 @@ internal static unsafe partial class Recording
             VkPipelineStageFlags.BottomOfPipe
         );
 
+    /// <summary>Makes what transfers wrote into images visible to the compute shaders that read them.</summary>
+    public static void Written(
+        VulkanEngine engine,
+        VkCommandBuffer commands,
+        ReadOnlySpan<VulkanImage> images
+    ) =>
+        Barrier(
+            engine,
+            commands,
+            images,
+            VkQueueFamilyIgnored,
+            VkQueueFamilyIgnored,
+            VkAccessFlags.TransferWrite,
+            VkAccessFlags.ShaderRead,
+            VkPipelineStageFlags.Transfer,
+            VkPipelineStageFlags.ComputeShader
+        );
+
     /// <summary>Binds a storage view.</summary>
     public static VkWriteDescriptorSet Storage(
         VkDescriptorSet set,

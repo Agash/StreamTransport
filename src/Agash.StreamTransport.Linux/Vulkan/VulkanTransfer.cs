@@ -519,7 +519,7 @@ internal static unsafe class VulkanTransfer
         }
     }
 
-    private static VkBufferImageCopy Region(VulkanImage image) =>
+    internal static VkBufferImageCopy Region(VulkanImage image) =>
         new()
         {
             imageSubresource = new VkImageSubresourceLayers(image.Aspect, 0, 0, 1),
