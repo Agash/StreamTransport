@@ -75,12 +75,15 @@ internal static class DecoderCatalog
             LinuxRank: 0,
             MacRank: 0
         ),
+        // On Linux VA-API comes first: it exports its surfaces as DMA-BUFs as they are, where a Vulkan
+        // decoder's export takes back its readers' fences with a submission for every frame released
+        // (FFmpeg's vulkan_unmap_to_drm). On radeonsi and RADV that is 905 frames a second against 191.
         new(
             DecoderBackend.Vulkan,
             FF.HardwareDeviceType.Vulkan,
             [VideoStorageKind.DmaBuf],
             WindowsRank: 70,
-            LinuxRank: 100,
+            LinuxRank: 90,
             MacRank: 0
         ),
         new(
@@ -88,7 +91,7 @@ internal static class DecoderCatalog
             FF.HardwareDeviceType.Vaapi,
             [VideoStorageKind.DmaBuf],
             WindowsRank: 0,
-            LinuxRank: 90,
+            LinuxRank: 100,
             MacRank: 0
         ),
         new(
