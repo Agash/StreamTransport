@@ -177,19 +177,18 @@ public sealed class D3D12ProcessorTests
     }
 
     [TestMethod]
-    [DataRow(AlphaLayout.PackSideBySide)]
-    [DataRow(AlphaLayout.PackStacked)]
-    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout)
+    [DataRow(AlphaLayout.PackSideBySide, false)]
+    [DataRow(AlphaLayout.PackStacked, false)]
+    [DataRow(AlphaLayout.PackSideBySide, true)]
+    [DataRow(AlphaLayout.PackStacked, true)]
+    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout, bool fromMemory)
     {
         using var gpu = TestGpu.Open();
         byte[] pixels = Ramp();
-        Kept packed = Run(
-            gpu,
-            PixelFormat.Bgra,
-            pixels,
-            new VideoProcessing(Nv12Output(gpu), Alpha: layout),
-            out VideoProcessorInfo packing
-        );
+        VideoProcessing pack = new(Nv12Output(gpu), Alpha: layout);
+        Kept packed = fromMemory
+            ? RunFromMemory(pixels, pack, out VideoProcessorInfo packing)
+            : Run(gpu, PixelFormat.Bgra, pixels, pack, out packing);
         VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
         Assert.AreEqual(packedSize, packing.Output.Size);
 
@@ -270,14 +269,28 @@ public sealed class D3D12ProcessorTests
         );
         VideoConstraints nv12 = new([VideoStorageKind.D3D12], [PixelFormat.Nv12]);
 
+        Assert.AreEqual(
+            VideoStorageKind.D3D12,
+            Factory
+                .QueryCapabilities(
+                    bgra with
+                    {
+                        Storage = VideoStorageKind.Cpu,
+                    },
+                    new VideoProcessing(nv12, Alpha: AlphaLayout.PackStacked)
+                )
+                ?.Output.Storage,
+            "RGB in memory is converted and packed on the GPU for a consumer there"
+        );
         Assert.IsNull(
             Factory.QueryCapabilities(
                 bgra with
                 {
                     Storage = VideoStorageKind.Cpu,
                 },
-                new VideoProcessing(nv12)
-            )
+                new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+            ),
+            "a consumer in memory is left to a processor in memory"
         );
         Assert.AreEqual(
             VideoStorageKind.Cpu,
@@ -548,6 +561,33 @@ public sealed class D3D12ProcessorTests
             "the timestamp carries through"
         );
         return keeper.Kept;
+    }
+
+    // A picture in memory, uploaded and processed on the GPU the output names.
+    private static Kept RunFromMemory(
+        byte[] pixels,
+        VideoProcessing processing,
+        out VideoProcessorInfo info
+    )
+    {
+        VideoSize size = new(Width, Height);
+        using IVideoProcessor processor = Factory.Create(
+            new VideoStreamDescription(VideoStorageKind.Cpu, PixelFormat.Bgra, size),
+            processing
+        );
+        info = processor.Info;
+        Keeper keeper = new();
+        processor.Process(
+            new VideoFrame(
+                new CpuImage(PlaneLayout.Packed(PixelFormat.Bgra, size)),
+                new VideoFormat(PixelFormat.Bgra, Width, Height),
+                MediaTimestamp.Captured(new MediaTime(42)),
+                pixels,
+                color: VideoColor.Srgb
+            ),
+            keeper
+        );
+        return keeper.Kept!;
     }
 
     // A processed frame kept past its delivery, as a consumer that reads it later would.

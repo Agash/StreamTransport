@@ -27,17 +27,49 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
         ArgumentNullException.ThrowIfNull(processing);
         VideoConstraints output = processing.Output;
 
-        // RGB in memory is uploaded as it is, for a sink or encoder on the GPU: what a software
-        // decoder's frames, converted, become on the way to Spout.
+        // RGB in memory is uploaded, for a sink or encoder on the GPU: as it is (what a software
+        // decoder's frames, converted, become on the way to Spout), or converted to NV12 there, packing
+        // its alpha (an application's frames in memory on the way to NVENC). A consumer in memory is left
+        // to a processor in memory, since a round trip through the GPU would wait for it.
         if (input.Storage == VideoStorageKind.Cpu)
         {
-            return
-                input.PixelFormat is PixelFormat.Bgra or PixelFormat.Rgba
-                && output.Storages.Contains(VideoStorageKind.D3D12)
+            if (input.PixelFormat is not (PixelFormat.Bgra or PixelFormat.Rgba))
+            {
+                return null;
+            }
+
+            if (
+                output.Storages.Contains(VideoStorageKind.D3D12)
                 && output.PixelFormats.Contains(input.PixelFormat)
                 && processing.Alpha == AlphaLayout.None
                 && (processing.Size is null || processing.Size == input.Size)
-                ? Info(input.PixelFormat, input.Size, output.Device)
+            )
+            {
+                return Info(input.PixelFormat, input.Size, output.Device);
+            }
+
+            VideoStorageKind? onGpu =
+                output.Storages.Contains(VideoStorageKind.D3D12) ? VideoStorageKind.D3D12
+                : output.Storages.Contains(VideoStorageKind.D3D11) && output.Device is not null
+                    ? VideoStorageKind.D3D11
+                : null;
+            if (
+                onGpu is not { } converted
+                || !output.PixelFormats.Contains(PixelFormat.Nv12)
+                || processing.Alpha is AlphaLayout.UnpackSideBySide or AlphaLayout.UnpackStacked
+            )
+            {
+                return null;
+            }
+
+            VideoSize uploaded = processing.Size ?? input.Size;
+            return uploaded.Width % 2 == 0 && uploaded.Height % 2 == 0
+                ? Info(
+                    PixelFormat.Nv12,
+                    processing.Alpha.PackedSize(uploaded),
+                    output.Device,
+                    converted
+                )
                 : null;
         }
 
@@ -144,9 +176,12 @@ internal sealed unsafe class D3D12VideoProcessor(
     private D3D12TexturePool? _pool;
     private D3D12TexturePool? _staging;
     private PooledTexture? _delivering;
-    private nint _upload;
-    private ulong _uploadSize;
-    private ulong _uploaded;
+
+    // Upload buffers, each rewritten once the copy out of it has run: the CPU waits only when the GPU is
+    // that many frames behind.
+    private readonly UploadBuffer[] _uploads = new UploadBuffer[3];
+    private int _uploadSlot;
+    private D3D12TexturePool? _uploadPool;
     private nint _readback;
     private ulong _readbackSize;
     private nint _bridgedFence;
@@ -162,7 +197,14 @@ internal sealed unsafe class D3D12VideoProcessor(
             lock (_gate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                Upload(in frame, consumer);
+                if (Info.Output.PixelFormat == frame.Format.PixelFormat)
+                {
+                    Upload(in frame, consumer);
+                }
+                else
+                {
+                    Convert(in frame, consumer);
+                }
             }
 
             return;
@@ -176,7 +218,13 @@ internal sealed unsafe class D3D12VideoProcessor(
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            ProcessOnGpu(in frame, consumer);
+        }
+    }
 
+    private void ProcessOnGpu(in VideoFrame frame, IVideoFrameConsumer consumer)
+    {
+        {
             // The GPU reads the frame after this call returns. A producer that finishes a release queue
             // before reusing the texture lends it for as long as that queue waits for the read; any other
             // producer's frame is retained, since it may reuse what it lent once the call is over.
@@ -367,10 +415,12 @@ internal sealed unsafe class D3D12VideoProcessor(
 
             _pool?.Dispose();
             _staging?.Dispose();
-            if (_upload != 0)
+            foreach (UploadBuffer upload in _uploads)
             {
-                D3D12Engine.Release(_upload);
+                D3D12Engine.Release(upload.Buffer);
             }
+
+            _uploadPool?.Dispose();
 
             if (_readback != 0)
             {
@@ -459,89 +509,15 @@ internal sealed unsafe class D3D12VideoProcessor(
     }
 
     // A frame in memory, its rows written into the upload buffer at the texture's pitch and copied in.
+    // RGB in memory uploaded as it is, into an output texture.
     private void Upload(in VideoFrame frame, IVideoFrameConsumer consumer)
     {
-        if (_engine is null)
-        {
-            nint device = D3D12Devices.Create(Info.Output.Device);
-            try
-            {
-                _engine = new D3D12Engine(device);
-            }
-            finally
-            {
-                D3D12Engine.Release(device);
-            }
-
-            VideoStreamDescription described = Info.Output;
-            _pool = new D3D12TexturePool(
-                _engine,
-                Format(described.PixelFormat),
-                described.Size.Width,
-                described.Size.Height
-            );
-        }
-
-        D3D12Engine engine = _engine;
+        D3D12Engine engine = UploadEngine();
         PooledTexture output = _pool!.Rent();
         ulong done;
         try
         {
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = engine.Footprint(
-                output.Texture,
-                out ulong size
-            );
-            if (size > _uploadSize)
-            {
-                engine.WaitFor(_uploaded);
-                if (_upload != 0)
-                {
-                    D3D12Engine.Release(_upload);
-                }
-
-                _upload = engine.CreateUploadBuffer(size);
-                _uploadSize = size;
-            }
-
-            // The buffer is rewritten only once the copy out of it finished.
-            engine.WaitFor(_uploaded);
-            _ = frame.Storage.TryGetValue(out CpuImage image);
-            int stride = image.Planes[0].Stride;
-            int rowBytes = frame.Format.VisibleRect.Width * 4;
-            ReadOnlySpan<byte> pixels = frame.GetPlane(0);
-            byte* mapped;
-            ((ID3D12Resource*)_upload)->Map(0, null, (void**)&mapped);
-            for (int row = 0; row < frame.Format.VisibleRect.Height; row++)
-            {
-                pixels
-                    .Slice(row * stride, rowBytes)
-                    .CopyTo(
-                        new Span<byte>(
-                            mapped
-                                + (long)footprint.Offset
-                                + ((long)row * footprint.Footprint.RowPitch),
-                            rowBytes
-                        )
-                    );
-            }
-
-            ((ID3D12Resource*)_upload)->Unmap(0, null);
-            ID3D12GraphicsCommandList* list = engine.BeginCopy();
-            D3D12Engine.Transition(
-                list,
-                output.Texture,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST
-            );
-            D3D12Engine.CopyFromBuffer(list, output.Texture, _upload, footprint);
-            D3D12Engine.Transition(
-                list,
-                output.Texture,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON
-            );
-            done = engine.Submit();
-            _uploaded = done;
+            done = UploadInto(engine, in frame, output.Texture);
         }
         catch
         {
@@ -578,6 +554,158 @@ internal sealed unsafe class D3D12VideoProcessor(
         }
     }
 
+    // RGB in memory converted on the GPU: uploaded into a texture of its own, then processed as a frame
+    // on the GPU. The texture is lent with the engine's own queue as its release queue, so it is read in
+    // place, and the next upload into it is a copy on that queue, which runs after this frame's reads.
+    private void Convert(in VideoFrame frame, IVideoFrameConsumer consumer)
+    {
+        D3D12Engine engine = UploadEngine();
+        VideoSize size = new(frame.Format.VisibleRect.Width, frame.Format.VisibleRect.Height);
+        if (
+            _uploadPool is not { } pool
+            || pool.Width != size.Width
+            || pool.Height != size.Height
+            || pool.Format != Format(frame.Format.PixelFormat)
+        )
+        {
+            _uploadPool?.Dispose();
+            _uploadPool = pool = new D3D12TexturePool(
+                engine,
+                Format(frame.Format.PixelFormat),
+                size.Width,
+                size.Height,
+                shaderWritten: false
+            );
+        }
+
+        PooledTexture staging = pool.Rent();
+        try
+        {
+            ulong done = UploadInto(engine, in frame, staging.Texture);
+            VideoFrame uploaded = new(
+                new VideoStorage(
+                    new D3D12Image(
+                        staging.Texture,
+                        0,
+                        engine.Adapter,
+                        new D3D12Sync(Fence: engine.Fence, Value: done, ReleaseQueue: engine.Queue)
+                    )
+                ),
+                new VideoFormat(frame.Format.PixelFormat, size.Width, size.Height),
+                frame.Timestamp,
+                color: frame.Color,
+                orientation: frame.Orientation,
+                duration: frame.Duration
+            );
+            ProcessOnGpu(in uploaded, consumer);
+        }
+        finally
+        {
+            staging.Release();
+        }
+    }
+
+    // The engine for frames in memory, on the GPU the output asks for.
+    private D3D12Engine UploadEngine()
+    {
+        if (_engine is { } engine)
+        {
+            return engine;
+        }
+
+        nint device = D3D12Devices.Create(Info.Output.Device);
+        try
+        {
+            return CreateEngine(device);
+        }
+        finally
+        {
+            D3D12Engine.Release(device);
+        }
+    }
+
+    // Copies a picture in memory into a texture through the next upload buffer, and returns the fence
+    // value the copy is done at.
+    private ulong UploadInto(D3D12Engine engine, in VideoFrame frame, nint texture)
+    {
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = engine.Footprint(texture, out ulong size);
+        ref UploadBuffer upload = ref _uploads[_uploadSlot];
+        _uploadSlot = (_uploadSlot + 1) % _uploads.Length;
+        engine.WaitFor(upload.Done);
+        if (size > upload.Size)
+        {
+            D3D12Engine.Release(upload.Buffer);
+            upload = default;
+            upload.Buffer = engine.CreateUploadBuffer(size);
+            upload.Size = size;
+            // Upload heaps stay mapped for their lifetime; the CPU only writes them.
+            byte* mapping;
+            D3D12_RANGE none = default;
+            ((ID3D12Resource*)upload.Buffer)->Map(0, &none, (void**)&mapping);
+            upload.Mapped = mapping;
+        }
+
+        _ = frame.Storage.TryGetValue(out CpuImage image);
+        int stride = image.Planes[0].Stride;
+        int rowBytes = frame.Format.VisibleRect.Width * 4;
+        int rows = frame.Format.VisibleRect.Height;
+        ReadOnlySpan<byte> pixels = frame.GetPlane(0);
+        byte* target = upload.Mapped + (long)footprint.Offset;
+        uint pitch = footprint.Footprint.RowPitch;
+        if (stride == rowBytes && pitch == rowBytes)
+        {
+            pixels[..(rowBytes * rows)].CopyTo(new Span<byte>(target, rowBytes * rows));
+        }
+        else
+        {
+            for (int row = 0; row < rows; row++)
+            {
+                pixels
+                    .Slice(row * stride, rowBytes)
+                    .CopyTo(new Span<byte>(target + ((long)row * pitch), rowBytes));
+            }
+        }
+
+        ID3D12GraphicsCommandList* list = engine.BeginCopy();
+        D3D12Engine.Transition(
+            list,
+            texture,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST
+        );
+        D3D12Engine.CopyFromBuffer(list, texture, upload.Buffer, footprint);
+        D3D12Engine.Transition(
+            list,
+            texture,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON
+        );
+        upload.Done = engine.Submit();
+        return upload.Done;
+    }
+
+    private D3D12Engine CreateEngine(nint device)
+    {
+        D3D12Engine engine = new(device);
+        _engine = engine;
+        VideoStreamDescription output = Info.Output;
+        D3D11Bridge? bridge =
+            output.Storage == VideoStorageKind.D3D11 ? D3D11Bridge.For(engine.Adapter) : null;
+        _pool = new D3D12TexturePool(
+            engine,
+            Format(output.PixelFormat),
+            output.Size.Width,
+            output.Size.Height,
+            bridge: bridge
+        );
+        if (bridge is not null)
+        {
+            _bridgedFence = bridge.OpenFence(engine.Device, engine.Fence);
+        }
+
+        return engine;
+    }
+
     private D3D12Engine Engine(nint resource)
     {
         nint device = D3D12Engine.DeviceOf(resource);
@@ -585,25 +713,10 @@ internal sealed unsafe class D3D12VideoProcessor(
         {
             if (_engine is null)
             {
-                _engine = new D3D12Engine(device);
-                VideoStreamDescription output = Info.Output;
-                D3D11Bridge? bridge =
-                    output.Storage == VideoStorageKind.D3D11
-                        ? D3D11Bridge.For(_engine.Adapter)
-                        : null;
-                _pool = new D3D12TexturePool(
-                    _engine,
-                    Format(output.PixelFormat),
-                    output.Size.Width,
-                    output.Size.Height,
-                    bridge: bridge
-                );
-                if (bridge is not null)
-                {
-                    _bridgedFence = bridge.OpenFence(_engine.Device, _engine.Fence);
-                }
+                return CreateEngine(device);
             }
-            else if (_engine.Device != device)
+
+            if (_engine.Device != device)
             {
                 throw new ArgumentException(
                     "The frame is on another device than the stream's earlier frames.",
@@ -881,6 +994,14 @@ internal sealed unsafe class D3D12VideoProcessor(
     private static uint Groups(int threads) => (uint)((threads + 7) / 8);
 
     [StructLayout(LayoutKind.Sequential)]
+    private unsafe struct UploadBuffer
+    {
+        public nint Buffer;
+        public ulong Size;
+        public ulong Done;
+        public byte* Mapped;
+    }
+
     private struct RgbToYuvConstants
     {
         public uint OutWidth;
