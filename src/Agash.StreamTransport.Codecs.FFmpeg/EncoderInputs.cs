@@ -134,16 +134,29 @@ internal sealed unsafe class D3D11Input : EncoderInput
             throw new ArgumentException("The frame is not a Direct3D 11 texture.", nameof(frame));
         }
 
-        if (image.Sync.Kind != D3D11SyncKind.None)
+        if (image.Sync.Kind == D3D11SyncKind.KeyedMutex)
         {
             throw new NotSupportedException(
-                $"Direct3D 11 frames synchronised by {image.Sync.Kind} are not supported; deliver them finished."
+                "Direct3D 11 frames synchronised by a keyed mutex are not supported; deliver them finished or fenced."
             );
         }
 
+        // A texture another queue is still writing (a Direct3D 12 processor's, shared in) is copied after a
+        // GPU wait for its fence: the encoder submits its own work outside the device context, so only a
+        // copy on the context is ordered after the wait. Its producer reuses the texture once the context
+        // has run the copy.
+        if (image.Sync.Kind == D3D11SyncKind.Fence)
+        {
+            _pool.CopyFromD3D11Texture(
+                image.Texture,
+                image.Subresource,
+                destination,
+                new FF.D3D11FenceSync(image.Sync.Fence, image.Sync.Value)
+            );
+        }
         // NVENC and AMF read any texture on their device, so a texture of exactly the picture is read in
         // place; a larger one (a decoder pads its surfaces) is copied, since the encoder reads it whole.
-        if (frame.Format.CodedSize == _size)
+        else if (frame.Format.CodedSize == _size)
         {
             _pool.WrapD3D11Texture(image.Texture, image.Subresource, destination);
         }

@@ -565,23 +565,4 @@ public sealed class D3D12ProcessorTests
 
         public void OnFrame(in VideoFrame frame) => Kept = new Kept(frame.Retain());
     }
-
-    // Test textures outlive the processing, so retaining them needs no reference.
-    private sealed class NotRetained : IVideoFrameRetainer
-    {
-        public VideoFrameLease Retain(in VideoFrame frame) => new Borrowed(in frame);
-
-        private sealed class Borrowed(in VideoFrame frame)
-            : VideoFrameLease(
-                frame.Storage,
-                frame.Format,
-                frame.Timestamp,
-                frame.Color,
-                frame.Orientation,
-                frame.Duration
-            )
-        {
-            protected override void Release() { }
-        }
-    }
 }

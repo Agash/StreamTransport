@@ -13,16 +13,32 @@ internal sealed class PooledTexture
     private readonly D3D12TexturePool _pool;
     private int _holders = 1;
 
-    public PooledTexture(D3D12TexturePool pool, nint texture, nint luma, nint chroma)
+    public PooledTexture(
+        D3D12TexturePool pool,
+        nint texture,
+        nint luma,
+        nint chroma,
+        nint shared = 0
+    )
     {
         _pool = pool;
         Texture = texture;
         Luma = luma;
         Chroma = chroma;
+        Shared = shared;
     }
 
     /// <summary>The texture frames are delivered in.</summary>
     public nint Texture { get; }
+
+    /// <summary>The texture opened on the pool's Direct3D 11 bridge; zero without one.</summary>
+    public nint Shared { get; }
+
+    /// <summary>
+    /// The value of the pool's release fence that the bridge's context signals once the reads recorded
+    /// there before this texture came back have run; zero before its first return.
+    /// </summary>
+    public ulong ReleasedAt { get; set; }
 
     /// <summary>The luma plane the shader writes, for NV12 output; zero otherwise.</summary>
     public nint Luma { get; }
@@ -45,6 +61,7 @@ internal sealed class PooledTexture
 
     public void Destroy()
     {
+        D3D11Bridge.Release(Shared);
         D3D12Engine.Release(Texture);
         D3D12Engine.Release(Luma);
         D3D12Engine.Release(Chroma);
@@ -61,19 +78,32 @@ internal sealed class PooledTexture
 /// <param name="width">Their width.</param>
 /// <param name="height">Their height.</param>
 /// <param name="shaderWritten">Whether shaders write them; copies only need them as copy targets.</param>
+/// <param name="bridge">
+/// A Direct3D 11 device the textures are shared into, for a consumer that reads them there; null for
+/// none. A texture comes back once its frame is released, but the consumer's reads on that device may
+/// still be queued: the device's context signals a fence then, and the engine's queue waits for it
+/// before writing the texture again.
+/// </param>
 internal sealed class D3D12TexturePool(
     D3D12Engine engine,
     DXGI_FORMAT format,
     int width,
     int height,
-    bool shaderWritten = true
+    bool shaderWritten = true,
+    D3D11Bridge? bridge = null
 ) : IDisposable
 {
     private readonly D3D12Engine _engine = engine.Hold();
     private readonly Stack<PooledTexture> _free = new();
     private readonly Lock _gate = new();
+    private readonly (nint Fence, nint Opened) _released =
+        bridge?.CreateFence(engine.Device) ?? default;
+    private ulong _releases;
     private int _outstanding;
     private bool _disposed;
+
+    /// <summary>The bridge the textures are shared into, or null.</summary>
+    public D3D11Bridge? Bridge => bridge;
 
     public DXGI_FORMAT Format => format;
 
@@ -91,6 +121,13 @@ internal sealed class D3D12TexturePool(
             if (_free.TryPop(out PooledTexture? texture))
             {
                 texture.Take();
+                if (texture.ReleasedAt != 0)
+                {
+                    _engine.WaitForProducer(
+                        new Media.D3D12Sync(Fence: _released.Opened, Value: texture.ReleasedAt)
+                    );
+                }
+
                 return texture;
             }
         }
@@ -101,38 +138,62 @@ internal sealed class D3D12TexturePool(
         const D3D12_RESOURCE_STATES Common = D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON;
         const D3D12_RESOURCE_STATES Writable =
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        bool shared = bridge is not null;
         return format == DXGI_FORMAT.DXGI_FORMAT_NV12 && !_engine.StoresNv12
-            ? new PooledTexture(
-                this,
-                _engine.CreateTexture(format, width, height, false, Common),
-                _engine.CreateTexture(
-                    DXGI_FORMAT.DXGI_FORMAT_R8_UNORM,
-                    width,
-                    height,
-                    true,
-                    Writable
-                ),
-                _engine.CreateTexture(
-                    DXGI_FORMAT.DXGI_FORMAT_R8G8_UNORM,
-                    width / 2,
-                    height / 2,
-                    true,
-                    Writable
+            ? Shared(
+                new PooledTexture(
+                    this,
+                    _engine.CreateTexture(format, width, height, false, Common, shared),
+                    _engine.CreateTexture(
+                        DXGI_FORMAT.DXGI_FORMAT_R8_UNORM,
+                        width,
+                        height,
+                        true,
+                        Writable
+                    ),
+                    _engine.CreateTexture(
+                        DXGI_FORMAT.DXGI_FORMAT_R8G8_UNORM,
+                        width / 2,
+                        height / 2,
+                        true,
+                        Writable
+                    )
                 )
             )
-            : new PooledTexture(
-                this,
-                _engine.CreateTexture(format, width, height, shaderWritten, Common),
-                0,
-                0
+            : Shared(
+                new PooledTexture(
+                    this,
+                    _engine.CreateTexture(format, width, height, shaderWritten, Common, shared),
+                    0,
+                    0
+                )
             );
     }
+
+    // The texture with its view on the bridge, when there is one.
+    private PooledTexture Shared(PooledTexture texture) =>
+        bridge is null
+            ? texture
+            : new PooledTexture(
+                this,
+                texture.Texture,
+                texture.Luma,
+                texture.Chroma,
+                bridge.OpenTexture(_engine.Device, texture.Texture)
+            );
 
     public void Return(PooledTexture texture)
     {
         bool last;
         lock (_gate)
         {
+            // Under the lock: a fence's values only go up, so returns signal in the order they count.
+            if (bridge is not null)
+            {
+                texture.ReleasedAt = ++_releases;
+                bridge.Signal(_released.Fence, texture.ReleasedAt);
+            }
+
             _outstanding--;
             if (!_disposed)
             {
@@ -146,6 +207,7 @@ internal sealed class D3D12TexturePool(
         texture.Destroy();
         if (last)
         {
+            ReleaseFences();
             _engine.Dispose();
         }
     }
@@ -172,7 +234,14 @@ internal sealed class D3D12TexturePool(
 
         if (last)
         {
+            ReleaseFences();
             _engine.Dispose();
         }
+    }
+
+    private void ReleaseFences()
+    {
+        D3D11Bridge.Release(_released.Fence);
+        D3D12Engine.Release(_released.Opened);
     }
 }

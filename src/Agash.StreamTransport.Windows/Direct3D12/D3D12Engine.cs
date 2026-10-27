@@ -67,7 +67,8 @@ internal sealed unsafe class D3D12Engine : IDisposable
         D3D12_COMMAND_QUEUE_DESC queue = new() { Type = type };
         _device->CreateCommandQueue(in queue, out ID3D12CommandQueue* created);
         _queue = created;
-        _device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, out ID3D12Fence* fence);
+        // Shared, so a native Direct3D 11 device can wait for this engine's work (D3D11Bridge).
+        _device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_SHARED, out ID3D12Fence* fence);
         _fence = fence;
         _device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, out ID3D12Fence* ordering);
         _ordering = ordering;
@@ -200,13 +201,15 @@ internal sealed unsafe class D3D12Engine : IDisposable
     /// <param name="height">The height.</param>
     /// <param name="unorderedAccess">Whether shaders write it.</param>
     /// <param name="initial">The state it starts in.</param>
+    /// <param name="shared">Whether another device opens it, through a shared handle.</param>
     /// <returns>The ID3D12Resource, owned by the caller.</returns>
     public nint CreateTexture(
         DXGI_FORMAT format,
         int width,
         int height,
         bool unorderedAccess,
-        D3D12_RESOURCE_STATES initial
+        D3D12_RESOURCE_STATES initial,
+        bool shared = false
     )
     {
         D3D12_HEAP_PROPERTIES heap = new() { Type = D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT };
@@ -219,15 +222,29 @@ internal sealed unsafe class D3D12Engine : IDisposable
             MipLevels = 1,
             Format = format,
             SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
-            Flags = unorderedAccess
-                ? D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
-                : D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_NONE,
+            // Direct3D 11 opens a shared texture only as a render target, and NV12 only with simultaneous
+            // access too (OpenSharedResource1 returns E_INVALIDARG otherwise); simultaneous access also lets
+            // the other device read it without a state handoff, the fences ordering the work.
+            Flags =
+                (
+                    unorderedAccess
+                        ? D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
+                        : D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_NONE
+                )
+                | (
+                    shared
+                        ? D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET
+                            | D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+                        : D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_NONE
+                ),
         };
         Guid iid = typeof(ID3D12Resource).GUID;
         void* resource;
         _device->CreateCommittedResource(
             &heap,
-            D3D12_HEAP_FLAGS.D3D12_HEAP_FLAG_NONE,
+            shared
+                ? D3D12_HEAP_FLAGS.D3D12_HEAP_FLAG_SHARED
+                : D3D12_HEAP_FLAGS.D3D12_HEAP_FLAG_NONE,
             &description,
             initial,
             null,

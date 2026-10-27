@@ -41,17 +41,20 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
                 : null;
         }
 
-        // The work runs on the input's GPU; the result stays there, or is read back for a consumer in
-        // memory (a software encoder fed by a GPU source).
+        // The work runs on the input's GPU; the result stays there, is shared into a native Direct3D 11
+        // device there (for NVENC and AMF), or is read back for a consumer in memory (a software encoder
+        // fed by a GPU source).
         VideoStorageKind? result =
             output.Storages.Contains(VideoStorageKind.D3D12) ? VideoStorageKind.D3D12
+            : output.Storages.Contains(VideoStorageKind.D3D11) && input.Device is not null
+                ? VideoStorageKind.D3D11
             : output.Storages.Contains(VideoStorageKind.Cpu) ? VideoStorageKind.Cpu
             : null;
         if (
             input.Storage != VideoStorageKind.D3D12
             || result is not { } storage
             || (
-                storage == VideoStorageKind.D3D12
+                storage != VideoStorageKind.Cpu
                 && output.Device is { } wanted
                 && input.Device is { } actual
                 && wanted != actual
@@ -124,7 +127,7 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
                 storage,
                 format,
                 size,
-                storage == VideoStorageKind.D3D12 ? device : null
+                storage == VideoStorageKind.Cpu ? null : device
             )
         );
 }
@@ -146,6 +149,7 @@ internal sealed unsafe class D3D12VideoProcessor(
     private ulong _uploaded;
     private nint _readback;
     private ulong _readbackSize;
+    private nint _bridgedFence;
     private bool _disposed;
 
     public VideoProcessorInfo Info { get; } = info;
@@ -228,14 +232,23 @@ internal sealed unsafe class D3D12VideoProcessor(
             }
 
             VideoFrame result = new(
-                new VideoStorage(
-                    new D3D12Image(
-                        output.Texture,
-                        0,
-                        engine.Adapter,
-                        new D3D12Sync(Fence: engine.Fence, Value: done)
+                described.Storage == VideoStorageKind.D3D11
+                    ? new VideoStorage(
+                        new D3D11Image(
+                            output.Shared,
+                            0,
+                            engine.Adapter,
+                            new D3D11Sync(D3D11SyncKind.Fence, _bridgedFence, done)
+                        )
                     )
-                ),
+                    : new VideoStorage(
+                        new D3D12Image(
+                            output.Texture,
+                            0,
+                            engine.Adapter,
+                            new D3D12Sync(Fence: engine.Fence, Value: done)
+                        )
+                    ),
                 new VideoFormat(described.PixelFormat, described.Size.Width, described.Size.Height),
                 frame.Timestamp,
                 color: colour,
@@ -364,6 +377,7 @@ internal sealed unsafe class D3D12VideoProcessor(
                 D3D12Engine.Release(_readback);
             }
 
+            D3D11Bridge.Release(_bridgedFence);
             _engine?.Dispose();
         }
     }
@@ -573,12 +587,21 @@ internal sealed unsafe class D3D12VideoProcessor(
             {
                 _engine = new D3D12Engine(device);
                 VideoStreamDescription output = Info.Output;
+                D3D11Bridge? bridge =
+                    output.Storage == VideoStorageKind.D3D11
+                        ? D3D11Bridge.For(_engine.Adapter)
+                        : null;
                 _pool = new D3D12TexturePool(
                     _engine,
                     Format(output.PixelFormat),
                     output.Size.Width,
-                    output.Size.Height
+                    output.Size.Height,
+                    bridge: bridge
                 );
+                if (bridge is not null)
+                {
+                    _bridgedFence = bridge.OpenFence(_engine.Device, _engine.Fence);
+                }
             }
             else if (_engine.Device != device)
             {
