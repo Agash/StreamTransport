@@ -103,7 +103,14 @@ internal sealed class CcfbReceiveTracker
     /// <param name="nowMicros">The report's time, on the receiver's monotonic clock.</param>
     /// <param name="maxRun">The most packets one block reports.</param>
     /// <param name="reports">Where the blocks go.</param>
-    public void AddToFeedback(uint ssrc, long nowMicros, int maxRun, List<CcfbStreamReport> reports)
+    /// <param name="metrics">Where the blocks' metrics go.</param>
+    public void AddToFeedback(
+        uint ssrc,
+        long nowMicros,
+        int maxRun,
+        List<CcfbStreamReport> reports,
+        CcfbMetricStore metrics
+    )
     {
         if (_packets.Count == 0)
         {
@@ -133,11 +140,12 @@ internal sealed class CcfbReceiveTracker
         for (long begin = start; begin < end; begin += maxRun)
         {
             int run = (int)Math.Min(maxRun, end - begin);
-            var metrics = new CcfbMetric[run];
+            Memory<CcfbMetric> block = metrics.Rent(run);
+            Span<CcfbMetric> values = block.Span;
             for (int i = 0; i < run; i++)
             {
                 Entry entry = _packets[(int)(begin + i - _first)];
-                metrics[i] = entry.Received
+                values[i] = entry.Received
                     ? new CcfbMetric(
                         true,
                         entry.Ecn,
@@ -146,13 +154,7 @@ internal sealed class CcfbReceiveTracker
                     : new CcfbMetric(false, 0, 0);
             }
 
-            reports.Add(
-                new CcfbStreamReport(
-                    ssrc,
-                    (ushort)begin,
-                    ImmutableCollectionsMarshal.AsImmutableArray(metrics)
-                )
-            );
+            reports.Add(new CcfbStreamReport(ssrc, (ushort)begin, block));
         }
 
         _nextInFeedback = end;

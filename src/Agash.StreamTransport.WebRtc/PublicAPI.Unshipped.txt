@@ -304,14 +304,18 @@ Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.Ecn.init -> void
 Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.Equals(Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric other) -> bool
 Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.Received.get -> bool
 Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.Received.init -> void
+Agash.StreamTransport.WebRtc.Rtcp.CcfbMetricStore
+Agash.StreamTransport.WebRtc.Rtcp.CcfbMetricStore.CcfbMetricStore() -> void
+Agash.StreamTransport.WebRtc.Rtcp.CcfbMetricStore.Clear() -> void
+Agash.StreamTransport.WebRtc.Rtcp.CcfbMetricStore.Rent(int count) -> System.Memory<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric>
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.BeginSequence.get -> ushort
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.BeginSequence.init -> void
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.CcfbStreamReport() -> void
-Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.CcfbStreamReport(uint Ssrc, ushort BeginSequence, System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric> Metrics) -> void
-Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Deconstruct(out uint Ssrc, out ushort BeginSequence, out System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric> Metrics) -> void
+Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.CcfbStreamReport(uint Ssrc, ushort BeginSequence, System.ReadOnlyMemory<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric> Metrics) -> void
+Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Deconstruct(out uint Ssrc, out ushort BeginSequence, out System.ReadOnlyMemory<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric> Metrics) -> void
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Equals(Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport other) -> bool
-Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Metrics.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric>
+Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Metrics.get -> System.ReadOnlyMemory<Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric>
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Metrics.init -> void
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Ssrc.get -> uint
 Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.Ssrc.init -> void
@@ -1041,7 +1045,7 @@ static Agash.StreamTransport.WebRtc.NegotiatedMediaInfo.operator ==(Agash.Stream
 static Agash.StreamTransport.WebRtc.RtcCertificate.Generate(Dtls.Core.DtlsKeyType keyType = Dtls.Core.DtlsKeyType.EcdsaP256) -> Agash.StreamTransport.WebRtc.RtcCertificate!
 static Agash.StreamTransport.WebRtc.Rtcp.Ccfb.ArrivalTimeOffset(long ageMicros) -> ushort
 static Agash.StreamTransport.WebRtc.Rtcp.Ccfb.Build(System.Span<byte> destination, uint senderSsrc, System.ReadOnlySpan<Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport> streams, uint reportTimestamp) -> int
-static Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(System.ReadOnlySpan<byte> packet, out uint senderSsrc, out uint reportTimestamp, System.Collections.Generic.List<Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport>! streams) -> bool
+static Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(System.ReadOnlySpan<byte> packet, out uint senderSsrc, out uint reportTimestamp, System.Collections.Generic.List<Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport>! streams, Agash.StreamTransport.WebRtc.Rtcp.CcfbMetricStore! metrics) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.operator !=(Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric left, Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric.operator ==(Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric left, Agash.StreamTransport.WebRtc.Rtcp.CcfbMetric right) -> bool
 static Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport.operator !=(Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport left, Agash.StreamTransport.WebRtc.Rtcp.CcfbStreamReport right) -> bool

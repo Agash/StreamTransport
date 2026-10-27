@@ -21,13 +21,13 @@ public sealed class CcfbReceiveTrackerTests
 
         CcfbStreamReport report = Single(tracker, 110_000);
         Assert.AreEqual((ushort)100, report.BeginSequence);
-        Assert.HasCount(5, report.Metrics);
-        Assert.IsTrue(report.Metrics.All(static m => m.Received && m.Ecn == Ect1));
+        Assert.HasCount(5, report.Metrics.ToArray());
+        Assert.IsTrue(report.Metrics.ToArray().All(static m => m.Received && m.Ecn == Ect1));
 
         tracker.OnPacket(105, 120_000, Ect1);
         CcfbStreamReport next = Single(tracker, 130_000);
         Assert.AreEqual((ushort)100, next.BeginSequence, "overlaps back to the first packet");
-        Assert.HasCount(6, next.Metrics);
+        Assert.HasCount(6, next.Metrics.ToArray());
     }
 
     // The SCReAMv2 reference receiver's span: a report covers at least the latest 32 packets, however few
@@ -49,8 +49,8 @@ public sealed class CcfbReceiveTrackerTests
 
         CcfbStreamReport report = Single(tracker, 110_000);
         Assert.AreEqual((ushort)(105 - CcfbReceiveTracker.MinimumSpan), report.BeginSequence);
-        Assert.HasCount(CcfbReceiveTracker.MinimumSpan, report.Metrics);
-        Assert.IsTrue(report.Metrics.All(static m => m.Received));
+        Assert.HasCount(CcfbReceiveTracker.MinimumSpan, report.Metrics.ToArray());
+        Assert.IsTrue(report.Metrics.ToArray().All(static m => m.Received));
     }
 
     // A packet reported missing that arrives later moves the next report back to it, and the packets
@@ -64,7 +64,7 @@ public sealed class CcfbReceiveTrackerTests
         CcfbStreamReport first = Single(tracker, 2000);
         CollectionAssert.AreEqual(
             new[] { true, false, true },
-            first.Metrics.Select(static m => m.Received).ToArray()
+            first.Metrics.ToArray().Select(static m => m.Received).ToArray()
         );
 
         tracker.OnPacket(11, 3000, 0);
@@ -72,10 +72,10 @@ public sealed class CcfbReceiveTrackerTests
         CcfbStreamReport second = Single(tracker, 4000);
 
         Assert.AreEqual((ushort)10, second.BeginSequence);
-        Assert.IsTrue(second.Metrics.All(static m => m.Received));
+        Assert.IsTrue(second.Metrics.ToArray().All(static m => m.Received));
         Assert.AreEqual(
             Ccfb.ArrivalTimeOffset(3000),
-            second.Metrics[2].ArrivalTimeOffset,
+            second.Metrics.ToArray()[2].ArrivalTimeOffset,
             "packet 12 keeps its first arrival time"
         );
     }
@@ -87,7 +87,7 @@ public sealed class CcfbReceiveTrackerTests
         tracker.OnPacket(7, 0, Ect1);
         tracker.OnPacket(7, 500_000, Ce);
 
-        CcfbMetric metric = Single(tracker, 1_000_000).Metrics[0];
+        CcfbMetric metric = Single(tracker, 1_000_000).Metrics.ToArray()[0];
 
         Assert.AreEqual(Ce, metric.Ecn);
         Assert.AreEqual(Ccfb.ArrivalTimeOffset(1_000_000), metric.ArrivalTimeOffset);
@@ -104,7 +104,7 @@ public sealed class CcfbReceiveTrackerTests
 
         CcfbStreamReport report = Single(tracker, 1000);
         Assert.AreEqual((ushort)65534, report.BeginSequence);
-        Assert.HasCount(4, report.Metrics);
+        Assert.HasCount(4, report.Metrics.ToArray());
     }
 
     [TestMethod]
@@ -117,12 +117,12 @@ public sealed class CcfbReceiveTrackerTests
         }
 
         List<CcfbStreamReport> reports = [];
-        tracker.AddToFeedback(Ssrc, 1000, 512, reports);
+        tracker.AddToFeedback(Ssrc, 1000, 512, reports, new CcfbMetricStore());
 
         Assert.HasCount(2, reports);
-        Assert.HasCount(512, reports[0].Metrics);
+        Assert.HasCount(512, reports[0].Metrics.ToArray());
         Assert.AreEqual((ushort)512, reports[1].BeginSequence);
-        Assert.HasCount(488, reports[1].Metrics);
+        Assert.HasCount(488, reports[1].Metrics.ToArray());
     }
 
     [TestMethod]
@@ -147,7 +147,7 @@ public sealed class CcfbReceiveTrackerTests
         _ = Single(tracker, 1000);
         tracker.OnPacket(5, 2000, 0);
         List<CcfbStreamReport> none = [];
-        tracker.AddToFeedback(Ssrc, 3000, 512, none);
+        tracker.AddToFeedback(Ssrc, 3000, 512, none, new CcfbMetricStore());
         Assert.IsEmpty(none, "the restarted packet is outside the window");
 
         tracker.OnPacket(6, 4000, 0);
@@ -157,7 +157,7 @@ public sealed class CcfbReceiveTrackerTests
     private static CcfbStreamReport Single(CcfbReceiveTracker tracker, long nowMicros)
     {
         List<CcfbStreamReport> reports = [];
-        tracker.AddToFeedback(Ssrc, nowMicros, 512, reports);
+        tracker.AddToFeedback(Ssrc, nowMicros, 512, reports, new CcfbMetricStore());
         Assert.HasCount(1, reports);
         return reports[0];
     }

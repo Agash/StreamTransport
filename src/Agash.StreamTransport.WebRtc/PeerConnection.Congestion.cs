@@ -31,6 +31,8 @@ public sealed partial class PeerConnection
     private readonly Dictionary<uint, CcfbReceiveTracker> _ccfbTrackers = [];
     private readonly List<CcfbStreamReport> _ccfbScratch = [];
     private readonly List<CcfbStreamReport> _reportScratch = [];
+    private readonly CcfbMetricStore _ccfbMetrics = new();
+    private readonly CcfbMetricStore _reportMetrics = new();
 
     // Feedback arrives on every ICE socket's receive loop (the selected path and warm standbys) while the
     // process timer also drives the controller; this serialises both, and the parse scratch with them.
@@ -429,9 +431,10 @@ public sealed partial class PeerConnection
             }
 
             _reportScratch.Clear();
+            _reportMetrics.Clear();
             foreach ((uint ssrc, CcfbReceiveTracker tracker) in _ccfbTrackers)
             {
-                tracker.AddToFeedback(ssrc, now, MaxReportRun, _reportScratch);
+                tracker.AddToFeedback(ssrc, now, MaxReportRun, _reportScratch, _reportMetrics);
             }
 
             _firstUnreportedArrivalMicros = -1;
@@ -472,7 +475,7 @@ public sealed partial class PeerConnection
                 SendFeedbackPacket(
                     srtp,
                     agent,
-                    _reportScratch.GetRange(start, count),
+                    CollectionsMarshal.AsSpan(_reportScratch).Slice(start, count),
                     reportTimestamp
                 );
                 start += count;
@@ -483,7 +486,7 @@ public sealed partial class PeerConnection
     private void SendFeedbackPacket(
         SrtpSession srtp,
         Ice.IceAgent agent,
-        List<CcfbStreamReport> reports,
+        ReadOnlySpan<CcfbStreamReport> reports,
         uint reportTimestamp
     )
     {
@@ -501,13 +504,7 @@ public sealed partial class PeerConnection
         {
             int prefix = WriteFeedbackPrefix(rtcp);
             int length =
-                prefix
-                + Ccfb.Build(
-                    rtcp[prefix..],
-                    _rtcpSenderSsrc,
-                    CollectionsMarshal.AsSpan(reports),
-                    reportTimestamp
-                );
+                prefix + Ccfb.Build(rtcp[prefix..], _rtcpSenderSsrc, reports, reportTimestamp);
             int protectedLength = srtp.ProtectRtcp(rtcp, length);
             CountRtcpSent(protectedLength);
             _ = agent.SendInPlaceAsync(
@@ -580,9 +577,13 @@ public sealed partial class PeerConnection
     )
     {
         _ccfbScratch.Clear();
+        _ccfbMetrics.Clear();
         bool transport = TransportFeedbackActive;
         uint compactTimestamp = 0;
-        if (!transport && !Ccfb.TryParse(rtcp, out _, out compactTimestamp, _ccfbScratch))
+        if (
+            !transport
+            && !Ccfb.TryParse(rtcp, out _, out compactTimestamp, _ccfbScratch, _ccfbMetrics)
+        )
         {
             return null;
         }
@@ -609,7 +610,7 @@ public sealed partial class PeerConnection
                         continue;
                     }
 
-                    CcfbMetric metric = stream.Metrics[i];
+                    CcfbMetric metric = stream.Metrics.Span[i];
 
                     // Received with no usable time (unknown, after the report, or over range) is still
                     // received (section 3.1).

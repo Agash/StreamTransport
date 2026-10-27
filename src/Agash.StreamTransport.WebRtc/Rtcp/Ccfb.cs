@@ -11,11 +11,59 @@ namespace Agash.StreamTransport.WebRtc.Rtcp;
 public readonly record struct CcfbMetric(bool Received, byte Ecn, ushort ArrivalTimeOffset);
 
 /// <summary>An RFC 8888 per-SSRC report block: the metrics for a run of sequence numbers from <see cref="BeginSequence"/>.</summary>
+/// <remarks>
+/// <see cref="Metrics"/> is a slice of the <see cref="CcfbMetricStore"/> the block was built or parsed into,
+/// valid until that store is cleared.
+/// </remarks>
 public readonly record struct CcfbStreamReport(
     uint Ssrc,
     ushort BeginSequence,
-    ImmutableArray<CcfbMetric> Metrics
+    ReadOnlyMemory<CcfbMetric> Metrics
 );
+
+/// <summary>
+/// The metrics of the report blocks being built or parsed, kept from one report to the next so that
+/// reporting, once warm, allocates nothing. A block's metrics stay where they are until
+/// <see cref="Clear"/>.
+/// </summary>
+public sealed class CcfbMetricStore
+{
+    private const int ChunkSize = 1024;
+
+    private readonly List<CcfbMetric[]> _chunks = [];
+    private int _chunk;
+    private int _used;
+
+    /// <summary>Room for a block's metrics, after those already handed out.</summary>
+    /// <param name="count">How many.</param>
+    /// <returns>The room.</returns>
+    public Memory<CcfbMetric> Rent(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        while (_chunk < _chunks.Count && _chunks[_chunk].Length - _used < count)
+        {
+            _chunk++;
+            _used = 0;
+        }
+
+        if (_chunk == _chunks.Count)
+        {
+            _chunks.Add(new CcfbMetric[Math.Max(ChunkSize, count)]);
+            _used = 0;
+        }
+
+        Memory<CcfbMetric> room = _chunks[_chunk].AsMemory(_used, count);
+        _used += count;
+        return room;
+    }
+
+    /// <summary>Takes back every block's metrics, for the next report.</summary>
+    public void Clear()
+    {
+        _chunk = 0;
+        _used = 0;
+    }
+}
 
 /// <summary>
 /// Builds and parses the RFC 8888 RTCP Congestion Control Feedback packet (PT 205, FMT 11), the standard
@@ -76,7 +124,7 @@ public static class Ccfb
             );
             offset += 8;
 
-            foreach (CcfbMetric metric in stream.Metrics)
+            foreach (CcfbMetric metric in stream.Metrics.Span)
             {
                 ushort value = (ushort)(
                     (metric.Received ? 0x8000 : 0)
@@ -102,11 +150,18 @@ public static class Ccfb
     }
 
     /// <summary>Parses the first CCFB packet in an RTCP compound, populating <paramref name="streams"/>.</summary>
+    /// <param name="packet">The RTCP compound.</param>
+    /// <param name="senderSsrc">The feedback's sender.</param>
+    /// <param name="reportTimestamp">The report's time, the middle 32 bits of NTP time.</param>
+    /// <param name="streams">Where the report blocks go.</param>
+    /// <param name="metrics">Where the blocks' metrics go.</param>
+    /// <returns>Whether the compound held a CCFB packet.</returns>
     public static bool TryParse(
         ReadOnlySpan<byte> packet,
         out uint senderSsrc,
         out uint reportTimestamp,
-        List<CcfbStreamReport> streams
+        List<CcfbStreamReport> streams,
+        CcfbMetricStore metrics
     )
     {
         senderSsrc = 0;
@@ -134,11 +189,12 @@ public static class Ccfb
                 int numReports = BinaryPrimitives.ReadUInt16BigEndian(body[(o + 6)..]);
                 o += 8;
 
-                var metrics = new CcfbMetric[numReports];
+                Memory<CcfbMetric> block = metrics.Rent(numReports);
+                Span<CcfbMetric> values = block.Span;
                 for (int i = 0; i < numReports && o + 2 <= end; i++, o += 2)
                 {
                     ushort value = BinaryPrimitives.ReadUInt16BigEndian(body[o..]);
-                    metrics[i] = new CcfbMetric(
+                    values[i] = new CcfbMetric(
                         (value & 0x8000) != 0,
                         (byte)((value >> 13) & 0x3),
                         (ushort)(value & 0x1FFF)
@@ -150,13 +206,7 @@ public static class Ccfb
                     o += 2; // skip pad
                 }
 
-                streams.Add(
-                    new CcfbStreamReport(
-                        ssrc,
-                        beginSeq,
-                        ImmutableCollectionsMarshal.AsImmutableArray(metrics)
-                    )
-                );
+                streams.Add(new CcfbStreamReport(ssrc, beginSeq, block));
             }
 
             reportTimestamp = BinaryPrimitives.ReadUInt32BigEndian(body[end..]);

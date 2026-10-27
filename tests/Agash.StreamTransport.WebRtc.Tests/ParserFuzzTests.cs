@@ -88,7 +88,13 @@ public sealed class ParserFuzzTests
                     firs.Clear();
                 }
                 streams.Clear();
-                _ = Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(input, out _, out _, streams);
+                _ = Agash.StreamTransport.WebRtc.Rtcp.Ccfb.TryParse(
+                    input,
+                    out _,
+                    out _,
+                    streams,
+                    new CcfbMetricStore()
+                );
             }
         );
     }
@@ -465,7 +471,12 @@ public sealed class ParserFuzzTests
         CcfbStreamReport report = new(
             2,
             100,
-            [new CcfbMetric(true, 0, 10), new CcfbMetric(false, 0, 0), new CcfbMetric(true, 1, 20)]
+            (CcfbMetric[])
+                [
+                    new CcfbMetric(true, 0, 10),
+                    new CcfbMetric(false, 0, 0),
+                    new CcfbMetric(true, 1, 20),
+                ]
         );
         return buffer[..Agash.StreamTransport.WebRtc.Rtcp.Ccfb.Build(buffer, 1, [report], 1234)];
     }
