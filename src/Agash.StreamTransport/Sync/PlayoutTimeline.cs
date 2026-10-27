@@ -155,6 +155,7 @@ internal sealed class PlayoutTimeline
         private readonly Queue<(MediaTime At, long Raw)> _recent = new();
         private int _samples;
         private long? _jitter;
+        private long[] _scratch = [];
 
         public bool Seen { get; private set; }
 
@@ -182,44 +183,45 @@ internal sealed class PlayoutTimeline
             }
         }
 
-        // The 95th percentile of the window's delays above the base, outliers clamped.
+        // The 95th percentile of the window's delays above the base, outliers clamped. Computed in a buffer
+        // kept between calls: it runs for every packet.
         private long Compute()
         {
-            if (_recent.Count == 0)
+            int count = _recent.Count;
+            if (count == 0)
             {
                 return 0;
             }
 
-            long[] excess = new long[_recent.Count];
+            if (_scratch.Length < count * 2)
+            {
+                _scratch = new long[Math.Max(count * 2, _scratch.Length * 2)];
+            }
+
+            Span<long> excess = _scratch.AsSpan(0, count);
+            Span<long> deviations = _scratch.AsSpan(count, count);
             int i = 0;
             foreach ((_, long raw) in _recent)
             {
                 excess[i++] = Math.Max(0, raw - Base);
             }
 
-            Array.Sort(excess);
-            long median = excess[excess.Length / 2];
-            long[] deviations = new long[excess.Length];
-            for (int j = 0; j < excess.Length; j++)
+            excess.Sort();
+            long median = excess[count / 2];
+            for (int j = 0; j < count; j++)
             {
                 deviations[j] = Math.Abs(excess[j] - median);
             }
 
-            Array.Sort(deviations);
+            deviations.Sort();
 
             // The median absolute deviation, at least a millisecond so a steady stream is not all outliers.
             long bound =
-                median
-                + (long)(
-                    OutlierDeviations * Math.Max(deviations[deviations.Length / 2], 1_000_000)
-                );
-            for (int j = 0; j < excess.Length; j++)
-            {
-                excess[j] = Math.Min(excess[j], bound);
-            }
+                median + (long)(OutlierDeviations * Math.Max(deviations[count / 2], 1_000_000));
 
-            Array.Sort(excess);
-            return excess[(int)Math.Ceiling(0.95 * excess.Length) - 1];
+            // Clamping every delay to the bound keeps them in order, so the percentile of the clamped
+            // delays is the percentile's, clamped.
+            return Math.Min(excess[(int)Math.Ceiling(0.95 * count) - 1], bound);
         }
     }
 }
