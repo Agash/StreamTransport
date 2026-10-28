@@ -69,7 +69,82 @@ public sealed class EncoderTests
         long opened,
         long target,
         bool expected
-    ) => Assert.AreEqual(expected, FFmpegVideoEncoder.WorthReopening(opened, target));
+    ) =>
+        Assert.AreEqual(
+            expected,
+            FFmpegVideoEncoder.WorthReopening(
+                opened,
+                target,
+                TimeSpan.MaxValue,
+                TimeSpan.MaxValue,
+                opened,
+                60
+            )
+        );
+
+    // Just after a keyframed change its own keyframe pulls the target down, for about 150 frames (2.5 s at
+    // 60 fps); only a collapse follows.
+    [TestMethod]
+    [DataRow(1_000_000L, 700_000L, false)]
+    [DataRow(1_000_000L, 1_500_000L, false)]
+    [DataRow(1_000_000L, 450_000L, true)]
+    public void WorthReopening_SoonAfterAKeyframedChange_OnlyACollapseReopens(
+        long opened,
+        long target,
+        bool expected
+    ) =>
+        Assert.AreEqual(
+            expected,
+            FFmpegVideoEncoder.WorthReopening(
+                opened,
+                target,
+                TimeSpan.FromSeconds(2.2),
+                TimeSpan.MaxValue,
+                opened,
+                60
+            )
+        );
+
+    // A rise that has not lasted the settle time is not followed: it is a keyframe's effect fading.
+    [TestMethod]
+    [DataRow(1.0, false)]
+    [DataRow(3.0, true)]
+    public void WorthReopening_ARise_OnlyOnceItHasLasted(double risingSeconds, bool expected) =>
+        Assert.AreEqual(
+            expected,
+            FFmpegVideoEncoder.WorthReopening(
+                1_000_000,
+                1_400_000,
+                TimeSpan.MaxValue,
+                TimeSpan.FromSeconds(risingSeconds),
+                1_000_000,
+                60
+            )
+        );
+
+    // An encoder sending far below both rates is held back by neither: no reopen either way.
+    [TestMethod]
+    [DataRow(600_000L, false)]
+    [DataRow(2_000_000L, false)]
+    public void WorthReopening_AnEncoderFarBelowItsRate_IsLeftOpen(long target, bool expected) =>
+        Assert.AreEqual(
+            expected,
+            FFmpegVideoEncoder.WorthReopening(
+                1_000_000,
+                target,
+                TimeSpan.MaxValue,
+                TimeSpan.MaxValue,
+                100_000,
+                60
+            )
+        );
+
+    [TestMethod]
+    [DataRow(60.0, 2.5)]
+    [DataRow(30.0, 5.0)]
+    [DataRow(120.0, 2.0)]
+    public void KeyframeSettle_CoversTheFrameSizeDeviationsDecay(double fps, double seconds) =>
+        Assert.AreEqual(TimeSpan.FromSeconds(seconds), FFmpegVideoEncoder.KeyframeSettle(fps));
 
     [TestMethod]
     [DynamicData(nameof(Cases))]
@@ -151,9 +226,11 @@ public sealed class EncoderTests
         Collector collector = new();
         for (int i = 0; i < frames; i++)
         {
-            if (i is 30 or 60)
+            // A frame rate is set only when an encoder opens, so a source that changed pace reopens it
+            // whatever it sends; a rate change reopens only an encoder that sends above the new target.
+            if (i == 30)
             {
-                encoder.Reconfigure(new RateTarget(i == 30 ? 800_000 : 2_000_000, 30));
+                encoder.Reconfigure(new RateTarget(2_000_000, 15));
             }
 
             VideoFrame frame = Pictures.CpuFrame(format, Pictures.Make(format, i), i);

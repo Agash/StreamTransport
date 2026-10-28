@@ -31,6 +31,18 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     // The rate the encoder works to, apart from the configuration: congestion control moves it every few
     // feedback reports, and a copied configuration each time would be garbage.
     private RateTarget _rate;
+
+    // When the last rate change that cost a keyframe was made, as a timestamp of the encoder's clock.
+    private long _keyframedRateChange = long.MinValue;
+
+    // Since when the target has stood above the rate the encoder was opened at by enough to reopen.
+    private long _risingSince = long.MinValue;
+
+    // What the encoder sends, in bits per second: an exponentially weighted sum of the bits it emitted,
+    // with a time constant of OutputWindow, which a steady rate settles to.
+    private double _outputBits;
+    private long _outputAt = long.MinValue;
+    private static readonly TimeSpan OutputWindow = TimeSpan.FromSeconds(1);
     private Session? _session;
 
     // Why the encoder reopens on the next frame (rate, frame_rate); null when it does not.
@@ -205,6 +217,15 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 return;
             }
 
+            if (target.BitsPerSecond > session.BitsPerSecond * 1.3)
+            {
+                _risingSince = _risingSince == long.MinValue ? _time.GetTimestamp() : _risingSince;
+            }
+            else
+            {
+                _risingSince = long.MinValue;
+            }
+
             // Frame rate is set when an encoder opens; a source that changed pace reopens it.
             if (
                 target.FramesPerSecond < openedFrames * 0.8
@@ -219,10 +240,22 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 session.Encoder.SupportsRateControlChanges
                 && (
                     Info.RateChange == RateChange.InPlace
-                    || WorthReopening(session.BitsPerSecond, target.BitsPerSecond)
+                    || WorthReopening(
+                        session.BitsPerSecond,
+                        target.BitsPerSecond,
+                        SinceKeyframedRateChange,
+                        RisingFor,
+                        OutputBitsPerSecond,
+                        target.FramesPerSecond
+                    )
                 )
             )
             {
+                if (Info.RateChange != RateChange.InPlace)
+                {
+                    _keyframedRateChange = _time.GetTimestamp();
+                }
+
                 session.Encoder.SetRateControl(
                     target.BitsPerSecond,
                     target.BitsPerSecond,
@@ -231,8 +264,19 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 session.Retargeted(target.BitsPerSecond);
                 LogRateChanged(_logger, Info.ImplementationName, target.BitsPerSecond);
             }
-            else if (WorthReopening(session.BitsPerSecond, target.BitsPerSecond))
+            else if (
+                WorthReopening(
+                    session.BitsPerSecond,
+                    target.BitsPerSecond,
+                    SinceKeyframedRateChange,
+                    RisingFor,
+                    OutputBitsPerSecond,
+                    target.FramesPerSecond
+                )
+            )
             {
+                _keyframedRateChange = _time.GetTimestamp();
+                _risingSince = long.MinValue;
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
                 Prepare(session, "rate");
             }
@@ -242,9 +286,57 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     // A reopen costs a keyframe and the encoder's start-up, and the congestion controller moves the
     // target a few percent at a time; an encoder that applies its rate only when opened reopens when the
     // target has moved well away from it. A fall is followed sooner than a rise: sending above a lowered
-    // target is what fills the bottleneck queue.
-    internal static bool WorthReopening(long opened, long target) =>
-        target < opened * 0.85 || target > opened * 1.3;
+    // target is what fills the bottleneck queue. Shortly after a change that cost a keyframe, the target
+    // is still pulled down by that keyframe (draft-ietf-ccwg-rfc8298bis-screamv2-01 section 4.4): it
+    // fills the sender queue, whose delay the rate adjustment integrates, and it is far above the nominal
+    // frame size, which frame_size_dev tracks. Following that fall would open the next keyframe, so only
+    // a collapse reopens until the keyframe's effect has passed. A rise is followed only once it has
+    // lasted as long: the target swings back up as each keyframe's effect fades, and a reopen for each
+    // swing is a keyframe for each. And a rate binds only when the encoder sends close to it: one
+    // sending far less (a still picture, a static screen) is held back by neither rate, and then the
+    // target follows the round trip alone (ref_wnd / s_rtt with the window application-limited), so a
+    // reopen would buy nothing but a keyframe.
+    internal static bool WorthReopening(
+        long opened,
+        long target,
+        TimeSpan sinceKeyframedChange,
+        TimeSpan risingFor,
+        double output,
+        double framesPerSecond
+    )
+    {
+        TimeSpan settle = KeyframeSettle(framesPerSecond);
+        bool aboveTarget = output > target * 0.85;
+        bool heldBack = output > opened * 0.7;
+        return sinceKeyframedChange < settle
+            ? target < opened * 0.5 && aboveTarget
+            : (target < opened * 0.85 && aboveTarget)
+                || (target > opened * 1.3 && risingFor >= settle && heldBack);
+    }
+
+    // frame_size_dev decays by 1 - FRAME_SIZE_DEV_ALPHA (1/64) a frame: from its 0.2 cap, which a
+    // keyframe reaches, to a tenth of that takes ln(0.1) / ln(63/64), about 146 frames. The rate
+    // adjustment recovers sooner, within a few dozen frames.
+    internal static TimeSpan KeyframeSettle(double framesPerSecond) =>
+        TimeSpan.FromSeconds(Math.Max(2, 150 / Math.Max(1, framesPerSecond)));
+
+    private double OutputBitsPerSecond => Decayed(_time.GetTimestamp()) / OutputWindow.TotalSeconds;
+
+    private double Decayed(long now) =>
+        _outputAt == long.MinValue
+            ? 0
+            : _outputBits
+                * Math.Exp(
+                    -_time.GetElapsedTime(_outputAt, now).TotalSeconds / OutputWindow.TotalSeconds
+                );
+
+    private TimeSpan RisingFor =>
+        _risingSince == long.MinValue ? TimeSpan.Zero : _time.GetElapsedTime(_risingSince);
+
+    private TimeSpan SinceKeyframedRateChange =>
+        _keyframedRateChange == long.MinValue
+            ? TimeSpan.MaxValue
+            : _time.GetElapsedTime(_keyframedRateChange);
 
     public void Flush(IEncodedVideoConsumer consumer)
     {
@@ -511,7 +603,16 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             if (_preparedAgain is { } again)
             {
                 _preparedAgain = null;
-                if (WorthReopening(rate.BitsPerSecond, _rate.BitsPerSecond))
+                if (
+                    WorthReopening(
+                        rate.BitsPerSecond,
+                        _rate.BitsPerSecond,
+                        SinceKeyframedRateChange,
+                        RisingFor,
+                        OutputBitsPerSecond,
+                        _rate.FramesPerSecond
+                    )
+                )
                 {
                     Prepare(session, again);
                 }
@@ -599,6 +700,9 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     {
         long pts = packet.PresentationTimestamp ?? _lastPts;
         MediaTimestamp timestamp = _timestamps.Take(pts);
+        long now = _time.GetTimestamp();
+        _outputBits = Decayed(now) + (packet.Data.Length * 8.0);
+        _outputAt = now;
         consumer.OnEncoded(
             new EncodedVideoFrame(packet.Data, _codecId, packet.IsKeyFrame, timestamp)
         );
