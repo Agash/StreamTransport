@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 
 namespace Agash.StreamTransport.Media;
 
@@ -55,30 +56,29 @@ public readonly ref struct AudioFrame(
 
     /// <summary>Keeps the frame past the call, in pooled memory.</summary>
     /// <returns>A lease, released exactly once by disposing it.</returns>
-    public AudioFrameLease Retain() => new(in this);
+    public AudioFrameLease Retain() => AudioFrameLease.Of(in this);
 }
 
-/// <summary>An owned audio frame in pooled memory; disposing it returns the memory.</summary>
+/// <summary>
+/// An owned audio frame in pooled memory; disposing it returns the lease and its memory to a pool, so
+/// keeping a frame allocates nothing. A lease is not used after its <see cref="Dispose"/>, as a pooled
+/// one holds another frame by then.
+/// </summary>
 public sealed class AudioFrameLease : IDisposable
 {
-    private readonly byte[] _buffer;
-    private readonly int _length;
+    private static readonly ConcurrentBag<AudioFrameLease> Spare = [];
+
+    private byte[] _buffer;
+    private int _length;
     private int _disposed;
 
-    internal AudioFrameLease(in AudioFrame frame)
-    {
-        _buffer = ArrayPool<byte>.Shared.Rent(frame.Samples.Length);
-        _length = frame.Samples.Length;
-        frame.Samples.CopyTo(_buffer);
-        Format = frame.Format;
-        Timestamp = frame.Timestamp;
-    }
+    private AudioFrameLease(int length) => _buffer = ArrayPool<byte>.Shared.Rent(length);
 
     /// <summary>The samples' format.</summary>
-    public AudioFormat Format { get; }
+    public AudioFormat Format { get; private set; }
 
     /// <summary>When the first sample was captured.</summary>
-    public MediaTimestamp Timestamp { get; }
+    public MediaTimestamp Timestamp { get; private set; }
 
     /// <summary>The frame, valid while the lease is.</summary>
     /// <exception cref="ObjectDisposedException">The lease was released.</exception>
@@ -91,12 +91,37 @@ public sealed class AudioFrameLease : IDisposable
         }
     }
 
+    internal static AudioFrameLease Of(in AudioFrame frame)
+    {
+        int length = frame.Samples.Length;
+        if (Spare.TryTake(out AudioFrameLease? lease))
+        {
+            if (lease._buffer.Length < length)
+            {
+                ArrayPool<byte>.Shared.Return(lease._buffer);
+                lease._buffer = ArrayPool<byte>.Shared.Rent(length);
+            }
+
+            Volatile.Write(ref lease._disposed, 0);
+        }
+        else
+        {
+            lease = new AudioFrameLease(length);
+        }
+
+        lease._length = length;
+        frame.Samples.CopyTo(lease._buffer);
+        lease.Format = frame.Format;
+        lease.Timestamp = frame.Timestamp;
+        return lease;
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
-            ArrayPool<byte>.Shared.Return(_buffer);
+            Spare.Add(this);
         }
     }
 }

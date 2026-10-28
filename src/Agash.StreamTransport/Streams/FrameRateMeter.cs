@@ -12,6 +12,7 @@ internal sealed class FrameRateMeter(double initial)
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);
 
     private readonly Queue<MediaTime> _times = new();
+    private MediaTime _last;
 
     /// <summary>The rate measured, or the initial one until a second of frames has been seen.</summary>
     public double FramesPerSecond { get; private set; } = initial;
@@ -21,12 +22,13 @@ internal sealed class FrameRateMeter(double initial)
     public void Observe(MediaTime time)
     {
         // A source that steps back (a restart, another clock) starts the window over.
-        if (_times.Count > 0 && time <= _times.Last())
+        if (_times.Count > 0 && time <= _last)
         {
             _times.Clear();
         }
 
         _times.Enqueue(time);
+        _last = time;
         while (time - _times.Peek() > Window)
         {
             _ = _times.Dequeue();

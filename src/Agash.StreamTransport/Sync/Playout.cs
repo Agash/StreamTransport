@@ -13,6 +13,10 @@ internal sealed class Playout : IAsyncDisposable
     private readonly PlayoutScheduler? _scheduler;
     private readonly StreamTransportMetrics _metrics;
     private readonly SyncMonitor _sync;
+
+    // Entries come back once played or dropped, so the frames in flight reuse a handful of them.
+    private readonly Stack<VideoEntry> _videoEntries = new();
+    private readonly Stack<AudioEntry> _audioEntries = new();
     private long _audioOffsetTicks;
 
     /// <summary>Playout as the options ask.</summary>
@@ -90,7 +94,7 @@ internal sealed class Playout : IAsyncDisposable
             scheduler.Schedule(
                 PlayoutStream.Video,
                 at,
-                new VideoEntry(frame.Retain(), sink, at, _sync, presented)
+                RentVideo(frame.Retain(), sink, at, presented)
             );
             _metrics.PlayoutDelay.Record(scheduler.CurrentDelay.TotalSeconds);
         }
@@ -117,7 +121,7 @@ internal sealed class Playout : IAsyncDisposable
             scheduler.Schedule(
                 PlayoutStream.Audio,
                 at,
-                new AudioEntry(frame.Retain(), sink, at, _sync),
+                RentAudio(frame.Retain(), sink, at),
                 AudioOutputOffset
             );
         }
@@ -134,37 +138,106 @@ internal sealed class Playout : IAsyncDisposable
     /// <inheritdoc/>
     public ValueTask DisposeAsync() => _scheduler?.DisposeAsync() ?? ValueTask.CompletedTask;
 
-    private sealed class VideoEntry(
+    private VideoEntry RentVideo(
         VideoFrameLease lease,
         IVideoFrameConsumer sink,
         NtpTime capture,
-        SyncMonitor sync,
         Action? presented
-    ) : IPlayoutEntry
+    )
     {
-        public void Play()
+        VideoEntry? entry;
+        lock (_videoEntries)
         {
-            sink.OnFrame(lease.Frame);
-            sync.VideoPresented(capture);
-            presented?.Invoke();
+            _ = _videoEntries.TryPop(out entry);
         }
 
-        public void Dispose() => lease.Dispose();
+        entry ??= new VideoEntry(this);
+        entry.Set(lease, sink, capture, presented);
+        return entry;
     }
 
-    private sealed class AudioEntry(
-        AudioFrameLease lease,
-        IAudioFrameConsumer sink,
-        NtpTime capture,
-        SyncMonitor sync
-    ) : IPlayoutEntry
+    private AudioEntry RentAudio(AudioFrameLease lease, IAudioFrameConsumer sink, NtpTime capture)
     {
-        public void Play()
+        AudioEntry? entry;
+        lock (_audioEntries)
         {
-            sink.OnFrame(lease.Frame);
-            sync.AudioPresented(capture);
+            _ = _audioEntries.TryPop(out entry);
         }
 
-        public void Dispose() => lease.Dispose();
+        entry ??= new AudioEntry(this);
+        entry.Set(lease, sink, capture);
+        return entry;
+    }
+
+    private sealed class VideoEntry(Playout owner) : IPlayoutEntry
+    {
+        private VideoFrameLease? _lease;
+        private IVideoFrameConsumer? _sink;
+        private NtpTime _capture;
+        private Action? _presented;
+
+        public void Set(
+            VideoFrameLease lease,
+            IVideoFrameConsumer sink,
+            NtpTime capture,
+            Action? presented
+        )
+        {
+            _lease = lease;
+            _sink = sink;
+            _capture = capture;
+            _presented = presented;
+        }
+
+        public void Play()
+        {
+            _sink!.OnFrame(_lease!.Frame);
+            owner._sync.VideoPresented(_capture);
+            _presented?.Invoke();
+        }
+
+        // Played or dropped, the entry goes back to its playout once its frame is released.
+        public void Dispose()
+        {
+            _lease?.Dispose();
+            _lease = null;
+            _sink = null;
+            _presented = null;
+            lock (owner._videoEntries)
+            {
+                owner._videoEntries.Push(this);
+            }
+        }
+    }
+
+    private sealed class AudioEntry(Playout owner) : IPlayoutEntry
+    {
+        private AudioFrameLease? _lease;
+        private IAudioFrameConsumer? _sink;
+        private NtpTime _capture;
+
+        public void Set(AudioFrameLease lease, IAudioFrameConsumer sink, NtpTime capture)
+        {
+            _lease = lease;
+            _sink = sink;
+            _capture = capture;
+        }
+
+        public void Play()
+        {
+            _sink!.OnFrame(_lease!.Frame);
+            owner._sync.AudioPresented(_capture);
+        }
+
+        public void Dispose()
+        {
+            _lease?.Dispose();
+            _lease = null;
+            _sink = null;
+            lock (owner._audioEntries)
+            {
+                owner._audioEntries.Push(this);
+            }
+        }
     }
 }

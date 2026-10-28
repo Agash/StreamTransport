@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 
 namespace Agash.StreamTransport.Media;
@@ -387,6 +388,9 @@ public abstract class VideoFrameLease : IDisposable
     // the last one goes.
     private int _holders = 1;
 
+    // Made once: every read of Frame hands it out, and a pooled lease keeps it for its next frame.
+    private Sharer? _sharer;
+
     /// <summary>A lease on a frame's description.</summary>
     /// <param name="storage">Where the pixels are.</param>
     /// <param name="format">The pixel format and geometry.</param>
@@ -489,7 +493,7 @@ public abstract class VideoFrameLease : IDisposable
     /// is shared: the new lease holds this one's frame, released when every holder has let go. A producer
     /// with its own way of keeping frames (a pooled surface held again) overrides it.
     /// </summary>
-    protected virtual IVideoFrameRetainer? KeepAgain => new Sharer(this);
+    protected virtual IVideoFrameRetainer? KeepAgain => _sharer ??= new Sharer(this);
 
     /// <summary>
     /// Arms a released lease for another frame: it takes the frame's description and one holder again.
@@ -498,9 +502,17 @@ public abstract class VideoFrameLease : IDisposable
     /// <see cref="Dispose"/>, as a pooled one is someone else's frame by then.
     /// </summary>
     /// <param name="frame">The frame the lease now holds.</param>
-    protected void Reuse(in VideoFrame frame)
+    protected void Reuse(in VideoFrame frame) => Reuse(in frame, frame.Storage);
+
+    /// <summary>
+    /// Arms a released lease for another frame held in storage of the lease's own (a copy of the
+    /// frame's planes), as <see cref="Reuse(in VideoFrame)"/> does.
+    /// </summary>
+    /// <param name="frame">The frame the lease now holds a copy of.</param>
+    /// <param name="storage">Where the copy is.</param>
+    protected void Reuse(in VideoFrame frame, VideoStorage storage)
     {
-        Storage = frame.Storage;
+        Storage = storage;
         Format = frame.Format;
         Timestamp = frame.Timestamp;
         Color = frame.Color;
@@ -574,10 +586,14 @@ public abstract class VideoFrameLease : IDisposable
 // A CPU frame copied into memory rented from the shared pool, its planes back to back at their strides.
 internal sealed class CpuVideoFrameLease : VideoFrameLease
 {
-    private readonly byte[] _buffer;
-    private readonly int _length;
+    // Released leases with their buffers, for the next frame copied: a source that cannot lend its
+    // frames is copied every frame, so neither the lease nor its megabytes are new each time.
+    private static readonly ConcurrentBag<CpuVideoFrameLease> Spare = [];
 
-    private CpuVideoFrameLease(in VideoFrame frame, PlaneLayout layout, byte[] buffer, int length)
+    private byte[] _buffer;
+    private int _length;
+
+    private CpuVideoFrameLease(in VideoFrame frame, PlaneLayout layout, int length)
         : base(
             new CpuImage(layout),
             frame.Format,
@@ -587,12 +603,8 @@ internal sealed class CpuVideoFrameLease : VideoFrameLease
             frame.Duration
         )
     {
-        _buffer = buffer;
-        _length = length;
-        for (int i = 0; i < frame.PlaneCount; i++)
-        {
-            frame.GetPlane(i).CopyTo(buffer.AsSpan(layout[i].Offset));
-        }
+        _buffer = ArrayPool<byte>.Shared.Rent(length);
+        Fill(in frame, layout, length);
     }
 
     public static CpuVideoFrameLease Copy(in VideoFrame frame)
@@ -606,12 +618,21 @@ internal sealed class CpuVideoFrameLease : VideoFrameLease
             offset += frame.GetPlane(i).Length;
         }
 
-        return new CpuVideoFrameLease(
-            in frame,
-            new PlaneLayout(planes),
-            ArrayPool<byte>.Shared.Rent(offset),
-            offset
-        );
+        PlaneLayout layout = new(planes);
+        if (!Spare.TryTake(out CpuVideoFrameLease? lease))
+        {
+            return new CpuVideoFrameLease(in frame, layout, offset);
+        }
+
+        lease.Reuse(in frame, new CpuImage(layout));
+        if (lease._buffer.Length < offset)
+        {
+            ArrayPool<byte>.Shared.Return(lease._buffer);
+            lease._buffer = ArrayPool<byte>.Shared.Rent(offset);
+        }
+
+        lease.Fill(in frame, layout, offset);
+        return lease;
     }
 
     protected override ReadOnlySpan<byte> GetPlane(int index)
@@ -622,7 +643,17 @@ internal sealed class CpuVideoFrameLease : VideoFrameLease
         return _buffer.AsSpan(start, end - start);
     }
 
-    protected override void Release() => ArrayPool<byte>.Shared.Return(_buffer);
+    // The buffer stays with the lease for the next frame copied.
+    protected override void Release() => Spare.Add(this);
+
+    private void Fill(in VideoFrame frame, PlaneLayout layout, int length)
+    {
+        _length = length;
+        for (int i = 0; i < frame.PlaneCount; i++)
+        {
+            frame.GetPlane(i).CopyTo(_buffer.AsSpan(layout[i].Offset));
+        }
+    }
 }
 
 /// <summary>Receives frames from a source on the source's thread.</summary>
