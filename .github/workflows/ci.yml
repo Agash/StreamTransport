@@ -43,13 +43,6 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libva2 libva-drm2
 
-      # FFmpeg.Interop's FFmpeg build for this runtime, from the CI run of the commit the script pins.
-      - name: Fetch FFmpeg
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./eng/fetch-ffmpeg.ps1 -Rids ${{ matrix.rid }}
-
       # The macOS package targets net11.0-macos, which needs the macos workload.
       # The macOS packs require Xcode 27.0 exactly, and the image's default Xcode moves with image
       # updates, so the job selects it by path.

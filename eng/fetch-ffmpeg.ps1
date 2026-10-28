@@ -1,11 +1,8 @@
 #!/usr/bin/env pwsh
-# Puts the FFmpeg 9 shared libraries for one or more RIDs into native/ffmpeg/<rid>/, where
-# Agash.StreamTransport.Codecs.FFmpeg packs them as runtimes/<rid>/native and the tests and samples load
-# them from.
-#
-# The libraries are FFmpeg.Interop's own build (eng/build-ffmpeg.sh there): the release its bindings are
-# generated from, built from pinned upstream sources with every hardware backend each platform has. They
-# come from the CI run of the FFmpeg.Interop commit pinned below, or from a local build of it with -Build.
+# Puts an FFmpeg build other than the packaged one into native/ffmpeg/<rid>/, which the tests and samples
+# then load instead of FFmpeg.Interop.Native's: a CI build of an FFmpeg.Interop commit not yet released
+# (the one pinned below), or a local build of it with -Build. Builds and tests need nothing of it otherwise:
+# Agash.StreamTransport.Codecs.FFmpeg takes FFmpeg from the FFmpeg.Interop.Native packages.
 # Each RID's directory carries that build's licence: LGPL 2.1, or LGPL 3 on linux-arm64 (Rockchip's MPP).
 #
 # Usage:  ./eng/fetch-ffmpeg.ps1 [-Rids win-x64,linux-x64,...] [-Build <FFmpeg.Interop>/artifacts/native]

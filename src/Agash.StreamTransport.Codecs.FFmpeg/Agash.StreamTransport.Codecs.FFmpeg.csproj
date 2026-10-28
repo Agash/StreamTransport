@@ -21,6 +21,9 @@
       Condition="'$(UseLocalFFmpegInterop)' == 'true'"
     />
     <PackageReference Include="FFmpeg.Interop" Condition="'$(UseLocalFFmpegInterop)' != 'true'" />
+    <!-- FFmpeg itself, the build the bindings are generated from, for every runtime: NuGet brings the
+         one a consumer builds or publishes for. -->
+    <PackageReference Include="FFmpeg.Interop.Native" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,25 +36,5 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
     <None Include="README.md" Pack="true" PackagePath="" />
-  </ItemGroup>
-
-  <!--
-    FFmpeg.Interop's FFmpeg build, fetched per RID into native/ffmpeg/<rid>/ by eng/fetch-ffmpeg.ps1
-    (gitignored), packed as runtimes/<rid>/native so a consumer restoring for a RID gets only that
-    platform's libraries, each with the licence of its build (LGPL, 3 on linux-arm64).
-  -->
-  <ItemGroup>
-    <_FFmpegNative Include="../../native/ffmpeg/win-x64/*" Runtime="win-x64" />
-    <_FFmpegNative Include="../../native/ffmpeg/win-arm64/*" Runtime="win-arm64" />
-    <_FFmpegNative Include="../../native/ffmpeg/linux-x64/*" Runtime="linux-x64" />
-    <_FFmpegNative Include="../../native/ffmpeg/linux-arm64/*" Runtime="linux-arm64" />
-    <_FFmpegNative Include="../../native/ffmpeg/osx-arm64/*" Runtime="osx-arm64" />
-    <_FFmpegNative Include="../../native/ffmpeg/osx-x64/*" Runtime="osx-x64" />
-    <None
-      Include="@(_FFmpegNative)"
-      Pack="true"
-      PackagePath="runtimes/%(Runtime)/native/%(Filename)%(Extension)"
-      Visible="false"
-    />
   </ItemGroup>
 </Project>

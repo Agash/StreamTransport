@@ -134,7 +134,7 @@ with the role and the outcome.
 | `Agash.StreamTransport.Adaptation` | Transport-independent adaptation: the congestion-controller contract and the SCReAM controller, delivery tracking with a reordering window, pacing by traffic class, and the media-rate allocator that leaves room for retransmission and FEC. |
 | `Agash.StreamTransport.Media` | Frames, storages, time, and the codec, processor, input, output, source and sink contracts. |
 | `Agash.StreamTransport.Codecs.FFmpeg` | H.264, H.265 and AV1 encoders, decoders and a CPU processor on FFmpeg 9, FFmpeg capture devices, with natives. |
-| `Agash.StreamTransport.Codecs.Opus` | Opus on libopus (Opus.Interop). |
+| `Agash.StreamTransport.Codecs.Opus` | Opus on libopus (LibOpus.Interop). |
 | `Agash.StreamTransport.Windows` | Direct3D 12 processors, Media Foundation cameras, Spout, WASAPI. |
 | `Agash.StreamTransport.MacOS` | Metal processors on IOSurfaces, AVFoundation cameras, Syphon, Core Audio. |
 | `Agash.StreamTransport.Linux` | Vulkan processors on DMA-BUFs, V4L2 cameras and v4l2loopback output, PipeWire video and audio. |
@@ -148,11 +148,10 @@ with the role and the outcome.
 
 ## Build
 
-Needs the .NET 11 SDK pinned in `global.json`. Fetch FFmpeg.Interop's FFmpeg build for the platform
-first, with the GitHub CLI signed in (or `-Build <FFmpeg.Interop>/artifacts/native` for a local build):
+Needs the .NET 11 SDK pinned in `global.json`; FFmpeg comes with the FFmpeg.Interop.Native packages.
+`eng/fetch-ffmpeg.ps1` puts an unreleased or local FFmpeg.Interop build in their place for the tests.
 
 ```bash
-./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or win-arm64 / linux-x64 / linux-arm64 / osx-arm64 / osx-x64
 dotnet build StreamTransport.slnx -c Release
 dotnet test  StreamTransport.slnx -c Release --filter "TestCategory!=Integration"
 ```
