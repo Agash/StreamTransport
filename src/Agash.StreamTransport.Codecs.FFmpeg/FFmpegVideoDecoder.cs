@@ -58,6 +58,9 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
     private Thread? _deliverer;
     private Exception? _deliveryFault;
 
+    // Vulkan pictures shared with one GPU submission each instead of FFmpeg's map (made on the worker).
+    private FF.VulkanDmaBufExporter? _exporter;
+
     public FFmpegVideoDecoder(
         FF.Codec codec,
         VideoCodecId id,
@@ -142,6 +145,12 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             }
 
             _ = _free.Release(InFlight);
+            if (OperatingSystem.IsLinux())
+            {
+                // The worker is idle with every slot free, so the exporter is this thread's now.
+                _exporter?.Flush();
+            }
+
             ThrowDeliveryFault();
         }
     }
@@ -170,6 +179,11 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
             // A wake with nothing queued tells the worker to stop.
             _ = _ready.Release();
             _deliverer?.Join();
+            if (OperatingSystem.IsLinux())
+            {
+                _exporter?.Dispose();
+            }
+
             _free.Dispose();
             _ready.Dispose();
             foreach (Pending pending in _pending)
@@ -377,8 +391,15 @@ internal sealed partial class FFmpegVideoDecoder : IVideoDecoder, IVideoFrameRet
     )
     {
         _mapped.Reset();
-        _mapped.PixelFormat = FF.PixelFormat.DrmPrime;
-        decoded.MapTo(_mapped, FF.HardwareMapAccess.Read);
+        if (
+            decoded.PixelFormat != FF.PixelFormat.Vulkan
+            || !(_exporter ??= new FF.VulkanDmaBufExporter()).Export(decoded, _mapped)
+        )
+        {
+            _mapped.PixelFormat = FF.PixelFormat.DrmPrime;
+            decoded.MapTo(_mapped, FF.HardwareMapAccess.Read);
+        }
+
         if (!_mapped.TryGetDrmFrame(out FF.DrmFrameDescriptor descriptor))
         {
             throw new NotSupportedException(
