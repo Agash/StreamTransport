@@ -70,7 +70,7 @@ internal static unsafe partial class EcnInterop
     {
         if (trafficClass == 0 || !NativeSendSupported || (IsWindows && (trafficClass & 0x03) == 0))
         {
-            _ = socket.SendTo(payload, SocketFlags.None, destination);
+            _ = socket.SendTo(payload, SocketFlags.None, Destinations.Of(destination));
         }
         else if (IsWindows)
         {
@@ -189,6 +189,40 @@ internal static unsafe partial class EcnInterop
     /// The source address a socket last received from, raw and parsed: nearly every datagram comes from
     /// the peer the one before did, and parsing builds an address and an endpoint each time.
     /// </summary>
+    // The serialised addresses of the last few destinations sent to unmarked: the managed send serialises
+    // an EndPoint into a new SocketAddress for every datagram. Shared by the sockets, whose sends come
+    // from any thread.
+    private static class Destinations
+    {
+        private const int Entries = 8;
+        private static readonly IPEndPoint?[] Endpoints = new IPEndPoint?[Entries];
+        private static readonly SocketAddress?[] Addresses = new SocketAddress?[Entries];
+        private static int s_next;
+
+        public static SocketAddress Of(IPEndPoint destination)
+        {
+            lock (Endpoints)
+            {
+                for (int i = 0; i < Entries; i++)
+                {
+                    if (
+                        ReferenceEquals(Endpoints[i], destination)
+                        || destination.Equals(Endpoints[i])
+                    )
+                    {
+                        return Addresses[i]!;
+                    }
+                }
+
+                SocketAddress address = destination.Serialize();
+                Endpoints[s_next] = destination;
+                Addresses[s_next] = address;
+                s_next = (s_next + 1) % Entries;
+                return address;
+            }
+        }
+    }
+
     internal sealed class SenderCache
     {
         // The last few senders, newest first: ICE keeps checking other candidate pairs while media
