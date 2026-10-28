@@ -39,7 +39,7 @@
       Condition="'$(UseLocalFFmpegInterop)' == '' and Exists('$(FFmpegInteropProject)')"
       >true</UseLocalFFmpegInterop>
     <OpusInteropProject Condition="'$(OpusInteropProject)' == ''"
-      >$(MSBuildThisFileDirectory)../../../Opus.Interop/src/Opus.Interop/Opus.Interop.csproj</OpusInteropProject>
+      >$(MSBuildThisFileDirectory)../../../LibOpus.Interop/src/LibOpus.Interop/LibOpus.Interop.csproj</OpusInteropProject>
     <UseLocalOpusInterop
       Condition="'$(UseLocalOpusInterop)' == '' and Exists('$(OpusInteropProject)')"
       >true</UseLocalOpusInterop>

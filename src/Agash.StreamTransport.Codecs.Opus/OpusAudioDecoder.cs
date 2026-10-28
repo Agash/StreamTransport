@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Media;
-using Opus.Interop;
+using LibOpus.Interop;
 
 namespace Agash.StreamTransport.Codecs.Opus;
 
