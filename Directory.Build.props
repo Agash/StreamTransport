@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <PropertyGroup>
     <!-- Reproducibility is delegated to DotNet.ReproducibleBuilds rather than restated here.
          It sets DebugType to embedded (so the portable PDB with its Source Link map travels
@@ -23,5 +23,43 @@
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/Agash/StreamTransport</RepositoryUrl>
     <PackageProjectUrl>https://github.com/Agash/StreamTransport</PackageProjectUrl>
+  </PropertyGroup>
+  <!-- Owned libraries build from a local clone when one sits where the StreamWeaver checkout keeps
+       it, or where <Library>Project points (CI clones each library's main and sets those), so a
+       change to one of them is exercised here before it is released; elsewhere the published
+       package is used. Set UseLocal<Library>=false to build against the package. -->
+  <PropertyGroup>
+    <DtlsCoreProject Condition="'$(DtlsCoreProject)' == ''"
+      >$(MSBuildThisFileDirectory)../../../Dtls.Core/src/Dtls.Core/Dtls.Core.csproj</DtlsCoreProject>
+    <UseLocalDtlsCore Condition="'$(UseLocalDtlsCore)' == '' and Exists('$(DtlsCoreProject)')"
+      >true</UseLocalDtlsCore>
+    <FFmpegInteropProject Condition="'$(FFmpegInteropProject)' == ''"
+      >$(MSBuildThisFileDirectory)../../../FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj</FFmpegInteropProject>
+    <UseLocalFFmpegInterop
+      Condition="'$(UseLocalFFmpegInterop)' == '' and Exists('$(FFmpegInteropProject)')"
+      >true</UseLocalFFmpegInterop>
+    <OpusInteropProject Condition="'$(OpusInteropProject)' == ''"
+      >$(MSBuildThisFileDirectory)../../../LibOpus.Interop/src/LibOpus.Interop/LibOpus.Interop.csproj</OpusInteropProject>
+    <UseLocalOpusInterop
+      Condition="'$(UseLocalOpusInterop)' == '' and Exists('$(OpusInteropProject)')"
+      >true</UseLocalOpusInterop>
+    <Spout2NetProject Condition="'$(Spout2NetProject)' == ''"
+      >$(MSBuildThisFileDirectory)../Spout2.NET/src/Spout2.NET/Spout2.NET.csproj</Spout2NetProject>
+    <UseLocalSpout2Net Condition="'$(UseLocalSpout2Net)' == '' and Exists('$(Spout2NetProject)')"
+      >true</UseLocalSpout2Net>
+    <SyphonNetProject Condition="'$(SyphonNetProject)' == ''"
+      >$(MSBuildThisFileDirectory)../Syphon.NET/src/Syphon.NET/Syphon.NET.csproj</SyphonNetProject>
+    <UseLocalSyphonNet Condition="'$(UseLocalSyphonNet)' == '' and Exists('$(SyphonNetProject)')"
+      >true</UseLocalSyphonNet>
+    <PipeWireNetMediaProject Condition="'$(PipeWireNetMediaProject)' == ''"
+      >$(MSBuildThisFileDirectory)../PipeWire.NET/src/PipeWire.NET.Media/PipeWire.NET.Media.csproj</PipeWireNetMediaProject>
+    <UseLocalPipeWireNet
+      Condition="'$(UseLocalPipeWireNet)' == '' and Exists('$(PipeWireNetMediaProject)')"
+      >true</UseLocalPipeWireNet>
+  </PropertyGroup>
+  <!-- The macOS package binds Apple's frameworks, which build only where the macos workload and
+       Xcode are. Elsewhere its projects build empty, so the solution builds on every OS. -->
+  <PropertyGroup>
+    <BuildMacOS Condition="'$(BuildMacOS)' == ''">$([MSBuild]::IsOSPlatform('OSX'))</BuildMacOS>
   </PropertyGroup>
 </Project>

@@ -1,0 +1,13 @@
+#nullable enable
+Agash.StreamTransport.Signaling.SignalingDiagnostics
+Agash.StreamTransport.Signaling.SignalingRouter
+Agash.StreamTransport.Signaling.SignalingRouter.Connect(Agash.StreamTransport.ISignalingPeerTransport! transport) -> Agash.StreamTransport.ISignalingSession!
+Agash.StreamTransport.Signaling.SignalingRouter.CreateRoom() -> Agash.StreamTransport.RoomCode
+Agash.StreamTransport.Signaling.SignalingRouter.SignalingRouter(Agash.StreamTransport.IIceServerProvider? iceServers = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null) -> void
+Agash.StreamTransport.WebSocketSignalingTransport
+Agash.StreamTransport.WebSocketSignalingTransport.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebSocketSignalingTransport.MessageReceived -> System.Func<Agash.StreamTransport.SignalingMessage!, System.Threading.Tasks.Task!>?
+Agash.StreamTransport.WebSocketSignalingTransport.RunAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Agash.StreamTransport.WebSocketSignalingTransport.SendAsync(Agash.StreamTransport.SignalingMessage! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.WebSocketSignalingTransport.WebSocketSignalingTransport(System.Net.WebSockets.WebSocket! socket, bool ownsSocket = false, Microsoft.Extensions.Logging.ILogger<Agash.StreamTransport.WebSocketSignalingTransport!>? logger = null, System.TimeProvider? timeProvider = null) -> void
+const Agash.StreamTransport.Signaling.SignalingDiagnostics.MeterName = "Agash.StreamTransport.Signaling" -> string!

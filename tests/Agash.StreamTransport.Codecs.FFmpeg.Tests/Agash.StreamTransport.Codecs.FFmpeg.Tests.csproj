@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.FFmpeg\Agash.StreamTransport.Codecs.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
+  </ItemGroup>
+</Project>

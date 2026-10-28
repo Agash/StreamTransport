@@ -18,18 +18,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" />
     <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="all" />
     <PackageReference Include="MinVer" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Agash.StreamTransport.Abstractions\Agash.StreamTransport.Abstractions.csproj" />
-    <!-- First-party STUN codec. -->
-    <ProjectReference Include="..\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="..\..\LICENSE" Pack="true" PackagePath="" />
     <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Agash.StreamTransport.WebRtc.Tests" />
   </ItemGroup>
 </Project>

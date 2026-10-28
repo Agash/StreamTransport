@@ -1,134 +1,462 @@
 using System.Collections.Concurrent;
+using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Agash.StreamTransport.Tests;
 
-/// <summary>
-/// Deterministic tests for the playout scheduler, driven by an injected fake wall clock (no real
-/// timing dependence beyond bounded waits). Proves frames release in release-time order and that a frame is
-/// held until its scheduled time, plus the pure <see cref="PlayoutTimeline"/> mapping.
-/// </summary>
 [TestClass]
 public sealed class PlayoutSchedulerTests
 {
+    private static readonly TimeSpan Fixed = TimeSpan.FromMilliseconds(200);
+
     [TestMethod]
-    public void Timeline_MapsCorrelatedInstantsToSameRelease()
+    public void Timeline_CoCapturedFramesOfBothStreams_ReleaseTogether()
     {
-        var timeline = new PlayoutTimeline(
-            minDelayNs: 200_000_000,
-            maxDelayNs: 200_000_000,
-            marginNs: 0
-        );
+        PlayoutTimeline timeline = new(Fixed, Fixed, TimeSpan.Zero);
         Assert.IsFalse(timeline.IsAnchored);
 
-        // First frame establishes the offset: sender 5_000 ms, arrives local 6_000 ms -> offset 1_000 ms.
-        long rA = timeline.ReleaseLocalNs(senderWallNs: 5_000_000_000, localNowNs: 6_000_000_000);
+        // Captured at sender 5 s, arriving at local 6 s: the offset is 1 s.
+        MediaTime first = timeline.Release(PlayoutStream.Audio, Sender(5_000), Local(6_000));
         Assert.IsTrue(timeline.IsAnchored);
-        Assert.AreEqual(5_000_000_000 + 1_000_000_000 + 200_000_000, rA);
+        Assert.AreEqual(Local(6_000) + Fixed, first);
 
-        // A co-captured frame on the other stream (same sender wall), arriving a little later, gets the same
-        // release within the leak tolerance - so audio and video present together (lip-sync).
-        long rB = timeline.ReleaseLocalNs(senderWallNs: 5_000_000_000, localNowNs: 6_030_000_000);
-        Assert.AreEqual(rA, rB, delta: 1_000_000); // within 1 ms (leak over 30 ms is ~6 us)
+        // The other stream's frame of the same instant arrives 30 ms later and releases with it.
+        MediaTime second = timeline.Release(PlayoutStream.Video, Sender(5_000), Local(6_030));
+        Assert.AreEqual(first.Nanoseconds, second.Nanoseconds, 1_000_000);
     }
 
+    // Video runs 100 ms behind audio on every frame: that is its path, not jitter. Audio is held back by it,
+    // so frames captured together release together, and the buffer is the lag plus the margin.
     [TestMethod]
-    public void Timeline_RejectsLatencyTransientsButFollowsALowerPath()
+    public void Timeline_SystematicVideoLag_HoldsAudioBackWithoutCountingAsJitter()
     {
-        var timeline = new PlayoutTimeline(
-            minDelayNs: 200_000_000,
-            maxDelayNs: 200_000_000,
-            marginNs: 0
-        );
-
-        // Steady offset ~1_000 ms (capture 5_000 ms -> arrive 6_000 ms).
-        timeline.ReleaseLocalNs(senderWallNs: 5_000_000_000, localNowNs: 6_000_000_000);
-
-        // A transient: a frame that arrives 200 ms late (jitter spike / cold start) must NOT push the offset up,
-        // so a normal frame right after still maps on the minimum offset (~1_000 ms), not the inflated one.
-        timeline.ReleaseLocalNs(senderWallNs: 5_100_000_000, localNowNs: 6_300_000_000); // 200 ms late
-        long rNormal = timeline.ReleaseLocalNs(
-            senderWallNs: 5_200_000_000,
-            localNowNs: 6_200_000_000
-        );
-        Assert.AreEqual(5_200_000_000 + 1_000_000_000 + 200_000_000, rNormal, delta: 1_000_000);
-
-        // A genuinely lower-latency path is adopted immediately (offset drops to it).
-        timeline.ReleaseLocalNs(senderWallNs: 5_300_000_000, localNowNs: 6_240_000_000); // offset now ~940 ms
-        long rLower = timeline.ReleaseLocalNs(
-            senderWallNs: 5_400_000_000,
-            localNowNs: 6_400_000_000
-        );
-        Assert.AreEqual(5_400_000_000 + 940_000_000 + 200_000_000, rLower, delta: 1_000_000);
-    }
-
-    [TestMethod]
-    public async Task ReleasesFramesInReleaseTimeOrder()
-    {
-        long now = 1_000_000_000;
-        Func<long> clock = () => Interlocked.Read(ref now);
-        var order = new ConcurrentQueue<int>();
-        using var done = new CountdownEvent(3);
-
-        await using var scheduler = new PlayoutScheduler(fixedDelayNs: 0, clock);
-        // Frames arrive in real time (local clock advances with capture), so the offset is steady and each
-        // frame's release tracks its capture: frame i releases 1 ms after frame i-1.
-        for (int i = 0; i < 3; i++)
+        PlayoutTimeline timeline = Adaptive();
+        (MediaTime Audio, MediaTime Video) last = default;
+        for (int i = 0; i < 90; i++)
         {
-            int captured = i;
-            Interlocked.Exchange(ref now, 1_000_000_000 + (i * 1_000_000L)); // arrival advances with capture
-            scheduler.Schedule(
-                i * 1_000_000L,
-                () =>
-                {
-                    order.Enqueue(captured);
-                    done.Signal();
-                }
+            long captured = 5_000 + (i * 33);
+            MediaTime audio = timeline.Release(
+                PlayoutStream.Audio,
+                Sender(captured),
+                Local(captured + 1_000)
+            );
+            MediaTime video = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_100)
+            );
+            last = (audio, video);
+        }
+
+        Assert.AreEqual(120, timeline.CurrentDelay.TotalMilliseconds, 1, "the lag and the margin");
+        Assert.AreEqual(last.Audio.Nanoseconds, last.Video.Nanoseconds, 1_000_000);
+    }
+
+    // Encoders opening and keyframes bursting make the first frames late; they do not size the buffer.
+    [TestMethod]
+    public void Timeline_StartupSpike_DoesNotSizeTheBuffer()
+    {
+        PlayoutTimeline timeline = Adaptive();
+        for (int i = 0; i < 90; i++)
+        {
+            long captured = 5_000 + (i * 33);
+            long late = i < 10 ? 300 : 0;
+            _ = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_000 + late)
             );
         }
 
-        Interlocked.Exchange(ref now, 1_000_000_000 + 100_000_000); // 100 ms later: all due.
-        Assert.IsTrue(done.Wait(TimeSpan.FromSeconds(5)), "all scheduled frames should release.");
-        CollectionAssert.AreEqual(new[] { 0, 1, 2 }, order.ToArray());
+        Assert.AreEqual(20, timeline.TargetDelay.TotalMilliseconds, 1, "the margin alone");
     }
 
+    // Half the frames 50 ms late: the 95th percentile covers them; a lone huge spike is clamped, not trusted.
     [TestMethod]
-    public async Task HoldsAFrameUntilItsReleaseTime()
+    public void Timeline_Jitter_IsCoveredAtItsPercentile_AndAnOutlierIsClamped()
     {
-        long now = 1_000_000_000;
-        Func<long> clock = () => Interlocked.Read(ref now);
-        using var released = new ManualResetEventSlim(false);
+        PlayoutTimeline timeline = Adaptive();
+        for (int i = 0; i < 120; i++)
+        {
+            long captured = 5_000 + (i * 33);
+            long late = i % 2 == 0 ? 50 : 0;
+            _ = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_000 + late)
+            );
+        }
 
-        await using var scheduler = new PlayoutScheduler(fixedDelayNs: 500_000_000, clock); // 500 ms delay.
-        scheduler.Schedule(senderWallNs: 0, () => released.Set());
+        Assert.AreEqual(70, timeline.TargetDelay.TotalMilliseconds, 1, "the jitter and the margin");
 
-        // The fake clock has not advanced, so within a real window the frame must NOT present early.
-        Assert.IsFalse(
-            released.Wait(TimeSpan.FromMilliseconds(300)),
-            "frame presented before its scheduled time."
+        // A frame captured five seconds ago arrives now, among the others.
+        long next = 5_000 + (120 * 33);
+        _ = timeline.Release(PlayoutStream.Video, Sender(next - 5_000), Local(next + 1_000));
+        Assert.AreEqual(
+            70,
+            timeline.TargetDelay.TotalMilliseconds,
+            1,
+            "one spike does not move the percentile"
+        );
+    }
+
+    // The buffer shrinks at most 100 ms a second, so playout speeds up instead of skipping.
+    [TestMethod]
+    public void Timeline_Delay_ShrinksAtMost100MillisecondsASecond()
+    {
+        PlayoutTimeline timeline = Adaptive();
+        long captured = 5_000;
+        for (int i = 0; i < 90; i++, captured += 33)
+        {
+            long late = i >= 30 && i % 2 == 0 ? 300 : 0;
+            _ = timeline.Release(
+                PlayoutStream.Video,
+                Sender(captured),
+                Local(captured + 1_000 + late)
+            );
+        }
+
+        double high = timeline.CurrentDelay.TotalMilliseconds;
+        Assert.IsGreaterThan(250, high);
+
+        // The jitter ends; two seconds on, the window has forgotten it, and the delay has come down by at most
+        // a hundred milliseconds for each second.
+        for (int i = 0; i < 90; i++, captured += 33)
+        {
+            _ = timeline.Release(PlayoutStream.Video, Sender(captured), Local(captured + 1_000));
+        }
+
+        double seconds = 90 * 0.033;
+        Assert.IsGreaterThanOrEqualTo(
+            high - (100 * seconds) - 1,
+            timeline.CurrentDelay.TotalMilliseconds
+        );
+        Assert.IsLessThan(high, timeline.CurrentDelay.TotalMilliseconds);
+    }
+
+    private static PlayoutTimeline Adaptive() =>
+        new(TimeSpan.Zero, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(20));
+
+    [TestMethod]
+    public async Task Scheduler_ReleasesInCaptureOrderWhenDue()
+    {
+        // Audio, which plays every due entry, so the order shows whatever arrives together.
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+
+        scheduler.Schedule(
+            PlayoutStream.Audio,
+            start + TimeSpan.FromMilliseconds(20),
+            played.Entry(2)
+        );
+        scheduler.Schedule(PlayoutStream.Audio, start, played.Entry(0));
+        scheduler.Schedule(
+            PlayoutStream.Audio,
+            start + TimeSpan.FromMilliseconds(10),
+            played.Entry(1)
         );
 
-        Interlocked.Exchange(ref now, 1_000_000_000 + 500_000_000); // advance to the release time.
-        Assert.IsTrue(released.Wait(TimeSpan.FromSeconds(5)), "frame should present once due.");
+        time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
+        await played.WaitForAsync(3);
+        CollectionAssert.AreEqual(new[] { 0, 1, 2 }, played.Ids);
     }
 
     [TestMethod]
-    public async Task DisposeDrainsRemainingFrames()
+    public async Task Scheduler_VideoFallenBehind_ShowsOnlyTheLatestDuePicture()
     {
-        long now = 1_000_000_000;
-        Func<long> clock = () => Interlocked.Read(ref now);
-        using var released = new ManualResetEventSlim(false);
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        ConcurrentQueue<int> late = [];
+        Entry first = new(0, late);
+        Entry second = new(1, late);
+        scheduler.Schedule(PlayoutStream.Video, start, first);
+        scheduler.Schedule(PlayoutStream.Video, start + TimeSpan.FromMilliseconds(10), second);
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(20),
+            played.Entry(2)
+        );
 
-        var scheduler = new PlayoutScheduler(fixedDelayNs: 10_000_000_000, clock); // 10 s: never due in-test.
-        scheduler.Schedule(senderWallNs: 0, () => released.Set());
-        Assert.IsFalse(released.Wait(TimeSpan.FromMilliseconds(100)));
+        // All three come due at once: the first two are already late for the third.
+        time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
+        await played.WaitForAsync(1);
 
-        // Disposing must flush the still-queued frame rather than drop it.
+        CollectionAssert.AreEqual(new[] { 2 }, played.Ids);
+        Assert.IsEmpty(late, "the late pictures were not shown");
+        Assert.IsTrue(first.Disposed && second.Disposed, "the late pictures were released");
+        Assert.AreEqual(2, scheduler.VideoFramesDropped);
+    }
+
+    [TestMethod]
+    public async Task Scheduler_PictureOlderThanTheLastShown_IsNotShown()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(40),
+            played.Entry(1)
+        );
+        time.Advance(Fixed);
+        await played.WaitForAsync(1);
+
+        // Captured before the one shown, it arrives after: showing it would step back in time.
+        ConcurrentQueue<int> late = [];
+        Entry earlier = new(0, late);
+        scheduler.Schedule(PlayoutStream.Video, start, earlier);
+        scheduler.Schedule(
+            PlayoutStream.Video,
+            start + TimeSpan.FromMilliseconds(80),
+            played.Entry(2)
+        );
+        time.Advance(TimeSpan.FromMilliseconds(80));
+        await played.WaitForAsync(2);
+
+        CollectionAssert.AreEqual(new[] { 1, 2 }, played.Ids);
+        Assert.IsEmpty(late);
+        Assert.IsTrue(earlier.Disposed);
+    }
+
+    [TestMethod]
+    public async Task Scheduler_AudioFallenBehind_PlaysEverySlot()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        for (int i = 0; i < 3; i++)
+        {
+            scheduler.Schedule(
+                PlayoutStream.Audio,
+                start + TimeSpan.FromMilliseconds(10 * i),
+                played.Entry(i)
+            );
+        }
+
+        time.Advance(Fixed + TimeSpan.FromMilliseconds(30));
+        await played.WaitForAsync(3);
+
+        CollectionAssert.AreEqual(new[] { 0, 1, 2 }, played.Ids, "a gap in sound is heard");
+    }
+
+    [TestMethod]
+    public async Task Scheduler_SlowVideoSink_DoesNotHoldBackAudio()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var start = NtpTime.From(time.GetUtcNow());
+        using Blocking video = new();
+        scheduler.Schedule(PlayoutStream.Video, start, video);
+        scheduler.Schedule(PlayoutStream.Audio, start, played.Entry(0));
+
+        time.Advance(Fixed);
+        await video.Entered.WaitAsync(TimeSpan.FromSeconds(10));
+        await played.WaitForAsync(1);
+
+        CollectionAssert.AreEqual(new[] { 0 }, played.Ids, "audio played while video was stuck");
+        video.Release();
+    }
+
+    [TestMethod]
+    public async Task Scheduler_PlaysAnEntryWhenItsSlotComes()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+
+        scheduler.Schedule(PlayoutStream.Video, NtpTime.From(time.GetUtcNow()), played.Entry(0));
+        time.Advance(Fixed - TimeSpan.FromMilliseconds(1));
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        await played.WaitForAsync(1);
+
+        Assert.AreEqual(Fixed, played.Times[0], "played at its slot, not before");
+    }
+
+    [TestMethod]
+    public async Task Scheduler_ExtraDelay_ShiftsTheSlot()
+    {
+        FakeTimeProvider time = new();
+        Played played = new(time);
+        await using PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        var now = NtpTime.From(time.GetUtcNow());
+
+        scheduler.Schedule(
+            PlayoutStream.Audio,
+            now,
+            played.Entry(1),
+            TimeSpan.FromMilliseconds(50)
+        );
+        scheduler.Schedule(PlayoutStream.Video, now, played.Entry(0));
+        time.Advance(Fixed);
+        await played.WaitForAsync(1);
+        time.Advance(TimeSpan.FromMilliseconds(50));
+        await played.WaitForAsync(2);
+
+        CollectionAssert.AreEqual(new[] { 0, 1 }, played.Ids);
+        Assert.AreEqual(Fixed + TimeSpan.FromMilliseconds(50), played.Times[1]);
+    }
+
+    [TestMethod]
+    public async Task Dispose_ReleasesQueuedEntriesWithoutPlayingThem()
+    {
+        FakeTimeProvider time = new();
+        ConcurrentQueue<int> played = [];
+        Entry entry = new(0, played);
+        PlayoutScheduler scheduler = new(
+            new PlayoutTimeline(Fixed, Fixed, TimeSpan.Zero),
+            new MediaClock(time)
+        );
+        scheduler.Schedule(PlayoutStream.Video, NtpTime.From(time.GetUtcNow()), entry);
+
         await scheduler.DisposeAsync();
-        Assert.IsTrue(
-            released.Wait(TimeSpan.FromSeconds(1)),
-            "dispose should drain queued frames."
+
+        Assert.IsEmpty(played);
+        Assert.IsTrue(entry.Disposed);
+    }
+
+    [TestMethod]
+    public void NtpTime_RoundTripsWallClockTime()
+    {
+        DateTimeOffset instant = new(2026, 9, 30, 12, 0, 0, 250, TimeSpan.Zero);
+        var ntp = NtpTime.From(instant);
+
+        Assert.AreEqual(3_999_758_400UL, ntp.Value >> 32, "seconds since 1900");
+        Assert.AreEqual(250_000_000, ntp.Nanoseconds % 1_000_000_000, 1);
+    }
+
+    private static NtpTime Sender(long milliseconds) =>
+        NtpTime.FromNanoseconds(milliseconds * 1_000_000);
+
+    private static MediaTime Local(long milliseconds) => new(milliseconds * 1_000_000);
+
+    // Records which entries played, and when on the fake clock, and signals as they do.
+    private sealed class Played(FakeTimeProvider time)
+    {
+        private static readonly TimeSpan Guard = TimeSpan.FromSeconds(10);
+        private readonly DateTimeOffset _start = time.GetUtcNow();
+        private readonly Lock _gate = new();
+        private readonly List<(int Id, TimeSpan At)> _played = [];
+        private readonly List<(int Count, TaskCompletionSource Reached)> _waiting = [];
+
+        public int[] Ids
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _played.Select(static p => p.Id)];
+                }
+            }
+        }
+
+        public TimeSpan[] Times
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _played.Select(static p => p.At)];
+                }
+            }
+        }
+
+        public IPlayoutEntry Entry(int id) => new Recording(this, id);
+
+        public Task WaitForAsync(int count)
+        {
+            TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_gate)
+            {
+                if (_played.Count >= count)
+                {
+                    return Task.CompletedTask;
+                }
+
+                _waiting.Add((count, reached));
+            }
+
+            return reached.Task.WaitAsync(Guard);
+        }
+
+        private void Record(int id)
+        {
+            lock (_gate)
+            {
+                _played.Add((id, time.GetUtcNow() - _start));
+                foreach ((int count, TaskCompletionSource reached) in _waiting)
+                {
+                    if (_played.Count >= count)
+                    {
+                        reached.TrySetResult();
+                    }
+                }
+            }
+        }
+
+        private sealed class Recording(Played played, int id) : IPlayoutEntry
+        {
+            public void Play() => played.Record(id);
+
+            public void Dispose() { }
+        }
+    }
+
+    // A video sink that does not return until released.
+    private sealed class Blocking : IPlayoutEntry
+    {
+        private readonly TaskCompletionSource _entered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
         );
+        private readonly ManualResetEventSlim _release = new();
+
+        public Task Entered => _entered.Task;
+
+        public void Play()
+        {
+            _entered.TrySetResult();
+            _release.Wait(TimeSpan.FromSeconds(10));
+        }
+
+        public void Release() => _release.Set();
+
+        public void Dispose() => _release.Set();
+    }
+
+    private sealed class Entry(int id, ConcurrentQueue<int> played) : IPlayoutEntry
+    {
+        public bool Disposed { get; private set; }
+
+        public void Play() => played.Enqueue(id);
+
+        public void Dispose() => Disposed = true;
     }
 }

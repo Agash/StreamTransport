@@ -1,5 +1,10 @@
+using System.Collections.Immutable;
 using System.Net;
+using Agash.StreamTransport.Adaptation;
+using Agash.StreamTransport.WebRtc.Ice;
+using Agash.StreamTransport.WebRtc.Rtp.PayloadFormats;
 using Agash.StreamTransport.WebRtc.Sdp;
+using Agash.StreamTransport.WebRtc.Turn;
 
 namespace Agash.StreamTransport.WebRtc;
 
@@ -12,40 +17,147 @@ public sealed record MediaLine(
     string Mid,
     SdpMediaKind Kind,
     uint LocalSsrc,
-    IReadOnlyList<SdpCodec> Codecs
+    ImmutableArray<SdpCodec> Codecs
 )
 {
     /// <summary>
-    /// The RTX SSRC for retransmissions of this line (RFC 4588). Required to serve NACKs: SRTP forbids
-    /// nonce reuse, so a lost packet must be retransmitted on a distinct SSRC with a fresh sequence number,
-    /// never by resending the original. Null disables retransmission for this line.
+    /// The SSRC this endpoint retransmits the line's media on (RFC 4588). SRTP forbids nonce reuse, so a
+    /// lost packet travels again on a distinct SSRC with a fresh sequence number, never as the original.
+    /// Retransmission is offered with an <c>rtx</c> codec per media codec in <see cref="Codecs"/>
+    /// (<c>apt=</c> its payload type); null offers none.
     /// </summary>
     public uint? RtxSsrc { get; init; }
 
-    /// <summary>The RTX payload type (RFC 4588) used for retransmissions of this line.</summary>
-    public byte? RtxPayloadType { get; init; }
+    /// <summary>
+    /// The SSRC this endpoint sends FlexFEC repairs of the line's media on (RFC 8627), when the peer takes
+    /// them: <see cref="Codecs"/> lists the <c>flexfec</c> codec for that, and for receiving the peer's
+    /// repairs. Null sends none.
+    /// </summary>
+    public uint? FecSsrc { get; init; }
+
+    /// <summary>Whether this endpoint sends, receives or both on the line.</summary>
+    public SdpDirection Direction { get; init; } = SdpDirection.SendRecv;
+
+    /// <summary>
+    /// The most the peer may send on the line, in bits per second of RTP: written as <c>b=TIAS</c>
+    /// (RFC 3890) and the <c>b=AS</c> that JSEP derives the same limit from (RFC 8829 section 5.10), on a
+    /// line this endpoint receives. Null for no limit.
+    /// </summary>
+    public long? MaximumReceiveBitsPerSecond { get; init; }
 }
 
 /// <summary>
-/// The outcome of offer/answer for one media section: the codec(s) both peers agreed on (in the offerer's
-/// payload-type space) plus the local SSRC this endpoint sends that media with. The media layer reads this
-/// to pick the negotiated encoder/decoder + payload type, rather than assuming a fixed codec.
+/// The outcome of offer/answer for one media section: the codecs both peers agreed on, most preferred
+/// first and in the offerer's payload types, and the SSRC this endpoint sends with. Each side describes
+/// the codecs itself (RFC 3264): <see cref="Codecs"/> holds this endpoint's format parameters, which
+/// describe what it sends, and <see cref="RemoteCodecs"/> the peer's, which describe what it sends.
 /// </summary>
+/// <param name="Kind">Audio or video.</param>
+/// <param name="Mid">The media identification tag.</param>
+/// <param name="LocalSsrc">The SSRC this endpoint sends with.</param>
+/// <param name="Codecs">The agreed codecs as this endpoint described them.</param>
+/// <param name="RemoteCodecs">The same codecs, in the same order, as the peer described them.</param>
 public sealed record NegotiatedMediaInfo(
     SdpMediaKind Kind,
     string Mid,
     uint LocalSsrc,
-    IReadOnlyList<SdpCodec> Codecs
-);
+    ImmutableArray<SdpCodec> Codecs,
+    ImmutableArray<SdpCodec> RemoteCodecs
+)
+{
+    /// <summary>
+    /// The most RTP this endpoint may send on the section, in bits per second, as the peer's
+    /// <c>b=TIAS</c> or <c>b=AS</c> sets it (RFC 8829 section 5.10); null for no limit.
+    /// </summary>
+    public long? SendLimitBitsPerSecond { get; init; }
+
+    /// <summary>The track the peer sends on the section (<c>a=msid</c>); null when it names none.</summary>
+    public MediaTrackIdentity? RemoteTrack { get; init; }
+
+    /// <summary>The peer's RTCP CNAME for the section's source (RFC 3550 section 6.5.1); null when unsaid.</summary>
+    public string? RemoteCname { get; init; }
+}
 
 /// <summary>Configuration for a <see cref="PeerConnection"/>.</summary>
 public sealed class PeerConnectionOptions
 {
+    /// <summary>
+    /// Whether RTP header extensions and CSRCs travel encrypted (Cryptex, RFC 9335): this side says it
+    /// receives them (<c>a=cryptex</c>), and sends them so once the peer says it does in every section.
+    /// Keeps capture times, levels and MIDs from the path. On by default.
+    /// </summary>
+    public bool Cryptex { get; init; } = true;
+
+    /// <summary>
+    /// The priority media is marked with (RFC 8837): audio expedited and video assured forwarding from
+    /// <see cref="NetworkPriority.Medium"/> up, which Wi-Fi maps to its voice and video access categories;
+    /// <see cref="NetworkPriority.Low"/> marks nothing. Linux and macOS mark each packet; Windows marks the
+    /// flow through qWAVE, with the DSCP its traffic type gets. Medium by default.
+    /// </summary>
+    public NetworkPriority NetworkPriority { get; init; } = NetworkPriority.Medium;
+
+    /// <summary>
+    /// Whether to offer the capture time, video timing and audio level encrypted one by one (RFC 6904), for
+    /// peers that encrypt elements but not whole blocks. Whatever this says, an offer of encrypted elements
+    /// is answered and read (RFC 8834 section 5.2.2); a packet sent as Cryptex is never also encrypted this
+    /// way (RFC 9335 section 5). Off by default, as Cryptex covers every extension.
+    /// </summary>
+    public bool EncryptHeaderExtensions { get; init; }
+
+    /// <summary>
+    /// The least time between regular RTCP reports (RFC 4585 section 3.5.3's T_rr_interval): the RTCP
+    /// schedule scales with the session's members and bandwidth (RFC 3550 section 6.3), and under RTP/AVPF
+    /// its minimum is 0, so this bounds how often full reports go out; feedback packets do not wait for it.
+    /// One second by default; zero leaves the RFC 3550 schedule alone. RFC 8083 section 4.1 asks for no more
+    /// than 4 s, so the peer's RTCP timeout does not end the session first.
+    /// </summary>
+    public TimeSpan RegularRtcpInterval
+    {
+        get;
+        init
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, TimeSpan.Zero);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, TimeSpan.FromSeconds(4));
+            field = value;
+        }
+    } = TimeSpan.FromSeconds(1);
+
+    /// <summary>The RFC 8083 circuit breakers' tunables; the RFC's defaults when null.</summary>
+    public Adaptation.CircuitBreakerOptions? CircuitBreaker { get; init; }
+
+    /// <summary>
+    /// Path MTU discovery (RFC 8899): media starts at the base size and grows to what the path is found to
+    /// carry, probing with padded RTX packets the peer acknowledges in its congestion-control feedback. It
+    /// runs on a sending connection with a congestion controller, RTX and that feedback agreed; null keeps
+    /// media at the base size of the defaults.
+    /// </summary>
+    public Adaptation.PathMtuOptions? PathMtu { get; init; } = new();
+
     /// <summary>The media lines to negotiate (offerer side); the answerer mirrors the remote offer.</summary>
-    public IReadOnlyList<MediaLine> Media { get; init; } = [];
+    public ImmutableArray<MediaLine> Media { get; init; } = [];
+
+    /// <summary>
+    /// The payload formats that decide whether an offered codec matches one of this endpoint's, beyond
+    /// the encoding name and clock rate (an H.264 profile, say).
+    /// </summary>
+    public RtpPayloadFormatRegistry PayloadFormats { get; init; } =
+        RtpPayloadFormatRegistry.BuiltIn;
+
+    /// <summary>
+    /// Where ICE gets its sockets; UDP on this host's addresses, ranked by
+    /// <see cref="LocalAddressPreferences"/>, when null. An embedder supplies its own to put ICE on a
+    /// transport of its choosing; tests supply an in-memory network.
+    /// </summary>
+    public IIceSocketFactory? SocketFactory { get; init; }
 
     /// <summary>STUN servers to gather server-reflexive candidates from.</summary>
-    public IReadOnlyList<IPEndPoint> StunServers { get; init; } = [];
+    public ImmutableArray<IPEndPoint> StunServers { get; init; } = [];
+
+    /// <summary>TURN servers to allocate relayed candidates on.</summary>
+    public ImmutableArray<TurnServer> TurnServers { get; init; } = [];
+
+    /// <summary>Which candidates ICE gathers; <see cref="IceTransportPolicy.Relay"/> sends only through TURN.</summary>
+    public IceTransportPolicy IceTransportPolicy { get; init; } = IceTransportPolicy.All;
 
     /// <summary>Include loopback candidates (for same-host tests). Off by default.</summary>
     public bool IncludeLoopback { get; init; }
@@ -57,29 +169,30 @@ public sealed class PeerConnectionOptions
     /// the link; pinning NIC names (e.g. the two cellular modems on an IRL field uplink) keeps gathering off
     /// unwanted interfaces such as Wi-Fi.
     /// </summary>
-    public IReadOnlyList<string> LocalAddressPreferences { get; init; } = [];
-
-    /// <summary>The one-byte header-extension id used for abs-capture-time (1-14), or 0 to disable.</summary>
-    public int AbsCaptureTimeExtensionId { get; init; } = 1;
+    public ImmutableArray<string> LocalAddressPreferences { get; init; } = [];
 
     /// <summary>
-    /// Enable FlexFEC (RFC 8627) loss repair for the protected video stream: the sender emits a repair packet
-    /// per <see cref="FecGroupSize"/> media packets on <see cref="FecSsrc"/>, and the receiver recovers a single
-    /// lost media packet per group without a retransmit round trip. Off by default; the IRL profile turns it on.
+    /// How loss repair is planned when FlexFEC is negotiated: the FEC group size follows the path's loss,
+    /// round trip and the media's frame size.
     /// </summary>
-    public bool EnableFec { get; init; }
+    public RecoveryPolicyOptions Recovery { get; init; } = new();
 
-    /// <summary>The RTP payload type for FlexFEC repair packets.</summary>
-    public byte FecPayloadType { get; init; } = 35;
+    /// <summary>
+    /// Send retransmissions and FEC repairs over a second valid path, on another interface than the
+    /// media's, when one is up: a loss burst on one modem is repaired over the other. Those packets stay
+    /// out of the media path's congestion control, as a second path's do in multipath QUIC. Off by
+    /// default; the IRL profile turns it on.
+    /// </summary>
+    public bool RepairOverStandby { get; init; }
 
-    /// <summary>The SSRC FlexFEC repair packets are sent on.</summary>
-    public uint FecSsrc { get; init; } = 0x5EED_00F0;
+    /// <summary>ICE's pacing and timeouts; libwebrtc's values when null.</summary>
+    public IceTimings? IceTimings { get; init; }
 
-    /// <summary>The media SSRC FlexFEC protects (the video stream).</summary>
-    public uint FecProtectedSsrc { get; init; }
-
-    /// <summary>Media packets protected by one repair packet (1-15).</summary>
-    public int FecGroupSize { get; init; } = 10;
+    /// <summary>
+    /// How long the receiver holds a frame before playing it, when known, so the recovery policy stops
+    /// retransmitting on a round trip too long to make it in time and repairs with FEC instead.
+    /// </summary>
+    public TimeSpan? PlayoutBudget { get; init; }
 }
 
 /// <summary>The aggregate connection state of a <see cref="PeerConnection"/> (ICE + DTLS).</summary>
@@ -99,4 +212,7 @@ public enum PeerConnectionState
 
     /// <summary>Closed.</summary>
     Closed,
+
+    /// <summary>Established, but the selected path stopped receiving; connectivity may come back.</summary>
+    Disconnected,
 }

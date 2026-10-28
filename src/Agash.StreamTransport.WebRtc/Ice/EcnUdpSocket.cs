@@ -1,7 +1,10 @@
 using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading.Channels;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks.Sources;
+using Agash.StreamTransport.Adaptation;
+using Agash.StreamTransport.Threading;
 
 namespace Agash.StreamTransport.WebRtc.Ice;
 
@@ -13,24 +16,45 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 /// <c>WSARecvMsg</c> (Windows) path and manual cmsg parsing. That is done on a dedicated blocking receive
 /// thread per socket; sends stay synchronous so the socket remains in blocking mode for the thread.
 ///
-/// <para>Outgoing packets are best-effort marked <c>ECT(1)</c> (L4S-capable transport) so a conformant
-/// bottleneck will flip them to CE under load rather than dropping them. Marking and ECN reception are
-/// best-effort: where the OS refuses an option the socket still works, just without ECN feedback (Ecn=0).</para>
+/// <para>Each datagram carries the codepoint its sender asks for, set per packet through the native send, so
+/// media can be ECN-capable while STUN, DTLS and RTCP are not. Marking and ECN reception are best-effort:
+/// where the OS refuses an option the socket still works, just without ECN (Ecn=0).</para>
 ///
 /// <para>Per-platform struct layouts (msghdr/cmsghdr/sockaddr) and option numbers are verified by
 /// <c>EcnLoopbackTests</c>, which marks a loopback datagram and asserts the value is read back - a wrong
 /// layout fails that test on the affected OS rather than shipping. The real-socket ICE handshake tests
 /// (loopback connect + data) additionally exercise the source-address parsing end to end.</para>
 /// </summary>
-internal sealed class EcnUdpSocket : IIceSocket
+internal sealed class EcnUdpSocket : IIceSocket, IValueTaskSource<IceReceiveResult>
 {
     private const int MaxDatagram = 2048;
 
     private readonly Socket _socket;
     private readonly bool _ipv6;
     private readonly Thread _recvThread;
-    private readonly Channel<Received> _channel;
+    private const int Queued = 64;
+
+    // The datagrams the receive thread has read and the reader has not, oldest first. When the reader
+    // falls behind, the oldest is dropped: the receive thread never blocks, and a stale datagram is
+    // expendable. Guarded by itself; the reader waits on _arrived, which allocates nothing per wait.
+    private readonly Received[] _queue = new Received[Queued];
+    private readonly WakeSignal _arrived = new();
+    private int _head;
+    private int _count;
+    private bool _completed;
+    private readonly WindowsQosFlows? _qos = OperatingSystem.IsWindows() ? new() : null;
     private volatile bool _stopping;
+
+    // The one reader's receive while it waits: an intermediate async method would allocate on every wait
+    // that suspends, so the socket is the reader's value task source and continues on the wake-up itself.
+    private ManualResetValueTaskSourceCore<IceReceiveResult> _receive = new()
+    {
+        RunContinuationsAsynchronously = false,
+    };
+    private Memory<byte> _receiveBuffer;
+    private CancellationToken _receiveToken;
+    private ConfiguredValueTaskAwaitable<bool>.ConfiguredValueTaskAwaiter _wake;
+    private readonly Action _woken;
 
     public EcnUdpSocket(Socket socket)
     {
@@ -39,17 +63,8 @@ internal sealed class EcnUdpSocket : IIceSocket
         _ipv6 = LocalEndPoint.AddressFamily == AddressFamily.InterNetworkV6;
         _socket.Blocking = true; // the receive thread blocks in native recvmsg/WSARecvMsg.
 
-        EcnInterop.EnableEct1OnSend(_socket, _ipv6);
         EcnInterop.EnableEcnReceive(_socket, _ipv6);
-
-        _channel = Channel.CreateBounded<Received>(
-            new BoundedChannelOptions(64)
-            {
-                SingleReader = true,
-                SingleWriter = true,
-                FullMode = BoundedChannelFullMode.DropOldest, // never block the receive thread; stale datagrams are expendable.
-            }
-        );
+        _woken = Woken;
 
         _recvThread = new Thread(ReceiveLoop)
         {
@@ -64,6 +79,7 @@ internal sealed class EcnUdpSocket : IIceSocket
     public ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
+        IpMarking marking,
         CancellationToken cancellationToken = default
     )
     {
@@ -71,7 +87,16 @@ internal sealed class EcnUdpSocket : IIceSocket
         // break the blocking native receive). UDP sendto does not block in practice for datagrams this size.
         try
         {
-            _socket.SendTo(data.Span, SocketFlags.None, destination);
+            if (
+                OperatingSystem.IsWindows()
+                && _qos is { } qos
+                && marking.DiffServ != DiffServCodepoint.Default
+            )
+            {
+                qos.Mark(_socket, destination, marking.DiffServ);
+            }
+
+            EcnInterop.Send(_socket, data.Span, destination, marking.Value);
         }
         catch (SocketException)
         {
@@ -87,40 +112,188 @@ internal sealed class EcnUdpSocket : IIceSocket
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask<IceReceiveResult> ReceiveAsync(
+    public ValueTask<IceReceiveResult> ReceiveAsync(
         Memory<byte> buffer,
         CancellationToken cancellationToken
     )
     {
-        Received item;
+        if (TryTake(buffer.Span, out IceReceiveResult result))
+        {
+            return new ValueTask<IceReceiveResult>(result);
+        }
+
+        _receive.Reset();
+        _receiveBuffer = buffer;
+        _receiveToken = cancellationToken;
+        Wait();
+        return new ValueTask<IceReceiveResult>(this, _receive.Version);
+    }
+
+    IceReceiveResult IValueTaskSource<IceReceiveResult>.GetResult(short token)
+    {
+        _receiveBuffer = default;
+        return _receive.GetResult(token);
+    }
+
+    ValueTaskSourceStatus IValueTaskSource<IceReceiveResult>.GetStatus(short token) =>
+        _receive.GetStatus(token);
+
+    void IValueTaskSource<IceReceiveResult>.OnCompleted(
+        Action<object?> continuation,
+        object? state,
+        short token,
+        ValueTaskSourceOnCompletedFlags flags
+    ) => _receive.OnCompleted(continuation, state, token, flags);
+
+    // Waits for the next datagram, which a wake-up that found the queue empty again (one dropped as the
+    // queue overflowed) waits for once more.
+    private void Wait()
+    {
+        while (true)
+        {
+            ValueTask<bool> wake;
+            try
+            {
+                wake = _arrived.WaitAsync(_receiveToken);
+            }
+            catch (OperationCanceledException exception)
+            {
+                _receive.SetException(exception);
+                return;
+            }
+
+            if (!wake.IsCompleted)
+            {
+                _wake = wake.ConfigureAwait(false).GetAwaiter();
+                _wake.UnsafeOnCompleted(_woken);
+                return;
+            }
+
+            if (Take(wake.ConfigureAwait(false).GetAwaiter()))
+            {
+                return;
+            }
+        }
+    }
+
+    private void Woken()
+    {
+        if (!Take(_wake))
+        {
+            Wait();
+        }
+    }
+
+    // Completes the receive from a finished wake-up: the datagram taken, or the wake-up's or socket's
+    // fault; false when the queue was empty after all.
+    private bool Take(ConfiguredValueTaskAwaitable<bool>.ConfiguredValueTaskAwaiter wake)
+    {
         try
         {
-            item = await _channel.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            _ = wake.GetResult();
+            if (!TryTake(_receiveBuffer.Span, out IceReceiveResult result))
+            {
+                return false;
+            }
+
+            _receive.SetResult(result);
         }
-        catch (ChannelClosedException)
+        catch (Exception exception)
+            when (exception is OperationCanceledException or ObjectDisposedException)
         {
-            throw new ObjectDisposedException(nameof(EcnUdpSocket));
+            _receive.SetException(exception);
+        }
+
+        return true;
+    }
+
+    private bool TryTake(Span<byte> buffer, out IceReceiveResult result)
+    {
+        Received item;
+        lock (_queue)
+        {
+            if (_count == 0)
+            {
+                result = default;
+                return _completed ? throw new ObjectDisposedException(nameof(EcnUdpSocket)) : false;
+            }
+
+            item = _queue[_head];
+            _queue[_head] = default;
+            _head = (_head + 1) % Queued;
+            _count--;
         }
 
         int len = Math.Min(item.Length, buffer.Length);
-        item.Buffer.AsSpan(0, len).CopyTo(buffer.Span);
+        item.Buffer.AsSpan(0, len).CopyTo(buffer);
         ArrayPool<byte>.Shared.Return(item.Buffer);
-        return new IceReceiveResult(len, item.RemoteEndPoint, item.Ecn);
+        result = new IceReceiveResult(len, item.RemoteEndPoint, item.TrafficClass);
+        return true;
+    }
+
+    private void Enqueue(Received item)
+    {
+        byte[]? dropped = null;
+        lock (_queue)
+        {
+            if (_completed)
+            {
+                dropped = item.Buffer;
+            }
+            else
+            {
+                if (_count == Queued)
+                {
+                    dropped = _queue[_head].Buffer;
+                    _head = (_head + 1) % Queued;
+                    _count--;
+                }
+
+                _queue[(_head + _count) % Queued] = item;
+                _count++;
+            }
+        }
+
+        if (dropped is not null)
+        {
+            ArrayPool<byte>.Shared.Return(dropped);
+        }
+
+        _arrived.Signal();
+    }
+
+    // No more datagrams come; the reader takes what is queued, then sees the socket closed.
+    private void Complete()
+    {
+        lock (_queue)
+        {
+            _completed = true;
+        }
+
+        _arrived.Signal();
     }
 
     private void ReceiveLoop()
     {
         nint handle = _socket.Handle;
+        EcnInterop.SenderCache senders = new();
         int consecutiveErrors = 0;
         while (!_stopping)
         {
             byte[] rented = ArrayPool<byte>.Shared.Rent(MaxDatagram);
             int len;
-            byte ecn;
+            byte trafficClass;
             IPEndPoint? remote;
             try
             {
-                len = EcnInterop.Receive(handle, rented, _ipv6, out ecn, out remote);
+                len = EcnInterop.Receive(
+                    handle,
+                    rented,
+                    _ipv6,
+                    senders,
+                    out trafficClass,
+                    out remote
+                );
             }
             catch
             {
@@ -145,29 +318,38 @@ internal sealed class EcnUdpSocket : IIceSocket
             }
 
             consecutiveErrors = 0;
-            _channel.Writer.TryWrite(new Received(rented, len, remote, ecn));
+            Enqueue(new Received(rented, len, remote, trafficClass));
         }
 
-        _channel.Writer.TryComplete();
+        Complete();
     }
 
     public void Dispose()
     {
         _stopping = true;
         _socket.Dispose(); // unblocks the native receive (returns an error), so the thread exits.
-        _channel.Writer.TryComplete();
-
-        // Drain any queued datagrams back to the pool.
-        while (_channel.Reader.TryRead(out Received item))
+        if (OperatingSystem.IsWindows())
         {
-            ArrayPool<byte>.Shared.Return(item.Buffer);
+            _qos?.Dispose();
         }
+        // Queued datagrams go back to the pool; a reader sees the socket closed.
+        lock (_queue)
+        {
+            _completed = true;
+            for (; _count > 0; _count--, _head = (_head + 1) % Queued)
+            {
+                ArrayPool<byte>.Shared.Return(_queue[_head].Buffer);
+                _queue[_head] = default;
+            }
+        }
+
+        _arrived.Signal();
     }
 
     private readonly record struct Received(
         byte[] Buffer,
         int Length,
         IPEndPoint RemoteEndPoint,
-        byte Ecn
+        byte TrafficClass
     );
 }

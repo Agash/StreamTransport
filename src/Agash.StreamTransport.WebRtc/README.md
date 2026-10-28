@@ -1,15 +1,80 @@
 # Agash.StreamTransport.WebRtc
 
-A small, modern WebRTC stack for .NET 11 - the parts a point-to-point media transport actually uses:
-ICE/STUN, SRTP, RTP/RTCP, SDP/JSEP, a peer connection, and loss recovery (NACK + RTX retransmission, PLI
-keyframe requests, FlexFEC, and a sequence-aware H.265 packet buffer that reassembles complete frames before
-decode). Behaviour is aligned with libwebrtc where interop and correctness require it - the NACK requester, RTX
-unwrap, and `h26x_packet_buffer` are ports of their libwebrtc counterparts; the shape is idiomatic modern .NET
-(spans, `ArrayPool`, `readonly record struct`, source-generated logging).
+A small, modern WebRTC stack for .NET 11 with the parts a point-to-point media transport uses: ICE/STUN,
+SRTP, RTP/RTCP, SDP/JSEP, a peer connection, and loss recovery (NACK with RTX retransmission, PLI keyframe
+requests, FlexFEC, and a sequence-aware H.265 packet buffer that reassembles complete frames before decode).
+Behaviour follows libwebrtc where interop and correctness depend on it: the NACK requester, RTX unwrap and
+`h26x_packet_buffer` are ports of their libwebrtc counterparts. The code is idiomatic modern .NET (spans,
+`ArrayPool`, `readonly record struct`, source-generated logging).
 
-Crypto uses the BCL only (`AesGcm`, `Aes`/`HMACSHA1`, `CertificateRequest`). DTLS - the one piece the BCL
-does not provide - is supplied by `Agash.StreamTransport.WebRtc.Dtls` (BouncyCastle, isolated there) via a
-pluggable factory, so this package itself has no third-party runtime dependency.
+SRTP offers `SRTP_AEAD_AES_128_GCM`, `SRTP_AEAD_AES_256_GCM` and, for peers that offer no GCM profile,
+`SRTP_AES128_CM_HMAC_SHA1_80`, with a 1024-packet replay window per SSRC.
 
-This is the first-party transport that replaces SIPSorcery in
-[`Agash.StreamTransport`](https://github.com/Agash/StreamTransport).
+Crypto is the platform's own (`AesGcm`, `Aes`, `HMACSHA1`, `CertificateRequest`). DTLS 1.2 and 1.3 come from
+[Dtls.Core](https://github.com/Agash/Dtls.Core), which is built on the same primitives, so there is no native
+or third-party crypto dependency.
+
+The package is the transport under [`Agash.StreamTransport`](https://github.com/Agash/StreamTransport).
+
+Scope: audio and video over RTP/SRTP. There are no data channels and no SCTP.
+
+## Quick start
+
+Two `PeerConnection`s in one process, negotiating through direct calls where an application would use its
+signaling channel:
+
+```csharp
+var opus = new SdpCodec(111, "opus", 48000, 2, null, []);
+var certificate = RtcCertificate.Generate();
+
+await using var offerer = new PeerConnection(
+    new PeerConnectionOptions { Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x1111_1111, [opus])] },
+    certificate);
+await using var answerer = new PeerConnection(
+    new PeerConnectionOptions { Media = [new MediaLine("0", SdpMediaKind.Audio, LocalSsrc: 0x2222_2222, [opus])] },
+    certificate);
+
+// Trickle ICE: each side hands its candidates to the other as they are gathered.
+offerer.LocalIceCandidate += c => answerer.AddRemoteIceCandidate(c);
+answerer.LocalIceCandidate += c => offerer.AddRemoteIceCandidate(c);
+
+var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+offerer.StateChanged += s => { if (s == PeerConnectionState.Connected) connected.TrySetResult(); };
+answerer.RtpReceived += (header, payload) => Console.WriteLine($"{payload.Length} bytes, PT {header.PayloadType}");
+
+// Offer and answer.
+SdpDescription offer = offerer.CreateOffer();
+answerer.SetRemoteDescription(offer, SdpType.Offer);
+SdpDescription answer = answerer.CreateAnswer();
+offerer.SetRemoteDescription(answer, SdpType.Answer);
+
+await connected.Task; // ICE and the DTLS handshake are done; SRTP is keyed.
+offerer.TrySendRtp(payloadType: 111, ssrc: 0x1111_1111, rtpTimestamp: 160, marker: true, payload,
+    new RtpExtensionValues(captureNtp));
+```
+
+`payload` is the encoded frame (a `byte[]`) and `captureNtp` the capture time as a 64-bit NTP timestamp
+carried in the abs-capture-time header extension. `TrySendRtp` returns false, dropping the packet, when DTLS-SRTP is not established yet.
+The types are in `Agash.StreamTransport.WebRtc`, `.Sdp` and `.Rtp`. A `PeerConnectionOptions.SocketFactory`
+replaces the UDP sockets, which is how the tests run connections in memory.
+
+## Diagnostics
+
+The meter and activity source `Agash.StreamTransport.WebRtc` (`WebRtcDiagnostics`). With DI the meter
+comes from the host's `IMeterFactory`; `PeerConnection` and `IceAgent` take one too. Nothing is
+recorded until something listens.
+
+| Instrument | Unit | What |
+|---|---|---|
+| `streamtransport.webrtc.connections.active` | `{connection}` | peer connections not yet disposed |
+| `streamtransport.webrtc.connect.duration` | `s` | ICE start to DTLS-SRTP up, by `streamtransport.outcome`: `connected`, `ice_failed`, `dtls_failed`, `closed` |
+| `streamtransport.webrtc.ice.selected_paths` | `{path}` | selected pairs by local and remote candidate kind (`host`, `srflx`, `prflx`, `relay`) and `network.type` (`ipv6`, `ipv4`) |
+| `streamtransport.webrtc.ice.consent_lost` | `{event}` | selected paths that stopped answering consent checks |
+| `streamtransport.webrtc.ice.restarts` | `{restart}` | ICE restarts |
+| `streamtransport.webrtc.turn.allocations` | `{allocation}` | TURN allocations by `network.transport` and outcome |
+| `streamtransport.webrtc.rtp.packets.sent` | `{packet}` | media packets sent |
+| `streamtransport.webrtc.nack.sequences` | `{packet}` | lost packets asked for again |
+| `streamtransport.webrtc.rtx.packets` | `{packet}` | retransmissions `sent` and `recovered` |
+
+The activity `streamtransport.webrtc.connect` spans ICE and the DTLS handshake, with the selected
+path's candidate kinds and address family. DTLS itself reports on the `Dtls.Core` meter.

@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework Condition="'$(BuildMacOS)' == 'true'">net11.0-macos</TargetFramework>
+    <TargetFramework Condition="'$(BuildMacOS)' != 'true'">net11.0</TargetFramework>
+    <SupportedOSPlatformVersion Condition="'$(BuildMacOS)' == 'true'"
+      >15.0</SupportedOSPlatformVersion>
+    <DefineConstants Condition="'$(BuildMacOS)' == 'true'"
+      >$(DefineConstants);MACOS</DefineConstants>
+    <!-- A macOS executable is an app bundle, launched directly so it keeps its arguments. -->
+    <ApplicationId Condition="'$(BuildMacOS)' == 'true'"
+      >com.agash.streamtransport.cli</ApplicationId>
+    <RunWithOpen Condition="'$(BuildMacOS)' == 'true'">false</RunWithOpen>
+    <RuntimeIdentifier Condition="'$(BuildMacOS)' == 'true' and '$(RuntimeIdentifier)' == ''"
+      >$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+    <AssemblyName>streamtransport</AssemblyName>
+    <RootNamespace>StreamTransport.Cli</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc\Agash.StreamTransport.WebRtc.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.WebRtc.DependencyInjection\Agash.StreamTransport.WebRtc.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport\Agash.StreamTransport.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.FFmpeg\Agash.StreamTransport.Codecs.FFmpeg.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Codecs.Opus\Agash.StreamTransport.Codecs.Opus.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Windows\Agash.StreamTransport.Windows.csproj" />
+    <ProjectReference Include="..\..\src\Agash.StreamTransport.Linux\Agash.StreamTransport.Linux.csproj" />
+    <ProjectReference
+      Include="..\..\src\Agash.StreamTransport.MacOS\Agash.StreamTransport.MacOS.csproj"
+      Condition="'$(BuildMacOS)' == 'true'"
+    />
+    <ProjectReference
+      Include="..\..\src\Agash.StreamTransport.AspNetCore\Agash.StreamTransport.AspNetCore.csproj"
+      Condition="'$(BuildMacOS)' != 'true'"
+    />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" Condition="'$(BuildMacOS)' != 'true'" />
+    <Compile Remove="Serve.cs" Condition="'$(BuildMacOS)' == 'true'" />
+    <PackageReference
+      Include="Microsoft.Extensions.DependencyInjection"
+      Condition="'$(BuildMacOS)' == 'true'"
+    />
+    <PackageReference
+      Include="Microsoft.Extensions.Logging.Console"
+      Condition="'$(BuildMacOS)' == 'true'"
+    />
+  </ItemGroup>
+
+  <!-- A native library a project reference copies to the output reaches this project once directly and
+       once through each project between them. The usual copy keeps one; the app bundle takes them all,
+       and two install-name rewrites of one file at once fail. -->
+  <Target
+    Name="RemoveDuplicateBundledLibraries"
+    BeforeTargets="_ComputePublishLocation"
+    Condition="'$(BuildMacOS)' == 'true'"
+  >
+    <RemoveDuplicates Inputs="@(ResolvedFileToPublish)">
+      <Output TaskParameter="Filtered" ItemName="_DistinctFileToPublish" />
+    </RemoveDuplicates>
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" />
+      <ResolvedFileToPublish Include="@(_DistinctFileToPublish)" />
+      <_DistinctFileToPublish Remove="@(_DistinctFileToPublish)" />
+    </ItemGroup>
+  </Target>
+</Project>
