@@ -62,7 +62,12 @@ public sealed partial class TestSignalAnalyzer
     private readonly Lock _gate = new();
     private readonly List<MediaTime> _flashes = [];
     private readonly List<MediaTime> _clicks = [];
-    private readonly List<TimeSpan> _latencies = [];
+
+    // Latency as running totals: a session measured for hours keeps no list of every frame.
+    private int _latencyCount;
+    private long _latencyTicks;
+    private TimeSpan _latencyMin = TimeSpan.MaxValue;
+    private TimeSpan _latencyMax = TimeSpan.MinValue;
     private bool _flashing;
     private bool _clicking;
     private long _silentSamples = long.MaxValue;
@@ -123,7 +128,10 @@ public sealed partial class TestSignalAnalyzer
         {
             _flashes.Clear();
             _clicks.Clear();
-            _latencies.Clear();
+            _latencyCount = 0;
+            _latencyTicks = 0;
+            _latencyMin = TimeSpan.MaxValue;
+            _latencyMax = TimeSpan.MinValue;
             _unreadable = 0;
         }
     }
@@ -134,38 +142,46 @@ public sealed partial class TestSignalAnalyzer
     {
         lock (_gate)
         {
-            List<TimeSpan> offsets = [];
+            // Flashes and clicks are both in time order, so one pass pairs each flash with the click
+            // within half a second of it, the same second's.
+            var window = TimeSpan.FromMilliseconds(500);
+            int count = 0;
+            long ticks = 0;
+            TimeSpan min = TimeSpan.MaxValue;
+            TimeSpan max = TimeSpan.MinValue;
+            int next = 0;
             foreach (MediaTime flash in _flashes)
             {
-                // The click within half a second of the flash is the same second's.
-                MediaTime? click = _clicks
-                    .Where(c => (c - flash).Duration() < TimeSpan.FromMilliseconds(500))
-                    .Select(static c => (MediaTime?)c)
-                    .FirstOrDefault();
-                if (click is { } c)
+                while (next < _clicks.Count && _clicks[next] - flash <= -window)
                 {
-                    offsets.Add(c - flash);
+                    next++;
+                }
+
+                if (next < _clicks.Count && (_clicks[next] - flash).Duration() < window)
+                {
+                    TimeSpan offset = _clicks[next] - flash;
+                    count++;
+                    ticks += offset.Ticks;
+                    min = offset < min ? offset : min;
+                    max = offset > max ? offset : max;
                 }
             }
 
             return new TestSignalMeasurement(
-                offsets.Count,
-                Mean(offsets),
-                offsets.Count > 0 ? offsets.Min() : TimeSpan.Zero,
-                offsets.Count > 0 ? offsets.Max() : TimeSpan.Zero,
-                _latencies.Count,
-                Mean(_latencies),
-                _latencies.Count > 0 ? _latencies.Min() : TimeSpan.Zero,
-                _latencies.Count > 0 ? _latencies.Max() : TimeSpan.Zero,
+                count,
+                count > 0 ? TimeSpan.FromTicks(ticks / count) : TimeSpan.Zero,
+                count > 0 ? min : TimeSpan.Zero,
+                count > 0 ? max : TimeSpan.Zero,
+                _latencyCount,
+                _latencyCount > 0
+                    ? TimeSpan.FromTicks(_latencyTicks / _latencyCount)
+                    : TimeSpan.Zero,
+                _latencyCount > 0 ? _latencyMin : TimeSpan.Zero,
+                _latencyCount > 0 ? _latencyMax : TimeSpan.Zero,
                 _unreadable
             );
         }
     }
-
-    private static TimeSpan Mean(List<TimeSpan> values) =>
-        values.Count == 0
-            ? TimeSpan.Zero
-            : TimeSpan.FromTicks((long)values.Average(static v => v.Ticks));
 
     private void OnVideo(in VideoFrame frame)
     {
@@ -263,7 +279,10 @@ public sealed partial class TestSignalAnalyzer
         {
             if (latency is { } value)
             {
-                _latencies.Add(value);
+                _latencyCount++;
+                _latencyTicks += value.Ticks;
+                _latencyMin = value < _latencyMin ? value : _latencyMin;
+                _latencyMax = value > _latencyMax ? value : _latencyMax;
             }
             else if (received is not null)
             {
