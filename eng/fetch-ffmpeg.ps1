@@ -21,7 +21,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $dest = Join-Path $root 'native/ffmpeg'
 
 $repository = 'Agash/FFmpeg.Interop'
-$commit = '05576f6004c473299d594e5673d2a915da226124'
+$commit = '7a460e0b28deb683392be4f8f7b497be116e3632'
 
 foreach ($rid in $Rids) {
     $ridDir = Join-Path $dest $rid
