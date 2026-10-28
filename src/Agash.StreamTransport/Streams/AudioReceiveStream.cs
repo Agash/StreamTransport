@@ -1,6 +1,6 @@
-using System.Threading.Channels;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
+using Agash.StreamTransport.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Streams;
@@ -24,9 +24,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     private readonly StreamTransportMetrics _metrics;
     private readonly ILogger _logger;
     private readonly ArrivalStamps _stamps;
-    private readonly Channel<Packet> _packets = Channel.CreateUnbounded<Packet>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = true }
-    );
+    private readonly WorkQueue<Packet> _packets = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _worker;
     private long? _nextSequence;
@@ -97,7 +95,7 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     )
     {
         Packet queued = new(packet, sequence, position, _stamps.Stamp(capture), capture);
-        if (!_packets.Writer.TryWrite(queued))
+        if (!_packets.TryWrite(queued))
         {
             packet.Dispose();
         }
@@ -117,10 +115,10 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        _packets.Writer.TryComplete();
+        _packets.Complete();
         await _stop.CancelAsync().ConfigureAwait(false);
         await _worker.ConfigureAwait(false);
-        while (_packets.Reader.TryRead(out Packet left))
+        while (_packets.TryRead(out Packet left))
         {
             left.Data.Dispose();
         }
@@ -133,12 +131,14 @@ internal sealed partial class AudioReceiveStream : IAudioFrameConsumer, IAsyncDi
     {
         try
         {
-            await foreach (
-                Packet packet in _packets
-                    .Reader.ReadAllAsync(cancellationToken)
-                    .ConfigureAwait(false)
-            )
+            while (!_packets.IsFinished)
             {
+                if (!_packets.TryRead(out Packet packet))
+                {
+                    _ = await _packets.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 using (packet.Data)
                 {
                     try

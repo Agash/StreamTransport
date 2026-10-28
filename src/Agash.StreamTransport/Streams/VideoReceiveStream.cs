@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using System.Threading.Channels;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Sync;
+using Agash.StreamTransport.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace Agash.StreamTransport.Streams;
@@ -56,13 +56,11 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     // The orientation of each frame in the decoder that is not upright, by its stamp; bounded like timings.
     private readonly Dictionary<MediaTimestamp, VideoOrientation> _orientations = [];
 
-    private readonly Channel<(
+    private readonly WorkQueue<(
         EncodedFrameBuffer Frame,
         bool Keyframe,
         MediaTimestamp Stamp
-    )> _frames = Channel.CreateUnbounded<(EncodedFrameBuffer, bool, MediaTimestamp)>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = true }
-    );
+    )> _frames = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _worker;
     private readonly Presenter _presenter;
@@ -160,7 +158,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
             }
         }
 
-        if (_frames.Writer.TryWrite((frame, keyframe, stamp)))
+        if (_frames.TryWrite((frame, keyframe, stamp)))
         {
             Interlocked.Increment(ref _waiting);
         }
@@ -198,13 +196,17 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
                 {
                     // A hardware decoder hands the frame over after Decode returns, so decoding ends here.
                     pending.DecodeFinish = WallNow();
-                    presented = () => Report(setup, pending);
+                    presented = Presented(setup, pending);
                 }
             }
         }
 
         _playout.Video(in shown, _stamps.TakeCapture(shown.Timestamp), _presenter, presented);
     }
+
+    // In a method of its own, so only a frame with a timing report pays for its closure.
+    private Action Presented(VideoTimingSetup setup, PendingTiming pending) =>
+        () => Report(setup, pending);
 
     private void Report(VideoTimingSetup setup, PendingTiming pending)
     {
@@ -243,10 +245,10 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        _frames.Writer.TryComplete();
+        _frames.Complete();
         await _stop.CancelAsync().ConfigureAwait(false);
         await _worker.ConfigureAwait(false);
-        while (_frames.Reader.TryRead(out (EncodedFrameBuffer Frame, bool, MediaTimestamp) left))
+        while (_frames.TryRead(out (EncodedFrameBuffer Frame, bool, MediaTimestamp) left))
         {
             left.Frame.Dispose();
         }
@@ -260,12 +262,19 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     {
         try
         {
-            await foreach (
-                (EncodedFrameBuffer frame, bool keyframe, MediaTimestamp stamp) in _frames
-                    .Reader.ReadAllAsync(cancellationToken)
-                    .ConfigureAwait(false)
-            )
+            while (!_frames.IsFinished)
             {
+                if (
+                    !_frames.TryRead(
+                        out (EncodedFrameBuffer Frame, bool Keyframe, MediaTimestamp Stamp) next
+                    )
+                )
+                {
+                    _ = await _frames.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                (EncodedFrameBuffer frame, bool keyframe, MediaTimestamp stamp) = next;
                 int waiting = Interlocked.Decrement(ref _waiting);
                 using (frame)
                 {
@@ -305,7 +314,7 @@ internal sealed partial class VideoReceiveStream : IVideoFrameConsumer, IAsyncDi
     {
         Skip(stamp);
         while (
-            _frames.Reader.TryRead(
+            _frames.TryRead(
                 out (EncodedFrameBuffer Frame, bool Keyframe, MediaTimestamp Stamp) waiting
             )
         )

@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\WakeSignal.cs" Link="Threading\WakeSignal.cs" />
+    <Compile Include="..\Shared\WorkQueue.cs" Link="Threading\WorkQueue.cs" />
   </ItemGroup>
 
   <ItemGroup>
