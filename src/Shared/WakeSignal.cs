@@ -13,7 +13,7 @@ namespace Agash.StreamTransport.Threading;
 /// for as long as the loop waits with the same token. A deadline ends a wait with false, not with an
 /// exception.
 /// </remarks>
-internal sealed class WakeSignal : IValueTaskSource<bool>
+internal sealed class WakeSignal : IValueTaskSource<bool>, IThreadPoolWorkItem
 {
     private const int Idle = 0;
     private const int Pending = 1;
@@ -23,10 +23,12 @@ internal sealed class WakeSignal : IValueTaskSource<bool>
     private readonly Func<TimeSpan>? _now;
 
     // Continuations run on the pool, not on the thread that signals: a signal comes from the network or
-    // a capture thread, which must not run the loop.
+    // a capture thread, which must not run the loop. The signal queues this object, a pool work item,
+    // which completes the wait there: a source that runs its continuations asynchronously would queue a
+    // new work item for each.
     private ManualResetValueTaskSourceCore<bool> _core = new()
     {
-        RunContinuationsAsynchronously = true,
+        RunContinuationsAsynchronously = false,
     };
     private ITimer? _timer;
     private CancellationToken _registeredFor;
@@ -61,7 +63,7 @@ internal sealed class WakeSignal : IValueTaskSource<bool>
             {
                 if (Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting)
                 {
-                    _core.SetResult(true);
+                    ThreadPool.UnsafeQueueUserWorkItem(this, preferLocal: false);
                     return;
                 }
             }
@@ -95,6 +97,9 @@ internal sealed class WakeSignal : IValueTaskSource<bool>
             ? new ValueTask<bool>(TakePending())
             : Wait(deadline, remaining, cancellationToken);
     }
+
+    // A signal's completion, on the pool.
+    void IThreadPoolWorkItem.Execute() => _core.SetResult(true);
 
     bool IValueTaskSource<bool>.GetResult(short token) => _core.GetResult(token);
 
@@ -190,7 +195,13 @@ internal sealed class WakeSignal : IValueTaskSource<bool>
     {
         if (Interlocked.CompareExchange(ref _state, Idle, Waiting) == Waiting)
         {
-            _core.SetException(new OperationCanceledException(token));
+            // On the pool too: the thread that cancels may be holding locks while it stops the loop.
+            ThreadPool.UnsafeQueueUserWorkItem(
+                static state =>
+                    state.Signal._core.SetException(new OperationCanceledException(state.Token)),
+                (Signal: this, Token: token),
+                preferLocal: false
+            );
         }
     }
 }

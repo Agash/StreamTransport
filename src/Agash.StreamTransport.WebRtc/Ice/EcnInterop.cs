@@ -191,9 +191,13 @@ internal static unsafe partial class EcnInterop
     /// </summary>
     internal sealed class SenderCache
     {
-        private readonly byte[] _raw = new byte[28];
-        private int _length;
-        private IPEndPoint? _endpoint;
+        // The last few senders, newest first: ICE keeps checking other candidate pairs while media
+        // flows on one, so datagrams alternate between a handful of addresses.
+        private const int Entries = 4;
+
+        private readonly byte[] _raw = new byte[Entries * 28];
+        private readonly int[] _lengths = new int[Entries];
+        private readonly IPEndPoint?[] _endpoints = new IPEndPoint?[Entries];
 
         public IPEndPoint Resolve(ReadOnlySpan<byte> sockaddr, bool ipv6)
         {
@@ -202,19 +206,43 @@ internal static unsafe partial class EcnInterop
 
             // Byte 0 is the length on macOS and the family's low byte elsewhere; either way it is the same
             // for one socket, so the whole address is compared.
-            if (
-                _endpoint is { } last
-                && length == _length
-                && raw.SequenceEqual(_raw.AsSpan(0, length))
-            )
+            int found = -1;
+            for (int i = 0; i < Entries; i++)
             {
-                return last;
+                if (
+                    _endpoints[i] is not null
+                    && _lengths[i] == length
+                    && raw.SequenceEqual(_raw.AsSpan(i * 28, length))
+                )
+                {
+                    found = i;
+                    break;
+                }
             }
 
-            raw.CopyTo(_raw);
-            _length = length;
-            _endpoint = ParseSockAddr(raw, ipv6);
-            return _endpoint;
+            IPEndPoint endpoint;
+            if (found >= 0)
+            {
+                endpoint = _endpoints[found]!;
+            }
+            else
+            {
+                found = Entries - 1;
+                endpoint = ParseSockAddr(raw, ipv6);
+            }
+
+            // To the front: a lasting sender stays first, the oldest falls off the end.
+            for (int i = found; i > 0; i--)
+            {
+                _endpoints[i] = _endpoints[i - 1];
+                _lengths[i] = _lengths[i - 1];
+                _raw.AsSpan((i - 1) * 28, 28).CopyTo(_raw.AsSpan(i * 28, 28));
+            }
+
+            _endpoints[0] = endpoint;
+            _lengths[0] = length;
+            raw.CopyTo(_raw.AsSpan(0, 28));
+            return endpoint;
         }
     }
 

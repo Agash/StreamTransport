@@ -42,6 +42,32 @@ public sealed class SenderCacheTests
     }
 
     [TestMethod]
+    public void Resolve_AlternatingSources_KeepsEachOnesEndpoint()
+    {
+        // ICE checks other candidate pairs while media flows on one.
+        EcnInterop.SenderCache senders = new();
+        byte[][] sources =
+        [
+            .. Enumerable
+                .Range(0, 4)
+                .Select(i => SockAddr6(IPAddress.Parse("2001:db8::1"), 5000 + i, 0)),
+        ];
+        IPEndPoint[] first = [.. sources.Select(s => senders.Resolve(s, ipv6: true))];
+
+        for (int round = 0; round < 3; round++)
+        {
+            for (int i = 0; i < sources.Length; i++)
+            {
+                Assert.AreSame(first[i], senders.Resolve(sources[i], ipv6: true));
+            }
+        }
+
+        // A fifth source pushes out the one least recently seen.
+        _ = senders.Resolve(SockAddr6(IPAddress.Parse("2001:db8::1"), 6000, 0), ipv6: true);
+        Assert.AreNotSame(first[0], senders.Resolve(sources[0], ipv6: true));
+    }
+
+    [TestMethod]
     public void Resolve_LinkLocal_KeepsTheScope()
     {
         EcnInterop.SenderCache senders = new();

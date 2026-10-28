@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks.Sources;
 using Agash.StreamTransport.Adaptation;
 using Agash.StreamTransport.Threading;
 
@@ -24,7 +25,7 @@ namespace Agash.StreamTransport.WebRtc.Ice;
 /// layout fails that test on the affected OS rather than shipping. The real-socket ICE handshake tests
 /// (loopback connect + data) additionally exercise the source-address parsing end to end.</para>
 /// </summary>
-internal sealed class EcnUdpSocket : IIceSocket
+internal sealed class EcnUdpSocket : IIceSocket, IValueTaskSource<IceReceiveResult>
 {
     private const int MaxDatagram = 2048;
 
@@ -44,6 +45,17 @@ internal sealed class EcnUdpSocket : IIceSocket
     private readonly WindowsQosFlows? _qos = OperatingSystem.IsWindows() ? new() : null;
     private volatile bool _stopping;
 
+    // The one reader's receive while it waits: an intermediate async method would allocate on every wait
+    // that suspends, so the socket is the reader's value task source and continues on the wake-up itself.
+    private ManualResetValueTaskSourceCore<IceReceiveResult> _receive = new()
+    {
+        RunContinuationsAsynchronously = false,
+    };
+    private Memory<byte> _receiveBuffer;
+    private CancellationToken _receiveToken;
+    private ConfiguredValueTaskAwaitable<bool>.ConfiguredValueTaskAwaiter _wake;
+    private readonly Action _woken;
+
     public EcnUdpSocket(Socket socket)
     {
         _socket = socket;
@@ -52,6 +64,7 @@ internal sealed class EcnUdpSocket : IIceSocket
         _socket.Blocking = true; // the receive thread blocks in native recvmsg/WSARecvMsg.
 
         EcnInterop.EnableEcnReceive(_socket, _ipv6);
+        _woken = Woken;
 
         _recvThread = new Thread(ReceiveLoop)
         {
@@ -102,26 +115,96 @@ internal sealed class EcnUdpSocket : IIceSocket
     public ValueTask<IceReceiveResult> ReceiveAsync(
         Memory<byte> buffer,
         CancellationToken cancellationToken
-    ) =>
-        TryTake(buffer.Span, out IceReceiveResult result)
-            ? new ValueTask<IceReceiveResult>(result)
-            : WaitAndReceiveAsync(buffer, cancellationToken);
-
-    // Pooled, so a reader that waits for each datagram does not allocate a state machine every time.
-    [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
-    private async ValueTask<IceReceiveResult> WaitAndReceiveAsync(
-        Memory<byte> buffer,
-        CancellationToken cancellationToken
     )
+    {
+        if (TryTake(buffer.Span, out IceReceiveResult result))
+        {
+            return new ValueTask<IceReceiveResult>(result);
+        }
+
+        _receive.Reset();
+        _receiveBuffer = buffer;
+        _receiveToken = cancellationToken;
+        Wait();
+        return new ValueTask<IceReceiveResult>(this, _receive.Version);
+    }
+
+    IceReceiveResult IValueTaskSource<IceReceiveResult>.GetResult(short token)
+    {
+        _receiveBuffer = default;
+        return _receive.GetResult(token);
+    }
+
+    ValueTaskSourceStatus IValueTaskSource<IceReceiveResult>.GetStatus(short token) =>
+        _receive.GetStatus(token);
+
+    void IValueTaskSource<IceReceiveResult>.OnCompleted(
+        Action<object?> continuation,
+        object? state,
+        short token,
+        ValueTaskSourceOnCompletedFlags flags
+    ) => _receive.OnCompleted(continuation, state, token, flags);
+
+    // Waits for the next datagram, which a wake-up that found the queue empty again (one dropped as the
+    // queue overflowed) waits for once more.
+    private void Wait()
     {
         while (true)
         {
-            _ = await _arrived.WaitAsync(cancellationToken).ConfigureAwait(false);
-            if (TryTake(buffer.Span, out IceReceiveResult result))
+            ValueTask<bool> wake;
+            try
             {
-                return result;
+                wake = _arrived.WaitAsync(_receiveToken);
+            }
+            catch (OperationCanceledException exception)
+            {
+                _receive.SetException(exception);
+                return;
+            }
+
+            if (!wake.IsCompleted)
+            {
+                _wake = wake.ConfigureAwait(false).GetAwaiter();
+                _wake.UnsafeOnCompleted(_woken);
+                return;
+            }
+
+            if (Take(wake.ConfigureAwait(false).GetAwaiter()))
+            {
+                return;
             }
         }
+    }
+
+    private void Woken()
+    {
+        if (!Take(_wake))
+        {
+            Wait();
+        }
+    }
+
+    // Completes the receive from a finished wake-up: the datagram taken, or the wake-up's or socket's
+    // fault; false when the queue was empty after all.
+    private bool Take(ConfiguredValueTaskAwaitable<bool>.ConfiguredValueTaskAwaiter wake)
+    {
+        try
+        {
+            _ = wake.GetResult();
+            if (!TryTake(_receiveBuffer.Span, out IceReceiveResult result))
+            {
+                return false;
+            }
+
+            _receive.SetResult(result);
+        }
+        catch (Exception exception)
+            when (exception is OperationCanceledException or ObjectDisposedException)
+        {
+            _receive.SetException(exception);
+        }
+
+        return true;
     }
 
     private bool TryTake(Span<byte> buffer, out IceReceiveResult result)
