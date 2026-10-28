@@ -27,6 +27,10 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     // GPU frames the encoder reads after Encode returns, kept until the packet made from each comes out.
     private readonly Queue<(long Pts, VideoFrameLease Frame)> _reading = new();
     private VideoEncoderConfiguration _configuration;
+
+    // The rate the encoder works to, apart from the configuration: congestion control moves it every few
+    // feedback reports, and a copied configuration each time would be garbage.
+    private RateTarget _rate;
     private Session? _session;
 
     // Why the encoder reopens on the next frame (rate, frame_rate); null when it does not.
@@ -65,6 +69,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         _codec = codec;
         _codecId = configuration.Format.Codec;
         _configuration = configuration;
+        _rate = configuration.Rate;
         _adapter = adapter;
         _privateOptions = privateOptions;
         _logger = logger;
@@ -130,7 +135,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                     string reason = _reopen ?? "keyframe";
                     Drain(open, consumer);
                     long started = _time.GetTimestamp();
-                    RateTarget rate = _configuration.Rate;
+                    RateTarget rate = _rate;
                     open.Replace(CreateEncoder(open.Input, rate, open.Color), rate.BitsPerSecond);
                     Opened(reason, open.Storage, rate, started);
                     _keyframePending = true;
@@ -193,8 +198,8 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            double openedFrames = _configuration.Rate.FramesPerSecond;
-            _configuration = _configuration with { Rate = target };
+            double openedFrames = _rate.FramesPerSecond;
+            _rate = target;
             if (_session is not { } session)
             {
                 return;
@@ -331,7 +336,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
 
         try
         {
-            RateTarget rate = _configuration.Rate;
+            RateTarget rate = _rate;
             // The colour the stream signals: the configuration's, else the first frame's, else BT.709
             // in video range, which HD capture produces and every WebRTC peer assumes.
             // The coded picture is Y'CbCr 4:2:0 whatever the input, so an RGB input's colour is signalled
@@ -366,7 +371,10 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 PixelFormat = input.ContextFormat,
                 TimeBase = TimeBase,
                 FrameRate = FrameRate(rate.FramesPerSecond),
-                GopSize = EncoderSettings.GopSize(_configuration),
+                GopSize = EncoderSettings.GopSize(
+                    _configuration.KeyframeInterval,
+                    _rate.FramesPerSecond
+                ),
                 MaxBFrames = 0,
                 BitRate = rate.BitsPerSecond,
                 MaxRate = rate.BitsPerSecond,
@@ -438,7 +446,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         _prepareOpened.Reset();
         EncoderInput input = session.Input;
         VideoColor color = session.Color;
-        RateTarget rate = _configuration.Rate;
+        RateTarget rate = _rate;
         _ = ThreadPool.UnsafeQueueUserWorkItem(
             _ =>
             {
@@ -503,7 +511,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
             if (_preparedAgain is { } again)
             {
                 _preparedAgain = null;
-                if (WorthReopening(rate.BitsPerSecond, _configuration.Rate.BitsPerSecond))
+                if (WorthReopening(rate.BitsPerSecond, _rate.BitsPerSecond))
                 {
                     Prepare(session, again);
                 }

@@ -24,15 +24,14 @@ internal static class EncoderSettings
     // since receivers ask for keyframes when they need them.
     public const int NoKeyframeInterval = 600 * 60;
 
-    public static int GopSize(VideoEncoderConfiguration configuration)
+    public static int GopSize(TimeSpan keyframeInterval, double framesPerSecond)
     {
-        if (configuration.KeyframeInterval <= TimeSpan.Zero)
+        if (keyframeInterval <= TimeSpan.Zero)
         {
             return NoKeyframeInterval;
         }
 
-        double frames =
-            configuration.KeyframeInterval.TotalSeconds * configuration.Rate.FramesPerSecond;
+        double frames = keyframeInterval.TotalSeconds * framesPerSecond;
         return (int)Math.Clamp(Math.Round(frames), 1, NoKeyframeInterval);
     }
 
