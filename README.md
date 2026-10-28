@@ -148,10 +148,11 @@ with the role and the outcome.
 
 ## Build
 
-Needs the .NET 11 SDK pinned in `global.json`. Fetch the FFmpeg 9 natives for the platform first:
+Needs the .NET 11 SDK pinned in `global.json`. Fetch FFmpeg.Interop's FFmpeg build for the platform
+first, with the GitHub CLI signed in (or `-Build <FFmpeg.Interop>/artifacts/native` for a local build):
 
 ```bash
-./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or linux-x64 / linux-arm64 / osx-arm64
+./eng/fetch-ffmpeg.ps1 -Rids win-x64        # or win-arm64 / linux-x64 / linux-arm64 / osx-arm64 / osx-x64
 dotnet build StreamTransport.slnx -c Release
 dotnet test  StreamTransport.slnx -c Release --filter "TestCategory!=Integration"
 ```

@@ -72,6 +72,9 @@ virtual cameras on Windows.
 
 ## Native libraries
 
-The package carries the FFmpeg 9 shared libraries per runtime (`runtimes/<rid>/native`) and FFmpeg's
-licence text. Windows and Linux use BtbN's LGPL builds, pinned and verified by SHA-256. They include
-the hardware encoders and the LGPL software codecs. The GPL x264 and x265 are left out.
+The package carries the FFmpeg 9 shared libraries per runtime (`runtimes/<rid>/native`), each with its
+build's licence: FFmpeg.Interop's own build, from pinned upstream sources, for Windows, Linux and macOS
+on x64 and arm64. It has every hardware codec API the platform offers (D3D11VA, D3D12VA, Media
+Foundation, NVENC and NVDEC, AMF, QSV, VA-API, Vulkan Video, V4L2 M2M, Rockchip MPP, VideoToolbox), the
+LGPL software codecs, and FFmpeg's DMA-BUF synchronisation on Linux. It is LGPL 2.1, or LGPL 3 on
+linux-arm64 for Rockchip's MPP; the GPL x264 and x265 are left out.
