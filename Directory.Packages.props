@@ -17,9 +17,10 @@
     <PackageVersion Include="System.Numerics.Tensors" Version="11.0.0-rc.3.26522.148" />
     <!-- Hardware CRC-32 for STUN FINGERPRINT. -->
     <PackageVersion Include="System.IO.Hashing" Version="11.0.0-rc.3.26522.148" />
-    <PackageVersion Include="Dtls.Core" Version="0.1.0-alpha.1" />
-    <PackageVersion Include="FFmpeg.Interop" Version="0.1.0-alpha.1" />
-    <PackageVersion Include="Opus.Interop" Version="0.1.0-alpha.1" />
+    <PackageVersion Include="Dtls.Core" Version="0.1.0-dev1" />
+    <PackageVersion Include="FFmpeg.Interop" Version="0.2.0-dev1" />
+    <PackageVersion Include="FFmpeg.Interop.Native" Version="0.2.0-dev1" />
+    <PackageVersion Include="LibOpus.Interop" Version="0.1.0-dev3" />
     <PackageVersion Include="Microsoft.Windows.CsWin32" Version="0.3.367" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.5" />
     <PackageVersion Include="MinVer" Version="8.0.0" />
@@ -34,9 +35,9 @@
   <ItemGroup>
     <!-- Managed Opus. -->
     <!-- Platform GPU capture and sharing, for the platform packages. -->
-    <PackageVersion Include="Spout2.NET" Version="0.1.0-alpha.3" />
-    <PackageVersion Include="Syphon.NET" Version="0.1.0-alpha.7" />
-    <PackageVersion Include="PipeWire.NET.Media" Version="0.3.0-dev2" />
+    <PackageVersion Include="Spout2.NET" Version="0.2.0-dev1" />
+    <PackageVersion Include="Syphon.NET" Version="0.2.0-dev1" />
+    <PackageVersion Include="PipeWire.NET.Media" Version="0.4.0-dev1" />
     <PackageVersion Include="Vortice.Vulkan" Version="3.3.0" />
   </ItemGroup>
 </Project>
