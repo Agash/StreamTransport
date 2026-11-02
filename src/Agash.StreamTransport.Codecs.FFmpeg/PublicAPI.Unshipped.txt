@@ -42,7 +42,7 @@ Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.QueryCapabilities(
 Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.Rank.get -> int
 Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecFormat!>
 Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider
-Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.FFmpegVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.FFmpegVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.TimeProvider? timeProvider = null) -> void
 Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
 Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.Name.get -> string!
 Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>

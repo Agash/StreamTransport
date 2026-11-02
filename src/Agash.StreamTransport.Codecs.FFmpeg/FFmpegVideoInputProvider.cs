@@ -13,6 +13,7 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 /// the way to cameras that send only MJPEG, which it decodes. It ranks below the native providers.
 /// </summary>
 /// <param name="loggerFactory">Where inputs log.</param>
+/// <param name="timeProvider">The clock timing an open, or the system clock.</param>
 public sealed partial class FFmpegVideoInputProvider(
     ILoggerFactory? loggerFactory = null,
     TimeProvider? timeProvider = null
