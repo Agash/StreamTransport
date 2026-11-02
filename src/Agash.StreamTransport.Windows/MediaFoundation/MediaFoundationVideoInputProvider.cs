@@ -70,6 +70,12 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(
                     LogUnreadable(exception, name);
                     continue;
                 }
+                catch (UnauthorizedAccessException exception)
+                {
+                    // Windows' camera privacy settings refuse this application (E_ACCESSDENIED).
+                    LogAccessDenied(exception, name);
+                    continue;
+                }
 
                 if (modes.IsEmpty)
                 {
@@ -136,6 +142,13 @@ public sealed unsafe partial class MediaFoundationVideoInputProvider(
         "{Camera} sends no uncompressed format this provider delivers; it is not listed."
     )]
     private partial void LogNoModes(string camera);
+
+    [LoggerMessage(
+        2342,
+        LogLevel.Warning,
+        "Windows' camera privacy settings refuse this application access to {Camera}; it is not listed. Allow camera access for desktop apps (Settings, Privacy and security, Camera)."
+    )]
+    private partial void LogAccessDenied(Exception exception, string camera);
 }
 
 // Media Foundation set-up and the translations between its media types and the media model.
@@ -204,15 +217,44 @@ internal static unsafe class MediaFoundationPlatform
         }
     }
 
-    public static IMFSourceReader* Reader(IMFMediaSource* source)
+    // A reader of the source, which leaves the source to its owner to shut down. Without a device manager it reads the camera's own formats, with no
+    // converter behind them. With one it may insert Direct3D 11 transforms on the manager's device (the
+    // DXVA video processor, a hardware decoder), which hand out samples in textures on that device.
+    // With a callback the reader is asynchronous: each ReadSample is a request the callback answers, and a
+    // Flush cancels the one outstanding, which a blocking read of a camera that sends nothing cannot be.
+    public static IMFSourceReader* Reader(
+        IMFMediaSource* source,
+        IMFDXGIDeviceManager* gpu = null,
+        IUnknown* callback = null
+    )
     {
         IMFAttributes* attributes;
-        Win32.MFCreateAttributes(&attributes, 1).ThrowOnFailure();
+        Win32.MFCreateAttributes(&attributes, 5).ThrowOnFailure();
         try
         {
-            // The camera's own formats, with no converter inserted behind them.
-            Guid disableConverters = Win32.MF_READWRITE_DISABLE_CONVERTERS;
-            attributes->SetUINT32(&disableConverters, 1);
+            Guid keepSource = Win32.MF_SOURCE_READER_DISCONNECT_MEDIASOURCE_ON_SHUTDOWN;
+            attributes->SetUINT32(&keepSource, 1);
+            if (callback is not null)
+            {
+                Guid asynchronous = Win32.MF_SOURCE_READER_ASYNC_CALLBACK;
+                attributes->SetUnknown(&asynchronous, callback);
+            }
+
+            if (gpu is null)
+            {
+                Guid disableConverters = Win32.MF_READWRITE_DISABLE_CONVERTERS;
+                attributes->SetUINT32(&disableConverters, 1);
+            }
+            else
+            {
+                Guid manager = Win32.MF_SOURCE_READER_D3D_MANAGER;
+                Guid hardware = Win32.MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS;
+                Guid processing = Win32.MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING;
+                attributes->SetUnknown(&manager, (IUnknown*)gpu);
+                attributes->SetUINT32(&hardware, 1);
+                attributes->SetUINT32(&processing, 1);
+            }
+
             IMFSourceReader* reader;
             Win32.MFCreateSourceReaderFromMediaSource(source, attributes, &reader).ThrowOnFailure();
             return reader;
