@@ -37,7 +37,8 @@ internal sealed record BackendSpec(
     int MacRank
 )
 {
-    public bool IsHardware => DeviceType is not null || Backend == EncoderBackend.MediaFoundation;
+    public bool IsHardware =>
+        DeviceType is not null || Backend is EncoderBackend.MediaFoundation or EncoderBackend.Rkmpp;
 
     // The GPU storages the backend takes.
     public ImmutableArray<VideoStorageKind> GpuStorages => [.. GpuInputs.Select(StorageOf)];
@@ -184,6 +185,17 @@ internal static class BackendCatalog
             WindowsRank: 0,
             LinuxRank: 0,
             MacRank: 100
+        ),
+        // Rockchip's VPU on RK3588-class boards, the only place it opens. Fed NV12 in memory; DRM PRIME
+        // frames from the camera without a copy are StreamTransport #16.
+        new(
+            EncoderBackend.Rkmpp,
+            [(VideoCodecId.H264, "h264_rkmpp"), (VideoCodecId.H265, "hevc_rkmpp")],
+            DeviceType: null,
+            [],
+            WindowsRank: 0,
+            LinuxRank: 95,
+            MacRank: 0
         ),
         new(
             EncoderBackend.MediaFoundation,

@@ -31,6 +31,9 @@ public enum EncoderBackend
     /// <summary>Media Foundation transforms (Windows), fed system memory.</summary>
     MediaFoundation,
 
+    /// <summary>Rockchip MPP (RK3588-class boards, linux-arm64), fed system memory.</summary>
+    Rkmpp,
+
     /// <summary>Software encoders (kvazaar, OpenH264, SVT-AV1), fed system memory.</summary>
     Software,
 }
