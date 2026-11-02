@@ -14,8 +14,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The macOS package targets net11.0-macos, which only a Mac with the workload can build.
+  macos-package:
+    runs-on: xcode-27
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+          dotnet-quality: preview
+
+      - name: Select Xcode 27.0
+        run: echo "DEVELOPER_DIR=/Applications/Xcode_27.0.app/Contents/Developer" >> "$GITHUB_ENV"
+
+      - name: Install macos workload
+        run: dotnet workload install macos
+
+      - name: Pack
+        run: dotnet pack src/Agash.StreamTransport.MacOS/Agash.StreamTransport.MacOS.csproj -c Release -o artifacts/macos
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-package
+          path: artifacts/macos/Agash.StreamTransport.MacOS.*.nupkg
+          if-no-files-found: error
+
   # ---- NuGet packages via OIDC trusted publishing (no stored API key) ----
   nuget:
+    needs: macos-package
     runs-on: ubuntu-latest
     # Declaring an environment is what makes GitHub record a deployment, which is what
     # surfaces the Deployments tab and the package link on the repo home page.
@@ -38,6 +67,15 @@ jobs:
       # Packs every IsPackable project in the solution; tests, samples and tools opt out.
       - name: Pack
         run: dotnet pack StreamTransport.slnx -c Release -o artifacts
+
+      # Packed here it would hold the net11.0 stub; the Mac's replaces it.
+      - name: Take the macOS package
+        run: rm -f artifacts/Agash.StreamTransport.MacOS.*.nupkg
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-package
+          path: artifacts
 
       - name: Verify the FFmpeg package brings FFmpeg
         shell: bash
