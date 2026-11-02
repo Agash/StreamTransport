@@ -51,7 +51,9 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
 
             VideoStorageKind? onGpu =
                 output.Storages.Contains(VideoStorageKind.D3D12) ? VideoStorageKind.D3D12
-                : output.Storages.Contains(VideoStorageKind.D3D11) && output.Device is not null
+                : output.Storages.Contains(VideoStorageKind.D3D11)
+                && output.Device is { } target
+                && D3D11Bridge.IsAvailable(target)
                     ? VideoStorageKind.D3D11
                 : null;
             if (
@@ -79,7 +81,9 @@ public sealed class D3D12VideoProcessorFactory : IVideoProcessorFactory
         // fed by a GPU source).
         VideoStorageKind? result =
             output.Storages.Contains(VideoStorageKind.D3D12) ? VideoStorageKind.D3D12
-            : output.Storages.Contains(VideoStorageKind.D3D11) && input.Device is not null
+            : output.Storages.Contains(VideoStorageKind.D3D11)
+            && input.Device is { } device
+            && D3D11Bridge.IsAvailable(device)
                 ? VideoStorageKind.D3D11
             : output.Storages.Contains(VideoStorageKind.Cpu) ? VideoStorageKind.Cpu
             : null;

@@ -19,6 +19,7 @@ public sealed class D3D11BridgeTests
         var format = nv12 ? DXGI_FORMAT.DXGI_FORMAT_NV12 : DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM;
         using var gpu = TestGpu.Open();
         using var engine = new D3D12Engine(gpu.Device);
+        RequireBridge(engine.Adapter);
         var bridge = D3D11Bridge.For(engine.Adapter);
         nint texture = engine.CreateTexture(
             format,
@@ -49,6 +50,7 @@ public sealed class D3D11BridgeTests
         const int width = 64;
         const int height = 32;
         using var gpu = TestGpu.Open();
+        RequireBridge(gpu.Adapter);
         byte[] pixels = new byte[width * height * 4];
         pixels.AsSpan().Fill(128);
         nint source = gpu.Upload(DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM, width, height, pixels);
@@ -100,6 +102,15 @@ public sealed class D3D11BridgeTests
         }
 
         copy.Dispose();
+    }
+
+    // A runner's software adapter has no Direct3D 11 video device to share into.
+    private static void RequireBridge(GpuIdentity adapter)
+    {
+        if (!D3D11Bridge.IsAvailable(adapter))
+        {
+            Assert.Inconclusive($"{adapter} has no Direct3D 11 video device.");
+        }
     }
 
     // Takes each frame as D3D11Input does for a fenced texture: a GPU-ordered copy into its own pool.

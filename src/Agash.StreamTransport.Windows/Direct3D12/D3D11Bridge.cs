@@ -60,7 +60,7 @@ internal sealed unsafe class D3D11Bridge
         {
             // Video support: FFmpeg's Direct3D 11 device needs the video device and context.
             D3D_FEATURE_LEVEL level = D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_1;
-            Win32.D3D11CreateDevice(
+            HRESULT created = Win32.D3D11CreateDevice(
                 found,
                 D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_UNKNOWN,
                 HMODULE.Null,
@@ -73,6 +73,14 @@ internal sealed unsafe class D3D11Bridge
                 null,
                 &context
             );
+
+            // An adapter without video support (a software renderer) cannot serve FFmpeg's device.
+            if (created.Failed)
+            {
+                throw new NotSupportedException(
+                    $"{adapter} has no Direct3D 11.1 device with video support (0x{created.Value:X8})."
+                );
+            }
         }
         finally
         {
@@ -121,6 +129,23 @@ internal sealed unsafe class D3D11Bridge
                 adapter
             )
             .Value;
+
+    /// <summary>Whether an adapter has the device a bridge needs; asked once per adapter.</summary>
+    /// <param name="adapter">The adapter, by its DXGI LUID.</param>
+    /// <returns>Whether <see cref="For"/> succeeds for it.</returns>
+    public static bool IsAvailable(Media.GpuIdentity adapter)
+    {
+        try
+        {
+            _ = For(adapter);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            // Deliberately not logged: the answer is the outcome, and callers fall back to another path.
+            return false;
+        }
+    }
 
     /// <summary>Opens a Direct3D 12 texture made with <c>D3D12_HEAP_FLAG_SHARED</c> on this device.</summary>
     /// <param name="device">The ID3D12Device it was made on.</param>
