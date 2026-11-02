@@ -40,6 +40,12 @@ internal sealed record CommandLine(
 {
     public bool Insecure { get; init; }
 
+    /// <summary>A WHIP endpoint to publish to or a WHEP endpoint to play, in place of a relay room.</summary>
+    public Uri? HttpEndpoint { get; init; }
+
+    /// <summary>The bearer token for <see cref="HttpEndpoint"/>, or null.</summary>
+    public string? Token { get; init; }
+
     /// <summary>The most the congestion controller may send, in bits per second; its default when null.</summary>
     public long? MaxBitrate { get; init; }
 
@@ -57,6 +63,9 @@ internal sealed record CommandLine(
                                                 video from an input straight to an output, such as
                                                 feed test v4l2:/dev/video42 for a webcam showing the test signal
         streamtransport publish|subscribe --relay <ws-url> --room <name> [options]
+        streamtransport publish --whip <url> | subscribe --whep <url> [--token <token>] [options]
+                                                the same against a WHIP or WHEP endpoint; the token may
+                                                come from STREAMTRANSPORT_TOKEN
 
           --video <spec>     an input when publishing, an output when subscribing:
                              provider[:name]  such as spout, syphon, pipewire, v4l2, test
@@ -233,11 +242,12 @@ internal sealed record CommandLine(
                 : null,
             PixelFormat = PixelFormatOption(named),
         };
+        string http = args[0] == "publish" ? "whip" : "whep";
         return new CommandLine(
             false,
             args[0] == "publish",
-            new Uri(Value(named, "relay") ?? throw new FormatException("--relay is required.")),
-            Value(named, "room") ?? throw new FormatException("--room is required."),
+            new Uri(Value(named, http) ?? Value(named, "relay") ?? throw new FormatException("--relay is required.")),
+            Value(named, http) is not null ? string.Empty : Value(named, "room") ?? throw new FormatException("--room is required."),
             Value(named, "video") is "none" ? null : Value(named, "video") ?? Default(),
             Choice(named, "audio") is "none" ? null : Choice(named, "audio") ?? "default",
             session,
@@ -248,6 +258,8 @@ internal sealed record CommandLine(
         )
         {
             Insecure = named.ContainsKey("insecure"),
+            HttpEndpoint = Value(named, http) is { } endpoint ? new Uri(endpoint) : null,
+            Token = Value(named, "token") ?? Environment.GetEnvironmentVariable("STREAMTRANSPORT_TOKEN"),
             MaxBitrate = Value(named, "max-bitrate") is { } kbps
                 ? long.Parse(kbps, CultureInfo.InvariantCulture) * 1000
                 : null,

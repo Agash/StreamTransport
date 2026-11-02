@@ -3,6 +3,7 @@ using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
 using Agash.StreamTransport.Linux;
+using Agash.StreamTransport.Http;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Signaling;
 using Agash.StreamTransport.TestSignal;
@@ -183,6 +184,22 @@ static async Task<int> RunAsync(CommandLine command)
         loggers,
         stop.Token
     );
+    if (command.HttpEndpoint is { } endpoint)
+    {
+        HttpSignalingOptions signaling = new()
+        {
+            BearerToken = command.Token,
+            AllowInsecureHttp = command.Insecure,
+        };
+        await using HttpMediaSession media = command.Publish
+            ? await WhipClient.PublishAsync(
+                sessions, endpoint, endpoints.Media, command.Session, signaling, log, stop.Token)
+            : await WhepClient.PlayAsync(
+                sessions, endpoint, endpoints.Media, command.Session, signaling, log, stop.Token);
+        await ReportAsync(() => [media.Session], log, stop.Token, endpoints.Analyzer);
+        return 0;
+    }
+
     PeerRole role = command.Publish ? PeerRole.Publisher : PeerRole.Subscriber;
     await using RoomClient room = await RoomClient.ConnectAsync(
         command.Relay,
