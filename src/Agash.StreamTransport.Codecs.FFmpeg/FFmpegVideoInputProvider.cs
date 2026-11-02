@@ -13,10 +13,18 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 /// the way to cameras that send only MJPEG, which it decodes. It ranks below the native providers.
 /// </summary>
 /// <param name="loggerFactory">Where inputs log.</param>
-public sealed partial class FFmpegVideoInputProvider(ILoggerFactory? loggerFactory = null)
+public sealed partial class FFmpegVideoInputProvider(
+    ILoggerFactory? loggerFactory = null,
+    TimeProvider? timeProvider = null
+)
     : IVideoInputProvider
 {
+    // A device that is listed but delivers nothing holds the first read for good, and DirectShow's read
+    // waits without checking FFmpeg's interrupt callback, so the wait has to give up from outside.
+    private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(10);
+
     private readonly ILoggerFactory _loggers = loggerFactory ?? NullLoggerFactory.Instance;
+    private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
 
     /// <inheritdoc/>
     public string Name => "ffmpeg";
@@ -58,7 +66,7 @@ public sealed partial class FFmpegVideoInputProvider(ILoggerFactory? loggerFacto
     }
 
     /// <inheritdoc/>
-    public ValueTask<IVideoInput> OpenAsync(
+    public async ValueTask<IVideoInput> OpenAsync(
         VideoInputInfo input,
         VideoInputRequest request,
         CancellationToken cancellationToken
@@ -78,17 +86,46 @@ public sealed partial class FFmpegVideoInputProvider(ILoggerFactory? loggerFacto
         }
 
         string device = DeviceFormat == "dshow" ? $"video={input.Id}" : input.Id;
+        Task<FF.MediaReader> opening = Task.Run(
+            () => FF.MediaReader.OpenDevice(DeviceFormat, device, options),
+            CancellationToken.None
+        );
         FF.MediaReader reader;
         try
         {
-            reader = FF.MediaReader.OpenDevice(DeviceFormat, device, options);
+            reader = await opening
+                .WaitAsync(OpenTimeout, _time, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (FF.FFmpegException exception)
         {
             throw new IOException($"FFmpeg could not open {input.Name}.", exception);
         }
+        catch (Exception exception)
+            when (exception is TimeoutException or OperationCanceledException)
+        {
+            // The open cannot be stopped; whatever it produces later is released here.
+            _ = opening.ContinueWith(
+                static finished =>
+                {
+                    if (finished.IsCompletedSuccessfully)
+                    {
+                        finished.Result.Dispose();
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default
+            );
+            if (exception is TimeoutException)
+            {
+                throw new IOException($"{input.Name} delivered nothing.", exception);
+            }
 
-        return ValueTask.FromResult<IVideoInput>(new FFmpegVideoInput(input, reader, _loggers));
+            throw;
+        }
+
+        return new FFmpegVideoInput(input, reader, _loggers);
     }
 }
 
