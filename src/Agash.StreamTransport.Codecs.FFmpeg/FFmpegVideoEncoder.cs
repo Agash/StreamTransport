@@ -47,6 +47,9 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
 
     // Why the encoder reopens on the next frame (rate, frame_rate); null when it does not.
     private string? _reopen;
+
+    // The frame rate the running encoder was opened with.
+    private double _openedFramesPerSecond;
     private readonly FFmpegCodecMetrics? _metrics;
     private readonly TimeProvider _time;
     private bool _keyframePending;
@@ -210,7 +213,6 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            double openedFrames = _rate.FramesPerSecond;
             _rate = target;
             if (_session is not { } session)
             {
@@ -226,12 +228,17 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
                 _risingSince = long.MinValue;
             }
 
-            // Frame rate is set when an encoder opens; a source that changed pace reopens it.
+            // Frame rate is set when an encoder opens; a source that changed pace reopens it. A keyframe
+            // itself disturbs the pace measured, so as for a rate, only once its effect has passed.
             if (
-                target.FramesPerSecond < openedFrames * 0.8
-                || target.FramesPerSecond > openedFrames * 1.2
+                (
+                    target.FramesPerSecond < _openedFramesPerSecond * 0.8
+                    || target.FramesPerSecond > _openedFramesPerSecond * 1.2
+                )
+                && SinceKeyframedRateChange >= KeyframeSettle(target.FramesPerSecond)
             )
             {
+                _keyframedRateChange = _time.GetTimestamp();
                 LogRateReopen(_logger, Info.ImplementationName, target.BitsPerSecond);
                 Prepare(session, "frame_rate");
             }
@@ -453,6 +460,7 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
     // while another encodes.
     private FF.Encoder CreateEncoder(EncoderInput input, RateTarget rate, VideoColor color)
     {
+        _openedFramesPerSecond = rate.FramesPerSecond;
         VideoSize size = _configuration.Size;
         return FF.Encoder.Create(
             _codec,

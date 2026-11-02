@@ -257,6 +257,44 @@ public sealed class EncoderTests
         );
     }
 
+    // A frame rate measured right after a keyframe wobbles, and a reopen is a keyframe of its own: the
+    // pace is followed once and then left to settle, or the wobble feeds itself.
+    [TestMethod]
+    [DynamicData(nameof(Cases))]
+    public void Reconfigure_FrameRateWobbles_ReopensOnce(EncoderBackend backend, VideoCodecId codec)
+    {
+        FFmpegVideoEncoderFactory factory = new(backend);
+        VideoEncoderInfo info = Available(factory, codec);
+        PixelFormat format = info.Input.PixelFormats[0];
+        if (
+            info.RateChange != RateChange.Reopen
+            || format is not (PixelFormat.Nv12 or PixelFormat.I420)
+        )
+        {
+            Assert.Inconclusive(
+                $"{info.ImplementationName} changes its rate in place or takes {format}."
+            );
+        }
+
+        const int frames = 60;
+        using IVideoEncoder encoder = factory.Create(Configuration(codec, 2_000_000), device: null);
+        Collector collector = new();
+        for (int i = 0; i < frames; i++)
+        {
+            if (i is 20 or 30 or 40)
+            {
+                encoder.Reconfigure(new RateTarget(2_000_000, i == 30 ? 30 : 15));
+                ((FFmpegVideoEncoder)encoder).WaitForPrepared();
+            }
+
+            VideoFrame frame = Pictures.CpuFrame(format, Pictures.Make(format, i), i);
+            encoder.Encode(in frame, default, collector);
+        }
+
+        encoder.Flush(collector);
+        Assert.AreEqual(2, collector.Units.Count(static u => u.Keyframe));
+    }
+
     // Congestion control moves the rate every few frames, down and back up; every step must be taken
     // without an error from the encoder.
     [TestMethod]
