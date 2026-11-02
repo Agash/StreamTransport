@@ -6,6 +6,8 @@ Agash.StreamTransport.AspNetCore.HttpMediaSetup.<Clone>$() -> Agash.StreamTransp
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Deconstruct(out Agash.StreamTransport.MediaEndpoints! Endpoints, out Agash.StreamTransport.MediaSessionOptions! Options) -> void
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Ended.get -> System.Func<System.Threading.Tasks.ValueTask>?
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Ended.init -> void
+Agash.StreamTransport.AspNetCore.HttpMediaSetup.Started.get -> System.Action<Agash.StreamTransport.IMediaSession!>?
+Agash.StreamTransport.AspNetCore.HttpMediaSetup.Started.init -> void
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Endpoints.get -> Agash.StreamTransport.MediaEndpoints!
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Endpoints.init -> void
 Agash.StreamTransport.AspNetCore.HttpMediaSetup.Equals(Agash.StreamTransport.AspNetCore.HttpMediaSetup? other) -> bool

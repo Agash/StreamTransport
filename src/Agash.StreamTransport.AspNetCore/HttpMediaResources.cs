@@ -61,6 +61,7 @@ internal sealed partial class HttpMediaResources(ILogger<HttpMediaResources>? lo
         Resource resource = new(session, channel, offer, id, setup.Ended);
         try
         {
+            setup.Started?.Invoke(session);
             await session.StartAsync(cancellationToken).ConfigureAwait(false);
             string answer = await channel
                 .AnswerAsync(offer, AnswerLimit, cancellationToken)

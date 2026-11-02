@@ -102,6 +102,7 @@ public sealed class HttpMediaTests
         using MeterRecorder meters = new();
         int measuredFrom = 0;
         int ended = 0;
+        IMediaSession? started = null;
         TaskCompletionSource endedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
         await using WebApplication app = await StartAsync(
             web =>
@@ -119,6 +120,7 @@ public sealed class HttpMediaTests
                                     Loopback()
                                 )
                                 {
+                                    Started = session => started = session,
                                     Ended = () =>
                                     {
                                         Interlocked.Increment(ref ended);
@@ -214,6 +216,7 @@ public sealed class HttpMediaTests
             Math.Abs(monitored - measured.MeanOffset.TotalMilliseconds),
             $"session {monitored:0.0} ms, test signal {measured}"
         );
+        Assert.IsNotNull(started, "the handler is told the session");
         Assert.AreEqual(1, Volatile.Read(ref ended), "the DELETE ended the server's session");
     }
 

@@ -23,6 +23,9 @@ namespace Agash.StreamTransport.AspNetCore;
 /// <param name="Options">How the session is set up.</param>
 public sealed record HttpMediaSetup(MediaEndpoints Endpoints, MediaSessionOptions Options)
 {
+    /// <summary>Called once with the session made for the offer, before it starts.</summary>
+    public Action<IMediaSession>? Started { get; init; }
+
     /// <summary>Called once when the session ends, by the client's DELETE, a failure or shutdown.</summary>
     public Func<ValueTask>? Ended { get; init; }
 }
