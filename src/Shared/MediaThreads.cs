@@ -22,15 +22,19 @@ internal static partial class MediaThreads
     /// </summary>
     public static void Raise()
     {
-        Thread.CurrentThread.Priority = ThreadPriority.Highest;
         if (OperatingSystem.IsMacOS())
         {
+            // Alone: a thread whose priority was set any other way can no longer take a QoS class.
             _ = pthread_set_qos_class_self_np(QosUserInteractive, 0);
         }
         else if (OperatingSystem.IsLinux())
         {
             // With no target, setpriority takes the calling thread on Linux, not its process.
             _ = setpriority(PriorityProcess, 0, RaisedNice);
+        }
+        else
+        {
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
         }
     }
 
