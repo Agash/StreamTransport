@@ -7,7 +7,7 @@ namespace Agash.StreamTransport.Codecs.FFmpeg.Tests;
 
 internal static class Natives
 {
-    // The FFmpeg 9 shared libraries eng/fetch-ffmpeg.ps1 puts under native/ffmpeg/<rid>. Set when the
+    // An FFmpeg build eng/fetch-ffmpeg.ps1 put under native/ffmpeg/<rid>, in place of the packaged one. Set when the
     // assembly loads, before discovery: test rows are made from the backends FFmpeg has, which loads it.
     [ModuleInitializer]
     public static void Load()

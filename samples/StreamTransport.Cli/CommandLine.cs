@@ -80,7 +80,8 @@ internal sealed record CommandLine(
           --codec <name>     h264 | h265 | av1   the one video codec to offer
           --turn <url>       a turn: or turns: URL, used with --turn-user and --turn-password
           --ice-policy <p>   all | relay   relay sends only through TURN
-          --ffmpeg <dir>     FFmpeg's shared libraries; defaults to the repository's native/ffmpeg/<rid>
+          --ffmpeg <dir>     FFmpeg's shared libraries in place of the packaged ones; defaults to
+                     native/ffmpeg/<rid> when eng/fetch-ffmpeg.ps1 put a build there
           --insecure         allow a plain ws:// relay on another host (a test network only)
           --verbose          log at debug level
 
@@ -254,7 +255,7 @@ internal sealed record CommandLine(
         };
     }
 
-    // The FFmpeg build eng/fetch-ffmpeg.ps1 puts beside a checkout, when the sample runs from one.
+    // An FFmpeg build eng/fetch-ffmpeg.ps1 put beside a checkout, in place of the packaged one.
     internal static string? RepositoryFFmpeg()
     {
         for (
