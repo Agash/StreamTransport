@@ -38,10 +38,10 @@ jobs:
           dotnet-quality: preview
 
       # FFmpeg.Interop's FFmpeg links the system's libva and libva-drm, which a bare runner lacks; device
-      # initialisation still fails cleanly without a GPU.
-      - name: Install libva (Linux)
+      # initialisation still fails cleanly without a GPU. lavapipe runs the Vulkan processor's code.
+      - name: Install libva and a software Vulkan driver (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libva2 libva-drm2
+        run: sudo apt-get update && sudo apt-get install -y libva2 libva-drm2 libvulkan1 mesa-vulkan-drivers
 
       # The macOS package targets net11.0-macos, which needs the macos workload.
       # The macOS packs require Xcode 27.0 exactly, and the image's default Xcode moves with image
