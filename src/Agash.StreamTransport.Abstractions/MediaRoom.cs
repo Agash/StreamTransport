@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Agash.StreamTransport;
 
 /// <summary>
@@ -7,9 +9,8 @@ namespace Agash.StreamTransport;
 /// same publisher / subscriber orchestration runs over it.
 /// </summary>
 /// <remarks>
-/// For pure point-to-point with no rendezvous at all, skip this entirely and drive an
-/// <see cref="IMediaTransport"/> sender/receiver directly with your own <see cref="ISignalingChannel"/> -
-/// the room is a convenience for the multi-peer case, not a requirement of the transport.
+/// Point-to-point needs no room: a media session runs over any <see cref="ISignalingChannel"/>. Rooms
+/// serve the multi-peer case.
 /// </remarks>
 public interface IMediaRoom : IAsyncDisposable
 {
@@ -17,10 +18,10 @@ public interface IMediaRoom : IAsyncDisposable
     PeerId Self { get; }
 
     /// <summary>The other peers currently present, kept live as peers join and leave.</summary>
-    IReadOnlyList<PeerInfo> Peers { get; }
+    ImmutableArray<PeerInfo> Peers { get; }
 
     /// <summary>The ICE servers to use for connections in this room (STUN, plus any TURN with credentials).</summary>
-    IReadOnlyList<IceServer> IceServers { get; }
+    ImmutableArray<IceServer> IceServers { get; }
 
     /// <summary>Raised when another peer joins.</summary>
     event Action<PeerInfo>? PeerJoined;

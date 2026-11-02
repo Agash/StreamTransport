@@ -1,5 +1,8 @@
+using System.Collections.Immutable;
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.WebSockets;
+using System.Runtime.InteropServices;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Signaling;
 using Agash.StreamTransport.Stun;
@@ -30,16 +33,20 @@ IIceServerProvider iceProvider = BuildIceProvider(stunUrl);
 
 builder.Services.AddSingleton(iceProvider);
 builder.Services.AddSingleton<ISignalingRouter>(sp => new SignalingRouter(
-    sp.GetRequiredService<IIceServerProvider>()
+    sp.GetRequiredService<IIceServerProvider>(),
+    sp.GetService<ILoggerFactory>(),
+    sp.GetService<IMeterFactory>()
 ));
 if (!stunDisabled)
 {
-    builder.Services.AddSingleton(_ => new StunBindingServer(
-        new IPEndPoint(IPAddress.Any, stunPort)
+    builder.Services.AddSingleton(sp => new StunBindingServer(
+        StunBindingServer.AnyAddress(stunPort),
+        sp.GetService<ILogger<StunBindingServer>>(),
+        sp.GetService<IMeterFactory>()
     ));
 }
 
-string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://0.0.0.0:8080";
+string urls = Env("STREAMTRANSPORT_RELAY_URLS") ?? "http://[::]:8080";
 builder.WebHost.UseUrls(urls);
 
 WebApplication app = builder.Build();
@@ -79,7 +86,10 @@ app.Map(
 
         ILogger logger = loggerFactory.CreateLogger("Signaling");
         using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync();
-        var transport = new WebSocketSignalingTransport(socket);
+        var transport = new WebSocketSignalingTransport(
+            socket,
+            logger: loggerFactory.CreateLogger<WebSocketSignalingTransport>()
+        );
         await using ISignalingSession session = router.Connect(transport);
         transport.MessageReceived += message => session.ReceiveAsync(message).AsTask();
 
@@ -118,9 +128,8 @@ static IIceServerProvider BuildIceProvider(string stunUrl)
     }
 
     // Bring-your-own external coturn: advertise STUN + TURN with ephemeral credentials.
-    string[] urls = turnUrls.Split(
-        ',',
-        StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+    ImmutableArray<string> urls = ImmutableCollectionsMarshal.AsImmutableArray(
+        turnUrls.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
     );
     return new CoturnSharedSecretIceServerProvider([stunUrl], urls, turnSecret);
 }

@@ -1,136 +1,227 @@
+using Agash.StreamTransport.Media;
+
 namespace Agash.StreamTransport.Sync;
 
+/// <summary>Which of a session's streams a frame belongs to, for playout.</summary>
+internal enum PlayoutStream
+{
+    Audio,
+    Video,
+}
+
 /// <summary>
-/// The pure scheduling math behind the playout scheduler, separated from threading so it is
-/// deterministically unit-testable. It maps a frame's <b>sender wall-clock capture time</b> (from
-/// <see cref="RtpClockAligner"/>) to a <b>local release time</b>: <c>release = senderWall + clockOffset +
-/// targetDelay</c>.
-///
-/// <para><b>clockOffset</b> estimates (local clock − sender clock) as a <i>leaky minimum</i> of the observed
-/// <c>(localNow − senderWall)</c> over every scheduled frame of <i>both</i> streams (the libwebrtc
-/// <c>RemoteNtpTimeEstimator</c> approach). The minimum is the lowest-latency path - the best estimate of the
-/// true offset - and taking it across both streams keeps audio and video on one shared offset so frames
-/// captured at the same instant release together (lip-sync). A pure minimum is robust to what a UDP/realtime
-/// transport actually does - cold-start transients, jitter spikes, dropped frames never lower it - so no
-/// single or missing frame can skew the session. A slow upward leak follows real inter-machine clock drift.</para>
-///
-/// <para><b>targetDelay</b> is the jitter-buffer depth, and it <i>adapts</i> rather than being fixed (the
-/// libwebrtc <c>JitterEstimator</c> idea). Each frame's delay above the best path - <c>(localNow − senderWall)
-/// − clockOffset</c> - is the network jitter for that frame; the buffer is sized to a <i>leaky maximum</i> of
-/// that jitter (rises to spikes at once, decays slowly as the link calms) plus a decode/render margin, clamped
-/// to [min, max]. So on a clean link the delay shrinks toward the floor (low latency) and on a jittery
-/// cellular link it grows to avoid underruns. Because the depth covers the worst (video) stream's jitter, the
-/// slower stream still makes its slot; an arrived-late frame presents immediately and never corrupts the
-/// estimate, so timing recovers on its own.</para>
+/// The scheduling arithmetic of synced playout, apart from threading so tests drive it directly. A frame
+/// captured at a sender instant is released at <c>capture + offset + delay</c> on the local media clock.
 /// </summary>
+/// <remarks>
+/// <para>Each stream keeps its own base delay: a leaky minimum of <c>arrival - capture</c>, its fastest path,
+/// as libwebrtc's remote NTP time estimator keeps it, rising only as fast as real drift between the machines'
+/// clocks. The offset is the smaller base, so the faster stream (usually audio, which skips the video
+/// encoder) sets the timeline, and the other stream's base above it is its systematic path delay: what
+/// lip sync must hold the faster stream back by, which is not jitter.</para>
+/// <para>Each stream's jitter is the 95th percentile of its delay above its base over the last two seconds.
+/// The first 30 frames of a stream are its startup, when encoders open and keyframes burst, and do not
+/// count; samples more than 15 deviations from the median are clamped to that bound, as libwebrtc's jitter
+/// estimator rejects delay outliers. The target delay covers the slower stream: the largest of each
+/// stream's base above the offset plus its jitter, plus a margin, within the configured bounds.</para>
+/// <para>A stream in its startup does not size the buffer: its first frames play on arrival when late,
+/// and only once it is past its startup does it count toward the target. Its base still settles meanwhile,
+/// so the encoder's slow first frames do not leave the buffer long.</para>
+/// <para>The delay moves toward the target by at most 100 ms each second, as libwebrtc's video timing does
+/// (larger steps show as freezes; smaller ones as a brief slow or fast motion). A frame that arrives after
+/// its slot raises the delay at once by how late it is, up to the target, and plays immediately.</para>
+/// </remarks>
 internal sealed class PlayoutTimeline
 {
-    // Maximum upward drift of the offset estimate, as a fraction of elapsed time (~200 ppm) - above real
-    // inter-machine crystal drift yet far below per-frame jitter, so it tracks drift without chasing noise.
-    private const double MaxDriftPpm = 200.0;
+    // How far a base may drift upward, as a fraction of elapsed time: above real crystal drift between
+    // machines, far below per-frame jitter.
+    private const double MaxDriftPerSecond = 200e-6;
 
-    // How fast the jitter estimate decays when no new spike arrives, in ns of estimate shed per second. ~40 ms/s
-    // lets a transient spike bleed off over a few seconds so the buffer (and latency) returns to the link floor.
-    private const long JitterDecayNsPerSec = 40_000_000;
+    private const long MaxChangePerSecond = 100_000_000;
 
-    private readonly long _minDelayNs;
-    private readonly long _maxDelayNs;
-    private readonly long _marginNs;
+    private readonly long _ownMinDelay;
+    private readonly long _ownMaxDelay;
+    private readonly long _margin;
+    private long _minDelay;
+    private long _maxDelay;
+    private readonly StreamState[] _streams = [new(), new()];
+    private long _delay;
+    private bool _delaySet;
+    private MediaTime _lastUpdate;
 
-    private long _jitterNs;
-    private long _lastUpdateLocalNs;
-
-    // Asymmetric GPU-sync arrival tracking: an EWMA of (localNow - senderWall) over video frames that present on
-    // arrival. Audio is released at senderWall + this, so it lands on video's *typical* arrival - video jitter
-    // then spreads symmetrically around the audio (centred at 0), rather than the min/max jitter-buffer model
-    // (which is for held streams and would park audio behind a deep buffer the on-arrival video never paid).
-    private bool _arrivalAnchored;
-
-    /// <summary>True once at least one frame has established the estimates.</summary>
-    public bool IsAnchored { get; private set; }
-
-    /// <summary>The current local↔sender clock-offset estimate (local − sender), in nanoseconds.</summary>
-    public long ClockOffsetNs { get; private set; }
-
-    /// <param name="minDelayNs">Floor on the buffer depth (decode + render headroom), e.g. 40 ms.</param>
-    /// <param name="maxDelayNs">Cap on the buffer depth, bounding worst-case latency, e.g. 500 ms.</param>
-    /// <param name="marginNs">Headroom added above the measured jitter, e.g. 20 ms.</param>
-    public PlayoutTimeline(long minDelayNs, long maxDelayNs, long marginNs)
+    /// <summary>A timeline with buffer bounds.</summary>
+    /// <param name="minDelay">The shortest buffer: decode and render headroom.</param>
+    /// <param name="maxDelay">The longest buffer, bounding latency.</param>
+    /// <param name="margin">Headroom above the measured jitter.</param>
+    public PlayoutTimeline(TimeSpan minDelay, TimeSpan maxDelay, TimeSpan margin)
     {
-        _minDelayNs = minDelayNs;
-        _maxDelayNs = maxDelayNs;
-        _marginNs = marginNs;
+        _minDelay = _ownMinDelay = MediaTime.FromTimeSpan(minDelay).Nanoseconds;
+        _maxDelay = _ownMaxDelay = MediaTime.FromTimeSpan(maxDelay).Nanoseconds;
+        _margin = MediaTime.FromTimeSpan(margin).Nanoseconds;
     }
 
-    /// <summary>The current adaptive target buffer depth, in nanoseconds.</summary>
-    public long CurrentDelayNs => Math.Clamp(_jitterNs + _marginNs, _minDelayNs, _maxDelayNs);
-
-    /// <summary>The asymmetric-sync arrival-offset EWMA (local − sender over on-arrival video), in ns; for sync diagnostics.</summary>
-    public long ArrivalOffsetNs { get; private set; }
+    /// <summary>The buffer's bounds now: this side's own, or a sender's within this side's maximum.</summary>
+    public (TimeSpan Minimum, TimeSpan Maximum) Bounds =>
+        (new MediaTime(_minDelay).ToTimeSpan(), new MediaTime(_maxDelay).ToTimeSpan());
 
     /// <summary>
-    /// Compute the local release time for a frame captured at <paramref name="senderWallNs"/>, given the local
-    /// clock reading <paramref name="localNowNs"/> at enqueue, updating the clock-offset and jitter estimates.
+    /// Takes a sender's bounds for the buffer (the playout-delay extension), never past this side's own
+    /// maximum, which bounds the latency it accepts.
     /// </summary>
-    public long ReleaseLocalNs(long senderWallNs, long localNowNs)
+    /// <param name="minimum">The least delay the sender asks for.</param>
+    /// <param name="maximum">The most.</param>
+    public void Bound(TimeSpan minimum, TimeSpan maximum)
     {
-        long raw = localNowNs - senderWallNs;
-        if (!IsAnchored)
+        long min = Math.Clamp(MediaTime.FromTimeSpan(minimum).Nanoseconds, 0, _ownMaxDelay);
+        _minDelay = min;
+        _maxDelay = Math.Clamp(MediaTime.FromTimeSpan(maximum).Nanoseconds, min, _ownMaxDelay);
+    }
+
+    /// <summary>Whether a frame has set the estimates.</summary>
+    public bool IsAnchored => _streams[0].Seen || _streams[1].Seen;
+
+    /// <summary>The playout buffer depth now.</summary>
+    public TimeSpan CurrentDelay => new MediaTime(_delay).ToTimeSpan();
+
+    /// <summary>The delay the buffer is moving toward.</summary>
+    public TimeSpan TargetDelay => new MediaTime(Target()).ToTimeSpan();
+
+    /// <summary>
+    /// When to release a frame captured at a sender instant, given the local time it is scheduled, updating
+    /// the estimates.
+    /// </summary>
+    /// <param name="stream">The frame's stream.</param>
+    /// <param name="capture">The sender's capture instant.</param>
+    /// <param name="now">The local media time now.</param>
+    /// <returns>The local release time.</returns>
+    public MediaTime Release(PlayoutStream stream, NtpTime capture, MediaTime now)
+    {
+        long raw = now.Nanoseconds - capture.Nanoseconds;
+        long elapsed = IsAnchored ? Math.Max(0, (now - _lastUpdate).Ticks * 100) : 0;
+        _streams[(int)stream].Observe(raw, now, elapsed);
+        _lastUpdate = now;
+
+        long target = Target();
+        if (!_delaySet)
         {
-            ClockOffsetNs = raw;
-            _jitterNs = 0;
-            _lastUpdateLocalNs = localNowNs;
-            IsAnchored = true;
+            _delay = target;
+            _delaySet = true;
         }
         else
         {
-            long elapsed = localNowNs - _lastUpdateLocalNs;
-            if (elapsed < 0)
+            long step = Math.Max(1, elapsed * MaxChangePerSecond / 1_000_000_000);
+            _delay += Math.Clamp(target - _delay, -step, step);
+        }
+
+        long offset = Offset();
+        long release = capture.Nanoseconds + offset + _delay;
+        if (release < now.Nanoseconds && _delay < target && _streams[(int)stream].Started)
+        {
+            _delay = Math.Min(target, _delay + (now.Nanoseconds - release));
+        }
+
+        return new MediaTime(release);
+    }
+
+    private long Offset() =>
+        _streams[0].Seen && _streams[1].Seen ? Math.Min(_streams[0].Base, _streams[1].Base)
+        : _streams[0].Seen ? _streams[0].Base
+        : _streams[1].Base;
+
+    // A stream in its startup sets no target yet: its first frames are late while its encoder opens, and
+    // its base is not settled until faster frames arrive.
+    private long Target()
+    {
+        long offset = Offset();
+        long need = 0;
+        foreach (StreamState stream in _streams)
+        {
+            if (stream.Started)
             {
-                elapsed = 0;
+                need = Math.Max(need, stream.Base - offset + stream.Jitter);
+            }
+        }
+
+        return Math.Clamp(need + _margin, _minDelay, _maxDelay);
+    }
+
+    // One stream's delays: its base and the recent delays above it.
+    private sealed class StreamState
+    {
+        private const int StartupSamples = 30;
+        private const double OutlierDeviations = 15;
+        private static readonly TimeSpan Window = TimeSpan.FromSeconds(2);
+
+        private readonly Queue<(MediaTime At, long Raw)> _recent = new();
+        private int _samples;
+        private long? _jitter;
+        private long[] _scratch = [];
+
+        public bool Seen { get; private set; }
+
+        // Past its startup: its base and jitter are settled enough to size the buffer.
+        public bool Started => _samples > StartupSamples;
+
+        public long Base { get; private set; }
+
+        public long Jitter => _jitter ??= Compute();
+
+        public void Observe(long raw, MediaTime now, long elapsed)
+        {
+            Base = Seen ? Math.Min(raw, Base + (long)(elapsed * MaxDriftPerSecond)) : raw;
+            Seen = true;
+            _jitter = null;
+            if (++_samples <= StartupSamples)
+            {
+                return;
             }
 
-            // Leaky minimum offset: let it rise by at most the drift budget, then take the min with this frame.
-            long offsetLeak = (long)(elapsed * (MaxDriftPpm / 1_000_000.0));
-            ClockOffsetNs = Math.Min(raw, ClockOffsetNs + offsetLeak);
-
-            // Leaky maximum jitter: this frame's delay above the best path, decayed slowly toward the floor.
-            long excess = raw - ClockOffsetNs; // >= 0 by construction
-            long jitterDecay = elapsed * JitterDecayNsPerSec / 1_000_000_000;
-            _jitterNs = Math.Max(excess, _jitterNs - jitterDecay);
-
-            _lastUpdateLocalNs = localNowNs;
+            _recent.Enqueue((now, raw));
+            while (_recent.TryPeek(out (MediaTime At, long) oldest) && now - oldest.At > Window)
+            {
+                _ = _recent.Dequeue();
+            }
         }
 
-        return senderWallNs
-            + ClockOffsetNs
-            + Math.Clamp(_jitterNs + _marginNs, _minDelayNs, _maxDelayNs);
-    }
-
-    /// <summary>
-    /// Update the asymmetric arrival-offset EWMA from a video frame that presented on arrival at
-    /// <paramref name="localNowNs"/>. Video defines the timeline here (it can't be held); audio is then scheduled
-    /// onto it with <see cref="PeekReleaseLocalNs"/>.
-    /// </summary>
-    public void ObserveArrival(long senderWallNs, long localNowNs)
-    {
-        long raw = localNowNs - senderWallNs;
-        if (!_arrivalAnchored)
+        // The 95th percentile of the window's delays above the base, outliers clamped. Computed in a buffer
+        // kept between calls: it runs for every packet.
+        private long Compute()
         {
-            ArrivalOffsetNs = raw;
-            _arrivalAnchored = true;
-        }
-        else
-        {
-            ArrivalOffsetNs += (raw - ArrivalOffsetNs) >> 3; // EWMA, alpha = 1/8
+            int count = _recent.Count;
+            if (count == 0)
+            {
+                return 0;
+            }
+
+            if (_scratch.Length < count * 2)
+            {
+                _scratch = new long[Math.Max(count * 2, _scratch.Length * 2)];
+            }
+
+            Span<long> excess = _scratch.AsSpan(0, count);
+            Span<long> deviations = _scratch.AsSpan(count, count);
+            int i = 0;
+            foreach ((_, long raw) in _recent)
+            {
+                excess[i++] = Math.Max(0, raw - Base);
+            }
+
+            excess.Sort();
+            long median = excess[count / 2];
+            for (int j = 0; j < count; j++)
+            {
+                deviations[j] = Math.Abs(excess[j] - median);
+            }
+
+            deviations.Sort();
+
+            // The median absolute deviation, at least a millisecond so a steady stream is not all outliers.
+            long bound =
+                median + (long)(OutlierDeviations * Math.Max(deviations[count / 2], 1_000_000));
+
+            // Clamping every delay to the bound keeps them in order, so the percentile of the clamped
+            // delays is the percentile's, clamped.
+            return Math.Min(excess[(int)Math.Ceiling(0.95 * count) - 1], bound);
         }
     }
-
-    /// <summary>
-    /// Local release time for audio at <paramref name="senderWallNs"/> on the video-defined arrival timeline (no
-    /// state change). Releases audio at video's typical arrival offset, so it lip-syncs with the on-arrival GPU
-    /// video. Returns <paramref name="senderWallNs"/> unchanged until a video frame has anchored the offset.
-    /// </summary>
-    public long PeekReleaseLocalNs(long senderWallNs) =>
-        _arrivalAnchored ? senderWallNs + ArrivalOffsetNs : senderWallNs;
 }

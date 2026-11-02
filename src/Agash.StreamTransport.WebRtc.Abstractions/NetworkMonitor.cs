@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Agash.StreamTransport.WebRtc;
 
 /// <summary>The kind of physical link a network interface represents, as far as we can classify it.</summary>
@@ -44,10 +46,10 @@ public readonly record struct NetworkPathInfo(
 public interface INetworkMonitor : IDisposable
 {
     /// <summary>The current operational interfaces.</summary>
-    IReadOnlyList<NetworkPathInfo> Current { get; }
+    ImmutableArray<NetworkPathInfo> Current { get; }
 
     /// <summary>Raised when the set of operational interfaces changes, carrying the new snapshot.</summary>
-    event Action<IReadOnlyList<NetworkPathInfo>>? NetworksChanged;
+    event Action<ImmutableArray<NetworkPathInfo>>? NetworksChanged;
 
     /// <summary>Begin monitoring (idempotent). Populates <see cref="Current"/> and starts raising changes.</summary>
     void Start();

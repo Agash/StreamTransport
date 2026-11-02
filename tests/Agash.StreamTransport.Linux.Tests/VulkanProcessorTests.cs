@@ -1,0 +1,508 @@
+using System.Numerics;
+using Agash.StreamTransport.Linux.Vulkan;
+using Agash.StreamTransport.Media;
+
+namespace Agash.StreamTransport.Linux.Tests;
+
+[TestClass]
+[OSCondition(OperatingSystems.Linux)]
+public sealed class VulkanProcessorTests
+{
+    private const int Width = 64;
+    private const int Height = 32;
+    private static readonly VulkanVideoProcessorFactory Factory = new();
+
+    [TestMethod]
+    public void BgraToNv12_MatchesTheBt709MatrixWithLeftSitedChroma()
+    {
+        byte[] pixels = Picture();
+        using VideoFrameLease output = Run(
+            Bgra(pixels),
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(Nv12Output()),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(new VideoSize(Width, Height), info.Output.Size);
+        byte[][] planes = Download(output, PixelFormat.Nv12, Width);
+        (Vector4 y, Vector4 cb, Vector4 cr) = ColorConversion.RgbToYCbCr(VideoColor.Bt709);
+        for (int row = 0; row < Height; row += 2)
+        {
+            for (int x = 0; x < Width; x += 2)
+            {
+                Vector3 rgb = Rgb(pixels, x, row);
+                // Chroma is left-sited: a [1 2 1] filter over the column before the block and the
+                // block's two, which are alike, as its two rows are.
+                Vector3 sited = (Rgb(pixels, Math.Max(x - 1, 0), row) + (3 * rgb)) / 4;
+                Assert.AreEqual(
+                    Apply(y, rgb) * 255,
+                    planes[0][(row * Width) + x],
+                    1.0,
+                    $"Luma at {x},{row}."
+                );
+                int c = ((row / 2) * Width) + x;
+                Assert.AreEqual(Apply(cb, sited) * 255, planes[1][c], 1.0, $"Cb at {x},{row}.");
+                Assert.AreEqual(Apply(cr, sited) * 255, planes[1][c + 1], 1.0, $"Cr at {x},{row}.");
+            }
+        }
+
+        Assert.AreEqual(VideoColor.Bt709, output.Frame.Color);
+        Assert.AreEqual(
+            new MediaTime(42),
+            output.Frame.Timestamp.Time,
+            "the timestamp carries through"
+        );
+    }
+
+    [TestMethod]
+    public void AlphaPack_PutsAlphaInTheRightHalfLumaWithNeutralChroma()
+    {
+        byte[] pixels = Picture();
+        using VideoFrameLease output = Run(
+            Bgra(pixels),
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(Nv12Output(), Alpha: AlphaLayout.PackSideBySide),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(new VideoSize(Width * 2, Height), info.Output.Size);
+        byte[][] planes = Download(output, PixelFormat.Nv12, Width * 2);
+        for (int row = 0; row < Height; row += 2)
+        {
+            for (int x = 0; x < Width; x += 2)
+            {
+                double alpha = pixels[(((row * Width) + x) * 4) + 3];
+                Assert.AreEqual(
+                    16 + (219 * alpha / 255),
+                    planes[0][(row * Width * 2) + Width + x],
+                    1.0
+                );
+                int c = ((row / 2) * Width * 2) + Width + x;
+                Assert.AreEqual(128, planes[1][c], 1.0);
+                Assert.AreEqual(128, planes[1][c + 1], 1.0);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void AlphaPack_ToMemory_ReadsBackThePackedPicture()
+    {
+        byte[] pixels = Picture();
+        using VideoFrameLease output = Run(
+            Bgra(pixels),
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(
+                VideoConstraints.Cpu(PixelFormat.Nv12),
+                Alpha: AlphaLayout.PackSideBySide
+            ),
+            out VideoProcessorInfo info
+        );
+
+        Assert.AreEqual(VideoStorageKind.Cpu, info.Output.Storage);
+        Assert.AreEqual(new VideoSize(Width * 2, Height), info.Output.Size);
+        VideoFrame frame = output.Frame;
+        Assert.IsTrue(frame.Storage.TryGetValue(out CpuImage image));
+        ReadOnlySpan<byte> luma = frame.GetPlane(0);
+        for (int row = 0; row < Height; row += 2)
+        {
+            for (int x = 0; x < Width; x += 2)
+            {
+                double alpha = pixels[(((row * Width) + x) * 4) + 3];
+                Assert.AreEqual(
+                    16 + (219 * alpha / 255),
+                    luma[(row * image.Planes[0].Stride) + Width + x],
+                    1.0
+                );
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow(AlphaLayout.PackSideBySide, false)]
+    [DataRow(AlphaLayout.PackStacked, false)]
+    [DataRow(AlphaLayout.PackSideBySide, true)]
+    [DataRow(AlphaLayout.PackStacked, true)]
+    public void PackThenUnpack_ReturnsAColourRampAndAlpha(AlphaLayout layout, bool fromMemory)
+    {
+        byte[] pixels = Ramp();
+        VideoProcessing pack = new(Nv12Output(), Alpha: layout);
+        using VideoFrameLease packed = fromMemory
+            ? Run(
+                new VideoFrame(
+                    new CpuImage(
+                        PlaneLayout.Packed(PixelFormat.Bgra, new VideoSize(Width, Height))
+                    ),
+                    new VideoFormat(PixelFormat.Bgra, Width, Height),
+                    MediaTimestamp.Captured(new MediaTime(42)),
+                    pixels,
+                    color: VideoColor.Srgb
+                ),
+                new VideoStreamDescription(
+                    VideoStorageKind.Cpu,
+                    PixelFormat.Bgra,
+                    new VideoSize(Width, Height)
+                ),
+                pack,
+                out VideoProcessorInfo packing
+            )
+            : Run(Bgra(pixels), Description(PixelFormat.Bgra, Width), pack, out packing);
+        VideoSize packedSize = layout.PackedSize(new VideoSize(Width, Height));
+        Assert.AreEqual(packedSize, packing.Output.Size);
+
+        using IVideoProcessor unpack = Factory.Create(
+            Description(PixelFormat.Nv12, Width * 2) with
+            {
+                Size = packedSize,
+            },
+            new VideoProcessing(BgraOutput(), Alpha: layout.Unpacking())
+        );
+        Keeper keeper = new();
+        unpack.Process(packed.Frame, keeper);
+        using VideoFrameLease unpacked = keeper.Kept!;
+
+        Assert.AreEqual(new VideoSize(Width, Height), unpack.Info.Output.Size);
+        byte[] back = Download(unpacked, PixelFormat.Bgra, Width)[0];
+        // Inside the border, where neither shader clamps, a ramp comes back as it went.
+        for (int y = 1; y < Height - 1; y++)
+        {
+            for (int x = 1; x < Width - 1; x++)
+            {
+                for (int k = 0; k < 4; k++)
+                {
+                    int i = (((y * Width) + x) * 4) + k;
+                    Assert.AreEqual(pixels[i], back[i], 2.0, $"{"BGRA"[k]} at {x},{y}.");
+                }
+            }
+        }
+
+        Assert.AreEqual(VideoColor.Srgb, unpacked.Frame.Color);
+    }
+
+    [TestMethod]
+    public void Nv12ToBgra_ExpandsVideoRangeGrey()
+    {
+        byte[] luma = [.. Enumerable.Repeat((byte)128, Width * Height)];
+        byte[] chroma = [.. Enumerable.Repeat((byte)128, Width * Height / 2)];
+        PooledDmaBuf surface = TestDmaBufs.Upload(PixelFormat.Nv12, Width, Height, luma, chroma);
+        try
+        {
+            using VideoFrameLease output = Run(
+                TestDmaBufs.Frame(surface, PixelFormat.Nv12, Width, Height, VideoColor.Bt709),
+                Description(PixelFormat.Nv12, Width),
+                new VideoProcessing(BgraOutput()),
+                out VideoProcessorInfo info
+            );
+
+            Assert.AreEqual(PixelFormat.Bgra, info.Output.PixelFormat);
+
+            // Handed on without waiting for the GPU: the frame carries the point it is written at.
+            Assert.IsTrue(output.Frame.Storage.TryGetValue(out DmaBufImage image));
+            Assert.IsNotNull(image.Sync);
+            Assert.AreEqual(-1, image.Sync.Value.ReleaseSyncobj);
+            CollectionAssert.AreEqual(
+                new byte[] { 130, 130, 130, 255 },
+                Download(output, PixelFormat.Bgra, Width)[0][..4]
+            );
+        }
+        finally
+        {
+            surface.Release();
+        }
+    }
+
+    [TestMethod]
+    public void KeptOutput_IsNotReusedByLaterFrames()
+    {
+        byte[] first = Picture();
+        byte[] second = [.. first.Select(b => (byte)(255 - b))];
+        using IVideoProcessor processor = Factory.Create(
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(Nv12Output())
+        );
+        Keeper keeper = new();
+        Process(processor, first, keeper);
+        using VideoFrameLease kept = keeper.Kept!;
+        byte[][] before = Download(kept, PixelFormat.Nv12, Width);
+
+        for (int i = 0; i < 4; i++)
+        {
+            Process(processor, second, new Discarder());
+        }
+
+        CollectionAssert.AreEqual(before[0], Download(kept, PixelFormat.Nv12, Width)[0]);
+    }
+
+    [TestMethod]
+    public void ABufferSeenAgain_IsImportedOnce()
+    {
+        using IVideoProcessor processor = Factory.Create(
+            Description(PixelFormat.Bgra, Width),
+            new VideoProcessing(Nv12Output())
+        );
+        PooledDmaBuf input = Bgra(Picture());
+        try
+        {
+            processor.Process(
+                TestDmaBufs.Frame(input, PixelFormat.Bgra, Width, Height, VideoColor.Srgb),
+                new Discarder()
+            );
+            int once = TestDmaBufs.Engine.Imports.Count;
+            for (int i = 0; i < 5; i++)
+            {
+                processor.Process(
+                    TestDmaBufs.Frame(input, PixelFormat.Bgra, Width, Height, VideoColor.Srgb),
+                    new Discarder()
+                );
+            }
+
+            Assert.AreEqual(
+                once,
+                TestDmaBufs.Engine.Imports.Count,
+                "the buffer's import is reused"
+            );
+        }
+        finally
+        {
+            input.Release();
+        }
+    }
+
+    [TestMethod]
+    public void QueryCapabilities_RefusesWhatItCannotDo()
+    {
+        VideoStreamDescription bgra = Description(PixelFormat.Bgra, Width);
+        VideoConstraints nv12 = new([VideoStorageKind.DmaBuf], [PixelFormat.Nv12]);
+
+        Assert.AreEqual(
+            VideoStorageKind.DmaBuf,
+            Factory
+                .QueryCapabilities(
+                    bgra with
+                    {
+                        Storage = VideoStorageKind.Cpu,
+                    },
+                    new VideoProcessing(nv12, Alpha: AlphaLayout.PackStacked)
+                )
+                ?.Output.Storage,
+            "RGB in memory is converted and packed on the GPU for a consumer there"
+        );
+        Assert.IsNull(
+            Factory.QueryCapabilities(
+                bgra with
+                {
+                    Storage = VideoStorageKind.Cpu,
+                },
+                new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+            ),
+            "a consumer in memory is left to a processor in memory"
+        );
+        Assert.AreEqual(
+            VideoStorageKind.Cpu,
+            Factory
+                .QueryCapabilities(
+                    bgra,
+                    new VideoProcessing(VideoConstraints.Cpu(PixelFormat.Nv12))
+                )
+                ?.Output.Storage,
+            "a consumer in memory gets the result read back"
+        );
+        Assert.IsNull(
+            Factory.QueryCapabilities(
+                bgra,
+                new VideoProcessing(nv12, Alpha: AlphaLayout.UnpackSideBySide)
+            )
+        );
+        Assert.IsNull(
+            Factory.QueryCapabilities(
+                bgra with
+                {
+                    Size = new VideoSize(63, 32),
+                },
+                new VideoProcessing(nv12)
+            )
+        );
+        Assert.IsNotNull(
+            Factory.QueryCapabilities(
+                bgra with
+                {
+                    PixelFormat = PixelFormat.Rgba,
+                },
+                new VideoProcessing(nv12)
+            ),
+            "PipeWire producers hand over RGBA as often as BGRA"
+        );
+        Assert.IsNull(
+            Factory.QueryCapabilities(
+                bgra,
+                new VideoProcessing(nv12 with { DrmModifiers = [0x0100000000000001] })
+            ),
+            "the output is in rows; a consumer that takes only a tiled layout is refused"
+        );
+        Assert.IsNull(
+            Factory.QueryCapabilities(
+                bgra with
+                {
+                    PixelFormat = PixelFormat.Nv12,
+                },
+                new VideoProcessing(BgraOutput(), new VideoSize(32, 16))
+            ),
+            "NV12 to BGRA does not scale"
+        );
+        Assert.AreEqual(
+            new VideoSize(32, 16),
+            Factory
+                .QueryCapabilities(bgra, new VideoProcessing(nv12, new VideoSize(32, 16)))!
+                .Output.Size,
+            "BGRA to NV12 scales"
+        );
+    }
+
+    private static VideoConstraints Nv12Output() =>
+        new([VideoStorageKind.DmaBuf], [PixelFormat.Nv12], TestDmaBufs.Engine.Identity);
+
+    private static VideoConstraints BgraOutput() =>
+        new([VideoStorageKind.DmaBuf], [PixelFormat.Bgra], TestDmaBufs.Engine.Identity);
+
+    private static VideoStreamDescription Description(PixelFormat format, int width) =>
+        new(
+            VideoStorageKind.DmaBuf,
+            format,
+            new VideoSize(width, Height),
+            TestDmaBufs.Engine.Identity
+        );
+
+    private static byte[][] Download(VideoFrameLease lease, PixelFormat format, int width)
+    {
+        Assert.IsTrue(lease.Frame.Storage.TryGetValue(out DmaBufImage image));
+        return TestDmaBufs.Download(image, format, width, Height);
+    }
+
+    // A BGRA surface of the picture, released when the returned frame's test is done with it.
+    private static PooledDmaBuf Bgra(byte[] pixels) =>
+        TestDmaBufs.Upload(PixelFormat.Bgra, Width, Height, pixels);
+
+    private static VideoFrameLease Run(
+        PooledDmaBuf input,
+        VideoStreamDescription description,
+        VideoProcessing processing,
+        out VideoProcessorInfo info
+    )
+    {
+        try
+        {
+            return Run(
+                TestDmaBufs.Frame(
+                    input,
+                    description.PixelFormat,
+                    description.Size.Width,
+                    Height,
+                    VideoColor.Srgb
+                ),
+                description,
+                processing,
+                out info
+            );
+        }
+        finally
+        {
+            input.Release();
+        }
+    }
+
+    private static VideoFrameLease Run(
+        in VideoFrame input,
+        VideoStreamDescription description,
+        VideoProcessing processing,
+        out VideoProcessorInfo info
+    )
+    {
+        using IVideoProcessor processor = Factory.Create(description, processing);
+        info = processor.Info;
+        Keeper keeper = new();
+        processor.Process(in input, keeper);
+        return keeper.Kept!;
+    }
+
+    private static void Process(
+        IVideoProcessor processor,
+        byte[] pixels,
+        IVideoFrameConsumer consumer
+    )
+    {
+        PooledDmaBuf input = Bgra(pixels);
+        try
+        {
+            processor.Process(
+                TestDmaBufs.Frame(input, PixelFormat.Bgra, Width, Height, VideoColor.Srgb),
+                consumer
+            );
+        }
+        finally
+        {
+            input.Release();
+        }
+    }
+
+    // Colour ramps in BGRA with an alpha pattern. Chroma sited and filtered the same way down and up
+    // returns a linear ramp exactly, so a round trip that shifts or blurs the colour shows here.
+    private static byte[] Ramp()
+    {
+        byte[] pixels = new byte[Width * Height * 4];
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                int i = ((y * Width) + x) * 4;
+                pixels[i] = (byte)(200 - x - y);
+                pixels[i + 1] = (byte)(60 + (3 * y));
+                pixels[i + 2] = (byte)(40 + (2 * x));
+                pixels[i + 3] = (byte)(((x * 37) + (y * 5)) % 256);
+            }
+        }
+
+        return pixels;
+    }
+
+    // Colour blocks of 2x2 pixels with varying alpha: luma and alpha come through exactly, and left-sited
+    // chroma takes in the column before each block.
+    private static byte[] Picture()
+    {
+        byte[] pixels = new byte[Width * Height * 4];
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                int bx = x / 2;
+                int by = y / 2;
+                int i = ((y * Width) + x) * 4;
+                pixels[i] = (byte)(40 + ((bx + by) * 11 % 180));
+                pixels[i + 1] = (byte)(30 + (by * 13 % 190));
+                pixels[i + 2] = (byte)(20 + (bx * 7 % 200));
+                pixels[i + 3] = (byte)(((bx * 37) + (by * 5)) % 256);
+            }
+        }
+
+        return pixels;
+    }
+
+    private static Vector3 Rgb(byte[] pixels, int x, int y)
+    {
+        int i = ((y * Width) + x) * 4;
+        return new Vector3(pixels[i + 2], pixels[i + 1], pixels[i]) / 255;
+    }
+
+    private static float Apply(Vector4 row, Vector3 rgb) =>
+        Vector3.Dot(new Vector3(row.X, row.Y, row.Z), rgb) + row.W;
+
+    private sealed class Keeper : IVideoFrameConsumer
+    {
+        public VideoFrameLease? Kept { get; private set; }
+
+        public void OnFrame(in VideoFrame frame) => Kept = frame.Retain();
+    }
+
+    private sealed class Discarder : IVideoFrameConsumer
+    {
+        public void OnFrame(in VideoFrame frame) { }
+    }
+}

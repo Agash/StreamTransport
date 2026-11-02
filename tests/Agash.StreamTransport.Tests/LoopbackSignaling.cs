@@ -17,11 +17,20 @@ internal sealed class LoopbackSignaling : ISignalingChannel
 
     public LoopbackSignaling? Peer { get; set; }
 
+    // Two channels linked to each other.
+    public static (LoopbackSignaling A, LoopbackSignaling B) Pair()
+    {
+        LoopbackSignaling a = new();
+        LoopbackSignaling b = new() { Peer = a };
+        a.Peer = b;
+        return (a, b);
+    }
+
     public event Func<SessionDescription, Task>? DescriptionReceived;
 
-    public event Func<IceCandidate, Task>? IceCandidateReceived;
+    public event Func<IceCandidateInit, Task>? IceCandidateReceived;
 
-    public Task SendAsync(
+    public Task SendDescriptionAsync(
         SessionDescription description,
         CancellationToken cancellationToken = default
     )
@@ -30,7 +39,10 @@ internal sealed class LoopbackSignaling : ISignalingChannel
         return Task.CompletedTask;
     }
 
-    public Task SendAsync(IceCandidate candidate, CancellationToken cancellationToken = default)
+    public Task SendCandidateAsync(
+        IceCandidateInit candidate,
+        CancellationToken cancellationToken = default
+    )
     {
         Peer!._inbox.Writer.TryWrite(candidate);
         return Task.CompletedTask;
@@ -45,7 +57,7 @@ internal sealed class LoopbackSignaling : ISignalingChannel
                 case SessionDescription description when DescriptionReceived is { } handler:
                     await handler(description).ConfigureAwait(false);
                     break;
-                case IceCandidate candidate when IceCandidateReceived is { } handler:
+                case IceCandidateInit candidate when IceCandidateReceived is { } handler:
                     await handler(candidate).ConfigureAwait(false);
                     break;
                 default:

@@ -21,12 +21,12 @@ public sealed class RoomClientControlTests
         await using var pubLink = new InMemoryClientLink(router);
         await using var subLink = new InMemoryClientLink(router);
 
-        await using RoomClient publisher = await RoomClient.ConnectAsync(
+        await using RoomClient publisher = await RoomClient.JoinAsync(
             pubLink,
             Room,
             PeerRole.Publisher
         );
-        await using RoomClient subscriber = await RoomClient.ConnectAsync(
+        await using RoomClient subscriber = await RoomClient.JoinAsync(
             subLink,
             Room,
             PeerRole.Subscriber
@@ -50,18 +50,57 @@ public sealed class RoomClientControlTests
     }
 
     [TestMethod]
+    public async Task Router_ReportsRoomsPeersAndRoutedMessages()
+    {
+        using MeterRecorder meters = new();
+        var router = new SignalingRouter(meterFactory: meters);
+        await using (var pubLink = new InMemoryClientLink(router))
+        await using (var subLink = new InMemoryClientLink(router))
+        {
+            await using RoomClient publisher = await RoomClient.JoinAsync(
+                pubLink,
+                Room,
+                PeerRole.Publisher
+            );
+            await using RoomClient subscriber = await RoomClient.JoinAsync(
+                subLink,
+                Room,
+                PeerRole.Subscriber
+            );
+            var received = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            subscriber.ControlReceived += _ => received.TrySetResult();
+
+            await publisher.SendControlAsync("stream.alpha", "1", subscriber.Self);
+            await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.AreEqual(1, meters.Sum("streamtransport.signaling.rooms.active"));
+            Assert.AreEqual(2, meters.Sum("streamtransport.signaling.peers.active"));
+            Assert.AreEqual(1, meters.Sum("streamtransport.signaling.messages.routed", "control"));
+        }
+
+        Assert.AreEqual(0, meters.Sum("streamtransport.signaling.peers.active"), "both peers left");
+        Assert.AreEqual(
+            0,
+            meters.Sum("streamtransport.signaling.rooms.active"),
+            "the room closed with them"
+        );
+    }
+
+    [TestMethod]
     public async Task ControlMessage_WithoutTarget_FansOutToOtherPeers()
     {
         var router = new SignalingRouter();
         await using var pubLink = new InMemoryClientLink(router);
         await using var subLink = new InMemoryClientLink(router);
 
-        await using RoomClient publisher = await RoomClient.ConnectAsync(
+        await using RoomClient publisher = await RoomClient.JoinAsync(
             pubLink,
             Room,
             PeerRole.Publisher
         );
-        await using RoomClient subscriber = await RoomClient.ConnectAsync(
+        await using RoomClient subscriber = await RoomClient.JoinAsync(
             subLink,
             Room,
             PeerRole.Subscriber
@@ -100,10 +139,16 @@ public sealed class RoomClientControlTests
             CancellationToken cancellationToken = default
         ) => _session.ReceiveAsync(message, cancellationToken);
 
-        // Delivery is push-driven by the router sink, so the pump just idles until cancelled.
-        public Task RunAsync(CancellationToken cancellationToken = default) =>
-            Task.Delay(Timeout.Infinite, cancellationToken)
-                .ContinueWith(static _ => { }, TaskScheduler.Default);
+        // Delivery is push-driven by the router sink, so the pump only ends when cancelled.
+        public Task RunAsync(CancellationToken cancellationToken = default)
+        {
+            TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = cancellationToken.Register(
+                static s => ((TaskCompletionSource)s!).TrySetResult(),
+                stopped
+            );
+            return stopped.Task;
+        }
 
         public ValueTask DisposeAsync() => _session.DisposeAsync();
 

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,18 +11,17 @@ namespace Agash.StreamTransport.Stun;
 /// credentials. For coturn with a shared secret (ephemeral, time-limited credentials), use
 /// <see cref="CoturnSharedSecretIceServerProvider"/> instead.
 /// </remarks>
-public sealed class StaticIceServerProvider(IReadOnlyList<IceServer> iceServers)
+public sealed class StaticIceServerProvider(ImmutableArray<IceServer> iceServers)
     : IIceServerProvider
 {
-    private readonly IReadOnlyList<IceServer> _iceServers =
-        iceServers ?? throw new ArgumentNullException(nameof(iceServers));
+    private readonly ImmutableArray<IceServer> _iceServers = iceServers;
 
     /// <summary>Advertise only the given STUN URLs (no TURN).</summary>
-    public static StaticIceServerProvider Stun(params string[] stunUrls) =>
+    public static StaticIceServerProvider Stun(params ImmutableArray<string> stunUrls) =>
         new([new IceServer(stunUrls)]);
 
     /// <inheritdoc/>
-    public IReadOnlyList<IceServer> GetIceServersForPeer() => _iceServers;
+    public ImmutableArray<IceServer> GetIceServersForPeer() => _iceServers;
 }
 
 /// <summary>
@@ -34,8 +34,8 @@ public sealed class StaticIceServerProvider(IReadOnlyList<IceServer> iceServers)
 /// </summary>
 public sealed class CoturnSharedSecretIceServerProvider : IIceServerProvider
 {
-    private readonly IReadOnlyList<string> _stunUrls;
-    private readonly IReadOnlyList<string> _turnUrls;
+    private readonly ImmutableArray<string> _stunUrls;
+    private readonly ImmutableArray<string> _turnUrls;
     private readonly byte[] _secret;
     private readonly TimeSpan _credentialLifetime;
     private readonly string? _user;
@@ -49,17 +49,21 @@ public sealed class CoturnSharedSecretIceServerProvider : IIceServerProvider
     /// <param name="user">Optional name suffix appended to the username as <c>"{expiry}:{user}"</c>.</param>
     /// <param name="timeProvider">Clock source; defaults to <see cref="TimeProvider.System"/>.</param>
     public CoturnSharedSecretIceServerProvider(
-        IReadOnlyList<string> stunUrls,
-        IReadOnlyList<string> turnUrls,
+        ImmutableArray<string> stunUrls,
+        ImmutableArray<string> turnUrls,
         string sharedSecret,
         TimeSpan? credentialLifetime = null,
         string? user = null,
         TimeProvider? timeProvider = null
     )
     {
-        ArgumentNullException.ThrowIfNull(turnUrls);
+        if (turnUrls.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException("At least one TURN URL is needed.", nameof(turnUrls));
+        }
+
         ArgumentException.ThrowIfNullOrEmpty(sharedSecret);
-        _stunUrls = stunUrls ?? [];
+        _stunUrls = stunUrls.IsDefault ? [] : stunUrls;
         _turnUrls = turnUrls;
         _secret = Encoding.UTF8.GetBytes(sharedSecret);
         _credentialLifetime = credentialLifetime ?? TimeSpan.FromMinutes(10);
@@ -68,17 +72,11 @@ public sealed class CoturnSharedSecretIceServerProvider : IIceServerProvider
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<IceServer> GetIceServersForPeer()
+    public ImmutableArray<IceServer> GetIceServersForPeer()
     {
         (string username, string credential) = MintCredential();
-        var servers = new List<IceServer>(2);
-        if (_stunUrls.Count > 0)
-        {
-            servers.Add(new IceServer(_stunUrls));
-        }
-
-        servers.Add(new IceServer(_turnUrls, username, credential));
-        return servers;
+        IceServer turn = new(_turnUrls, username, credential);
+        return _stunUrls.IsEmpty ? [turn] : [new IceServer(_stunUrls), turn];
     }
 
     private (string Username, string Credential) MintCredential()

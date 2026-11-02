@@ -1,0 +1,48 @@
+using Agash.StreamTransport.MacOS;
+using Agash.StreamTransport.MacOS.AVFoundation;
+using Agash.StreamTransport.MacOS.Metal;
+using Agash.StreamTransport.Media;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
+
+/// <summary>DI registration for the macOS media.</summary>
+public static class StreamTransportMacOSServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers the Metal video processor, which sessions choose over CPU conversion for IOSurface
+    /// frames; AVFoundation cameras; and Syphon video and Core Audio inputs and outputs, reached through <c>MediaDevices</c>.
+    /// Calling it again registers nothing more.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The service collection.</returns>
+    public static IServiceCollection AddMacOSMedia(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoProcessorFactory, MetalVideoProcessorFactory>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, SyphonVideoInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, AVFoundationVideoInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoOutputProvider, SyphonVideoOutputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioInputProvider, CoreAudioInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioOutputProvider, CoreAudioOutputProvider>()
+        );
+        return services;
+    }
+}

@@ -1,211 +1,474 @@
-using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Sockets;
 using Agash.StreamTransport.WebRtc.Ice;
 
 namespace Agash.StreamTransport.WebRtc.Tests;
 
 /// <summary>
-/// ICE candidate switching / failover, tested deterministically over an <see cref="InMemoryIceNetwork"/> (no
-/// real sockets): two agents with two interfaces each connect, then the selected path is cut and the agent
-/// must switch to its pre-warmed alternate (hot-standby) and keep delivering data - validating
-/// warmed-candidate failover. Fast <see cref="IceTimings"/> make consent loss fire in well under a second.
+/// ICE connection, candidate switching and failover, with two state machines on an
+/// <see cref="IceSwitchboard"/>. The machines run the production RFC timings; the switchboard jumps time
+/// to each timeout, so a 30 s consent timeout runs instantly and the same way every time.
 /// </summary>
 [TestClass]
 public sealed class IceMobilityTests
 {
-    private static readonly IceTimings Fast = new(
-        TimeSpan.FromMilliseconds(20),
-        TimeSpan.FromMilliseconds(150),
-        TimeSpan.FromMilliseconds(80),
-        TimeSpan.FromMilliseconds(500)
-    );
+    private static readonly IceTimings Timings = IceTimings.Default;
 
     [TestMethod]
-    [Timeout(40_000)]
-    public async Task TwoAgents_OverInMemoryNetwork_ConnectAndExchangeData()
+    public void TwoMachines_Connect_AndSelectAPairEachWay()
     {
-        var net = new InMemoryIceNetwork();
-        (IceAgent a, IceAgent b) = await ConnectPairAsync(
-            net,
-            aAddrs: [IPAddress.Parse("10.0.0.1")],
-            bAddrs: [IPAddress.Parse("10.0.0.2")]
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1")],
+            [IPAddress.Parse("10.0.0.2")]
         );
 
-        await using (a)
-        await using (b)
-        {
-            var received = new TaskCompletionSource<byte[]>(
-                TaskCreationOptions.RunContinuationsAsynchronously
-            );
-            b.DataReceived += (data, _, _) => received.TrySetResult(data.ToArray());
-
-            byte[] payload = [0x10, 0x20, 0x30, 0x40]; // non-STUN -> surfaced as data.
-            await a.SendAsync(payload);
-
-            byte[] got = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            CollectionAssert.AreEqual(payload, got);
-        }
+        Assert.AreEqual(b.Endpoints[0], a.Machine.Selected?.Remote);
+        Assert.AreEqual(a.Endpoints[0], b.Machine.Selected?.Remote);
+        Assert.IsTrue(board.SendData(a));
+        Assert.IsTrue(board.SendData(b));
     }
 
     [TestMethod]
-    [Timeout(40_000)]
-    public async Task HotStandby_SwitchesToWarmPair_WhenSelectedPathIsCut()
+    public void Start_AsksOnlyTheStunServersEachAddressReaches()
     {
-        var net = new InMemoryIceNetwork();
-        (IceAgent a, IceAgent b) = await ConnectPairAsync(
-            net,
-            aAddrs: [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
-            bAddrs: [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        IceStateMachine machine = new(
+            IceCredentials.Generate(),
+            IceRole.Controlling,
+            Timings,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance
         );
+        machine.AddLocalEndpoint(0, new IPEndPoint(IPAddress.Parse("2001:db8::1"), 5000));
+        machine.AddLocalEndpoint(1, new IPEndPoint(IPAddress.Parse("192.0.2.1"), 5000));
+        machine.AddLocalEndpoint(2, new IPEndPoint(IPAddress.Loopback, 5000));
+        machine.AddStunServer(new IPEndPoint(IPAddress.IPv6Loopback, 3478));
+        machine.AddStunServer(new IPEndPoint(IPAddress.Loopback, 3478));
+        machine.AddStunServer(new IPEndPoint(IPAddress.Parse("2001:db8::99"), 3478));
 
-        await using (a)
-        await using (b)
+        machine.Start(TimeSpan.Zero);
+
+        List<(int, IPEndPoint)> sent = [];
+        while (machine.TryPollTransmit(out IceTransmit transmit))
         {
-            var received = new ConcurrentQueue<byte[]>();
-            b.DataReceived += (data, _, _) => received.Enqueue(data.ToArray());
-
-            IPAddress original = a.SelectedLocalEndpoint!.Address;
-
-            // Cut the selected path. The other interface's pairs stay warm (hot-standby keep-alive), so the
-            // agent should switch to one of them within ~a consent timeout, never leaving Connected.
-            net.Cut(original);
-
-            // 1) The selected pair switches away from the dead path.
-            bool switched = false;
-            for (int i = 0; i < 300 && !switched; i++)
-            {
-                switched = a.SelectedLocalEndpoint is { } sel && !sel.Address.Equals(original);
-                if (!switched)
-                {
-                    await Task.Delay(25);
-                }
-            }
-
-            Assert.IsTrue(
-                switched,
-                $"the agent should switch off the cut path {original}; still on {a.SelectedLocalEndpoint?.Address}."
-            );
-            Assert.AreEqual(
-                IceConnectionState.Connected,
-                a.State,
-                "it must stay Connected across the switch."
-            );
-
-            // 2) Media flows again over the new path.
-            byte[] payload = [0x55, 0x66, 0x77, 0x88];
-            for (int i = 0; i < 100 && received.IsEmpty; i++)
-            {
-                await a.SendAsync(payload);
-                await Task.Delay(25);
-            }
-
-            Assert.IsFalse(
-                received.IsEmpty,
-                "data must flow again over the warm alternate after the switch."
-            );
+            sent.Add((transmit.Local, transmit.Destination));
         }
+
+        CollectionAssert.AreEquivalent(
+            new List<(int, IPEndPoint)>
+            {
+                (0, new IPEndPoint(IPAddress.Parse("2001:db8::99"), 3478)),
+                (2, new IPEndPoint(IPAddress.Loopback, 3478)),
+            },
+            sent
+        );
     }
 
     [TestMethod]
-    [Timeout(40_000)]
-    public async Task FlakyLink_StaysConnectedAndDeliversData_UnderProbabilisticLoss()
+    public void Controlled_NominationBeforeOwnCheckSucceeds_SelectsPairOnceItDoes()
     {
-        var net = new InMemoryIceNetwork();
-        (IceAgent a, IceAgent b) = await ConnectPairAsync(
-            net,
-            aAddrs: [IPAddress.Parse("10.0.0.1")],
-            bAddrs: [IPAddress.Parse("10.0.0.2")]
+        IceSwitchboard board = new();
+        var controlling = IPAddress.Parse("10.0.0.1");
+
+        // Hold the controlling machine's binding success responses: its own checks succeed and it
+        // nominates while every check of the controlled machine is still unanswered.
+        board.Hold((from, data) => from.Address.Equals(controlling) && data is [0x01, 0x01, ..]);
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = board.Pair(
+            [controlling],
+            [IPAddress.Parse("10.0.0.2")],
+            Timings
         );
 
-        await using (a)
-        await using (b)
-        {
-            int delivered = 0;
-            b.DataReceived += (_, _, _) => Interlocked.Increment(ref delivered);
+        Assert.IsTrue(board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)));
+        Assert.IsFalse(b.Connected);
 
-            // Degrade the single path to 30% loss (a weak signal) without cutting it. There is no alternate
-            // interface, so the agent cannot switch away - it must ride out the loss on the one path.
-            net.SetLossRate(0.30);
+        board.ReleaseHeld();
 
-            const int sent = 200;
-            byte[] payload = [0x10, 0x20, 0x30, 0x40];
-            for (int i = 0; i < sent; i++)
-            {
-                await a.SendAsync(payload);
-                await Task.Delay(5);
-            }
-
-            // Consent freshness retries (many checks per timeout window) survive sporadic loss, so the
-            // connection must stay up, and a clear majority of datagrams must still arrive.
-            Assert.AreEqual(
-                IceConnectionState.Connected,
-                a.State,
-                "a flaky (degraded, not cut) link must stay connected."
-            );
-            Assert.IsTrue(
-                delivered > sent * 0.4,
-                $"most datagrams should still cross a 30% loss link; got {delivered}/{sent}."
-            );
-        }
+        Assert.IsTrue(board.RunUntil(() => b.Connected, TimeSpan.FromSeconds(10)));
     }
 
-    private static async Task<(IceAgent A, IceAgent B)> ConnectPairAsync(
-        InMemoryIceNetwork net,
-        IPAddress[] aAddrs,
-        IPAddress[] bAddrs
+    [TestMethod]
+    public void HotStandby_SwitchesToWarmPair_WhenSelectedPathIsCut()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        IPAddress original = a.SelectedAddress!;
+        int statesBefore = a.States.Count;
+
+        // Cut the selected path. The other interface's pairs stay warm (hot-standby keep-alive), so the
+        // machine switches to one of them once consent on the cut path times out.
+        board.Cut(original);
+
+        Assert.IsTrue(
+            board.RunUntil(
+                () => a.SelectedAddress is { } now && !now.Equals(original),
+                Timings.ConsentTimeout * 2
+            ),
+            $"the machine should switch off the cut path {original}; still on {a.SelectedAddress}."
+        );
+        // Disconnected while the cut path is silent (the W3C state), Connected again on the alternate; never
+        // back to checking.
+        IceConnectionState[] states = [.. a.States.Skip(statesBefore)];
+        Assert.IsTrue(
+            states.All(s => s is IceConnectionState.Connected or IceConnectionState.Disconnected)
+                && a.Machine.State == IceConnectionState.Connected,
+            $"it stays established across the switch: {string.Join(", ", states)}."
+        );
+        Assert.IsTrue(board.SendData(a), "data flows over the warm alternate after the switch.");
+        Assert.IsTrue(board.RunUntil(() => board.SendData(b), Timings.ConsentTimeout * 2));
+    }
+
+    [TestMethod]
+    public void FlakyLink_StaysConnectedAndDeliversData_UnderProbabilisticLoss()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, _) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1")],
+            [IPAddress.Parse("10.0.0.2")]
+        );
+
+        // Degrade the only path to 30% loss without cutting it. There is no alternate to switch to, so
+        // the machine rides out the loss for two consent timeouts.
+        board.SetLossRate(0.30);
+        var step = TimeSpan.FromMilliseconds(50);
+        int sent = 0;
+        int delivered = 0;
+        for (
+            TimeSpan elapsed = TimeSpan.Zero;
+            elapsed < Timings.ConsentTimeout * 2;
+            elapsed += step
+        )
+        {
+            sent++;
+            delivered += board.SendData(a) ? 1 : 0;
+            board.Run(step);
+        }
+
+        // Consent checks go once each, 4 to 6 s apart (RFC 7675 section 5.1), so about half of them fail on
+        // this link; one answered within every 30 s keeps consent, which the seeded switchboard gives, and a
+        // clear majority of datagrams still arrives.
+        Assert.AreEqual(IceConnectionState.Connected, a.Machine.State);
+        Assert.IsGreaterThan(
+            sent * 0.6,
+            delivered,
+            $"most datagrams cross a 30% loss link; got {delivered}/{sent}."
+        );
+    }
+
+    // RFC 7675 section 5.1: credentials whose consent lapsed are not used on the pair again, so the path
+    // coming back is not enough; a restart with fresh credentials reconnects.
+    [TestMethod]
+    public void ConsentLost_WithNoAlternate_TakesARestartToRecover()
+    {
+        IceSwitchboard board = new();
+        var address = IPAddress.Parse("10.0.0.1");
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [address],
+            [IPAddress.Parse("10.0.0.2")]
+        );
+
+        board.Cut(address);
+        Assert.IsTrue(
+            board.RunUntil(() => a.Machine.Selected is null, Timings.ConsentTimeout * 2),
+            "consent lapses on a dead path."
+        );
+
+        board.Uncut(address);
+        Assert.IsFalse(
+            board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)),
+            "the spent credentials are not used on the pair again."
+        );
+
+        var fresh = IceCredentials.Generate();
+        board.Restart(a, fresh, [address]);
+        b.Machine.SetRemoteCredentials(fresh);
+        Assert.IsTrue(
+            board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)),
+            "a restart reconnects."
+        );
+        Assert.IsTrue(board.SendData(a));
+    }
+
+    [TestMethod]
+    public void Restart_UnderNewCredentials_Reconnects()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1")],
+            [IPAddress.Parse("10.0.0.2")]
+        );
+
+        var fresh = IceCredentials.Generate();
+        board.Restart(a, fresh, [IPAddress.Parse("10.0.0.1")]);
+        b.Machine.SetRemoteCredentials(fresh);
+
+        Assert.IsTrue(board.RunUntil(() => a.Connected && b.Connected, TimeSpan.FromSeconds(10)));
+        Assert.AreEqual(fresh, a.Machine.LocalCredentials);
+        Assert.IsTrue(board.SendData(a));
+    }
+
+    [TestMethod]
+    public void Timeouts_AreNotDueEarly_AndStepOncePerCall()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, _) = board.Pair(
+            [IPAddress.Parse("10.0.0.1")],
+            [IPAddress.Parse("10.0.0.2")],
+            Timings
+        );
+        TimeSpan due = a.Machine.NextTimeout!.Value;
+
+        a.Machine.HandleTimeout(due - TimeSpan.FromTicks(1));
+        Assert.AreEqual(due, a.Machine.NextTimeout, "an early call changes nothing.");
+
+        // A driver that fell a long way behind gets one step, then paces at Ta again.
+        TimeSpan late = due + TimeSpan.FromSeconds(3);
+        a.Machine.HandleTimeout(late);
+        Assert.AreEqual(late + Timings.Ta, a.Machine.NextTimeout);
+    }
+
+    [TestMethod]
+    public void NetworkEvent_KeepsMediaOnTheSelectedPair_WhileEveryPairIsRechecked()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        var selected = a.Machine.Selected;
+        int statesBefore = a.States.Count;
+
+        // An address change that left the path working, such as an IPv6 privacy address rotating.
+        a.Machine.TriggerRecovery();
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(3));
+
+        Assert.AreEqual(sent, fromA, "every datagram is sent and arrives across the re-check.");
+        Assert.AreEqual(sent, fromB);
+        Assert.AreEqual(selected, a.Machine.Selected);
+        Assert.AreEqual(statesBefore, a.States.Count, "the state never leaves Connected.");
+        Assert.IsTrue(b.Connected);
+    }
+
+    [TestMethod]
+    public void SilentPathDeath_FailsOverWithinSeconds_AndTheControlledSideFollows()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        _ = board.Stream(TimeSpan.FromSeconds(1));
+        IPAddress dead = a.SelectedAddress!;
+
+        // The path dies with no interface event, as in a cellular dead zone: only the silence shows it.
+        board.Cut(dead);
+        TimeSpan cutAt = board.Now;
+        while (
+            (a.SelectedAddress!.Equals(dead) || IsOnPeerOf(b, dead))
+            && board.Now - cutAt < Timings.ConsentTimeout
+        )
+        {
+            _ = board.Stream(TimeSpan.FromMilliseconds(100));
+        }
+
+        // Silence for the receiving timeout, the damping delay, then a round of fast pings on the
+        // alternates: seconds, where consent alone takes thirty.
+        TimeSpan failover = board.Now - cutAt;
+        Assert.IsLessThan(
+            Timings.ReceivingTimeout + Timings.SwitchingDelay + TimeSpan.FromSeconds(2),
+            failover,
+            $"both sides move off the dead path in seconds; took {failover}."
+        );
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(sent, fromA, "media flows over the new path.");
+        Assert.AreEqual(sent, fromB);
+        Assert.IsTrue(a.Connected && b.Connected);
+    }
+
+    [TestMethod]
+    public void PreferredPathReturning_TakesTheMediaBack()
+    {
+        IceSwitchboard board = new();
+        var v6 = IPAddress.Parse("2001:db8::1");
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [v6, IPAddress.Parse("192.0.2.1")],
+            [IPAddress.Parse("2001:db8::2"), IPAddress.Parse("192.0.2.2")]
+        );
+        Assert.AreEqual(v6, a.SelectedAddress, "IPv6 ranks first.");
+
+        board.Cut(v6);
+        _ = board.Stream(TimeSpan.FromSeconds(8));
+        Assert.AreEqual(AddressFamily.InterNetwork, a.SelectedAddress!.AddressFamily);
+
+        board.Uncut(v6);
+        _ = board.Stream(Timings.StandbyPingInterval + TimeSpan.FromSeconds(5));
+        Assert.AreEqual(v6, a.SelectedAddress, "media returns to the higher-priority path.");
+        Assert.AreEqual(AddressFamily.InterNetworkV6, b.SelectedAddress!.AddressFamily);
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(sent, fromA);
+        Assert.AreEqual(sent, fromB);
+    }
+
+    [TestMethod]
+    public void OneWayMedia_StaysOnTheSelectedPair()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        var selectedA = a.Machine.Selected;
+        var selectedB = b.Machine.Selected;
+
+        // A publisher with no media coming back: the selected pair sees only its keep-alives.
+        var step = TimeSpan.FromMilliseconds(20);
+        for (TimeSpan elapsed = TimeSpan.Zero; elapsed < TimeSpan.FromMinutes(2); elapsed += step)
+        {
+            Assert.IsTrue(board.SendData(a));
+            board.Run(step);
+        }
+
+        Assert.AreEqual(selectedA, a.Machine.Selected);
+        Assert.AreEqual(selectedB, b.Machine.Selected);
+    }
+
+    [TestMethod]
+    [DataRow(true, DisplayName = "trickled")]
+    [DataRow(false, DisplayName = "peer-reflexive, no signaling")]
+    public void InterfaceComingUp_IsCheckedMidSession_AndTakesOverWhenTheOldOneGoes(bool trickle)
+    {
+        IceSwitchboard board = new();
+        var wifi = IPAddress.Parse("10.0.0.1");
+        var cellular = IPAddress.Parse("10.1.0.1");
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [wifi],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        board.Trickle = trickle;
+
+        // The modem attaches: no restart, its pairs are checked alongside the live one.
+        board.AddInterface(a, cellular);
+        _ = board.Stream(TimeSpan.FromSeconds(2));
+        Assert.AreEqual(
+            wifi,
+            a.SelectedAddress,
+            "media stays where it is while the new pairs check."
+        );
+
+        // Wi-Fi drops with an interface event: the warm cellular pair takes over at once.
+        board.RemoveInterface(a, wifi);
+        TimeSpan removedAt = board.Now;
+        Assert.AreEqual(cellular, a.SelectedAddress);
+        while (IsOnPeerOf(b, wifi) && board.Now - removedAt < TimeSpan.FromSeconds(5))
+        {
+            _ = board.Stream(TimeSpan.FromMilliseconds(20));
+        }
+
+        Assert.IsLessThan(
+            TimeSpan.FromSeconds(1),
+            board.Now - removedAt,
+            "the controlled side follows within the time the media takes to arrive."
+        );
+        (int sent, int fromA, int fromB) = board.Stream(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(sent, fromA);
+        Assert.AreEqual(sent, fromB);
+        Assert.IsTrue(a.Connected && b.Connected);
+    }
+
+    [TestMethod]
+    public void SelectedInterfaceGoing_WithNoAlternate_ChecksAgain()
+    {
+        IceSwitchboard board = new();
+        var wifi = IPAddress.Parse("10.0.0.1");
+        (IceSwitchboard.Peer a, _) = Connect(board, [wifi], [IPAddress.Parse("10.0.0.2")]);
+
+        board.RemoveInterface(a, wifi);
+
+        Assert.IsNull(a.Machine.Selected);
+        Assert.AreEqual(IceConnectionState.Checking, a.Machine.State);
+
+        board.AddInterface(a, IPAddress.Parse("10.1.0.1"));
+        Assert.IsTrue(board.RunUntil(() => a.Connected, TimeSpan.FromSeconds(10)));
+    }
+
+    [TestMethod]
+    public void Connected_ChecksAtTheKeepAliveCadence_NotThePacingRate()
+    {
+        IceSwitchboard board = new();
+        _ = Connect(board, [IPAddress.Parse("10.0.0.1")], [IPAddress.Parse("10.0.0.2")]);
+        int before = board.ChecksDelivered;
+
+        _ = board.Stream(TimeSpan.FromMinutes(1));
+
+        // Each side pings the selected pair every 2.5 s once its round trip is stable: about 48 checks a
+        // minute. A check answering every request would bounce at the 50 ms pacing rate, about 2400.
+        int checks = board.ChecksDelivered - before;
+        Assert.IsLessThan(80, checks, $"{checks} checks in a quiet minute.");
+    }
+
+    [TestMethod]
+    public void RepairsOnTheStandbyPath_LeaveBothSelectionsWhereTheyAre()
+    {
+        IceSwitchboard board = new();
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = Connect(
+            board,
+            [IPAddress.Parse("10.0.0.1"), IPAddress.Parse("10.1.0.1")],
+            [IPAddress.Parse("10.0.0.2"), IPAddress.Parse("10.1.0.2")]
+        );
+        _ = board.Stream(TimeSpan.FromSeconds(3));
+        var selectedA = a.Machine.Selected;
+        var selectedB = b.Machine.Selected;
+        Assert.IsNotNull(a.Machine.Standby(board.Now), "the other interface stands by.");
+        Assert.AreNotEqual(selectedA!.Value.Local, a.Machine.Standby(board.Now)!.Value.Local);
+
+        // Media on the selected pair, a repair on the standby for every few media packets.
+        var step = TimeSpan.FromMilliseconds(20);
+        int repairs = 0;
+        for (TimeSpan elapsed = TimeSpan.Zero; elapsed < TimeSpan.FromSeconds(20); elapsed += step)
+        {
+            Assert.IsTrue(board.SendData(a));
+            Assert.IsTrue(board.SendData(b));
+            repairs += board.SendOnStandby(a) ? 1 : 0;
+            board.Run(step);
+        }
+
+        Assert.IsGreaterThan(500, repairs);
+        Assert.AreEqual(selectedA, a.Machine.Selected);
+        Assert.AreEqual(selectedB, b.Machine.Selected, "the controlled side follows nominations.");
+    }
+
+    private static bool IsOnPeerOf(IceSwitchboard.Peer peer, IPAddress address) =>
+        peer.Machine.Selected?.Remote.Address.Equals(address) == true;
+
+    // Connects a pair and lets hot-standby keep-alives validate the alternates.
+    private static (IceSwitchboard.Peer A, IceSwitchboard.Peer B) Connect(
+        IceSwitchboard board,
+        IPAddress[] controlling,
+        IPAddress[] controlled
     )
     {
-        var credsA = IceCredentials.Generate();
-        var credsB = IceCredentials.Generate();
-        var a = new IceAgent(
-            credsA,
-            IceRole.Controlling,
-            includeLoopback: true,
-            socketFactory: net.Factory(aAddrs),
-            timings: Fast
+        (IceSwitchboard.Peer a, IceSwitchboard.Peer b) = board.Pair(
+            controlling,
+            controlled,
+            Timings
         );
-        var b = new IceAgent(
-            credsB,
-            IceRole.Controlled,
-            includeLoopback: true,
-            socketFactory: net.Factory(bAddrs),
-            timings: Fast
+        Assert.IsTrue(
+            board.RunUntil(() => a.Connected && b.Connected, TimeSpan.FromSeconds(10)),
+            "the machines connect within ten seconds"
         );
-
-        a.LocalCandidateGathered += c => b.AddRemoteCandidate(c);
-        b.LocalCandidateGathered += c => a.AddRemoteCandidate(c);
-        a.SetRemoteCredentials(credsB);
-        b.SetRemoteCredentials(credsA);
-
-        var aConnected = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        var bConnected = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        a.StateChanged += s =>
-        {
-            if (s == IceConnectionState.Connected)
-            {
-                aConnected.TrySetResult();
-            }
-        };
-        b.StateChanged += s =>
-        {
-            if (s == IceConnectionState.Connected)
-            {
-                bConnected.TrySetResult();
-            }
-        };
-
-        a.Start();
-        b.Start();
-
-        // Generous: under full-suite CPU contention the 20 ms check cadence stretches, but connect is quick.
-        await Task.WhenAll(aConnected.Task, bConnected.Task).WaitAsync(TimeSpan.FromSeconds(25));
-
-        // Let hot-standby keep-alives validate the alternate pairs before any failover test.
-        await Task.Delay(250);
+        board.Run(Timings.StandbyPingInterval * 2);
         return (a, b);
     }
 }

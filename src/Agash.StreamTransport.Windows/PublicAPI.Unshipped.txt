@@ -1,0 +1,76 @@
+#nullable enable
+Agash.StreamTransport.Windows.Direct3D12.D3D12VideoProcessorFactory
+Agash.StreamTransport.Windows.Direct3D12.D3D12VideoProcessorFactory.Create(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.IVideoProcessor!
+Agash.StreamTransport.Windows.Direct3D12.D3D12VideoProcessorFactory.D3D12VideoProcessorFactory() -> void
+Agash.StreamTransport.Windows.Direct3D12.D3D12VideoProcessorFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.VideoProcessorInfo?
+Agash.StreamTransport.Windows.Direct3D12.D3D12VideoProcessorFactory.Rank.get -> int
+Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider
+Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.MediaFoundationVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.Rank.get -> int
+Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Dispose() -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Name.get -> string!
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink.OnFrame(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Render<TState>(Agash.StreamTransport.Media.VideoFormat format, scoped in TState state, Agash.StreamTransport.Media.VideoTargetRenderer<TState>! render) -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Windows.Spout.SpoutVideoSink.SpoutVideoSink(string! name, Agash.StreamTransport.Media.GpuIdentity? adapter = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSource
+Agash.StreamTransport.Windows.Spout.SpoutVideoSource.Connect(Agash.StreamTransport.Media.IVideoFrameConsumer! consumer, Agash.StreamTransport.Media.VideoConstraints! constraints) -> System.IDisposable!
+Agash.StreamTransport.Windows.Spout.SpoutVideoSource.Dispose() -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSource.SpoutVideoSource(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.<Clone>$() -> Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions!
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.Adapter.get -> Agash.StreamTransport.Media.GpuIdentity?
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.Adapter.init -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.Equals(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? other) -> bool
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.SenderName.get -> string?
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.SenderName.init -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.SpoutVideoSourceOptions() -> void
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.WaitForFrameSync.get -> bool
+Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.WaitForFrameSync.init -> void
+Agash.StreamTransport.Windows.SpoutVideoInputProvider
+Agash.StreamTransport.Windows.SpoutVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.Windows.SpoutVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.Windows.SpoutVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.Windows.SpoutVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.Windows.SpoutVideoInputProvider.SpoutVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.SpoutVideoOutputProvider
+Agash.StreamTransport.Windows.SpoutVideoOutputProvider.CreateAsync(string! name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoOutput!>
+Agash.StreamTransport.Windows.SpoutVideoOutputProvider.Name.get -> string!
+Agash.StreamTransport.Windows.SpoutVideoOutputProvider.SpoutVideoOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.Dispose() -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.Started.get -> System.Threading.Tasks.Task!
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.WasapiAudioSink(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource.Connect(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> System.IDisposable!
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource.Dispose() -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource.WasapiAudioSource(Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint endpoint = Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint.DefaultCapture, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint
+Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint.DefaultCapture = 0 -> Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint
+Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint.DefaultOutput = 2 -> Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint
+Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint.DefaultOutputLoopback = 1 -> Agash.StreamTransport.Windows.Wasapi.WasapiEndpoint
+Agash.StreamTransport.Windows.WasapiAudioInputProvider
+Agash.StreamTransport.Windows.WasapiAudioInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>
+Agash.StreamTransport.Windows.WasapiAudioInputProvider.Name.get -> string!
+Agash.StreamTransport.Windows.WasapiAudioInputProvider.OpenAsync(Agash.StreamTransport.Media.AudioInputInfo! input, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioInput!>
+Agash.StreamTransport.Windows.WasapiAudioInputProvider.Rank.get -> int
+Agash.StreamTransport.Windows.WasapiAudioInputProvider.WasapiAudioInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.WasapiAudioOutputProvider
+Agash.StreamTransport.Windows.WasapiAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.Windows.WasapiAudioOutputProvider.Name.get -> string!
+Agash.StreamTransport.Windows.WasapiAudioOutputProvider.WasapiAudioOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.GetHashCode() -> int
+override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.ToString() -> string!
+static Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions.AddWindowsMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.operator !=(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? left, Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? right) -> bool
+static Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.operator ==(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? left, Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? right) -> bool

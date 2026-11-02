@@ -1,49 +1,27 @@
-using System.Diagnostics;
+using Agash.StreamTransport.Media;
 
 namespace Agash.StreamTransport.Sync;
 
 /// <summary>
-/// Maps a frame's monotonic capture timestamp (a <see cref="Stopwatch"/>-based <c>PresentationTimeNs</c> on
-/// the video/audio frame) onto an absolute NTP wall-clock time, for the <c>abs-capture-time</c> RTP header
-/// extension. A single anchor
-/// (wall ↔ monotonic) is taken once and reused, so the mapping is drift-free within a session and -
-/// crucially - identical for audio and video, so frames captured at the same instant get the same NTP and
-/// the receiver can lip-sync them off the capture clock rather than RTCP Sender Report timing.
+/// Maps capture instants on the monotonic media clock to wall-clock NTP time, for abs-capture-time. One
+/// anchor taken at creation serves every stream of a session, so audio and video captured at the same
+/// instant carry the same NTP time and the receiver lip-syncs them by capture time.
 /// </summary>
 internal sealed class CaptureClock
 {
-    // 1 second is 2^32 units in a 64-bit NTP fixed-point timestamp (high 32 bits seconds, low 32 fraction).
-    private const double NtpUnitsPerSecond = 4294967296.0;
-    private static readonly DateTime s_ntpEpoch = new(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private readonly MediaTime _anchorMedia;
+    private readonly NtpTime _anchorWall;
 
-    private readonly ulong _anchorNtp;
-    private readonly long _anchorMonotonicNs;
-
-    public CaptureClock()
+    /// <summary>A mapping anchored now.</summary>
+    /// <param name="clock">The media clock capture times are on.</param>
+    public CaptureClock(MediaClock clock)
     {
-        _anchorMonotonicNs = NowMonotonicNs();
-        _anchorNtp = ToNtp(DateTime.UtcNow);
+        _anchorMedia = clock.Now;
+        _anchorWall = NtpTime.From(clock.TimeProvider.GetUtcNow());
     }
 
-    /// <summary>
-    /// The absolute capture time, as a 64-bit UQ32.32 NTP timestamp, for a frame whose monotonic capture
-    /// timestamp is <paramref name="presentationTimeNs"/>.
-    /// </summary>
-    public ulong CaptureNtp(long presentationTimeNs)
-    {
-        long deltaNs = presentationTimeNs - _anchorMonotonicNs;
-        long deltaNtpUnits = (long)(deltaNs * NtpUnitsPerSecond / 1_000_000_000.0);
-        return unchecked(_anchorNtp + (ulong)deltaNtpUnits);
-    }
-
-    private static ulong ToNtp(DateTime utc)
-    {
-        double seconds = (utc - s_ntpEpoch).TotalSeconds;
-        ulong whole = (ulong)Math.Floor(seconds);
-        ulong fraction = (ulong)((seconds - whole) * NtpUnitsPerSecond);
-        return (whole << 32) | (fraction & 0xFFFFFFFF);
-    }
-
-    private static long NowMonotonicNs() =>
-        Stopwatch.GetTimestamp() * (1_000_000_000L / Stopwatch.Frequency);
+    /// <summary>The wall-clock time of a capture instant.</summary>
+    /// <param name="capture">When the media was captured, on the media clock.</param>
+    /// <returns>The NTP time.</returns>
+    public NtpTime ToNtp(MediaTime capture) => _anchorWall + (capture - _anchorMedia);
 }

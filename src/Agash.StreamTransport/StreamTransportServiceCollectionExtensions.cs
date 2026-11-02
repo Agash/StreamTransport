@@ -1,0 +1,45 @@
+using Agash.StreamTransport;
+using Agash.StreamTransport.Media;
+using Agash.StreamTransport.Sessions;
+using Agash.StreamTransport.TestSignal;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+// Service registration lives in the namespace of IServiceCollection, as the framework's own does, so it
+// is found without a using directive.
+#pragma warning disable IDE0130
+namespace Microsoft.Extensions.DependencyInjection;
+
+#pragma warning restore IDE0130
+
+/// <summary>DI registration for StreamTransport media sessions.</summary>
+public static class StreamTransportServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers media sessions over WebRTC: the WebRTC stack with its payload formats, the codec
+    /// registry built from every registered encoder, decoder and processor factory, network mobility, and
+    /// the <see cref="IMediaSessionFactory"/>. Codecs come from their own packages' registrations, such as
+    /// <c>AddFFmpegCodecs()</c> and <c>AddOpusCodecs()</c>, or from the host's own factories.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The service collection.</returns>
+    public static IServiceCollection AddStreamTransport(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // The registry, devices and sessions log through ILogger<T>, which logging registers; it keeps a
+        // logger factory the host registered already, as AddHttpClient does.
+        services.AddLogging();
+        services.TryAddSingleton<MediaCodecRegistry>();
+        services.TryAddSingleton<MediaDevices>();
+        services.TryAddSingleton<TestSignalGenerator>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IVideoInputProvider, TestSignalVideoInputProvider>()
+        );
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IAudioInputProvider, TestSignalAudioInputProvider>()
+        );
+        services.TryAddSingleton<IMediaSessionFactory, MediaSessionFactory>();
+        return services;
+    }
+}

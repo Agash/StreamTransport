@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net.NetworkInformation;
 
 namespace Agash.StreamTransport.WebRtc;
@@ -11,11 +12,11 @@ namespace Agash.StreamTransport.WebRtc;
 public sealed class NetworkChangeMonitor : INetworkMonitor
 {
     private readonly Lock _gate = new();
-    private NetworkPathInfo[] _current = [];
+    private ImmutableArray<NetworkPathInfo> _current = [];
     private bool _started;
 
     /// <inheritdoc/>
-    public IReadOnlyList<NetworkPathInfo> Current
+    public ImmutableArray<NetworkPathInfo> Current
     {
         get
         {
@@ -27,7 +28,7 @@ public sealed class NetworkChangeMonitor : INetworkMonitor
     }
 
     /// <inheritdoc/>
-    public event Action<IReadOnlyList<NetworkPathInfo>>? NetworksChanged;
+    public event Action<ImmutableArray<NetworkPathInfo>>? NetworksChanged;
 
     /// <inheritdoc/>
     public void Start()
@@ -50,11 +51,11 @@ public sealed class NetworkChangeMonitor : INetworkMonitor
 
     private void Refresh()
     {
-        NetworkPathInfo[] snapshot = Snapshot();
+        ImmutableArray<NetworkPathInfo> snapshot = Snapshot();
         bool changed;
         lock (_gate)
         {
-            changed = !snapshot.AsSpan().SequenceEqual(_current);
+            changed = !snapshot.AsSpan().SequenceEqual(_current.AsSpan());
             if (changed)
             {
                 _current = snapshot;
@@ -67,10 +68,11 @@ public sealed class NetworkChangeMonitor : INetworkMonitor
         }
     }
 
-    private static NetworkPathInfo[] Snapshot()
+    private static ImmutableArray<NetworkPathInfo> Snapshot()
     {
         NetworkInterface[] all = NetworkInterface.GetAllNetworkInterfaces();
-        var operational = new List<NetworkPathInfo>(all.Length);
+        ImmutableArray<NetworkPathInfo>.Builder operational =
+            ImmutableArray.CreateBuilder<NetworkPathInfo>(all.Length);
         foreach (NetworkInterface ni in all)
         {
             if (ni.OperationalStatus != OperationalStatus.Up)
@@ -84,7 +86,7 @@ public sealed class NetworkChangeMonitor : INetworkMonitor
         }
 
         operational.Sort(static (a, b) => StringComparer.Ordinal.Compare(a.Id, b.Id));
-        return [.. operational];
+        return operational.DrainToImmutable();
     }
 
     private static NetworkAdapterType Classify(NetworkInterfaceType type) =>

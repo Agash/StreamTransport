@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using Agash.StreamTransport.Signaling;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Agash.StreamTransport.Tests;
@@ -19,24 +20,32 @@ namespace Agash.StreamTransport.Tests;
 // The per-component logic is covered deterministically by the WebRtc unit tests and the in-memory loopback
 // tests.
 //
-// Publisher_FansOutToTwoSubscribers_OverRealRelay fails every run, not intermittently. This was previously
-// described as a load-dependent connect race and papered over with a retry; both were wrong. Instrumenting
-// the body showed every step completes — both subscribers start and the publisher starts — and the test then
-// hangs past the point where its own 20s Task.Delay should have released the wait. The hang is therefore at
-// or after the assertion, in either the log dump or the async disposal of a second subscriber, not in
-// connect. Note also that nothing here ever ran in parallel: MSTest is sequential unless [assembly:
-// Parallelize] is present, and it is not, so the DoNotParallelize attributes across this suite are no-ops
-// and host load was never the explanation. Tracked: Agash/StreamTransport#1.
 [TestClass]
 [TestCategory("Integration")]
 public sealed class RelayIntegrationTests
 {
+    // RFC 8827 section 6: the signaling link carries the fingerprints the media's authentication rests on,
+    // so plain ws goes only to loopback unless the caller allows it.
+    [TestMethod]
+    public async Task ConnectAsync_PlainWsToAnotherHost_IsRefused() =>
+        _ = await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            RoomClient.ConnectAsync(
+                new Uri("ws://relay.example/ws"),
+                new RoomCode("room"),
+                PeerRole.Publisher,
+                cancellationToken: CancellationToken.None
+            )
+        );
+
     [TestMethod]
     [Timeout(60_000)]
     public async Task PublisherAndSubscriber_OverRealRelay_DeliverDecodedAudio()
     {
         await using var relay = InProcessRelay.Start();
         var room = new RoomCode("itroom");
+        await using ServiceProvider services = MediaServices.Create();
+        IMediaSessionFactory sessions = services.GetRequiredService<IMediaSessionFactory>();
+        MediaSessionOptions options = MediaServices.Loopback(new MediaSessionOptions());
 
         await using RoomClient publisherRoom = await RoomClient.ConnectAsync(
             relay.WebSocketUri,
@@ -49,31 +58,25 @@ public sealed class RelayIntegrationTests
             PeerRole.Subscriber
         );
 
-        var sink = new CollectingAudioSink(target: 10);
+        var sink = new RecordingAudioSink(target: 10);
         await using var subscriber = new MediaSubscriber(
-            new MediaTransportOptions(),
-            TestMedia.Transport,
-            TestMedia.Loggers,
             subscriberRoom,
-            audio: sink
+            sessions,
+            new MediaEndpoints { AudioSink = sink },
+            options
         );
-        await subscriber.StartAsync();
+        subscriber.Start();
 
         await using var publisher = new MediaPublisher(
-            new MediaTransportOptions(),
-            TestMedia.Transport,
-            TestMedia.Loggers,
             publisherRoom,
-            audio: new ToneAudioSource()
+            sessions,
+            new MediaEndpoints { AudioSource = new ToneSource() },
+            options
         );
         publisher.Start();
 
-        Task finished = await Task.WhenAny(sink.Reached, Task.Delay(50_000));
-
-        Assert.IsTrue(
-            ReferenceEquals(finished, sink.Reached) && sink.Count >= 10,
-            $"Expected >=10 decoded audio frames through the relay, got {sink.Count}."
-        );
+        await sink.Reached.WaitAsync(TimeSpan.FromSeconds(50));
+        Assert.IsGreaterThanOrEqualTo(10, sink.Frames);
     }
 
     [TestMethod]
@@ -82,6 +85,10 @@ public sealed class RelayIntegrationTests
     {
         await using var relay = InProcessRelay.Start();
         var room = new RoomCode("fanout");
+        CapturingLoggerFactory log = new();
+        await using ServiceProvider services = MediaServices.Create(log);
+        IMediaSessionFactory sessions = services.GetRequiredService<IMediaSessionFactory>();
+        MediaSessionOptions options = MediaServices.Loopback(new MediaSessionOptions());
 
         await using RoomClient publisherRoom = await RoomClient.ConnectAsync(
             relay.WebSocketUri,
@@ -99,42 +106,45 @@ public sealed class RelayIntegrationTests
             PeerRole.Subscriber
         );
 
-        IMediaTransport transport = TestMedia.CreateCapturing(out CapturingLoggerFactory log);
-        var sink1 = new CollectingAudioSink(target: 10);
-        var sink2 = new CollectingAudioSink(target: 10);
+        var sink1 = new RecordingAudioSink(target: 10);
+        var sink2 = new RecordingAudioSink(target: 10);
         await using var sub1 = new MediaSubscriber(
-            new MediaTransportOptions(),
-            transport,
-            log,
             sub1Room,
-            audio: sink1
+            sessions,
+            new MediaEndpoints { AudioSink = sink1 },
+            options
         );
         await using var sub2 = new MediaSubscriber(
-            new MediaTransportOptions(),
-            transport,
-            log,
             sub2Room,
-            audio: sink2
+            sessions,
+            new MediaEndpoints { AudioSink = sink2 },
+            options
         );
-        await sub1.StartAsync();
-        await sub2.StartAsync();
+        sub1.Start();
+        sub2.Start();
 
-        // One publisher fans out to both subscribers.
         await using var publisher = new MediaPublisher(
-            new MediaTransportOptions(),
-            transport,
-            log,
             publisherRoom,
-            audio: new ToneAudioSource()
+            sessions,
+            new MediaEndpoints { AudioSource = new ToneSource() },
+            options
         );
         publisher.Start();
 
-        _ = await Task.WhenAny(Task.WhenAll(sink1.Reached, sink2.Reached), Task.Delay(20_000));
+        try
+        {
+            await Task.WhenAll(sink1.Reached, sink2.Reached).WaitAsync(TimeSpan.FromSeconds(20));
+        }
+        catch (TimeoutException)
+        {
+            // Reported by the assertion below, with the log.
+        }
 
         Assert.IsTrue(
-            sink1.Count >= 10 && sink2.Count >= 10,
-            $"Expected >=10 decoded audio frames at each subscriber, got {sink1.Count} and {sink2.Count}.\n=== handshake log ===\n{log.Dump()}"
+            sink1.Frames >= 10 && sink2.Frames >= 10,
+            $"Expected >=10 decoded audio frames at each subscriber, got {sink1.Frames} and {sink2.Frames}.\n=== log ===\n{log.Dump()}"
         );
+        Assert.HasCount(2, publisher.Sessions);
     }
 
     /// <summary>A minimal WebSocket signaling relay over <see cref="HttpListener"/>, backed by the room router.</summary>

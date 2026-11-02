@@ -20,4 +20,11 @@ public enum IceConnectionState
 
     /// <summary>The agent has been closed.</summary>
     Closed = 4,
+
+    /// <summary>
+    /// The selected pair stopped receiving: connectivity is lost for now and may come back, or the agent may
+    /// move to another pair (the W3C <c>disconnected</c> state). <see cref="Connected"/> again once it
+    /// receives or another pair takes over.
+    /// </summary>
+    Disconnected = 5,
 }

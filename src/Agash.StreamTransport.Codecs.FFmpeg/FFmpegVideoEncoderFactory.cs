@@ -1,0 +1,709 @@
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
+using System.Diagnostics.Metrics;
+using Agash.StreamTransport.Media;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using static FFmpeg.Interop.D3D12VAExtensions;
+using static FFmpeg.Interop.VulkanExtensions;
+using FF = FFmpeg.Interop;
+
+namespace Agash.StreamTransport.Codecs.FFmpeg;
+
+/// <summary>
+/// Makes FFmpeg video encoders of one <see cref="EncoderBackend"/>. Whether the backend works on a GPU
+/// is found out by opening a small encoder and encoding a frame through it, once per encoder and GPU;
+/// a backend whose encoder is in the FFmpeg build but whose hardware, driver or codec support is
+/// missing reports no capabilities.
+/// </summary>
+public sealed partial class FFmpegVideoEncoderFactory : IVideoEncoderFactory
+{
+    private static readonly ConcurrentDictionary<
+        (string Encoder, string Adapter),
+        Probe?
+    > s_probes = new();
+
+    // The Media formats a probe tries, most preferred first.
+    private static readonly ImmutableArray<PixelFormat> s_candidates =
+    [
+        PixelFormat.Nv12,
+        PixelFormat.I420,
+        PixelFormat.P010,
+        PixelFormat.Bgra,
+        PixelFormat.Rgba,
+    ];
+
+    private readonly BackendSpec _spec;
+    private readonly FFmpegCodecOptions _options;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly TimeProvider _time;
+    private readonly FFmpegCodecMetrics _metrics;
+    private readonly ILogger _logger;
+
+    /// <summary>A factory for one backend.</summary>
+    /// <param name="backend">The backend.</param>
+    /// <param name="options">Shared options; defaults when null.</param>
+    /// <param name="loggerFactory">Logging; none when null.</param>
+    /// <param name="meterFactory">
+    /// Where the metrics' meter comes from (<see cref="FFmpegCodecDiagnostics.MeterName"/>); one meter shared
+    /// by every factory made without one when null.
+    /// </param>
+    /// <param name="timeProvider">The clock encoder opens are timed on; the system's when null.</param>
+    public FFmpegVideoEncoderFactory(
+        EncoderBackend backend,
+        FFmpegCodecOptions? options = null,
+        ILoggerFactory? loggerFactory = null,
+        IMeterFactory? meterFactory = null,
+        TimeProvider? timeProvider = null
+    )
+    {
+        _spec = BackendCatalog.Get(backend);
+        _options = options ?? new FFmpegCodecOptions();
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _time = timeProvider ?? TimeProvider.System;
+        _metrics = meterFactory is { } meters
+            ? new FFmpegCodecMetrics(meters)
+            : FFmpegCodecMetrics.Shared;
+        _logger = _loggerFactory.CreateLogger<FFmpegVideoEncoderFactory>();
+    }
+
+    /// <summary>The backend.</summary>
+    public EncoderBackend Backend => _spec.Backend;
+
+    /// <inheritdoc/>
+    public int Rank => _spec.Rank;
+
+    /// <summary>Whether the backend runs on a GPU or media engine.</summary>
+    public bool IsHardwareAccelerated => _spec.IsHardware;
+
+    /// <summary>
+    /// The GPU surfaces the backend encodes from without a copy through memory, where its hardware is
+    /// present; empty for a backend that takes frames in memory only.
+    /// </summary>
+    public ImmutableArray<VideoStorageKind> GpuStorages =>
+        [.. _spec.GpuStorages.Where(Formats.OnThisPlatform)];
+
+    /// <inheritdoc/>
+    /// <remarks>The codecs whose encoder is in the loaded FFmpeg; whether the hardware can run them is
+    /// <see cref="QueryCapabilities"/>'s question.</remarks>
+    public ImmutableArray<VideoCodecFormat> SupportedFormats
+    {
+        get
+        {
+            if (Rank == 0)
+            {
+                return [];
+            }
+
+            ImmutableArray<VideoCodecFormat>.Builder formats =
+                ImmutableArray.CreateBuilder<VideoCodecFormat>();
+            foreach ((VideoCodecId codec, string encoder) in _spec.Encoders)
+            {
+                if (FF.Codec.TryFindEncoder(encoder, out _))
+                {
+                    formats.Add(new VideoCodecFormat(codec));
+                }
+            }
+
+            return formats.DrainToImmutable();
+        }
+    }
+
+    /// <summary>A factory for every backend this platform has, most preferred first.</summary>
+    /// <param name="options">Shared options; defaults when null.</param>
+    /// <returns>The factories.</returns>
+    /// <param name="loggerFactory">Logging; none when null.</param>
+    /// <param name="meterFactory">Where the metrics' meter comes from; a shared one when null.</param>
+    /// <param name="timeProvider">The clock; the system's when null.</param>
+    public static ImmutableArray<FFmpegVideoEncoderFactory> CreateAll(
+        FFmpegCodecOptions? options = null,
+        ILoggerFactory? loggerFactory = null,
+        IMeterFactory? meterFactory = null,
+        TimeProvider? timeProvider = null
+    ) =>
+        [
+            .. BackendCatalog
+                .All.Where(static spec => spec.Rank > 0)
+                .OrderByDescending(static spec => spec.Rank)
+                .Select(spec => new FFmpegVideoEncoderFactory(
+                    spec.Backend,
+                    options,
+                    loggerFactory,
+                    meterFactory,
+                    timeProvider
+                )),
+        ];
+
+    /// <inheritdoc/>
+    public VideoEncoderInfo? QueryCapabilities(VideoCodecFormat format, GpuIdentity? device)
+    {
+        ArgumentNullException.ThrowIfNull(format);
+        return Resolve(format, device) is { } resolved ? resolved.Info : null;
+    }
+
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">The backend cannot encode the format on that GPU.</exception>
+    public IVideoEncoder Create(VideoEncoderConfiguration configuration, GpuIdentity? device)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        Resolved resolved =
+            Resolve(configuration.Format, device)
+            ?? throw new NotSupportedException(
+                $"{_spec.Backend} cannot encode {configuration.Format.Codec} on this machine{(device is null ? "" : " on that GPU")}."
+            );
+        ImmutableDictionary<string, string> options = PrivateOptions(
+            resolved.Codec.Name,
+            configuration.Tuning,
+            resolved.ProfileOptions
+        );
+        if (configuration.Alpha == AlphaLayout.Layer)
+        {
+            options = options.SetItems(
+                EncoderSettings.AlphaLayerOptions(resolved.Codec.Name)
+                    ?? throw new NotSupportedException(
+                        $"{resolved.Codec.Name} does not code an alpha layer."
+                    )
+            );
+        }
+
+        return new FFmpegVideoEncoder(
+            _spec,
+            resolved.Codec,
+            configuration,
+            resolved.Info,
+            resolved.Adapter,
+            options,
+            resolved.ForcesKeyframes,
+            _loggerFactory.CreateLogger<FFmpegVideoEncoder>(),
+            _metrics,
+            _time
+        );
+    }
+
+    private Resolved? Resolve(VideoCodecFormat format, GpuIdentity? device)
+    {
+        if (Rank == 0 || _spec.EncoderFor(format.Codec) is not { } name)
+        {
+            return null;
+        }
+
+        if (!FF.Codec.TryFindEncoder(name, out FF.Codec codec))
+        {
+            return null;
+        }
+
+        FF.GpuAdapter? adapter = null;
+        if (_spec.DeviceType is not null)
+        {
+            adapter = Adapters.For(_spec.Backend, device);
+            if (adapter is null && !OperatingSystem.IsMacOS())
+            {
+                return null;
+            }
+        }
+
+        string adapterKey = adapter?.ToString() ?? "default";
+        Probe? probe = s_probes.GetOrAdd(
+            (name, adapterKey),
+            static (_, state) => state.Self.CountedProbe(state.Codec, state.Id, state.Adapter),
+            (Self: this, Codec: codec, Id: format.Codec, Adapter: adapter)
+        );
+        if (probe is null)
+        {
+            return null;
+        }
+
+        // An H.264 stream stays within the profile the receiver declared, or the encoder is not offered;
+        // a format that names no profile leaves the encoder's own.
+        ImmutableDictionary<string, string> profileOptions = [];
+        if (
+            format.Codec == VideoCodecId.H264
+            && format.Parameters.ContainsKey(H264ProfileLevelId.ParameterName)
+        )
+        {
+            if (
+                !H264ProfileLevelId.TryRead(format.Parameters, out H264ProfileLevelId accepted)
+                || EncoderSettings.H264ProfileOptions(name, accepted.Profile) is not { } options
+                || (
+                    accepted.Profile is H264Profile.ConstrainedBaseline or H264Profile.Baseline
+                    && !probe.ConstrainedBaseline
+                )
+            )
+            {
+                return null;
+            }
+
+            profileOptions = options;
+        }
+
+        GpuIdentity? identity = adapter is null ? null : Adapters.IdentityOf(adapter);
+        ImmutableArray<VideoStorageKind> storages =
+        [
+            VideoStorageKind.Cpu,
+            .. _spec.GpuStorages.Where(static s => SupportedHere(s)),
+        ];
+        VideoEncoderInfo info = new(
+            $"{name} ({_spec.Backend}{(adapter is null ? "" : $", {adapter.Name}")})",
+            _spec.IsHardware,
+            new VideoConstraints(storages, probe.Formats, identity),
+            WidthAlignment: 2,
+            HeightAlignment: 2,
+            probe.MaximumSize,
+            probe.RateChange,
+            EncodesAlphaLayer: EncoderSettings.AlphaLayerOptions(name) is not null
+        );
+        return new Resolved(codec, adapter, info, probe.ForcesKeyframes, profileOptions);
+    }
+
+    private static bool SupportedHere(VideoStorageKind storage) =>
+        storage switch
+        {
+            VideoStorageKind.D3D12 => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240),
+            VideoStorageKind.D3D11 => OperatingSystem.IsWindows(),
+            VideoStorageKind.DmaBuf => OperatingSystem.IsLinux(),
+            VideoStorageKind.IOSurface => OperatingSystem.IsMacOS(),
+            _ => true,
+        };
+
+    private Probe? CountedProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
+    {
+        Probe? probe = RunProbe(codec, id, adapter);
+        _metrics.Probes.Add(
+            1,
+            FFmpegCodecMetrics.Codec(codec.Name),
+            FFmpegCodecMetrics.Outcome(probe is not null)
+        );
+        return probe;
+    }
+
+    // Opens the encoder for real and encodes a few frames through the system-memory path, which every
+    // backend takes; a driver without the codec, a missing GPU and an absent runtime all fail here.
+    // An encoder that takes only surfaces is offered the formats its device holds, which are more than
+    // it encodes (a Vulkan device holds BGRA, a Vulkan H.264 encoder takes only YUV), so each of those
+    // is tried and only the ones that encode are kept; an encoder with its own formats is tried on its
+    // first that works.
+    private Probe? RunProbe(FF.Codec codec, VideoCodecId id, FF.GpuAdapter? adapter)
+    {
+        // Encoders this machine lacks fail loudly in FFmpeg's log; the outcome is logged here instead.
+        using FF.FFmpegLogging.DemotionScope demoted = FF.FFmpegLogging.Demote();
+        ImmutableArray<PixelFormat> candidates = FormatsFor(codec, adapter);
+        if (candidates.IsEmpty)
+        {
+            LogProbeFailed(_logger, codec.Name, "it takes none of the Media pixel formats", null);
+            return null;
+        }
+
+        bool surfacesOnly = !candidates.Any(f =>
+            FFmpegVideoEncoder.Takes(codec, Formats.ToFFmpeg(f))
+        );
+        ImmutableArray<PixelFormat>.Builder working = ImmutableArray.CreateBuilder<PixelFormat>();
+        bool? forcesKeyframes = null;
+        bool rateKeyframe = false;
+        Exception? failure = null;
+        foreach (PixelFormat format in candidates)
+        {
+            try
+            {
+                (bool forces, bool keyframeOnRate) = Exercise(codec, id, adapter, format);
+                if (forcesKeyframes is null)
+                {
+                    forcesKeyframes = forces;
+                    rateKeyframe = keyframeOnRate;
+                }
+
+                working.Add(format);
+                if (!surfacesOnly)
+                {
+                    break;
+                }
+            }
+            catch (Exception ex)
+                when (ex
+                        is FF.FFmpegException
+                            or NotSupportedException
+                            or InvalidOperationException
+                            or ArgumentException
+                )
+            {
+                LogFormatRefused(_logger, codec.Name, format, ex.Message);
+                failure ??= ex;
+            }
+        }
+
+        if (forcesKeyframes is not { } forced)
+        {
+            LogProbeFailed(_logger, codec.Name, failure?.Message ?? "no format encoded", failure);
+            return null;
+        }
+
+        // Constrained Baseline, which a receiver may be all a receiver takes, is opened as well: a driver
+        // can lack it (Vulkan Video on NVIDIA) while encoding its default profile.
+        bool constrainedBaseline =
+            id != VideoCodecId.H264
+            || EncoderSettings.H264ProfileOptions(codec.Name, H264Profile.ConstrainedBaseline)
+                is { } baselineOptions
+                && (
+                    baselineOptions.IsEmpty
+                    || TryExercise(codec, id, adapter, working[0], baselineOptions)
+                );
+        // What a rate change costs is seen in the exercise: a wrapper that resets the encoder for it starts
+        // again with a keyframe.
+        RateChange rateChange =
+            !codec.SupportsRateControlChanges ? RateChange.Reopen
+            : rateKeyframe ? RateChange.Keyframe
+            : RateChange.InPlace;
+        VideoSize largest = MaximumSize(codec, id, adapter, working[0]);
+        LogProbeSucceeded(
+            _logger,
+            codec.Name,
+            adapter?.Name ?? "default",
+            rateChange,
+            forced,
+            largest.Width,
+            largest.Height
+        );
+        return new Probe(
+            surfacesOnly
+                ? working.DrainToImmutable()
+                : [.. candidates.SkipWhile(f => !working.Contains(f))],
+            largest,
+            rateChange,
+            forced,
+            constrainedBaseline
+        );
+    }
+
+    private bool TryExercise(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format,
+        ImmutableDictionary<string, string> profileOptions
+    )
+    {
+        try
+        {
+            _ = Exercise(codec, id, adapter, format, profileOptions);
+            return true;
+        }
+        catch (Exception ex)
+            when (ex
+                    is FF.FFmpegException
+                        or NotSupportedException
+                        or InvalidOperationException
+                        or ArgumentException
+            )
+        {
+            LogProfileRefused(_logger, codec.Name, ex.Message);
+            return false;
+        }
+    }
+
+    // Encodes five frames of one format: the third asks for a keyframe, to learn whether the encoder
+    // honours a forced picture type or has to be reopened for one, and the rate halves before the fourth,
+    // to learn whether a rate change it takes while running starts a keyframe. Returns both.
+    private (bool ForcesKeyframes, bool KeyframeOnRateChange) Exercise(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format,
+        ImmutableDictionary<string, string>? profileOptions = null,
+        VideoSize? frameSize = null,
+        int frames = 5
+    )
+    {
+        VideoSize size = frameSize ?? new VideoSize(256, 256);
+        int area = size.Width * size.Height;
+        byte[] pixels = new byte[PlaneLayout.PackedSize(format, size)];
+        if (format is PixelFormat.Nv12 or PixelFormat.I420)
+        {
+            pixels.AsSpan(0, area).Fill(16);
+            pixels.AsSpan(area).Fill(128);
+        }
+
+        VideoEncoderConfiguration configuration = new(
+            new VideoCodecFormat(id),
+            size,
+            new RateTarget(1_000_000, 30)
+        );
+        VideoEncoderInfo provisional = new(
+            codec.Name,
+            _spec.IsHardware,
+            VideoConstraints.Cpu(format),
+            2,
+            2,
+            size,
+            RateChange.InPlace
+        );
+        using FFmpegVideoEncoder encoder = new(
+            _spec,
+            codec,
+            configuration,
+            provisional,
+            adapter,
+            PrivateOptions(codec.Name, EncodeTuning.Interactive, profileOptions ?? []),
+            forcesKeyframes: true,
+            _loggerFactory.CreateLogger<FFmpegVideoEncoder>()
+        );
+        KeyframeRecorder consumer = new();
+        for (int i = 0; i < frames; i++)
+        {
+            if (i == 3 && codec.SupportsRateControlChanges)
+            {
+                encoder.Reconfigure(new RateTarget(500_000, 30));
+            }
+
+            VideoFrame frame = new(
+                new CpuImage(PlaneLayout.Packed(format, size)),
+                new VideoFormat(format, size.Width, size.Height),
+                MediaTimestamp.Observed(new MediaTime(i * 33_333_333L)),
+                pixels
+            );
+            encoder.Encode(in frame, new EncodeRequest(Keyframe: i is 0 or 2), consumer);
+        }
+
+        encoder.Flush(consumer);
+        return (
+            consumer.Keyframes is [true, false, true, ..],
+            consumer.Keyframes is [_, _, _, true, ..] or [_, _, _, _, true, ..]
+        );
+    }
+
+    // The Media formats the encoder takes: its own software formats, or for an encoder that takes
+    // only surfaces, the formats its device's surfaces hold.
+    private ImmutableArray<PixelFormat> FormatsFor(FF.Codec codec, FF.GpuAdapter? adapter)
+    {
+        ImmutableArray<PixelFormat>.Builder formats = ImmutableArray.CreateBuilder<PixelFormat>();
+        foreach (PixelFormat candidate in s_candidates)
+        {
+            if (FFmpegVideoEncoder.Takes(codec, Formats.ToFFmpeg(candidate)))
+            {
+                formats.Add(candidate);
+            }
+        }
+
+        if (formats.Count > 0 || _spec.DeviceType is not { } type)
+        {
+            return formats.DrainToImmutable();
+        }
+
+        try
+        {
+            using FF.HardwareDevice device = SharedDevices.Open(type, adapter);
+            if (!DriverEncodes(device, codec.Id))
+            {
+                LogProbeFailed(
+                    _logger,
+                    codec.Name,
+                    $"the {type} driver has no encoder for it",
+                    null
+                );
+                return [];
+            }
+
+            FF.HardwareFrameConstraints constraints = device.GetFrameConstraints();
+            foreach (PixelFormat candidate in s_candidates)
+            {
+                if (constraints.SoftwareFormats.Contains(Formats.ToFFmpeg(candidate)))
+                {
+                    formats.Add(candidate);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is FF.FFmpegException or NotSupportedException)
+        {
+            // No device of the backend's API on that GPU: the backend cannot encode there.
+            LogProbeFailed(_logger, codec.Name, ex.Message, ex);
+        }
+
+        return formats.DrainToImmutable();
+    }
+
+    // The driver's own answer where its API has one, ahead of opening an encoder it cannot run.
+    private static bool DriverEncodes(FF.HardwareDevice device, FF.CodecId codec)
+    {
+        if (device.Type == FF.HardwareDeviceType.Vulkan)
+        {
+            return device.CanVulkanEncode(codec);
+        }
+
+        return device.Type != FF.HardwareDeviceType.D3D12VA
+            || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240)
+            || device.CanD3D12Encode(codec);
+    }
+
+    // The largest picture the encoder takes: what its device's frames allow, narrowed to what the encoder
+    // opens at. Hardware encoders stop short of their textures' limits (every H.264 encoder here at 4096
+    // columns, against 16384-texel textures), and a packed alpha frame doubles one side, so each side is
+    // tried on a thin picture, which keeps the probe cheap.
+    private VideoSize MaximumSize(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format
+    )
+    {
+        VideoSize device = DeviceMaximumSize(adapter);
+        return new VideoSize(
+            Largest(device.Width, side => new VideoSize(side, Thin)),
+            Largest(device.Height, side => new VideoSize(Thin, side))
+        );
+
+        int Largest(int limit, Func<int, VideoSize> picture)
+        {
+            foreach (int side in s_sides)
+            {
+                if (side <= limit && Opens(codec, id, adapter, format, picture(side)))
+                {
+                    return side;
+                }
+            }
+
+            return Math.Min(limit, s_sides[^1]);
+        }
+    }
+
+    // The sides tried, largest first: the 8K and 4K limits encoders have, and 2048, which every one takes.
+    private static readonly int[] s_sides = [8192, 4096, 2048];
+
+    // The other side of a size probe: thin, so a probe at 8192 costs little, and above every encoder's
+    // minimum.
+    private const int Thin = 256;
+
+    private bool Opens(
+        FF.Codec codec,
+        VideoCodecId id,
+        FF.GpuAdapter? adapter,
+        PixelFormat format,
+        VideoSize size
+    )
+    {
+        try
+        {
+            _ = Exercise(codec, id, adapter, format, frameSize: size, frames: 1);
+            return true;
+        }
+        catch (Exception ex)
+            when (ex
+                    is FF.FFmpegException
+                        or NotSupportedException
+                        or InvalidOperationException
+                        or ArgumentException
+            )
+        {
+            // Deliberately not logged: a size the encoder refuses is what this probe looks for.
+            return false;
+        }
+    }
+
+    private VideoSize DeviceMaximumSize(FF.GpuAdapter? adapter)
+    {
+        const int fallback = 8192;
+        if (_spec.DeviceType is not { } type)
+        {
+            return new VideoSize(fallback, fallback);
+        }
+
+        try
+        {
+            using FF.HardwareDevice device = SharedDevices.Open(type, adapter);
+            FF.HardwareFrameConstraints constraints = device.GetFrameConstraints();
+            return new VideoSize(
+                constraints.MaxWidth > 0 ? constraints.MaxWidth : fallback,
+                constraints.MaxHeight > 0 ? constraints.MaxHeight : fallback
+            );
+        }
+        catch (Exception ex) when (ex is FF.FFmpegException or NotSupportedException)
+        {
+            LogProbeFailed(_logger, _spec.Backend.ToString(), ex.Message, ex);
+            return new VideoSize(fallback, fallback);
+        }
+    }
+
+    // The built-in real-time settings, then the profile, then the application's own options for the encoder.
+    private ImmutableDictionary<string, string> PrivateOptions(
+        string encoder,
+        EncodeTuning tuning,
+        ImmutableDictionary<string, string> profileOptions
+    )
+    {
+        ImmutableDictionary<string, string> options = EncoderSettings
+            .PrivateOptions(encoder, tuning)
+            .SetItems(profileOptions);
+        return _options.EncoderOptions.TryGetValue(
+            encoder,
+            out ImmutableDictionary<string, string>? extra
+        )
+            ? options.SetItems(extra)
+            : options;
+    }
+
+    private sealed record Probe(
+        ImmutableArray<PixelFormat> Formats,
+        VideoSize MaximumSize,
+        RateChange RateChange,
+        bool ForcesKeyframes,
+        bool ConstrainedBaseline
+    );
+
+    private sealed record Resolved(
+        FF.Codec Codec,
+        FF.GpuAdapter? Adapter,
+        VideoEncoderInfo Info,
+        bool ForcesKeyframes,
+        ImmutableDictionary<string, string> ProfileOptions
+    );
+
+    private sealed class KeyframeRecorder : IEncodedVideoConsumer
+    {
+        public List<bool> Keyframes { get; } = [];
+
+        public void OnEncoded(in EncodedVideoFrame frame) => Keyframes.Add(frame.Keyframe);
+    }
+
+    [LoggerMessage(
+        EventId = 1010,
+        Level = LogLevel.Debug,
+        Message = "{Encoder} works on {Adapter} (a rate change: {RateChange}, forced keyframes: {ForcesKeyframes}, largest picture {Width}x{Height})"
+    )]
+    private static partial void LogProbeSucceeded(
+        ILogger logger,
+        string encoder,
+        string adapter,
+        RateChange rateChange,
+        bool forcesKeyframes,
+        int width,
+        int height
+    );
+
+    [LoggerMessage(
+        EventId = 1012,
+        Level = LogLevel.Debug,
+        Message = "{Encoder} does not encode {Format}: {Reason}"
+    )]
+    private static partial void LogFormatRefused(
+        ILogger logger,
+        string encoder,
+        PixelFormat format,
+        string reason
+    );
+
+    [LoggerMessage(
+        EventId = 1011,
+        Level = LogLevel.Debug,
+        Message = "{Encoder} is unavailable: {Reason}"
+    )]
+    private static partial void LogProbeFailed(
+        ILogger logger,
+        string encoder,
+        string reason,
+        Exception? exception
+    );
+
+    [LoggerMessage(
+        EventId = 1013,
+        Level = LogLevel.Debug,
+        Message = "{Encoder} does not encode H.264 Constrained Baseline: {Reason}"
+    )]
+    private static partial void LogProfileRefused(ILogger logger, string encoder, string reason);
+}

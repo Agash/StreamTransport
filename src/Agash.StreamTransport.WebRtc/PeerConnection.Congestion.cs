@@ -1,41 +1,83 @@
 using System.Buffers;
-using System.Diagnostics;
+using System.Runtime.InteropServices;
+using Agash.StreamTransport.Adaptation;
+using Agash.StreamTransport.WebRtc.Ice;
 using Agash.StreamTransport.WebRtc.Rtcp;
 using Agash.StreamTransport.WebRtc.Srtp;
 
 namespace Agash.StreamTransport.WebRtc;
 
 /// <summary>
-/// Congestion-control wiring for <see cref="PeerConnection"/>: the receive side records RTP arrivals and
-/// periodically sends RFC 8888 Congestion Control Feedback; the send side records sent packets, correlates
-/// inbound CCFB into <see cref="PacketResult"/>s for the <see cref="INetworkController"/> (SCReAM), and raises
-/// the resulting <see cref="BitrateEstimate"/> so the media layer can retune the encoder and pacer. With no
+/// Congestion-control wiring for <see cref="PeerConnection"/>, the RTP adapter onto the transport-neutral
+/// adaptation layer: the receive side records RTP arrivals and sends RFC 8888 congestion-control feedback;
+/// the send side numbers every packet it sends, maps inbound feedback onto those numbers for a
+/// <see cref="DeliveryTracker"/>, feeds the resolved outcomes to the <see cref="ICongestionController"/>, and
+/// raises the resulting <see cref="CapacityEstimate"/> so the pacer and the media layer follow it. With no
 /// controller (a pure receiver) only the feedback-generating half runs.
 /// </summary>
 public sealed partial class PeerConnection
 {
-    private readonly INetworkController? _controller;
+    private readonly ICongestionController? _controller;
     private readonly Lock _ccGate = new();
-    private readonly Dictionary<long, SentPacketInfo> _sentPackets = []; // key = (ssrc << 16) | seq
-    private readonly Dictionary<uint, Dictionary<ushort, ArrivalInfo>> _arrivals = []; // ssrc -> (seq -> arrival µs + ECN)
-    private readonly List<PacketResult> _feedbackScratch = [];
+
+    // Every sent packet's number, by SSRC and RTP sequence number, for mapping feedback onto them: one
+    // slot a sequence number per SSRC, so sending allocates nothing and nothing needs pruning.
+    private readonly Dictionary<uint, long[]> _sentIds = [];
+    private readonly DeliveryTracker _delivery = new();
+    private readonly List<PacketReport> _packetReports = [];
+    private readonly List<PacketObservation> _observations = [];
+    private long _nextPacketId;
+    private long _reportTimestamp = -1;
+    private readonly Dictionary<uint, CcfbReceiveTracker> _ccfbTrackers = [];
     private readonly List<CcfbStreamReport> _ccfbScratch = [];
-    private Timer? _ccfbTimer;
-    private Timer? _processTimer;
+    private readonly List<CcfbStreamReport> _reportScratch = [];
+    private readonly CcfbMetricStore _ccfbMetrics = new();
+    private readonly CcfbMetricStore _reportMetrics = new();
+
+    // Feedback arrives on every ICE socket's receive loop (the selected path and warm standbys) while the
+    // process timer also drives the controller; this serialises both, and the parse scratch with them.
+    // Taken before _ccGate, never after.
+    private readonly Lock _feedbackGate = new();
+    private ITimer? _ccfbTimer;
+    private ITimer? _processTimer;
     private double _lossRate;
 
-    private const int FeedbackIntervalMs = 50; // how often the receiver emits CCFB
-    private const int ProcessIntervalMs = 25; // how often the sender's controller self-adapts
-    private const int MaxReportRun = 256; // cap a CCFB run so one packet stays small
+    private static readonly TimeSpan ProcessInterval = TimeSpan.FromMilliseconds(25); // how often the sender's controller self-adapts
+
+    // Feedback timing (SCReAMv2 section 5, after libwebrtc's): a report goes once a frame's last packet (the
+    // marker) has arrived, once 16 packets are unreported, or 25 ms after the first unreported arrival;
+    // reports are at least 10 ms apart and at most 250 ms, and together stay under 500 kbit/s.
+    private const long MinFeedbackSpacingMicros = 10_000;
+    private const int PacketsPerReport = 16;
+    private const long MaxFeedbackSpacingMicros = 250_000;
+    private const long MarkerWaitMicros = 25_000;
+    private const double MaxFeedbackBytesPerMicro = 500_000 / 8.0 / 1_000_000;
+
+    // Bytes a feedback packet costs beyond its RTCP (UDP, IP, SRTCP), for the rate limit.
+    private const int FeedbackOverheadBytes = 42;
+
+    // One CCFB packet's RTCP stays under this, so it fits a path MTU with SRTCP and the transport around
+    // it; a longer report is split across packets (section 3.1).
+    private const int MaxFeedbackPacketBytes = 1200;
+
+    // The most packets one report block covers, so a block alone fits a packet.
+    private const int MaxReportRun = 512;
+
+    private long _firstUnreportedArrivalMicros = -1;
+    private int _unreportedPackets;
+    private bool _markerSinceFeedback;
+    private long _nextFeedbackMicros;
+    private long _lastFeedbackMicros = -1;
+    private double _feedbackDebtBytes;
 
     /// <summary>
-    /// Raised when the send-side congestion controller produces a new estimate (target bitrate + pacing rate).
-    /// The media layer retunes the encoder and the pacer from it. Never raised when no controller is attached.
+    /// Raised when the congestion controller produces a new estimate. The connection's pacer has already
+    /// followed it; the media layer retunes the encoder from it. Never raised without a controller.
     /// </summary>
-    public event Action<BitrateEstimate>? BitrateEstimateChanged;
+    public event Action<CapacityEstimate>? CapacityChanged;
 
     /// <summary>The controller's latest estimate, or a zero estimate when no controller is attached.</summary>
-    public BitrateEstimate CurrentBitrateEstimate => _controller?.CurrentEstimate ?? default;
+    public CapacityEstimate CurrentCapacity => _controller?.Current ?? default;
 
     // Lifetime loss-recovery counters (monotonic; cross-thread, so read/written via Interlocked). The media
     // layer logs per-second deltas of these to trace where packets/frames are lost and how much recovery helps.
@@ -68,92 +110,242 @@ public sealed partial class PeerConnection
     {
         get
         {
-            BitrateEstimate e = CurrentBitrateEstimate;
+            CapacityEstimate e = CurrentCapacity;
             return new TransportHealthMetrics(
                 _lossRate,
-                e.SmoothedRttMicros,
-                e.BaseRttMicros,
-                e.TargetBitrateBps,
-                e.PacingRateBps
+                e.SmoothedRoundTrip.Ticks / TimeSpan.TicksPerMicrosecond,
+                e.MinimumRoundTrip.Ticks / TimeSpan.TicksPerMicrosecond,
+                e.TargetBitsPerSecond,
+                e.PacingBitsPerSecond
             );
         }
     }
 
-    private static long NowMicros() => Stopwatch.GetTimestamp() * 1_000_000L / Stopwatch.Frequency;
+    // Microseconds on the connection's monotonic clock, counted from its creation.
+    // A new estimate retunes the pacer here, so media and repairs follow it, then the media layer.
+    private void OnEstimate(CapacityEstimate estimate)
+    {
+        estimate = ApplySendLimit(ApplyBreakerCap(estimate));
+        _pacer.BitsPerSecond = Math.Max(0, estimate.PacingBitsPerSecond);
+
+        // Feedback may have opened the send window.
+        _pacer.Wake();
+        CapacityChanged?.Invoke(estimate);
+    }
+
+    private TimeSpan Now => _time.GetElapsedTime(_origin);
+
+    // The last path media went over, to tell a move to new addresses from NAT rebinding.
+    private IcePath? _lastPath;
+
+    // RFC 9000 section 9.4: on new addresses the congestion controller and round-trip estimate start over,
+    // since the old path's capacity says nothing about the new one; only a port change (NAT rebinding)
+    // keeps them. The new pair's round trip, measured by its keep-alives while it stood by, seeds the
+    // controller, so its first window fits the path it is on. The pacer keeps its queue and NACK repairs
+    // what the switch lost.
+    private static bool SameAddresses(IcePath a, IcePath b) =>
+        a.Local.Address.Equals(b.Local.Address) && a.Remote.Address.Equals(b.Remote.Address);
+
+    private void RestartCongestionControl(IcePath path)
+    {
+        if (_controller is not { } controller)
+        {
+            return;
+        }
+
+        TimeSpan? roundTrip = _iceAgent?.SelectedRoundTrip;
+        CapacityEstimate estimate;
+        lock (_feedbackGate)
+        {
+            lock (_ccGate)
+            {
+                _delivery.OnPathChanged();
+                foreach (long[] sent in _sentIds.Values)
+                {
+                    Array.Clear(sent);
+                }
+            }
+
+            controller.OnPathChanged(roundTrip, Now);
+            estimate = controller.Current;
+        }
+
+        LogCongestionRestarted(path.Remote, roundTrip ?? TimeSpan.Zero);
+        OnEstimate(estimate);
+    }
+
+    // The pacer's gate: the controller's send window.
+    private bool MayTransmit(int bytes)
+    {
+        lock (_feedbackGate)
+        {
+            return _controller!.CanTransmit(bytes, Now);
+        }
+    }
+
+    /// <summary>
+    /// Notes an encoded video frame as the media layer hands it over, so the congestion controller can keep
+    /// the sender queue short and leave room for frames larger than nominal.
+    /// </summary>
+    /// <param name="bytes">The frame's size.</param>
+    public void NoteMediaFrame(int bytes)
+    {
+        if (_controller is not { } controller)
+        {
+            return;
+        }
+
+        TimeSpan queueDelay = _pacer.QueueDelay;
+        lock (_feedbackGate)
+        {
+            controller.OnMediaFrame(bytes, queueDelay, Now);
+        }
+    }
+
+    private long NowMicros() => _time.GetElapsedTime(_origin).Ticks / TimeSpan.TicksPerMicrosecond;
 
     private static long Key(uint ssrc, ushort seq) => ((long)ssrc << 16) | seq;
 
-    // Send side: remember each transmitted packet for later correlation with feedback, and tell the controller.
-    private void RecordSent(uint ssrc, ushort seq, int sizeBytes, long nowMicros)
+    // The packet a feedback report names. A sequence number recurs after 65536 packets of its SSRC, so
+    // a slot older than that many packets is a number from before the wrap.
+    private long? SentId(uint ssrc, ushort seq) =>
+        _sentIds.TryGetValue(ssrc, out long[]? sent)
+        && sent[seq] is var id and not 0
+        && id > _nextPacketId - 0x10000
+            ? id
+            : null;
+
+    // Send side: number each packet on the wire, remember it for feedback, tell the controller, and decide
+    // its ECN codepoint.
+    private EcnCodepoint RecordSent(
+        uint ssrc,
+        ushort seq,
+        int sizeBytes,
+        TrafficClass trafficClass,
+        ushort? transportSequence = null
+    )
     {
-        var info = new SentPacketInfo(seq, sizeBytes, nowMicros);
+        SentPacket packet;
         lock (_ccGate)
         {
-            _sentPackets[Key(ssrc, seq)] = info;
-
-            // Bound memory: drop anything older than ~2 s. Cheap, runs only as packets are sent.
-            if (_sentPackets.Count > 4096)
+            long id = ++_nextPacketId;
+            packet = new SentPacket(id, sizeBytes, Now, trafficClass);
+            ref long[]? sent = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                _sentIds,
+                ssrc,
+                out _
+            );
+            sent ??= new long[ushort.MaxValue + 1];
+            sent[seq] = id;
+            if (transportSequence is { } transport)
             {
-                long cutoff = nowMicros - 2_000_000;
-                foreach (
-                    long k in _sentPackets
-                        .Where(kv => kv.Value.SendTimeMicros < cutoff)
-                        .Select(kv => kv.Key)
-                        .ToArray()
-                )
+                _sentByTransport[transport] = id;
+            }
+            _delivery.OnSent(packet);
+        }
+
+        if (_controller is not { } controller)
+        {
+            return EcnCodepoint.NotEct;
+        }
+
+        lock (_feedbackGate)
+        {
+            controller.OnPacketSent(packet);
+            if (trafficClass == TrafficClass.Probe)
+            {
+                NoteProbeSent(packet.Id);
+            }
+
+            return MarkForEcn(packet.Id);
+        }
+    }
+
+    // Receive side: note the arrival (time and ECN mark) of an RTP packet for the next CCFB report, and send
+    // the report when a frame has ended and the spacing allows.
+    private void RecordArrival(
+        uint ssrc,
+        ushort seq,
+        ushort? transportSequence,
+        long nowMicros,
+        byte ecn,
+        bool marker
+    )
+    {
+        bool due;
+        lock (_ccGate)
+        {
+            if (TransportFeedbackActive)
+            {
+                if (transportSequence is not { } transport)
                 {
-                    _sentPackets.Remove(k);
+                    return;
                 }
+
+                RecordTransportArrival(ssrc, transport, nowMicros);
             }
+            else
+            {
+                if (!_ccfbTrackers.TryGetValue(ssrc, out CcfbReceiveTracker? tracker))
+                {
+                    tracker = new CcfbReceiveTracker();
+                    _ccfbTrackers[ssrc] = tracker;
+                }
+
+                tracker.OnPacket(seq, nowMicros, ecn);
+            }
+
+            if (_firstUnreportedArrivalMicros < 0)
+            {
+                _firstUnreportedArrivalMicros = nowMicros;
+            }
+
+            _markerSinceFeedback |= marker;
+            _unreportedPackets++;
+            due = FeedbackDue(nowMicros);
         }
 
-        _controller?.OnPacketSent(info);
-    }
-
-    // Receive side: stamp the arrival (time + ECN mark) of a media RTP packet for the next CCFB report. When a
-    // sequence number recurs, the CE mark is sticky - once the network marked a packet congested we report it.
-    private void RecordArrival(uint ssrc, ushort seq, long nowMicros, byte ecn)
-    {
-        lock (_ccGate)
+        if (due)
         {
-            if (!_arrivals.TryGetValue(ssrc, out Dictionary<ushort, ArrivalInfo>? perSsrc))
-            {
-                perSsrc = [];
-                _arrivals[ssrc] = perSsrc;
-            }
-
-            byte mark = ecn;
-            if (perSsrc.TryGetValue(seq, out ArrivalInfo existing) && existing.Ecn == 0x03)
-            {
-                mark = 0x03;
-            }
-
-            perSsrc[seq] = new ArrivalInfo(nowMicros, mark);
+            SendCongestionFeedback();
         }
     }
+
+    // Under _ccGate: whether a report should go now.
+    private bool FeedbackDue(long nowMicros) =>
+        FeedbackNegotiated
+        && _firstUnreportedArrivalMicros >= 0
+        && nowMicros >= _nextFeedbackMicros
+        && (
+            _markerSinceFeedback
+            || _unreportedPackets >= PacketsPerReport
+            || nowMicros - _firstUnreportedArrivalMicros >= MarkerWaitMicros
+        );
 
     private void StartCongestionTimers()
     {
+        StartReports();
         // The feedback timer runs on both peers (whoever receives media sends CCFB). The process timer only
         // matters where a controller consumes feedback, but starting it unconditionally is harmless.
-        _ccfbTimer ??= new Timer(
+        _ccfbTimer ??= _time.CreateTimer(
             static s =>
             {
                 var pc = (PeerConnection)s!;
-                pc.SendCongestionFeedback();
+                pc.SendCongestionFeedbackIfDue();
                 pc.ProcessNackResends();
+                pc.BreakerOnTick();
             },
             this,
-            FeedbackIntervalMs,
-            FeedbackIntervalMs
+            TimeSpan.FromMicroseconds(MinFeedbackSpacingMicros),
+            TimeSpan.FromMicroseconds(MinFeedbackSpacingMicros)
         );
         if (_controller is not null)
         {
-            _processTimer ??= new Timer(
+            _processTimer ??= _time.CreateTimer(
                 static s => ((PeerConnection)s!).RunProcessInterval(),
                 this,
-                ProcessIntervalMs,
-                ProcessIntervalMs
+                ProcessInterval,
+                ProcessInterval
             );
         }
     }
@@ -165,11 +357,54 @@ public sealed partial class PeerConnection
             return;
         }
 
-        BitrateEstimate estimate = _controller.OnProcessInterval(NowMicros());
-        BitrateEstimateChanged?.Invoke(estimate);
+        CapacityEstimate estimate;
+        lock (_feedbackGate)
+        {
+            TimeSpan now = Now;
+            _observations.Clear();
+            lock (_ccGate)
+            {
+                _delivery.OnTick(now, _observations);
+            }
+
+            if (_observations.Count > 0)
+            {
+                CheckEcn(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations));
+                ObservePathMtu(
+                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
+                    now
+                );
+                _ = _controller.OnFeedback(
+                    System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
+                    null,
+                    now
+                );
+            }
+
+            estimate = _controller.OnTick(now);
+            ReplanRecovery(estimate, now);
+        }
+
+        OnEstimate(estimate);
+        ProbePathMtu(Now);
     }
 
-    // Build one CCFB packet from the arrivals seen since the last report and send it SRTP-protected.
+    private void SendCongestionFeedbackIfDue()
+    {
+        bool due;
+        lock (_ccGate)
+        {
+            due = FeedbackDue(NowMicros());
+        }
+
+        if (due)
+        {
+            SendCongestionFeedback();
+        }
+    }
+
+    // One report: every stream's blocks since the last, in as many CCFB packets as fit the size limit, each
+    // SRTP-protected and behind the compound prefix when that is needed.
     private void SendCongestionFeedback()
     {
         if (_srtp is not { } srtp || _iceAgent is not { } agent)
@@ -177,67 +412,141 @@ public sealed partial class PeerConnection
             return;
         }
 
-        long now = NowMicros();
-        _ccfbScratch.Clear();
+        long now;
         lock (_ccGate)
         {
-            foreach ((uint ssrc, Dictionary<ushort, ArrivalInfo> perSsrc) in _arrivals)
+            now = NowMicros();
+            if (!FeedbackDue(now))
             {
-                if (perSsrc.Count == 0)
+                return;
+            }
+
+            if (TransportFeedbackActive)
+            {
+                _firstUnreportedArrivalMicros = -1;
+                _markerSinceFeedback = false;
+                _unreportedPackets = 0;
+                SendTransportFeedback(srtp, agent, now);
+                return;
+            }
+
+            _reportScratch.Clear();
+            _reportMetrics.Clear();
+            foreach ((uint ssrc, CcfbReceiveTracker tracker) in _ccfbTrackers)
+            {
+                tracker.AddToFeedback(ssrc, now, MaxReportRun, _reportScratch, _reportMetrics);
+            }
+
+            _firstUnreportedArrivalMicros = -1;
+            _markerSinceFeedback = false;
+            _unreportedPackets = 0;
+            int bytes = 0;
+            foreach (CcfbStreamReport report in _reportScratch)
+            {
+                bytes += BlockLength(report);
+            }
+
+            ScheduleNextFeedback(now, bytes + 12 + FeedbackOverheadBytes);
+            if (_reportScratch.Count == 0)
+            {
+                return;
+            }
+
+            // The middle 32 bits of the NTP time the sender reports carry (RFC 8888 section 3.1).
+            uint reportTimestamp = (uint)(NtpAt(now) >> 16);
+            int start = 0;
+            while (start < _reportScratch.Count)
+            {
+                int count = 0;
+                int length = 12;
+                while (
+                    start + count < _reportScratch.Count
+                    && (
+                        count == 0
+                        || length + BlockLength(_reportScratch[start + count])
+                            <= MaxFeedbackPacketBytes
+                    )
+                )
                 {
-                    continue;
+                    length += BlockLength(_reportScratch[start + count]);
+                    count++;
                 }
 
-                // Run from the earliest-arriving sequence across the window (16-bit arithmetic handles wrap),
-                // marking each sequence received-or-not with its arrival-time offset before the report time.
-                ushort begin = EarliestSequence(perSsrc);
-                ushort highest = HighestSequence(perSsrc, begin);
-                int run = Math.Min(MaxReportRun, (ushort)(highest - begin) + 1);
-
-                var metrics = new CcfbMetric[run];
-                for (int i = 0; i < run; i++)
-                {
-                    ushort seq = (ushort)(begin + i);
-                    if (perSsrc.TryGetValue(seq, out ArrivalInfo arrival))
-                    {
-                        long offset1024 = (now - arrival.Micros) * 1024 / 1_000_000;
-                        ushort ato = offset1024 is >= 0 and < Ccfb.ArrivalTimeUnknown
-                            ? (ushort)offset1024
-                            : Ccfb.ArrivalTimeUnknown;
-                        metrics[i] = new CcfbMetric(true, arrival.Ecn, ato);
-                    }
-                    else
-                    {
-                        metrics[i] = new CcfbMetric(false, 0, 0);
-                    }
-                }
-
-                _ccfbScratch.Add(new CcfbStreamReport(ssrc, begin, metrics));
-                perSsrc.Clear();
+                SendFeedbackPacket(
+                    srtp,
+                    agent,
+                    CollectionsMarshal.AsSpan(_reportScratch).Slice(start, count),
+                    reportTimestamp
+                );
+                start += count;
             }
         }
+    }
 
-        if (_ccfbScratch.Count == 0)
-        {
-            return;
-        }
-
-        uint reportTimestamp = (uint)(now * 65536 / 1_000_000);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(1300 + SrtpSession.RtcpProtectionOverhead);
+    private void SendFeedbackPacket(
+        SrtpSession srtp,
+        Ice.IceAgent agent,
+        ReadOnlySpan<CcfbStreamReport> reports,
+        uint reportTimestamp
+    )
+    {
+        // Built behind the headroom a relay frames into, so the packet goes out in place.
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(
+            Ice.IceAgent.SendHeadroom
+                + Ice.IceAgent.SendTailroom
+                + FeedbackPrefixCapacity
+                + MaxFeedbackPacketBytes
+                + 64
+                + SrtpSession.MaxRtcpProtectionOverhead
+        );
+        Span<byte> rtcp = buffer.AsSpan(Ice.IceAgent.SendHeadroom);
         try
         {
-            int length = Ccfb.Build(buffer, _rtcpSenderSsrc, _ccfbScratch, reportTimestamp);
-            int protectedLength = srtp.ProtectRtcp(buffer, length);
-            _ = agent.SendAsync(buffer.AsMemory(0, protectedLength));
+            int prefix = WriteFeedbackPrefix(rtcp);
+            int length =
+                prefix + Ccfb.Build(rtcp[prefix..], _rtcpSenderSsrc, reports, reportTimestamp);
+            int protectedLength = srtp.ProtectRtcp(rtcp, length);
+            CountRtcpSent(protectedLength);
+            _ = agent.SendInPlaceAsync(
+                buffer,
+                Ice.IceAgent.SendHeadroom,
+                protectedLength,
+                default,
+                default
+            );
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Feedback is best-effort; a send race during teardown is benign.
+            LogFeedbackFailed(_logger, ex);
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    // A report block's bytes: SSRC, begin and count, then two bytes a packet padded to 32 bits.
+    private static int BlockLength(CcfbStreamReport report) =>
+        8 + (((report.Metrics.Length + 1) / 2) * 4);
+
+    // Under _ccGate: when the next report may go, from the bytes reports have cost against the rate limit.
+    private void ScheduleNextFeedback(long nowMicros, int bytes)
+    {
+        if (_lastFeedbackMicros >= 0)
+        {
+            double paid = (nowMicros - _lastFeedbackMicros) * MaxFeedbackBytesPerMicro;
+            _feedbackDebtBytes = Math.Max(0, _feedbackDebtBytes - paid);
+        }
+
+        _lastFeedbackMicros = nowMicros;
+        _feedbackDebtBytes += bytes;
+        _nextFeedbackMicros =
+            nowMicros
+            + Math.Clamp(
+                (long)(_feedbackDebtBytes / MaxFeedbackBytesPerMicro),
+                MinFeedbackSpacingMicros,
+                MaxFeedbackSpacingMicros
+            );
     }
 
     // Send side: parse inbound CCFB, correlate each reported sequence with what we sent, and feed the controller.
@@ -248,108 +557,150 @@ public sealed partial class PeerConnection
             return;
         }
 
-        _ccfbScratch.Clear();
-        if (!Ccfb.TryParse(rtcp, out _, out uint reportTimestamp, _ccfbScratch))
+        CapacityEstimate? estimate;
+        lock (_feedbackGate)
         {
-            return;
+            estimate = ApplyCongestionFeedback(rtcp, _controller);
         }
 
-        long reportMicros = (long)reportTimestamp * 1_000_000 / 65536;
-        _feedbackScratch.Clear();
+        if (estimate is { } changed)
+        {
+            OnEstimate(changed);
+        }
+    }
+
+    // Maps one CCFB report onto the sent packets, resolves their outcomes and feeds the controller; null
+    // when the report matched nothing. Runs under _feedbackGate.
+    private CapacityEstimate? ApplyCongestionFeedback(
+        ReadOnlySpan<byte> rtcp,
+        ICongestionController controller
+    )
+    {
+        _ccfbScratch.Clear();
+        _ccfbMetrics.Clear();
+        bool transport = TransportFeedbackActive;
+        uint compactTimestamp = 0;
+        if (
+            !transport
+            && !Ccfb.TryParse(rtcp, out _, out compactTimestamp, _ccfbScratch, _ccfbMetrics)
+        )
+        {
+            return null;
+        }
+
+        TimeSpan now = Now;
+        TimeSpan? roundTrip;
+        _packetReports.Clear();
+        _observations.Clear();
         lock (_ccGate)
         {
+            if (transport && !CollectTransportFeedback(rtcp))
+            {
+                return null;
+            }
+
+            TimeSpan reportedAt = transport ? default : UnwrapReportTimestamp(compactTimestamp);
             foreach (CcfbStreamReport stream in _ccfbScratch)
             {
-                for (int i = 0; i < stream.Metrics.Count; i++)
+                for (int i = 0; i < stream.Metrics.Length; i++)
                 {
                     ushort seq = (ushort)(stream.BeginSequence + i);
-                    if (!_sentPackets.TryGetValue(Key(stream.Ssrc, seq), out SentPacketInfo sent))
+                    if (SentId(stream.Ssrc, seq) is not { } id)
                     {
                         continue;
                     }
 
-                    CcfbMetric metric = stream.Metrics[i];
-                    long recvMicros = -1;
-                    if (metric.Received && metric.ArrivalTimeOffset != Ccfb.ArrivalTimeUnknown)
-                    {
-                        // Receiver-frame arrival; the controller works on send-vs-arrival deltas, so the
-                        // constant clock offset between peers cancels.
-                        recvMicros =
-                            reportMicros - ((long)metric.ArrivalTimeOffset * 1_000_000 / 1024);
-                    }
+                    CcfbMetric metric = stream.Metrics.Span[i];
 
-                    _feedbackScratch.Add(
-                        new PacketResult(
-                            seq,
-                            sent.SizeBytes,
-                            sent.SendTimeMicros,
-                            recvMicros,
-                            metric.Ecn
+                    // Received with no usable time (unknown, after the report, or over range) is still
+                    // received (section 3.1).
+                    TimeSpan? held =
+                        metric.Received
+                        && metric.ArrivalTimeOffset
+                            is not Ccfb.ArrivalTimeUnknown
+                                and not Ccfb.ArrivalTimeOverRange
+                            ? TimeSpan.FromTicks(
+                                metric.ArrivalTimeOffset * TimeSpan.TicksPerSecond / 1024
+                            )
+                            : null;
+                    _packetReports.Add(
+                        new PacketReport(
+                            id,
+                            metric.Received,
+                            reportedAt - held,
+                            (EcnCodepoint)(metric.Ecn & 0x03)
                         )
                     );
                 }
             }
+
+            roundTrip = _delivery.OnFeedback(
+                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_packetReports),
+                now,
+                _observations
+            );
         }
 
-        if (_feedbackScratch.Count == 0)
+        if (_observations.Count == 0 && roundTrip is null)
         {
-            return;
+            return null;
         }
 
-        // Rolling loss rate over the reported window (EWMA), for the health model.
-        int lost = 0;
-        foreach (PacketResult r in _feedbackScratch)
-        {
-            if (!r.Received)
-            {
-                lost++;
-            }
-        }
-
-        double sample = (double)lost / _feedbackScratch.Count;
-        _lossRate = _lossRate <= 0 ? sample : (_lossRate * 0.8) + (sample * 0.2);
-
-        BitrateEstimate estimate = _controller.OnFeedback(
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_feedbackScratch),
-            NowMicros()
+        CheckEcn(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations));
+        ObservePathMtu(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
+            now
         );
-        BitrateEstimateChanged?.Invoke(estimate);
-    }
 
-    // The sequence with the smallest 16-bit distance ahead of the earliest-arriving packet, i.e. the window start.
-    private static ushort EarliestSequence(Dictionary<ushort, ArrivalInfo> perSsrc)
-    {
-        ushort earliest = 0;
-        long best = long.MaxValue;
-        foreach ((ushort seq, ArrivalInfo info) in perSsrc)
+        // Rolling loss rate over the resolved packets (EWMA), for the health model. Path MTU probes are
+        // left out: one lost to its size says nothing about the path's health.
+        int resolved = 0;
+        int lost = 0;
+        foreach (PacketObservation observation in _observations)
         {
-            if (info.Micros < best)
+            if (
+                observation.Packet.Class != TrafficClass.Probe
+                && observation.Outcome != PacketOutcome.Unreported
+            )
             {
-                best = info.Micros;
-                earliest = seq;
+                resolved++;
+                lost += observation.Outcome == PacketOutcome.Lost ? 1 : 0;
             }
         }
 
-        return earliest;
-    }
-
-    private static ushort HighestSequence(Dictionary<ushort, ArrivalInfo> perSsrc, ushort begin)
-    {
-        ushort highestDistance = 0;
-        foreach (ushort seq in perSsrc.Keys)
+        if (resolved > 0)
         {
-            ushort distance = (ushort)(seq - begin);
-            if (distance < MaxReportRun && distance > highestDistance)
-            {
-                highestDistance = distance;
-            }
+            double sample = (double)lost / resolved;
+            _lossRate = _lossRate <= 0 ? sample : (_lossRate * 0.8) + (sample * 0.2);
         }
 
-        return (ushort)(begin + highestDistance);
+        return controller.OnFeedback(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_observations),
+            roundTrip,
+            now
+        );
     }
 
-    /// <summary>A media packet's recorded arrival: monotonic µs and the 2-bit ECN mark read off the wire.</summary>
-    private readonly record struct ArrivalInfo(long Micros, byte Ecn);
+    // The report timestamp is the middle 32 bits of NTP time, 1/65536 s, wrapping every 18 hours: extended
+    // across wraps, as a time on the receiver's clock. Under _ccGate.
+    private TimeSpan UnwrapReportTimestamp(uint compact)
+    {
+        _reportTimestamp =
+            _reportTimestamp < 0
+                ? compact
+                : _reportTimestamp + (int)(compact - (uint)_reportTimestamp);
+        return TimeSpan.FromTicks(_reportTimestamp * TimeSpan.TicksPerSecond / 65536);
+    }
+
+    [Microsoft.Extensions.Logging.LoggerMessage(
+        EventId = 1158,
+        Level = Microsoft.Extensions.Logging.LogLevel.Debug,
+        Message = "A congestion feedback report could not be sent"
+    )]
+    private static partial void LogFeedbackFailed(
+        Microsoft.Extensions.Logging.ILogger logger,
+        Exception exception
+    );
 
     private void DisposeCongestion()
     {

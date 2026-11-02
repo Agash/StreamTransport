@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Net;
 using Agash.StreamTransport.WebRtc.Ice;
 
@@ -44,7 +45,7 @@ public sealed class LocalAddressFilterTests
     public void NicName_SelectsByInterface()
     {
         // The IRL field-uplink case: keep only the two modems, drop Wi-Fi.
-        string[] modems = ["modem1", "modem2"];
+        ImmutableArray<string> modems = ["modem1", "modem2"];
         Assert.IsTrue(LocalAddressFilter.Includes(modems, "modem1", "id1", "Cellular 1", V4));
         Assert.IsTrue(
             LocalAddressFilter.Includes(modems, "MODEM2", "id2", "Cellular 2", V6),
@@ -69,7 +70,7 @@ public sealed class LocalAddressFilterTests
     [TestMethod]
     public void MultipleSelectors_MatchIsUnion()
     {
-        string[] sel = ["ipv4", "modem2"];
+        ImmutableArray<string> sel = ["ipv4", "modem2"];
         Assert.IsTrue(
             LocalAddressFilter.Includes(sel, "wlan0", "id", "desc", V4),
             "matched by family"

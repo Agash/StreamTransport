@@ -1,0 +1,128 @@
+#nullable enable
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioInputProvider
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioInputInfo!>>
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioInputProvider.Name.get -> string!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioInputProvider.OpenAsync(Agash.StreamTransport.Media.AudioInputInfo! input, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioInput!>
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioInputProvider.PipeWireAudioInputProvider(Agash.StreamTransport.Linux.PipeWire.PipeWireConnection! connection, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioInputProvider.Rank.get -> int
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.<Clone>$() -> Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.AutoConnect.get -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.AutoConnect.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.CaptureOutput.get -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.CaptureOutput.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.Equals(Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? other) -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.NodeName.get -> string!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.NodeName.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.PipeWireAudioOptions() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.TargetNodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.TargetNodeId.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.TargetObject.get -> string?
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.TargetObject.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.Name.get -> string!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.PipeWireAudioOutputProvider(Agash.StreamTransport.Linux.PipeWire.PipeWireConnection! connection) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.Dispose() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.NodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.PipeWireAudioSink(PipeWire.NET.PipeWireContext! context, Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? options = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink.WaitForNodeIdAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<uint>!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource.Connect(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> System.IDisposable!
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource.Dispose() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource.Format.get -> Agash.StreamTransport.Media.AudioFormat
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource.NodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource.PipeWireAudioSource(PipeWire.NET.PipeWireContext! context, Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireConnection
+Agash.StreamTransport.Linux.PipeWire.PipeWireConnection.DisposeAsync() -> System.Threading.Tasks.ValueTask
+Agash.StreamTransport.Linux.PipeWire.PipeWireConnection.GetAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<(PipeWire.NET.PipeWireContext! Context, PipeWire.NET.Graph.PipeWireRegistry! Registry)>!
+Agash.StreamTransport.Linux.PipeWire.PipeWireConnection.PipeWireConnection(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoInputProvider
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoInputProvider.PipeWireVideoInputProvider(Agash.StreamTransport.Linux.PipeWire.PipeWireConnection! connection, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoOutputProvider
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoOutputProvider.CreateAsync(string! name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoOutput!>
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoOutputProvider.Name.get -> string!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoOutputProvider.PipeWireVideoOutputProvider(Agash.StreamTransport.Linux.PipeWire.PipeWireConnection! connection, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.Dispose() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.NodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.OnFrame(in Agash.StreamTransport.Media.VideoFrame frame) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.OutputLatency.get -> System.TimeSpan?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.PipeWireVideoSink(PipeWire.NET.PipeWireContext! context, string! name, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.Render<TState>(Agash.StreamTransport.Media.VideoFormat format, scoped in TState state, Agash.StreamTransport.Media.VideoTargetRenderer<TState>! render) -> Agash.StreamTransport.Media.VideoRenderResult
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSink.WaitForNodeIdAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<uint>!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.<Clone>$() -> Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.AutoConnect.get -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.AutoConnect.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.Equals(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? other) -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.FrameRate.get -> int
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.FrameRate.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.PipeWireVideoSinkOptions() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.TargetNodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.TargetNodeId.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSource
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSource.Connect(Agash.StreamTransport.Media.IVideoFrameConsumer! consumer, Agash.StreamTransport.Media.VideoConstraints! constraints) -> System.IDisposable!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSource.Dispose() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSource.NodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSource.PipeWireVideoSource(PipeWire.NET.PipeWireContext! context, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.<Clone>$() -> Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.Device.get -> Agash.StreamTransport.Media.GpuIdentity?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.Device.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.Equals(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? other) -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.NodeName.get -> string!
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.NodeName.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.PipeWireVideoSourceOptions() -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.PreferredFrameRate.get -> int
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.PreferredFrameRate.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.PreferredSize.get -> Agash.StreamTransport.Media.VideoSize
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.PreferredSize.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.StayWithTheSource.get -> bool
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.StayWithTheSource.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetNodeId.get -> uint?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetNodeId.init -> void
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetObject.get -> string?
+Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetObject.init -> void
+Microsoft.Extensions.DependencyInjection.StreamTransportLinuxServiceCollectionExtensions
+Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider
+Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.Name.get -> string!
+Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.Rank.get -> int
+Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.V4l2VideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.V4l2.V4l2VideoOutputProvider
+Agash.StreamTransport.Linux.V4l2.V4l2VideoOutputProvider.CreateAsync(string! name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoOutput!>
+Agash.StreamTransport.Linux.V4l2.V4l2VideoOutputProvider.Name.get -> string!
+Agash.StreamTransport.Linux.V4l2.V4l2VideoOutputProvider.V4l2VideoOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory
+Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.Create(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.IVideoProcessor!
+Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.VideoProcessorInfo?
+Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.Rank.get -> int
+Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.VulkanVideoProcessorFactory() -> void
+override Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.GetHashCode() -> int
+override Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.ToString() -> string!
+override Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.GetHashCode() -> int
+override Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.ToString() -> string!
+override Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.Equals(object? obj) -> bool
+override Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.GetHashCode() -> int
+override Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.ToString() -> string!
+static Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.operator !=(Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? right) -> bool
+static Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.operator ==(Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions? right) -> bool
+static Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSource.Transport.get -> Agash.StreamTransport.Media.AudioFormat
+static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.operator !=(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? right) -> bool
+static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions.operator ==(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSinkOptions? right) -> bool
+static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.operator !=(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? right) -> bool
+static Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.operator ==(Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? left, Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions? right) -> bool
+static Microsoft.Extensions.DependencyInjection.StreamTransportLinuxServiceCollectionExtensions.AddLinuxMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

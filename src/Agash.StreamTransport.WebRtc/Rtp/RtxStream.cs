@@ -35,23 +35,20 @@ public static class RtxStream
             return false;
         }
 
-        // RTX payload = OSN (original sequence number) || original payload.
-        Span<byte> rtxPayload =
-            originalPayload.Length + 2 <= 2048
-                ? stackalloc byte[originalPayload.Length + 2]
-                : new byte[originalPayload.Length + 2];
-        BinaryPrimitives.WriteUInt16BigEndian(rtxPayload, header.SequenceNumber);
-        originalPayload.CopyTo(rtxPayload[2..]);
-
-        length = RtpPacket.Write(
+        // RTX payload = OSN (original sequence number) || original payload, written in place after the
+        // header.
+        int at = RtpPacket.Write(
             destination,
             header.Marker,
             rtxPayloadType,
             rtxSequence,
             header.Timestamp,
             rtxSsrc,
-            rtxPayload
+            []
         );
+        BinaryPrimitives.WriteUInt16BigEndian(destination[at..], header.SequenceNumber);
+        originalPayload.CopyTo(destination[(at + 2)..]);
+        length = at + 2 + originalPayload.Length;
         return true;
     }
 

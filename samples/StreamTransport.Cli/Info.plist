@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>streamtransport publishes cameras and capture cards you name.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>streamtransport publishes the microphone you name.</string>
+</dict>
+</plist>

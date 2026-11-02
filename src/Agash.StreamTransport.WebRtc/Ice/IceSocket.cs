@@ -1,36 +1,80 @@
+using System.Collections.Immutable;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using Agash.StreamTransport.Adaptation;
 
 namespace Agash.StreamTransport.WebRtc.Ice;
 
 /// <summary>The outcome of an <see cref="IIceSocket"/> receive: the bytes read and who sent them.</summary>
-public readonly record struct IceReceiveResult(int Length, IPEndPoint RemoteEndPoint, byte Ecn = 0);
-
-/// <summary>
-/// ICE check/consent timing (RFC 8445 Appendix B.1 pacing + RFC 7675 consent). <see cref="Default"/> is the
-/// production setting; tests use short values to exercise consent loss / failover without real-time waits, and
-/// a profile could tighten consent for a mobile link.
-/// </summary>
-/// <param name="Ta">Connectivity-check pacing interval.</param>
-/// <param name="CheckRto">Per-check retransmit timeout.</param>
-/// <param name="ConsentInterval">How often consent (and hot-standby keep-warm) pings are sent.</param>
-/// <param name="ConsentTimeout">How long without a response before the selected pair is declared dead.</param>
-public sealed record IceTimings(
-    TimeSpan Ta,
-    TimeSpan CheckRto,
-    TimeSpan ConsentInterval,
-    TimeSpan ConsentTimeout
+public readonly record struct IceReceiveResult(
+    int Length,
+    IPEndPoint RemoteEndPoint,
+    byte TrafficClass = 0
 )
 {
-    /// <summary>The production timing (RFC defaults): 50 ms pacing, 500 ms RTO, 5 s consent, 30 s timeout.</summary>
-    public static IceTimings Default { get; } =
-        new(
-            TimeSpan.FromMilliseconds(50),
-            TimeSpan.FromMilliseconds(500),
-            TimeSpan.FromSeconds(5),
-            TimeSpan.FromSeconds(30)
-        );
+    /// <summary>The ECN codepoint the datagram arrived with: the traffic class's lower two bits.</summary>
+    public byte Ecn => (byte)(TrafficClass & 0x03);
+}
+
+/// <summary>
+/// ICE timing: check pacing (RFC 8445 appendix B.1), liveness, keep-alive cadence and consent (RFC 7675).
+/// The defaults are libwebrtc's; a mobile profile shortens <see cref="ReceivingTimeout"/> so a dead path
+/// is left sooner, and tests shorten everything to run failover without real-time waits.
+/// </summary>
+public sealed record IceTimings
+{
+    /// <summary>The production timing.</summary>
+    public static IceTimings Default { get; } = new();
+
+    /// <summary>The pacing between connectivity checks: one per interval. 50 ms.</summary>
+    public TimeSpan Ta { get; init; } = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>The retransmission timeout of a connectivity check. 500 ms.</summary>
+    public TimeSpan CheckRto { get; init; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// How long a pair may go without receiving anything, media or checks, before it counts as not
+    /// receiving: the selected pair is then weak, every valid pair is pinged fast, and the agent moves to
+    /// one that is receiving. 2.5 s.
+    /// </summary>
+    public TimeSpan ReceivingTimeout { get; init; } = TimeSpan.FromMilliseconds(2500);
+
+    /// <summary>
+    /// How often the selected pair, the one media goes on, is checked for consent: each period drawn from
+    /// 0.8 to 1.2 times this (RFC 7675 section 5.1, which sets 5 s and forbids less than 4 s). Its liveness
+    /// comes from the media and RTCP arriving on it; checks only renew consent. 5 s.
+    /// </summary>
+    public TimeSpan ConsentInterval { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How often the other valid pairs, which carry no media, are checked while the selected pair is weak,
+    /// so a failover finds them receiving. 900 ms.
+    /// </summary>
+    public TimeSpan WeakPingInterval { get; init; } = TimeSpan.FromMilliseconds(900);
+
+    /// <summary>
+    /// How often the valid pairs other than the selected one are pinged while the selected pair is strong,
+    /// so a failover finds them warm. 5 s.
+    /// </summary>
+    public TimeSpan StandbyPingInterval { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long two pairs' receiving states must have held before the agent switches to the one that is
+    /// receiving over a higher-ranked one that is not, against flapping. 1 s.
+    /// </summary>
+    public TimeSpan SwitchingDelay { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>How long without a response to its checks before the selected pair loses consent. 30 s.</summary>
+    public TimeSpan ConsentTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How long checks run with no pair selected before the agent reports
+    /// <see cref="IceConnectionState.Failed"/>, even once every pair has failed: RFC 8863's PAC timer, the
+    /// time a peer's checks need to reveal a peer-reflexive candidate. 39.5 s, a check transaction with
+    /// all its retransmissions.
+    /// </summary>
+    public TimeSpan FailureTimeout { get; init; } = TimeSpan.FromSeconds(39.5);
 }
 
 /// <summary>
@@ -43,12 +87,42 @@ public interface IIceSocket : IDisposable
     /// <summary>The local address/port this socket is bound to.</summary>
     IPEndPoint LocalEndPoint { get; }
 
-    /// <summary>Send a datagram to <paramref name="destination"/>.</summary>
+    /// <summary>Sends a datagram to <paramref name="destination"/>, marked as given.</summary>
+    /// <param name="data">The datagram.</param>
+    /// <param name="destination">Where it goes.</param>
+    /// <param name="marking">
+    /// Its traffic class: the DSCP (RFC 8837), and the ECN codepoint, ECT only for media on a validated path,
+    /// never for STUN, DTLS or RTCP (RFC 6679 section 7.3.1). A socket that cannot mark sends it unmarked.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed to the network.</returns>
     ValueTask SendAsync(
         ReadOnlyMemory<byte> data,
         IPEndPoint destination,
+        IpMarking marking,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Sends <paramref name="length"/> bytes at <paramref name="offset"/> of <paramref name="buffer"/>,
+    /// where the bytes before the datagram, and up to <see cref="IceAgent.SendTailroom"/> after it, are
+    /// free: a socket that wraps datagrams (a TURN relay) writes its framing there instead of copying.
+    /// </summary>
+    /// <param name="buffer">The buffer, the datagram inside it.</param>
+    /// <param name="offset">Where the datagram starts.</param>
+    /// <param name="length">The datagram's length.</param>
+    /// <param name="destination">Where to.</param>
+    /// <param name="marking">Its DSCP and ECN codepoint.</param>
+    /// <param name="cancellationToken">Cancels the send.</param>
+    /// <returns>A task that completes when the datagram is handed over.</returns>
+    ValueTask SendInPlaceAsync(
+        Memory<byte> buffer,
+        int offset,
+        int length,
+        IPEndPoint destination,
+        IpMarking marking,
+        CancellationToken cancellationToken
+    ) => SendAsync(buffer.Slice(offset, length), destination, marking, cancellationToken);
 
     /// <summary>Receive the next datagram into <paramref name="buffer"/>.</summary>
     ValueTask<IceReceiveResult> ReceiveAsync(
@@ -57,9 +131,28 @@ public interface IIceSocket : IDisposable
     );
 }
 
+/// <summary>What a socket can do with the ECN field (RFC 6679 section 6.1's <c>mode</c>).</summary>
+public enum EcnSupport
+{
+    /// <summary>Neither set nor read.</summary>
+    None,
+
+    /// <summary>Can mark sent datagrams but not read received marks.</summary>
+    SetOnly,
+
+    /// <summary>Can read received marks but not mark sent datagrams.</summary>
+    ReadOnly,
+
+    /// <summary>Both.</summary>
+    SetRead,
+}
+
 /// <summary>Enumerates local addresses and binds <see cref="IIceSocket"/>s for ICE host-candidate gathering.</summary>
 public interface IIceSocketFactory
 {
+    /// <summary>What the sockets it binds can do with the ECN field.</summary>
+    EcnSupport Ecn => EcnSupport.None;
+
     /// <summary>The local addresses to gather host candidates on (loopback included only when asked).</summary>
     IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback);
 
@@ -70,7 +163,7 @@ public interface IIceSocketFactory
 /// <summary>The production <see cref="IIceSocketFactory"/>: real UDP sockets over the host's interfaces.</summary>
 public sealed class UdpIceSocketFactory : IIceSocketFactory
 {
-    private readonly IReadOnlyList<string> _preferences;
+    private readonly ImmutableArray<string> _preferences;
 
     /// <summary>Gather on every usable local address.</summary>
     public UdpIceSocketFactory()
@@ -78,8 +171,18 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
 
     /// <summary>Gather only on local addresses matching <paramref name="localAddressPreferences"/> (see
     /// <see cref="LocalAddressFilter"/>). An empty list gathers everything.</summary>
-    public UdpIceSocketFactory(IReadOnlyList<string> localAddressPreferences) =>
-        _preferences = localAddressPreferences ?? [];
+    public UdpIceSocketFactory(ImmutableArray<string> localAddressPreferences) =>
+        _preferences = localAddressPreferences;
+
+    /// <inheritdoc/>
+    public EcnSupport Ecn =>
+        (EcnInterop.NativeSendSupported, EcnInterop.NativeReceiveSupported) switch
+        {
+            (true, true) => EcnSupport.SetRead,
+            (true, false) => EcnSupport.SetOnly,
+            (false, true) => EcnSupport.ReadOnly,
+            _ => EcnSupport.None,
+        };
 
     /// <inheritdoc/>
     public IEnumerable<IPAddress> GetLocalAddresses(bool includeLoopback)
@@ -130,8 +233,9 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         {
             var raw = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
             raw.Bind(new IPEndPoint(address, 0));
-            // Prefer the native ECN-reading socket on POSIX; Windows has no reliable per-datagram ECN path (see
-            // EcnInterop), so it uses the managed socket there - matching libwebrtc, which gates ECN on WEBRTC_POSIX.
+            ForbidFragmentation(raw);
+            // The native socket reads and sets the ECN field per datagram (recvmsg/sendmsg on POSIX, WSARecvMsg
+            // and WSASendMsg on Windows 10 build 20348 and later); older Windows gets the managed socket.
             socket = EcnInterop.NativeReceiveSupported
                 ? new EcnUdpSocket(raw)
                 : new UdpIceSocket(raw);
@@ -141,6 +245,33 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         {
             socket = null!;
             return false; // family unavailable / address not bindable.
+        }
+    }
+
+    // RFC 8899 section 3: datagrams leave with the Don't Fragment bit (IPv4) and are never fragmented by this
+    // host (IPv6), so a path MTU probe larger than the path is lost rather than fragmented, delivered and
+    // taken as proof of a larger MTU. Linux sets it on UDP by default; Windows and macOS do not. An
+    // oversize send then fails with EMSGSIZE, which the sender treats as a lost packet.
+    internal static bool ForbidFragmentation(Socket socket)
+    {
+        try
+        {
+            if (socket.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                EcnInterop.SetIpv6DontFragment(socket);
+            }
+            else
+            {
+                socket.DontFragment = true;
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is SocketException or NotSupportedException)
+        {
+            // Deliberately not logged: a stack without the option fragments as before, which path MTU
+            // discovery then cannot see; it would log once for every socket on such a system.
+            return false;
         }
     }
 
@@ -166,16 +297,16 @@ public sealed class UdpIceSocketFactory : IIceSocketFactory
         public async ValueTask SendAsync(
             ReadOnlyMemory<byte> data,
             IPEndPoint destination,
+            IpMarking marking,
             CancellationToken cancellationToken = default
         ) =>
             await _socket
                 .SendToAsync(data, SocketFlags.None, destination, cancellationToken)
                 .ConfigureAwait(false);
 
-        // The managed Socket API does not surface the received IP TOS/Traffic-Class byte (ReceiveMessageFrom
-        // exposes only IPPacketInformation, never the cmsg control buffer where ECN lives), so a real socket
-        // reports Ecn=0. Reading L4S ECN-CE on hardware needs per-platform recvmsg/cmsg P/Invoke; the rest of
-        // the congestion loop already consumes IceReceiveResult.Ecn, so an ECN-capable source drops straight in.
+        // The managed Socket API does not surface the received ECN field (ReceiveMessageFrom exposes only
+        // IPPacketInformation, never the control messages that carry it), so this socket reports Not-ECT and
+        // the session runs without ECN (RFC 6679 section 7.2's fallback).
         public async ValueTask<IceReceiveResult> ReceiveAsync(
             Memory<byte> buffer,
             CancellationToken cancellationToken
@@ -201,14 +332,14 @@ public static class LocalAddressFilter
     /// <summary>True if <paramref name="address"/> on the given NIC should be gathered under <paramref name="selectors"/>
     /// (empty selectors include everything; otherwise a match on family keyword, literal IP, or NIC name/id/description).</summary>
     public static bool Includes(
-        IReadOnlyList<string> selectors,
+        ImmutableArray<string> selectors,
         string nicName,
         string nicId,
         string nicDescription,
         IPAddress address
     )
     {
-        if (selectors.Count == 0)
+        if (selectors.Length == 0)
         {
             return true;
         }

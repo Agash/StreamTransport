@@ -1,0 +1,58 @@
+#nullable enable
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend.D3D11 = 1 -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend.D3D12 = 0 -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend.Software = 5 -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend.Vaapi = 3 -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend.VideoToolbox = 4 -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend.Vulkan = 2 -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.Amf = 2 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.D3D12 = 0 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.MediaFoundation = 7 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.Nvenc = 1 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.Qsv = 3 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.Software = 8 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.Vaapi = 5 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.VideoToolbox = 6 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend.Vulkan = 4 -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecDiagnostics
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions.EncoderOptions.get -> System.Collections.Immutable.ImmutableDictionary<string!, System.Collections.Immutable.ImmutableDictionary<string!, string!>!>!
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions.EncoderOptions.init -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions.FFmpegCodecOptions() -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions.RouteFFmpegLog.get -> bool
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions.RouteFFmpegLog.init -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.Backend.get -> Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.Create(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.VideoConstraints! output) -> Agash.StreamTransport.Media.IVideoDecoder!
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.FFmpegVideoDecoderFactory(Agash.StreamTransport.Codecs.FFmpeg.DecoderBackend backend, Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null, System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.GpuStorages.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoStorageKind>
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.VideoConstraints! output) -> Agash.StreamTransport.Media.VideoDecoderInfo?
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.Rank.get -> int
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecFormat!>
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.Backend.get -> Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.Create(Agash.StreamTransport.Media.VideoEncoderConfiguration! configuration, Agash.StreamTransport.Media.GpuIdentity? device) -> Agash.StreamTransport.Media.IVideoEncoder!
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.FFmpegVideoEncoderFactory(Agash.StreamTransport.Codecs.FFmpeg.EncoderBackend backend, Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null, System.TimeProvider? timeProvider = null) -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.GpuStorages.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoStorageKind>
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.IsHardwareAccelerated.get -> bool
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoCodecFormat! format, Agash.StreamTransport.Media.GpuIdentity? device) -> Agash.StreamTransport.Media.VideoEncoderInfo?
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.Rank.get -> int
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.SupportedFormats.get -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoCodecFormat!>
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.FFmpegVideoInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.Name.get -> string!
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoInputProvider.Rank.get -> int
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoProcessorFactory
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoProcessorFactory.Create(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.IVideoProcessor!
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoProcessorFactory.FFmpegVideoProcessorFactory() -> void
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoProcessorFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.VideoProcessorInfo?
+Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoProcessorFactory.Rank.get -> int
+Microsoft.Extensions.DependencyInjection.StreamTransportFFmpegServiceCollectionExtensions
+const Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecDiagnostics.MeterName = "Agash.StreamTransport.Codecs.FFmpeg" -> string!
+static Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory.CreateAll(Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null, System.TimeProvider? timeProvider = null) -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoDecoderFactory!>
+static Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory.CreateAll(Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions? options = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, System.Diagnostics.Metrics.IMeterFactory? meterFactory = null, System.TimeProvider? timeProvider = null) -> System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Codecs.FFmpeg.FFmpegVideoEncoderFactory!>
+static Microsoft.Extensions.DependencyInjection.StreamTransportFFmpegServiceCollectionExtensions.AddFFmpegCodecs(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Agash.StreamTransport.Codecs.FFmpeg.FFmpegCodecOptions? options = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
