@@ -39,15 +39,11 @@ jobs:
       - name: Pack
         run: dotnet pack StreamTransport.slnx -c Release -o artifacts
 
-      - name: Verify the FFmpeg package carries its natives
+      - name: Verify the FFmpeg package brings FFmpeg
         shell: bash
         run: |
           pkg=$(ls artifacts/Agash.StreamTransport.Codecs.FFmpeg.*.nupkg | head -1)
-          fail=0
-          for rid in win-x64 win-arm64 linux-x64 linux-arm64; do
-            unzip -Z1 "$pkg" | grep -q "^runtimes/$rid/native/" || { echo "::error::$pkg has no natives for $rid"; fail=1; }
-          done
-          exit $fail
+          unzip -p "$pkg" '*.nuspec' | grep -q 'id="FFmpeg.Interop.Native"'             || { echo "::error::$pkg does not depend on FFmpeg.Interop.Native"; exit 1; }
 
       - name: Attest build provenance
         # Records, in a signed statement GitHub hosts, which workflow and which commit produced
