@@ -114,8 +114,10 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
         private readonly PlayoutStream _stream;
         private readonly Lock _gate = new();
         private readonly PriorityQueue<IPlayoutEntry, Slot> _queue = new();
-        private readonly WakeSignal _wake;
-        private readonly Task _loop;
+        private readonly DeadlineSignal _wake;
+        private readonly TaskCompletionSource _ended = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
 
         // The last picture shown, so a later-arriving earlier one is not shown after it.
         private MediaTime _lastShown = new(long.MinValue);
@@ -125,8 +127,11 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
             _owner = owner;
             _stream = stream;
             MediaClock clock = owner._clock;
-            _wake = new WakeSignal(clock.TimeProvider, () => clock.Now.ToTimeSpan());
-            _loop = Task.Run(() => RunAsync(owner._stop.Token));
+            _wake = new DeadlineSignal(clock.TimeProvider, () => clock.Now.ToTimeSpan());
+
+            // A thread of its own, raised: what sync depends on is that it wakes at a slot, which the
+            // thread pool does not promise while a game fills every core.
+            new Thread(Run) { IsBackground = true, Name = $"Playout {stream}" }.Start();
         }
 
         public void Enqueue(IPlayoutEntry entry, Slot slot)
@@ -155,7 +160,7 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
 
         public async ValueTask DisposeAsync()
         {
-            await _loop.ConfigureAwait(false);
+            await _ended.Task.ConfigureAwait(false);
             lock (_gate)
             {
                 while (_queue.TryDequeue(out IPlayoutEntry? entry, out _))
@@ -163,30 +168,32 @@ internal sealed partial class PlayoutScheduler : IAsyncDisposable
                     entry.Dispose();
                 }
             }
+
+            _wake.Dispose();
         }
 
-        private async Task RunAsync(CancellationToken cancellationToken)
+        private void Run()
         {
+            MediaThreads.Raise();
+            CancellationToken stopping = _owner._stop.Token;
+            using CancellationTokenRegistration wakes = stopping.UnsafeRegister(
+                static state => ((DeadlineSignal)state!).Signal(),
+                _wake
+            );
             try
             {
-                while (true)
+                while (!stopping.IsCancellationRequested)
                 {
                     MediaTime? due = PlayDue();
-                    if (due is { } next)
-                    {
-                        _ = await _wake
-                            .WaitUntilAsync(next.ToTimeSpan(), cancellationToken)
-                            .ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await _wake.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    }
+                    _wake.WaitUntil(due?.ToTimeSpan());
                 }
+
+                _ended.TrySetResult();
             }
-            catch (OperationCanceledException)
+            catch (Exception exception) when (exception is not OutOfMemoryException)
             {
-                // Deliberately not logged: cancellation is how the scheduler stops.
+                // Raised to whoever disposes the scheduler, as the end of the loop.
+                _ended.TrySetException(exception);
             }
         }
 

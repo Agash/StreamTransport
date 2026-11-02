@@ -11,6 +11,7 @@
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <IsPackable>true</IsPackable>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,6 +29,8 @@
 
   <ItemGroup>
     <Compile Include="..\Shared\WakeSignal.cs" Link="Threading\WakeSignal.cs" />
+    <Compile Include="..\Shared\DeadlineSignal.cs" Link="Threading\DeadlineSignal.cs" />
+    <Compile Include="..\Shared\MediaThreads.cs" Link="Threading\MediaThreads.cs" />
     <Compile Include="..\Shared\WorkQueue.cs" Link="Threading\WorkQueue.cs" />
   </ItemGroup>
 

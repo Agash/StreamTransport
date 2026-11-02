@@ -275,6 +275,8 @@ internal sealed class EcnUdpSocket : IIceSocket, IValueTaskSource<IceReceiveResu
 
     private void ReceiveLoop()
     {
+        // Arrival times drive the jitter buffer and congestion control, so a queued datagram is a wrong one.
+        MediaThreads.Raise();
         nint handle = _socket.Handle;
         EcnInterop.SenderCache senders = new();
         int consecutiveErrors = 0;
