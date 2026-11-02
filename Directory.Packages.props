@@ -10,19 +10,19 @@
     />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-rc.1.26425.128" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-rc.3.26522.148" />
     <PackageVersion
       Include="Microsoft.Extensions.DependencyInjection"
-      Version="11.0.0-rc.1.26425.128"
+      Version="11.0.0-rc.3.26522.148"
     />
     <!-- DTLS 1.2 + use_srtp (RFC 5764) handshake engine - the ONLY third-party crypto dependency,
          confined to Agash.StreamTransport.WebRtc.Dtls. The BCL has no managed DTLS. -->
     <PackageVersion Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="2.0.5" />
     <PackageVersion Include="MinVer" Version="8.0.0" />
-    <PackageVersion Include="MSTest.TestFramework" Version="4.5.1" />
-    <PackageVersion Include="MSTest.TestAdapter" Version="4.5.1" />
-    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.5.1" />
+    <PackageVersion Include="MSTest.TestFramework" Version="4.5.2" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="4.5.2" />
+    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.5.2" />
 
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
   </ItemGroup>
