@@ -526,6 +526,9 @@ internal sealed partial class FFmpegVideoEncoder : IVideoEncoder
 
     // Opens the next encoder at the configured rate on a worker. One preparation runs at a time; a target
     // that moves meanwhile is prepared once that one is done, from the newest target.
+    // For tests: the encoder being prepared is ready, so the next frame goes to it.
+    internal void WaitForPrepared() => _prepareOpened.Wait();
+
     private void Prepare(Session session, string reason)
     {
         if (_preparing)

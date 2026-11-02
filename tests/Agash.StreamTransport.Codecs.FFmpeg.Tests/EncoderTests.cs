@@ -231,6 +231,9 @@ public sealed class EncoderTests
             if (i == 30)
             {
                 encoder.Reconfigure(new RateTarget(2_000_000, 15));
+
+                // The new encoder opens beside the running one, which keeps taking frames until then.
+                ((FFmpegVideoEncoder)encoder).WaitForPrepared();
             }
 
             VideoFrame frame = Pictures.CpuFrame(format, Pictures.Make(format, i), i);

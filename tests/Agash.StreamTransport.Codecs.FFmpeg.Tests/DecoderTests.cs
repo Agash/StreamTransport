@@ -172,7 +172,10 @@ public sealed class DecoderTests
     {
         // DMA-BUF frames are handed over by a worker once their decode has finished; disposing right
         // after the last access unit still delivers every one, in decode order.
-        if (!Backends.Decodes(backend, VideoStorageKind.DmaBuf))
+        FFmpegVideoDecoderFactory factory = new(backend);
+        VideoCodecFormat format = new(VideoCodecId.H264);
+        VideoConstraints dmaBuf = new([VideoStorageKind.DmaBuf], [PixelFormat.Nv12], null);
+        if (factory.QueryCapabilities(format, dmaBuf) is null)
         {
             Assert.Inconclusive($"{backend} gives no DMA-BUF frames on this machine.");
         }
@@ -182,12 +185,7 @@ public sealed class DecoderTests
             FrameCount
         );
         Stamps stamps = new();
-        using (
-            IVideoDecoder decoder = new FFmpegVideoDecoderFactory(backend).Create(
-                new VideoCodecFormat(VideoCodecId.H264),
-                new VideoConstraints([VideoStorageKind.DmaBuf], [PixelFormat.Nv12], null)
-            )
-        )
+        using (IVideoDecoder decoder = factory.Create(format, dmaBuf))
         {
             foreach ((byte[] data, MediaTimestamp timestamp) in stream)
             {
