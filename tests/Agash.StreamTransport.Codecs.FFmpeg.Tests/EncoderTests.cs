@@ -189,11 +189,14 @@ public sealed class EncoderTests
         }
 
         encoder.Flush(collector);
-        // Skip the frames right after the change: a reopened encoder starts with a keyframe.
+        // Skip the frames right after the change: a reopened encoder starts with a keyframe. Without the
+        // change the two windows would be about equal; an eighth of the rate does not have to be reached
+        // within a second, since Windows' software H.264 encoder on a two-core runner shrinks the stream
+        // only 2.6 times on this grain, where hardware encoders reach more than three.
         long high = collector.Bytes(before - 30, before);
         long low = collector.Bytes(before + 30, before + 60);
         Assert.IsGreaterThan(
-            3.0,
+            2.0,
             high / (double)low,
             $"{info.ImplementationName}: {high} bytes per second before, {low} after."
         );
