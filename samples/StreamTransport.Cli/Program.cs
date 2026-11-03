@@ -2,8 +2,8 @@ using System.Runtime.InteropServices;
 using Agash.StreamTransport;
 using Agash.StreamTransport.Codecs.FFmpeg;
 using Agash.StreamTransport.Codecs.Opus;
-using Agash.StreamTransport.Linux;
 using Agash.StreamTransport.Http;
+using Agash.StreamTransport.Linux;
 using Agash.StreamTransport.Media;
 using Agash.StreamTransport.Signaling;
 using Agash.StreamTransport.TestSignal;
@@ -193,9 +193,23 @@ static async Task<int> RunAsync(CommandLine command)
         };
         await using HttpMediaSession media = command.Publish
             ? await WhipClient.PublishAsync(
-                sessions, endpoint, endpoints.Media, command.Session, signaling, log, stop.Token)
+                sessions,
+                endpoint,
+                endpoints.Media,
+                command.Session,
+                signaling,
+                log,
+                stop.Token
+            )
             : await WhepClient.PlayAsync(
-                sessions, endpoint, endpoints.Media, command.Session, signaling, log, stop.Token);
+                sessions,
+                endpoint,
+                endpoints.Media,
+                command.Session,
+                signaling,
+                log,
+                stop.Token
+            );
         await ReportAsync(() => [media.Session], log, stop.Token, endpoints.Analyzer);
         return 0;
     }

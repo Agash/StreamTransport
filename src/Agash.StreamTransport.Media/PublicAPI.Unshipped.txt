@@ -141,6 +141,19 @@ Agash.StreamTransport.Media.AudioOutput.Name.get -> string!
 Agash.StreamTransport.Media.AudioOutput.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
 Agash.StreamTransport.Media.AudioOutput.OutputLatency.get -> System.TimeSpan?
 Agash.StreamTransport.Media.AudioOutput.Provider.get -> string!
+Agash.StreamTransport.Media.AudioOutputInfo
+Agash.StreamTransport.Media.AudioOutputInfo.<Clone>$() -> Agash.StreamTransport.Media.AudioOutputInfo!
+Agash.StreamTransport.Media.AudioOutputInfo.AudioOutputInfo(string! Provider, string! Id, string! Name, bool IsDefault = false) -> void
+Agash.StreamTransport.Media.AudioOutputInfo.Deconstruct(out string! Provider, out string! Id, out string! Name, out bool IsDefault) -> void
+Agash.StreamTransport.Media.AudioOutputInfo.Equals(Agash.StreamTransport.Media.AudioOutputInfo? other) -> bool
+Agash.StreamTransport.Media.AudioOutputInfo.Id.get -> string!
+Agash.StreamTransport.Media.AudioOutputInfo.Id.init -> void
+Agash.StreamTransport.Media.AudioOutputInfo.IsDefault.get -> bool
+Agash.StreamTransport.Media.AudioOutputInfo.IsDefault.init -> void
+Agash.StreamTransport.Media.AudioOutputInfo.Name.get -> string!
+Agash.StreamTransport.Media.AudioOutputInfo.Name.init -> void
+Agash.StreamTransport.Media.AudioOutputInfo.Provider.get -> string!
+Agash.StreamTransport.Media.AudioOutputInfo.Provider.init -> void
 Agash.StreamTransport.Media.ChromaSiting
 Agash.StreamTransport.Media.ChromaSiting.Center = 2 -> Agash.StreamTransport.Media.ChromaSiting
 Agash.StreamTransport.Media.ChromaSiting.Left = 1 -> Agash.StreamTransport.Media.ChromaSiting
@@ -377,6 +390,7 @@ Agash.StreamTransport.Media.IAudioOutput.Name.get -> string!
 Agash.StreamTransport.Media.IAudioOutput.Provider.get -> string!
 Agash.StreamTransport.Media.IAudioOutputProvider
 Agash.StreamTransport.Media.IAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.Media.IAudioOutputProvider.GetOutputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioOutputInfo!>>
 Agash.StreamTransport.Media.IAudioOutputProvider.Name.get -> string!
 Agash.StreamTransport.Media.IAudioSink
 Agash.StreamTransport.Media.IAudioSink.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
@@ -880,6 +894,9 @@ override Agash.StreamTransport.Media.AudioInputInfo.Equals(object? obj) -> bool
 override Agash.StreamTransport.Media.AudioInputInfo.GetHashCode() -> int
 override Agash.StreamTransport.Media.AudioInputInfo.ToString() -> string!
 override Agash.StreamTransport.Media.AudioLevel.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioOutputInfo.Equals(object? obj) -> bool
+override Agash.StreamTransport.Media.AudioOutputInfo.GetHashCode() -> int
+override Agash.StreamTransport.Media.AudioOutputInfo.ToString() -> string!
 override Agash.StreamTransport.Media.ClockRate.GetHashCode() -> int
 override Agash.StreamTransport.Media.CpuImage.GetHashCode() -> int
 override Agash.StreamTransport.Media.D3D11Image.GetHashCode() -> int
@@ -973,6 +990,8 @@ static Agash.StreamTransport.Media.AudioLevel.Measure(in Agash.StreamTransport.M
 static Agash.StreamTransport.Media.AudioLevel.Silence.get -> Agash.StreamTransport.Media.AudioLevel
 static Agash.StreamTransport.Media.AudioLevel.operator !=(Agash.StreamTransport.Media.AudioLevel left, Agash.StreamTransport.Media.AudioLevel right) -> bool
 static Agash.StreamTransport.Media.AudioLevel.operator ==(Agash.StreamTransport.Media.AudioLevel left, Agash.StreamTransport.Media.AudioLevel right) -> bool
+static Agash.StreamTransport.Media.AudioOutputInfo.operator !=(Agash.StreamTransport.Media.AudioOutputInfo? left, Agash.StreamTransport.Media.AudioOutputInfo? right) -> bool
+static Agash.StreamTransport.Media.AudioOutputInfo.operator ==(Agash.StreamTransport.Media.AudioOutputInfo? left, Agash.StreamTransport.Media.AudioOutputInfo? right) -> bool
 static Agash.StreamTransport.Media.ClockRate.operator !=(Agash.StreamTransport.Media.ClockRate left, Agash.StreamTransport.Media.ClockRate right) -> bool
 static Agash.StreamTransport.Media.ClockRate.operator ==(Agash.StreamTransport.Media.ClockRate left, Agash.StreamTransport.Media.ClockRate right) -> bool
 static Agash.StreamTransport.Media.ColorConversion.RgbToYCbCr(Agash.StreamTransport.Media.VideoColor color) -> (System.Numerics.Vector4 Y, System.Numerics.Vector4 Cb, System.Numerics.Vector4 Cr)

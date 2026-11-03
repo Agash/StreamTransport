@@ -17,8 +17,7 @@ namespace Agash.StreamTransport.Codecs.FFmpeg;
 public sealed partial class FFmpegVideoInputProvider(
     ILoggerFactory? loggerFactory = null,
     TimeProvider? timeProvider = null
-)
-    : IVideoInputProvider
+) : IVideoInputProvider
 {
     // A device that is listed but delivers nothing holds the first read for good, and DirectShow's read
     // waits without checking FFmpeg's interrupt callback, so the wait has to give up from outside.

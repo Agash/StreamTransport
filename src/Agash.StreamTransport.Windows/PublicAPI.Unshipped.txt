@@ -10,7 +10,6 @@ Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.
 Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.Name.get -> string!
 Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.OpenAsync(Agash.StreamTransport.Media.VideoInputInfo! input, Agash.StreamTransport.Media.VideoInputRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IVideoInput!>
 Agash.StreamTransport.Windows.MediaFoundation.MediaFoundationVideoInputProvider.Rank.get -> int
-Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions
 Agash.StreamTransport.Windows.Spout.SpoutVideoSink
 Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Constraints.get -> Agash.StreamTransport.Media.VideoConstraints!
 Agash.StreamTransport.Windows.Spout.SpoutVideoSink.Dispose() -> void
@@ -48,7 +47,7 @@ Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.Dispose() -> void
 Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
 Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.OutputLatency.get -> System.TimeSpan?
 Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.Started.get -> System.Threading.Tasks.Task!
-Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.WasapiAudioSink(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.Windows.Wasapi.WasapiAudioSink.WasapiAudioSink(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, string? deviceId = null) -> void
 Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource
 Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource.Connect(Agash.StreamTransport.Media.IAudioFrameConsumer! consumer) -> System.IDisposable!
 Agash.StreamTransport.Windows.Wasapi.WasapiAudioSource.Dispose() -> void
@@ -66,11 +65,13 @@ Agash.StreamTransport.Windows.WasapiAudioInputProvider.Rank.get -> int
 Agash.StreamTransport.Windows.WasapiAudioInputProvider.WasapiAudioInputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
 Agash.StreamTransport.Windows.WasapiAudioOutputProvider
 Agash.StreamTransport.Windows.WasapiAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.Windows.WasapiAudioOutputProvider.GetOutputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioOutputInfo!>>
 Agash.StreamTransport.Windows.WasapiAudioOutputProvider.Name.get -> string!
 Agash.StreamTransport.Windows.WasapiAudioOutputProvider.WasapiAudioOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions
 override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.Equals(object? obj) -> bool
 override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.GetHashCode() -> int
 override Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.ToString() -> string!
-static Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions.AddWindowsMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.operator !=(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? left, Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? right) -> bool
 static Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions.operator ==(Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? left, Agash.StreamTransport.Windows.Spout.SpoutVideoSourceOptions? right) -> bool
+static Microsoft.Extensions.DependencyInjection.StreamTransportWindowsServiceCollectionExtensions.AddWindowsMedia(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

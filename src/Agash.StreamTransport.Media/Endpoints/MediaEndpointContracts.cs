@@ -90,6 +90,18 @@ public sealed record AudioInputInfo(
     bool IsDefault = false
 );
 
+/// <summary>An audio output device a provider can play on.</summary>
+/// <param name="Provider">The provider's name.</param>
+/// <param name="Id">The device, as the provider's <see cref="IAudioOutputProvider.CreateAsync"/> takes it.</param>
+/// <param name="Name">A name to show.</param>
+/// <param name="IsDefault">Whether it is the system's default output.</param>
+public sealed record AudioOutputInfo(
+    string Provider,
+    string Id,
+    string Name,
+    bool IsDefault = false
+);
+
 /// <summary>What a video input should deliver; each unset part is chosen for the input.</summary>
 public sealed record VideoInputRequest
 {
@@ -277,6 +289,13 @@ public interface IAudioOutputProvider
 {
     /// <summary>The provider's name, used in output specs.</summary>
     string Name { get; }
+
+    /// <summary>The devices this provider can play on now; none lists only its default device.</summary>
+    /// <param name="cancellationToken">Cancels the enumeration.</param>
+    /// <returns>The devices.</returns>
+    ValueTask<ImmutableArray<AudioOutputInfo>> GetOutputsAsync(
+        CancellationToken cancellationToken
+    ) => ValueTask.FromResult<ImmutableArray<AudioOutputInfo>>([]);
 
     /// <summary>Makes an output.</summary>
     /// <param name="name">The device or published name; null for the default device.</param>

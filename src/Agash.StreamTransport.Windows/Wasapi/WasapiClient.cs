@@ -4,6 +4,9 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Media.Audio;
 using Windows.Win32.System.Com;
+using Windows.Win32.System.Com.StructuredStorage;
+using Windows.Win32.System.Variant;
+using Windows.Win32.UI.Shell.PropertiesSystem;
 
 namespace Agash.StreamTransport.Windows.Wasapi;
 
@@ -40,7 +43,7 @@ internal sealed unsafe class WasapiClient : IDisposable
     private readonly AutoResetEvent _ready = new(false);
     private readonly SafeHandle _mmcss;
 
-    public WasapiClient(WasapiEndpoint endpoint)
+    public WasapiClient(WasapiEndpoint endpoint, string? deviceId = null)
     {
         Win32.CoInitializeEx(null, COINIT.COINIT_MULTITHREADED).ThrowOnFailure();
         uint task = 0;
@@ -55,11 +58,23 @@ internal sealed unsafe class WasapiClient : IDisposable
         IMMDevice* device;
         try
         {
-            ((IMMDeviceEnumerator*)enumerator)->GetDefaultAudioEndpoint(
-                endpoint == WasapiEndpoint.DefaultCapture ? EDataFlow.eCapture : EDataFlow.eRender,
-                ERole.eMultimedia,
-                &device
-            );
+            if (deviceId is not null)
+            {
+                fixed (char* id = deviceId)
+                {
+                    ((IMMDeviceEnumerator*)enumerator)->GetDevice(id, &device);
+                }
+            }
+            else
+            {
+                ((IMMDeviceEnumerator*)enumerator)->GetDefaultAudioEndpoint(
+                    endpoint == WasapiEndpoint.DefaultCapture
+                        ? EDataFlow.eCapture
+                        : EDataFlow.eRender,
+                    ERole.eMultimedia,
+                    &device
+                );
+            }
         }
         finally
         {
@@ -115,6 +130,117 @@ internal sealed unsafe class WasapiClient : IDisposable
         _client->GetBufferSize(&frames);
         BufferFrames = frames;
         _client->SetEventHandle(new HANDLE(_ready.SafeWaitHandle.DangerousGetHandle()));
+    }
+
+    /// <summary>The active output devices: each one's ID, which the constructor opens, and its name.</summary>
+    /// <returns>The devices; the default one is flagged.</returns>
+    public static List<(string Id, string Name, bool IsDefault)> ListOutputs()
+    {
+        // COM on this thread, which the caller does not own: a pool thread is in the multithreaded apartment.
+        HRESULT initialized = Win32.CoInitializeEx(null, COINIT.COINIT_MULTITHREADED);
+        Guid enumeratorClass = typeof(MMDeviceEnumerator).GUID;
+        Guid enumeratorId = typeof(IMMDeviceEnumerator).GUID;
+        void* enumerator;
+        Win32
+            .CoCreateInstance(&enumeratorClass, null, CLSCTX.CLSCTX_ALL, &enumeratorId, &enumerator)
+            .ThrowOnFailure();
+        List<(string, string, bool)> outputs = [];
+        try
+        {
+            var devices = (IMMDeviceEnumerator*)enumerator;
+            string? defaultId = null;
+            try
+            {
+                IMMDevice* fallback;
+                devices->GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, &fallback);
+                defaultId = DeviceId(fallback);
+                _ = fallback->Release();
+            }
+            catch (COMException)
+            {
+                // Deliberately not logged: with no output device there is no default to flag.
+            }
+
+            IMMDeviceCollection* collection;
+            devices->EnumAudioEndpoints(
+                EDataFlow.eRender,
+                DEVICE_STATE.DEVICE_STATE_ACTIVE,
+                &collection
+            );
+            try
+            {
+                uint count;
+                collection->GetCount(&count);
+                for (uint index = 0; index < count; index++)
+                {
+                    IMMDevice* device;
+                    collection->Item(index, &device);
+                    try
+                    {
+                        string id = DeviceId(device);
+                        outputs.Add((id, FriendlyName(device) ?? id, id == defaultId));
+                    }
+                    finally
+                    {
+                        _ = device->Release();
+                    }
+                }
+            }
+            finally
+            {
+                _ = collection->Release();
+            }
+        }
+        finally
+        {
+            _ = ((IUnknown*)enumerator)->Release();
+            if (initialized.Succeeded)
+            {
+                Win32.CoUninitialize();
+            }
+        }
+
+        return outputs;
+    }
+
+    private static string DeviceId(IMMDevice* device)
+    {
+        PWSTR id;
+        device->GetId(&id);
+        try
+        {
+            return id.ToString();
+        }
+        finally
+        {
+            Win32.CoTaskMemFree(id);
+        }
+    }
+
+    private static string? FriendlyName(IMMDevice* device)
+    {
+        IPropertyStore* store;
+        device->OpenPropertyStore(STGM.STGM_READ, &store);
+        try
+        {
+            PROPVARIANT value;
+            PROPERTYKEY key = Win32.PKEY_Device_FriendlyName;
+            store->GetValue(&key, &value);
+            try
+            {
+                return value.Anonymous.Anonymous.vt == VARENUM.VT_LPWSTR
+                    ? value.Anonymous.Anonymous.Anonymous.pwszVal.ToString()
+                    : null;
+            }
+            finally
+            {
+                _ = Win32.PropVariantClear(&value);
+            }
+        }
+        finally
+        {
+            _ = store->Release();
+        }
     }
 
     /// <summary>The endpoint buffer's size in frames.</summary>

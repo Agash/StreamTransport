@@ -150,8 +150,33 @@ public sealed class WasapiAudioOutputProvider(ILoggerFactory? loggerFactory = nu
     public string Name => "wasapi";
 
     /// <inheritdoc/>
+    public ValueTask<ImmutableArray<AudioOutputInfo>> GetOutputsAsync(
+        CancellationToken cancellationToken
+    ) =>
+        new(
+            Task.Run(
+                () =>
+                    WasapiClient
+                        .ListOutputs()
+                        .Select(output => new AudioOutputInfo(
+                            Name,
+                            output.Id,
+                            output.Name,
+                            output.IsDefault
+                        ))
+                        .ToImmutableArray(),
+                cancellationToken
+            )
+        );
+
+    /// <inheritdoc/>
+    /// <remarks>The name is a device ID from <see cref="GetOutputsAsync"/>; null plays on the default device.</remarks>
     public ValueTask<IAudioOutput> CreateAsync(string? name, CancellationToken cancellationToken) =>
         ValueTask.FromResult<IAudioOutput>(
-            new AudioOutput(new WasapiAudioSink(loggerFactory), Name, name ?? "Default output")
+            new AudioOutput(
+                new WasapiAudioSink(loggerFactory, name),
+                Name,
+                name ?? "Default output"
+            )
         );
 }

@@ -25,12 +25,15 @@ public sealed partial class WasapiAudioSink : IAudioSink, IDisposable
         TaskCreationOptions.RunContinuationsAsynchronously
     );
     private readonly Thread _thread;
+    private readonly string? _deviceId;
     private int _disposed;
 
-    /// <summary>A sink on the default output device.</summary>
+    /// <summary>A sink on an output device.</summary>
     /// <param name="loggerFactory">Where the sink logs.</param>
-    public WasapiAudioSink(ILoggerFactory? loggerFactory = null)
+    /// <param name="deviceId">The device, as <see cref="WasapiAudioOutputProvider"/> lists it; the default when null.</param>
+    public WasapiAudioSink(ILoggerFactory? loggerFactory = null, string? deviceId = null)
     {
+        _deviceId = deviceId;
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WasapiAudioSink>();
         _thread = new Thread(Run) { IsBackground = true, Name = "WASAPI render" };
         _thread.Start();
@@ -77,7 +80,7 @@ public sealed partial class WasapiAudioSink : IAudioSink, IDisposable
     {
         try
         {
-            using WasapiClient client = new(WasapiEndpoint.DefaultOutput);
+            using WasapiClient client = new(WasapiEndpoint.DefaultOutput, _deviceId);
             IAudioRenderClient* render = client.Service<IAudioRenderClient>();
             try
             {

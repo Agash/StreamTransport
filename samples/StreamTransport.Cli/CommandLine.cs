@@ -246,8 +246,14 @@ internal sealed record CommandLine(
         return new CommandLine(
             false,
             args[0] == "publish",
-            new Uri(Value(named, http) ?? Value(named, "relay") ?? throw new FormatException("--relay is required.")),
-            Value(named, http) is not null ? string.Empty : Value(named, "room") ?? throw new FormatException("--room is required."),
+            new Uri(
+                Value(named, http)
+                    ?? Value(named, "relay")
+                    ?? throw new FormatException("--relay is required.")
+            ),
+            Value(named, http) is not null
+                ? string.Empty
+                : Value(named, "room") ?? throw new FormatException("--room is required."),
             Value(named, "video") is "none" ? null : Value(named, "video") ?? Default(),
             Choice(named, "audio") is "none" ? null : Choice(named, "audio") ?? "default",
             session,
@@ -259,7 +265,9 @@ internal sealed record CommandLine(
         {
             Insecure = named.ContainsKey("insecure"),
             HttpEndpoint = Value(named, http) is { } endpoint ? new Uri(endpoint) : null,
-            Token = Value(named, "token") ?? Environment.GetEnvironmentVariable("STREAMTRANSPORT_TOKEN"),
+            Token =
+                Value(named, "token")
+                ?? Environment.GetEnvironmentVariable("STREAMTRANSPORT_TOKEN"),
             MaxBitrate = Value(named, "max-bitrate") is { } kbps
                 ? long.Parse(kbps, CultureInfo.InvariantCulture) * 1000
                 : null,

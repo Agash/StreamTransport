@@ -78,6 +78,24 @@ public sealed partial class MediaDevices
         return [.. inputs];
     }
 
+    /// <summary>The audio output devices every provider can play on now.</summary>
+    /// <param name="cancellationToken">Cancels the enumeration.</param>
+    /// <returns>The devices.</returns>
+    public async Task<ImmutableArray<AudioOutputInfo>> GetAudioOutputsAsync(
+        CancellationToken cancellationToken = default
+    )
+    {
+        List<AudioOutputInfo> outputs = [];
+        foreach (IAudioOutputProvider provider in _audioOutputs)
+        {
+            outputs.AddRange(
+                await provider.GetOutputsAsync(cancellationToken).ConfigureAwait(false)
+            );
+        }
+
+        return [.. outputs];
+    }
+
     /// <summary>The audio inputs present now, each by its best provider.</summary>
     /// <param name="cancellationToken">Cancels the enumeration.</param>
     /// <returns>The inputs.</returns>

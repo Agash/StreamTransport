@@ -105,3 +105,8 @@ ID3D11Texture2D
 ID3D11Multithread
 D3D11_SDK_VERSION
 IDXGIAdapter
+IMMDeviceCollection
+IPropertyStore
+PKEY_Device_FriendlyName
+PropVariantClear
+DEVICE_STATE
