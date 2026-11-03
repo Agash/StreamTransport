@@ -21,6 +21,7 @@ Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.TargetObject.get -> st
 Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.TargetObject.init -> void
 Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider
 Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.GetOutputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioOutputInfo!>>
 Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.Name.get -> string!
 Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOutputProvider.PipeWireAudioOutputProvider(Agash.StreamTransport.Linux.PipeWire.PipeWireConnection! connection) -> void
 Agash.StreamTransport.Linux.PipeWire.PipeWireAudioSink
@@ -93,7 +94,6 @@ Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetNodeId.get
 Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetNodeId.init -> void
 Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetObject.get -> string?
 Agash.StreamTransport.Linux.PipeWire.PipeWireVideoSourceOptions.TargetObject.init -> void
-Microsoft.Extensions.DependencyInjection.StreamTransportLinuxServiceCollectionExtensions
 Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider
 Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.GetInputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.VideoInputInfo!>>
 Agash.StreamTransport.Linux.V4l2.V4l2VideoInputProvider.Name.get -> string!
@@ -109,6 +109,7 @@ Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.Create(Agash.Stre
 Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.QueryCapabilities(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.VideoProcessorInfo?
 Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.Rank.get -> int
 Agash.StreamTransport.Linux.Vulkan.VulkanVideoProcessorFactory.VulkanVideoProcessorFactory() -> void
+Microsoft.Extensions.DependencyInjection.StreamTransportLinuxServiceCollectionExtensions
 override Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.Equals(object? obj) -> bool
 override Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.GetHashCode() -> int
 override Agash.StreamTransport.Linux.PipeWire.PipeWireAudioOptions.ToString() -> string!

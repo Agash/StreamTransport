@@ -255,7 +255,7 @@ public sealed class PipeWireAudioInputProvider(
     }
 }
 
-/// <summary>Received audio played on the default PipeWire output.</summary>
+/// <summary>Received audio played on a PipeWire sink.</summary>
 /// <param name="connection">The shared daemon connection.</param>
 public sealed class PipeWireAudioOutputProvider(PipeWireConnection connection)
     : IAudioOutputProvider
@@ -264,6 +264,38 @@ public sealed class PipeWireAudioOutputProvider(PipeWireConnection connection)
     public string Name => "pipewire";
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The first entry leaves the choice to PipeWire's default; the others are sinks by node name, which
+    /// survives restarts where a node ID does not.
+    /// </remarks>
+    public async ValueTask<ImmutableArray<AudioOutputInfo>> GetOutputsAsync(
+        CancellationToken cancellationToken
+    )
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return [];
+        }
+
+        (_, PipeWireRegistry registry) = await connection
+            .GetAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return
+        [
+            new AudioOutputInfo(Name, string.Empty, "Default output", IsDefault: true),
+            .. registry
+                .Current.GetAudioSinks()
+                .Where(static sink => sink.NodeName is not null)
+                .Select(sink => new AudioOutputInfo(
+                    Name,
+                    sink.NodeName!,
+                    sink.Description ?? sink.NodeName!
+                )),
+        ];
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>The name is a sink's node name from <see cref="GetOutputsAsync"/>; empty or null plays on the default.</remarks>
     public async ValueTask<IAudioOutput> CreateAsync(
         string? name,
         CancellationToken cancellationToken
@@ -274,8 +306,8 @@ public sealed class PipeWireAudioOutputProvider(PipeWireConnection connection)
             .ConfigureAwait(false);
         PipeWireAudioSink sink = new(
             context,
-            name is null ? null : new PipeWireAudioOptions { NodeName = name }
+            string.IsNullOrEmpty(name) ? null : new PipeWireAudioOptions { TargetObject = name }
         );
-        return new AudioOutput(sink, Name, name ?? "Default output");
+        return new AudioOutput(sink, Name, string.IsNullOrEmpty(name) ? "Default output" : name);
     }
 }
