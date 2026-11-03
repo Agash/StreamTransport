@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Agash.StreamTransport.Audio;
 using Agash.StreamTransport.Media;
+using AudioUnit;
 using AVFoundation;
 using Foundation;
 using Microsoft.Extensions.Logging;
@@ -36,12 +37,33 @@ public sealed partial class CoreAudioSink : IAudioSink, IDisposable
     private readonly Lock _gate = new();
     private bool _disposed;
 
-    /// <summary>A sink on the default output device, playing from when it is made.</summary>
+    /// <summary>A sink on an output device, playing from when it is made.</summary>
     /// <param name="loggerFactory">Where the sink logs.</param>
+    /// <param name="deviceUid">The device's UID, as <see cref="CoreAudioOutputProvider"/> lists it; the default when null.</param>
     /// <exception cref="InvalidOperationException">The output device refused to start.</exception>
-    public CoreAudioSink(ILoggerFactory? loggerFactory = null)
+    public CoreAudioSink(ILoggerFactory? loggerFactory = null, string? deviceUid = null)
     {
         _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<CoreAudioSink>();
+        if (deviceUid is not null)
+        {
+            // Before anything is connected: the engine's output unit renders to whichever device it holds.
+            uint device =
+                CoreAudioDevices.DeviceFor(deviceUid)
+                ?? throw new InvalidOperationException(
+                    $"The output device '{deviceUid}' is not connected."
+                );
+            AudioUnitStatus status = _engine.OutputNode.AudioUnit!.SetCurrentDevice(
+                device,
+                AudioUnitScopeType.Global
+            );
+            if (status != AudioUnitStatus.OK)
+            {
+                throw new InvalidOperationException(
+                    $"The output device '{deviceUid}' refused the engine: {status}."
+                );
+            }
+        }
+
         // The mixer takes the standard format, a float buffer per channel.
         using AVAudioFormat format = new(Format.SampleRate, 2);
         _node = new AVAudioSourceNode(format, new AVAudioSourceNodeRenderHandlerRaw(Render));

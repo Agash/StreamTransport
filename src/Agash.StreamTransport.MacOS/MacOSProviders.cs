@@ -130,8 +130,29 @@ public sealed class CoreAudioOutputProvider(ILoggerFactory? loggerFactory = null
     public string Name => "coreaudio";
 
     /// <inheritdoc/>
+    public ValueTask<ImmutableArray<AudioOutputInfo>> GetOutputsAsync(
+        CancellationToken cancellationToken
+    ) =>
+        ValueTask.FromResult<ImmutableArray<AudioOutputInfo>>(
+            OperatingSystem.IsMacOS()
+                ?
+                [
+                    .. CoreAudioDevices
+                        .ListOutputs()
+                        .Select(output => new AudioOutputInfo(
+                            Name,
+                            output.Uid,
+                            output.Name,
+                            output.IsDefault
+                        )),
+                ]
+                : []
+        );
+
+    /// <inheritdoc/>
+    /// <remarks>The name is a device UID from <see cref="GetOutputsAsync"/>; null plays on the default device.</remarks>
     public ValueTask<IAudioOutput> CreateAsync(string? name, CancellationToken cancellationToken) =>
         ValueTask.FromResult<IAudioOutput>(
-            new AudioOutput(new CoreAudioSink(loggerFactory), Name, name ?? "Default output")
+            new AudioOutput(new CoreAudioSink(loggerFactory, name), Name, name ?? "Default output")
         );
 }

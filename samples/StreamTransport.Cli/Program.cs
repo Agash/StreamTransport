@@ -143,6 +143,13 @@ static async Task<int> RunAsync(CommandLine command)
 
         Console.WriteLine($"video outputs: {string.Join(", ", devices.VideoOutputProviders)}");
         Console.WriteLine($"audio outputs: {string.Join(", ", devices.AudioOutputProviders)}");
+        foreach (AudioOutputInfo output in await devices.GetAudioOutputsAsync(stop.Token))
+        {
+            Console.WriteLine(
+                $"play   {output.Provider}:{output.Id}  {output.Name}{(output.IsDefault ? " (default)" : "")}"
+            );
+        }
+
         return 0;
     }
 

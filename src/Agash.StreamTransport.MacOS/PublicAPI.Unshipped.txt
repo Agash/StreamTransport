@@ -7,7 +7,7 @@ Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.OpenAsyn
 Agash.StreamTransport.MacOS.AVFoundation.AVFoundationVideoInputProvider.Rank.get -> int
 Agash.StreamTransport.MacOS.Audio.CoreAudioSink
 Agash.StreamTransport.MacOS.Audio.CoreAudioSink.Constraints.get -> Agash.StreamTransport.Media.AudioConstraints!
-Agash.StreamTransport.MacOS.Audio.CoreAudioSink.CoreAudioSink(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+Agash.StreamTransport.MacOS.Audio.CoreAudioSink.CoreAudioSink(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, string? deviceUid = null) -> void
 Agash.StreamTransport.MacOS.Audio.CoreAudioSink.Dispose() -> void
 Agash.StreamTransport.MacOS.Audio.CoreAudioSink.OnFrame(in Agash.StreamTransport.Media.AudioFrame frame) -> void
 Agash.StreamTransport.MacOS.Audio.CoreAudioSink.OutputLatency.get -> System.TimeSpan?
@@ -25,6 +25,7 @@ Agash.StreamTransport.MacOS.CoreAudioInputProvider.Rank.get -> int
 Agash.StreamTransport.MacOS.CoreAudioOutputProvider
 Agash.StreamTransport.MacOS.CoreAudioOutputProvider.CoreAudioOutputProvider(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
 Agash.StreamTransport.MacOS.CoreAudioOutputProvider.CreateAsync(string? name, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<Agash.StreamTransport.Media.IAudioOutput!>
+Agash.StreamTransport.MacOS.CoreAudioOutputProvider.GetOutputsAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Collections.Immutable.ImmutableArray<Agash.StreamTransport.Media.AudioOutputInfo!>>
 Agash.StreamTransport.MacOS.CoreAudioOutputProvider.Name.get -> string!
 Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory
 Agash.StreamTransport.MacOS.Metal.MetalVideoProcessorFactory.Create(Agash.StreamTransport.Media.VideoStreamDescription input, Agash.StreamTransport.Media.VideoProcessing! processing) -> Agash.StreamTransport.Media.IVideoProcessor!
