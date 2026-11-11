@@ -24,8 +24,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.x
-          dotnet-quality: preview
+          global-json-file: global.json
 
       - name: Select Xcode 27.2
         run: echo "DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer" >> "$GITHUB_ENV"
@@ -61,8 +60,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.x
-          dotnet-quality: preview
+          global-json-file: global.json
 
       # Packs every IsPackable project in the solution; tests, samples and tools opt out.
       - name: Pack

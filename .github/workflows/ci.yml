@@ -34,8 +34,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.x
-          dotnet-quality: preview
+          global-json-file: global.json
 
       # FFmpeg.Interop's FFmpeg links the system's libva and libva-drm, which a bare runner lacks; device
       # initialisation still fails cleanly without a GPU. lavapipe runs the Vulkan processor's code.
@@ -110,8 +109,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.x
-          dotnet-quality: preview
+          global-json-file: global.json
 
       - uses: actions/download-artifact@v8
         with:
