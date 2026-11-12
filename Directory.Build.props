@@ -24,22 +24,23 @@
     <RepositoryUrl>https://github.com/Agash/StreamTransport</RepositoryUrl>
     <PackageProjectUrl>https://github.com/Agash/StreamTransport</PackageProjectUrl>
   </PropertyGroup>
-  <!-- Owned libraries build from a local clone when one sits where the StreamWeaver checkout keeps
-       it, or where <Library>Project points (CI clones each library's main and sets those), so a
-       change to one of them is exercised here before it is released; elsewhere the published
-       package is used. Set UseLocal<Library>=false to build against the package. -->
+  <!-- Owned libraries build from a sibling checkout (StreamWeaver keeps every owned library as a
+       submodule next to this one under external/), or from where <Library>Project points (CI clones
+       each library's main and sets those), so a change to one of them is exercised here before it is
+       released; elsewhere the published package is used. Set UseLocal<Library>=false to build
+       against the package. -->
   <PropertyGroup>
     <DtlsCoreProject Condition="'$(DtlsCoreProject)' == ''"
-      >$(MSBuildThisFileDirectory)../../../Dtls.Core/src/Dtls.Core/Dtls.Core.csproj</DtlsCoreProject>
+      >$(MSBuildThisFileDirectory)../Dtls.Core/src/Dtls.Core/Dtls.Core.csproj</DtlsCoreProject>
     <UseLocalDtlsCore Condition="'$(UseLocalDtlsCore)' == '' and Exists('$(DtlsCoreProject)')"
       >true</UseLocalDtlsCore>
     <FFmpegInteropProject Condition="'$(FFmpegInteropProject)' == ''"
-      >$(MSBuildThisFileDirectory)../../../FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj</FFmpegInteropProject>
+      >$(MSBuildThisFileDirectory)../FFmpeg.Interop/src/FFmpeg.Interop/FFmpeg.Interop.csproj</FFmpegInteropProject>
     <UseLocalFFmpegInterop
       Condition="'$(UseLocalFFmpegInterop)' == '' and Exists('$(FFmpegInteropProject)')"
       >true</UseLocalFFmpegInterop>
     <OpusInteropProject Condition="'$(OpusInteropProject)' == ''"
-      >$(MSBuildThisFileDirectory)../../../LibOpus.Interop/src/LibOpus.Interop/LibOpus.Interop.csproj</OpusInteropProject>
+      >$(MSBuildThisFileDirectory)../LibOpus.Interop/src/LibOpus.Interop/LibOpus.Interop.csproj</OpusInteropProject>
     <UseLocalOpusInterop
       Condition="'$(UseLocalOpusInterop)' == '' and Exists('$(OpusInteropProject)')"
       >true</UseLocalOpusInterop>
