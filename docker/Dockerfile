@@ -8,14 +8,14 @@
 #     streamtransport-relay
 
 # ---- build ----
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 COPY . .
 # The relay only references the signaling + STUN packages (no media/FFmpeg), so this is a lean publish.
 RUN dotnet publish samples/StreamTransport.Relay/StreamTransport.Relay.csproj -c Release -o /app
 
 # ---- runtime ----
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends coturn \
     && rm -rf /var/lib/apt/lists/*
